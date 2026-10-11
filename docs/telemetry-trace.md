@@ -43,7 +43,7 @@ encoded once and appended. A chat's runs are deleted with the chat.
 ## `trace` — a struggling run
 
 With anonymous diagnostics on, one trace is sent automatically when a run
-exhausts context, fires a detector, records two tool errors, calls an unoffered
+exhausts context, records two tool errors, calls an unoffered
 tool, is refused by the model server, or is stopped by the person. Clean runs
 send none. With diagnostics off, no trace leaves. At most six traces leave in a
 rolling hour. Each trace is at most **48 KiB** and carries that run only.
@@ -116,8 +116,7 @@ plus `result` (`ok`, `refused`, or `failed`).
 
 These are what went wrong, said without anyone relaying it. They are sent in
 the normal batch, and only when anonymous diagnostics are on. Each is built
-**once per run**, when the run stops (and after its progress detectors have
-reported), never once per request: a forty-call run adds about seven events
+**once per run**, when the run stops, never once per request: a forty-call run adds about seven events
 and 2 KiB. `connection.state` and `update` are built once per change.
 
 ### `run.summary`
@@ -176,14 +175,11 @@ tool and the same arguments as an earlier call in the run).
 ### `model.behaviour`
 
 One per run: counts of `empty_replies`, `unparseable_tool_calls`,
-`unoffered_tool_calls`, `cut_by_length` (answers that hit the length limit),
-`thinking_only_answers` (reasoning and nothing else), and `detectors`: the names
-of the progress detectors that fired (`novel_action`, `result_repetition`,
-`repeated_timeouts`, `model_says_stuck`, `error_success_ratio`,
-`baseline_deviation`).
+`unoffered_tool_calls`, `cut_by_length` (answers that hit the length limit), and
+`thinking_only_answers` (reasoning and nothing else).
 
 ```json vector:model.behaviour
-{"type":"model.behaviour","at":"2026-10-04T21:00:05Z","empty_replies":0,"unparseable_tool_calls":1,"unoffered_tool_calls":0,"cut_by_length":0,"thinking_only_answers":2,"detectors":["result_repetition"]}
+{"type":"model.behaviour","at":"2026-10-04T21:00:05Z","empty_replies":0,"unparseable_tool_calls":1,"unoffered_tool_calls":0,"cut_by_length":0,"thinking_only_answers":2}
 ```
 
 ### `budget.drift`
@@ -455,7 +451,7 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `run.summary` | `inference_calls`, `tool_calls`, `max_fill_pct`, `loop`, `stop_reason`, `ttft_ms`, `reasoning_tokens`, `compactions`, `approval_wait_seconds`, `wall_seconds` |
 | `model.perf` | `connection_kind`, `calls`, `ttft_ms`, `prompt_ms`, `tokens_per_second`, `prompt_tokens`, `cached_tokens`, `completion_tokens`, `reasoning_tokens`, `cache_hit_pct`, `cache_hit_pct_after_compaction`, `reasoning_share_pct` |
 | `tool.perf` | `tools` |
-| `model.behaviour` | `empty_replies`, `unparseable_tool_calls`, `unoffered_tool_calls`, `cut_by_length`, `thinking_only_answers`, `detectors` |
+| `model.behaviour` | `empty_replies`, `unparseable_tool_calls`, `unoffered_tool_calls`, `cut_by_length`, `thinking_only_answers` |
 | `budget.drift` | `max_pct` |
 | `compaction` | `count`, `kind`, `trigger`, `before`, `after`, `outcomes` |
 | `approval.wait` | `card_kind`, `seconds`, `outcome` |

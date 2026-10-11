@@ -191,8 +191,7 @@ function renderRunResult(session) {
   const ended = !!run?.last_stop_reason && !["running", "queued", "stopping"].includes(run.status);
   panelRunResult.hidden = !ended;
   if (!ended) { panelRunStop.textContent = ""; panelRunLabel.replaceChildren(); return; }
-  const armed = run.armed_detectors?.length ? run.armed_detectors.join(", ") : "none";
-  panelRunStop.textContent = `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""} · armed: ${armed}`;
+  panelRunStop.textContent = `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""}`;
   panelRunLabel.replaceChildren(...["productive", "stuck", "mixed"].map((label) => {
     const button = node("button", run.result_label === label ? "selected" : "");
     button.type = "button"; button.dataset.label = label; button.textContent = label; button.disabled = store.replay;

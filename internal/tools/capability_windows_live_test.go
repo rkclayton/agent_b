@@ -69,8 +69,6 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 	}
 	cfg.Shell.ServiceAccount.Enabled = serviceSplitEnabled
 	t.Logf("gate configuration: service split enabled=%t", serviceSplitEnabled)
-	guard := false
-	cfg.Shell.FileRoutingGuard = &guard
 	store := credential.New(dataRoot)
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)

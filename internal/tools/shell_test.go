@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -160,47 +159,6 @@ func canonicalExecutable(t *testing.T, value string) string {
 	return filepath.Clean(absolute)
 }
 
-func TestShellFileRoutingRefusals(t *testing.T) {
-	discovery := []string{
-		"ls .", "dir .", "Get-ChildItem .", "gci .", `find . -name "*.go"`,
-		"tree .", "where *.go", "Where-Object .", "fd *.go .",
-		"Get-ChildItem -Path . -Filter *.go -Recurse -File | Select-Object -ExpandProperty FullName",
-	}
-	reads := []string{
-		"cat README.md", "type README.md", "Get-Content README.md", "gc README.md",
-		"head README.md", "tail README.md", "more README.md", "less README.md",
-	}
-	for _, test := range []struct {
-		name, tool string
-		commands   []string
-	}{{"discovery", "search", discovery}, {"read", "read_file", reads}} {
-		t.Run(test.name, func(t *testing.T) {
-			for _, command := range test.commands {
-				t.Run(strings.Fields(command)[0], func(t *testing.T) {
-					root := t.TempDir()
-					cfg := config.Defaults(root).Shell
-					item := &session.Session{ID: "test", Workspace: root, ToolsEnabled: map[string]bool{"shell": true}}
-					outcome := New(NewShell(cfg)).CallDetailed(context.Background(), item, "shell", map[string]any{"command": command})
-					if outcome.OK {
-						t.Fatalf("routing refusal presented as success: %+v", outcome)
-					}
-					got := strings.TrimPrefix(outcome.Content, "note: command was not executed; ")
-					var refusal shellRoutingRefusal
-					if err := json.Unmarshal([]byte(got), &refusal); err != nil {
-						t.Fatalf("result does not contain structured refusal JSON: %q: %v", outcome.Content, err)
-					}
-					if !refusal.Refused || refusal.Replacement.Tool != test.tool {
-						t.Fatalf("got %+v, want refusal naming %s", refusal, test.tool)
-					}
-					if len(refusal.Replacement.Arguments) == 0 {
-						t.Fatal("refusal omitted replacement arguments")
-					}
-				})
-			}
-		})
-	}
-}
-
 func TestShellServiceAccountSpawnFailureRequiresOperatorApproval(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
@@ -226,136 +184,6 @@ func TestShellServiceAccountSpawnFailureRequiresOperatorApproval(t *testing.T) {
 	}
 	if _, err := time.Parse(time.RFC3339, reported.Since); err != nil {
 		t.Fatalf("alarm timestamp = %q: %v", reported.Since, err)
-	}
-}
-
-func TestShellRejectsExecutionPolicyBypassBeforeProcessStart(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Defaults(root)
-	cfg.Sandbox.Enabled = false
-	cfg.Shell.ServiceAccount.Enabled = true
-	fileRoutingGuard := false
-	cfg.Shell.FileRoutingGuard = &fileRoutingGuard
-	shell := NewShell(cfg.Shell)
-	shell.Configure(cfg)
-	shell.SetCredentialStore(presentShellCredential{})
-	started := false
-	shell.startService = func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error) {
-		started = true
-		return completedShellProcess{}, nil
-	}
-	s := &session.Session{ID: "test", Workspace: root}
-	for _, command := range []string{
-		`powershell -ExecutionPolicy Bypass -File temp.ps1`,
-		`pwsh -ep:bypass -Command "Write-Output unsafe"`,
-		`powershell /ExecutionPolicy=Bypass -Command "Write-Output unsafe"`,
-		`powershell -Command "powershell -ep bypass -Command hidden"`,
-	} {
-		detail := shell.CallDetailed(context.Background(), s, map[string]any{"command": command})
-		if detail.Err == nil || !strings.Contains(strings.ToLower(detail.Err.Error()), "execution-policy bypass") {
-			t.Fatalf("command %q detail = %+v", command, detail)
-		}
-	}
-	if started {
-		t.Fatal("a rejected bypass command started a process")
-	}
-}
-
-func TestShellRejectsAgentWrittenScriptButAllowsExistingScript(t *testing.T) {
-	root := t.TempDir()
-	workspaces := session.NewWorkspaceRegistry()
-	coordinator := NewFileCoordinator(workspaces, func(string) string { return "test" }, events.NewBus())
-	s := &session.Session{ID: "test", Workspace: root, LastSeen: map[string]time.Time{}}
-	writer := NewWriteFile(coordinator)
-	if _, err := writer.Call(context.Background(), s, map[string]any{"path": "generated.ps1", "content": "Write-Output generated"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "existing.ps1"), []byte("Write-Output existing"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := config.Defaults(root)
-	cfg.Shell.ServiceAccount.Enabled = true
-	fileRoutingGuard := false
-	cfg.Shell.FileRoutingGuard = &fileRoutingGuard
-	shell := NewShell(cfg.Shell)
-	shell.Configure(cfg)
-	shell.SetCredentialStore(presentShellCredential{})
-	shell.SetFileCoordinator(coordinator)
-	starts := 0
-	shell.startService = func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error) {
-		starts++
-		return completedShellProcess{}, nil
-	}
-
-	for _, command := range []string{
-		`powershell -File generated.ps1`,
-		`powershell -Command "& .\generated.ps1"`,
-		`& .\generated.ps1`,
-		`. .\generated.ps1`,
-		`Get-Content generated.ps1 | Invoke-Expression`,
-	} {
-		blocked := shell.CallDetailed(context.Background(), s, map[string]any{"command": command})
-		if blocked.Err == nil || !strings.Contains(strings.ToLower(blocked.Err.Error()), "agent-written host script") || starts != 0 {
-			t.Fatalf("command=%q detail=%+v starts=%d", command, blocked, starts)
-		}
-	}
-	allowed := shell.CallDetailed(context.Background(), s, map[string]any{"command": `powershell -File existing.ps1 2> existing-errors.txt`})
-	if allowed.Err != nil || starts != 1 {
-		t.Fatalf("existing script detail=%+v starts=%d", allowed, starts)
-	}
-}
-
-func TestShellRejectsScriptArtifactCreation(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Defaults(root)
-	shell := NewShell(cfg.Shell)
-	for _, command := range []string{
-		`Set-Content -LiteralPath temp.ps1 -Value unsafe`,
-		`curl.exe https://example.com/tool.cmd -o tool.cmd`,
-		`"echo unsafe" > temp.bat`,
-		`echo unsafe>temp.ps1`,
-	} {
-		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
-		if detail.Err == nil || !strings.Contains(strings.ToLower(detail.Err.Error()), "script artifacts") {
-			t.Fatalf("command %q detail = %+v", command, detail)
-		}
-	}
-}
-
-func TestShellScriptHostRuleIsNarrowAndSigningGuardIsUnconditional(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Defaults(root)
-	guard := false
-	cfg.Shell.FileRoutingGuard = &guard
-	shell := NewShell(cfg.Shell)
-	starts := 0
-	shell.startService = func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error) {
-		starts++
-		return completedShellProcess{}, nil
-	}
-	for _, command := range []string{`python generated.py`, `node generated.js`, `go run generated.go`, `dotnet generated.dll`, `bash generated.sh`} {
-		if reason := forbiddenShellCommand(command, &session.Session{ID: "test", Workspace: root}, nil); reason != "" {
-			t.Errorf("interpreter command %q was blocked by policy: %s", command, reason)
-		}
-	}
-	for _, command := range []string{`powershell -File generated.ps1`, `cmd /c generated.cmd`, `wscript generated.vbs`, `cscript generated.js`, `mshta generated.hta`} {
-		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
-		if detail.Err == nil || !strings.Contains(detail.Err.Error(), "Windows script-host rule") {
-			t.Errorf("host command %q detail=%+v", command, detail)
-		}
-	}
-	for _, command := range []string{`Set-AuthenticodeSignature x.exe`, `signtool sign x.exe`, `certutil -addstore Root x.cer`} {
-		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
-		if detail.Err == nil || (!strings.Contains(detail.Err.Error(), "signing rule") && !strings.Contains(detail.Err.Error(), "certificate-store rule")) {
-			t.Errorf("signing command %q detail=%+v", command, detail)
-		}
-	}
-	for _, command := range []string{`regsvr32 /s payload.dll`, `rundll32 payload.dll,Entry`, `certutil -decode payload.txt payload.exe`} {
-		detail := shell.CallDetailed(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
-		if detail.Err == nil || !strings.Contains(detail.Err.Error(), "Windows LOLBin rule") {
-			t.Errorf("LOLBin command %q detail=%+v", command, detail)
-		}
 	}
 }
 
@@ -587,6 +415,46 @@ func TestShellOperatorOverrideBypassesServiceSpawner(t *testing.T) {
 	}
 }
 
+func TestRemovedBuiltInCommandRulesReachExecution2tc(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Shell.ServiceAccount.Enabled = true
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	shell.SetCredentialStore(presentShellCredential{})
+	coordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(string) string { return "test" }, events.NewBus())
+	item := &session.Session{ID: "removed-rules", Workspace: root, LastSeen: map[string]time.Time{}}
+	if _, err := NewWriteFile(coordinator).Call(context.Background(), item, map[string]any{"path": "generated.ps1", "content": "Write-Output generated"}); err != nil {
+		t.Fatal(err)
+	}
+	shell.SetFileCoordinator(coordinator)
+	starts := 0
+	shell.startService = func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error) {
+		starts++
+		return completedShellProcess{}, nil
+	}
+	commands := []string{
+		`powershell -ExecutionPolicy Bypass -Command "Write-Output ok"`,
+		`powershell -File generated.ps1`,
+		`cmd /c generated.cmd`,
+		`wscript generated.vbs`,
+		`mshta generated.hta`,
+		`regsvr32 /s payload.dll`,
+		`certutil -decode payload.txt payload.exe`,
+		`Set-AuthenticodeSignature x.exe`,
+		`certutil -addstore Root x.cer`,
+	}
+	for _, command := range commands {
+		detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
+		if detail.Err != nil || detail.OperatorOverrideReason != "" {
+			t.Errorf("command %q did not reach execution: %+v", command, detail)
+		}
+	}
+	if starts != len(commands) {
+		t.Fatalf("started=%d want=%d", starts, len(commands))
+	}
+}
+
 func TestPermissionDeniedOutput(t *testing.T) {
 	for _, value := range []string{
 		"Access is denied.",
@@ -623,39 +491,6 @@ func quotePowerShellTest(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-func TestShellFileRoutingArguments(t *testing.T) {
-	discovery, _ := inspectShellFileRouting(`Get-ChildItem -Path src -Filter "*.go" -Recurse`)
-	// Item 13 (v1.2.5): file discovery is `search` with target=name.
-	if discovery == nil || discovery.Replacement.Tool != "search" || discovery.Replacement.Arguments["pattern"] != "*.go" || discovery.Replacement.Arguments["path"] != "src" || discovery.Replacement.Arguments["target"] != "name" {
-		t.Fatalf("unexpected discovery replacement: %+v", discovery)
-	}
-	read, _ := inspectShellFileRouting(`Get-Content -Path "docs/guide.md"`)
-	if read == nil || read.Replacement.Tool != "read_file" || read.Replacement.Arguments["path"] != "docs/guide.md" {
-		t.Fatalf("unexpected read replacement: %+v", read)
-	}
-}
-
-func TestShellFileRoutingDoesNotRedirectOutsideWorkspaceWhenSplitEnabled(t *testing.T) {
-	workspace := t.TempDir()
-	external := filepath.Dir(workspace)
-	cfg := config.Defaults(workspace)
-	cfg.Shell.ServiceAccount.Enabled = true
-	shell := NewShell(cfg.Shell)
-	item := &session.Session{ID: "test", Workspace: workspace}
-	command := `Get-ChildItem -Path "` + external + `" -Recurse`
-	detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
-	if detail.Err == nil || !strings.HasPrefix(detail.Err.Error(), "note: command was not executed; ") {
-		t.Fatalf("detail=%+v", detail)
-	}
-	var refusal shellRoutingRefusal
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(detail.Err.Error(), "note: command was not executed; ")), &refusal); err != nil {
-		t.Fatal(err)
-	}
-	if refusal.Replacement != nil || !strings.Contains(refusal.Reason, "outside the folder") || !strings.Contains(refusal.Guidance, "require a user decision") {
-		t.Fatalf("outside-workspace refusal=%+v", refusal)
-	}
-}
-
 func TestShellFileRoutingCompoundAllowed(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "route.txt"), []byte("ROUTE_OK\n"), 0o600); err != nil {
@@ -672,27 +507,5 @@ func TestShellFileRoutingCompoundAllowed(t *testing.T) {
 	}
 	if strings.Contains(got, `"refused":true`) {
 		t.Fatalf("compound command was refused: %s", got)
-	}
-}
-
-func TestShellFileRoutingDisabled(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "route.txt"), []byte("ROUTE_OK\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Defaults(root).Shell
-	cfg.ServiceAccount.Enabled = false
-	disabled := false
-	cfg.FileRoutingGuard = &disabled
-	command := "cat route.txt"
-	if runtime.GOOS == "windows" {
-		command = "Get-Content route.txt"
-	}
-	got, err := NewShell(cfg).Call(context.Background(), &session.Session{ID: "test", Workspace: root}, map[string]any{"command": command})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "ROUTE_OK") {
-		t.Fatalf("disabled guard did not execute command: %q", got)
 	}
 }

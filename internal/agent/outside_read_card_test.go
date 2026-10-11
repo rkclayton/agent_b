@@ -245,3 +245,57 @@ func TestTheFolderCardAlwaysOnceNo2q4(t *testing.T) {
 		}
 	}
 }
+
+func TestMissingOutsidePathAsksThenRunsOrReturnsTheDecline2tc(t *testing.T) {
+	workspace := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "absent", "fixture.txt")
+	cfg := config.Defaults(workspace)
+	cfg.Approval.Mode, cfg.Shell.ServiceAccount.Enabled = config.ApprovalModeBoundaryOnly, false
+	shell := tools.NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	bus := events.NewBus()
+	runner := &Runner{bus: bus, tools: tools.New(shell, tools.NewRunScript(shell)), cfg: func() config.Config { return cfg }}
+	runner.gate = NewGate(bus, runner.cfg)
+	s := &session.Session{ID: "missing-outside", Workspace: workspace, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"shell": true, "run_script": true}, LastSeen: map[string]time.Time{}}
+	for _, call := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"shell", map[string]any{"command": `Test-Path -LiteralPath "` + missing + `"`}},
+		{"run_script", map[string]any{"language": "powershell", "source": `Write-Output (Test-Path -LiteralPath "` + missing + `")`}},
+	} {
+		for _, decision := range []string{"once", "deny"} {
+			stream, stop := bus.Subscribe()
+			callID := call.name + "-" + decision
+			done := make(chan tools.CallOutcome, 1)
+			go func() { done <- runner.executeTool(context.Background(), s, "run", callID, call.name, call.args) }()
+			for {
+				select {
+				case event := <-stream:
+					data, _ := event.Data.(map[string]any)
+					if event.Type == events.ApprovalRequired && data["name"] == call.name+".operator_override" {
+						if err := runner.gate.Decide(s.ID, callID+":operator", decision); err != nil {
+							t.Fatal(err)
+						}
+						goto decided
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatalf("%s %s raised no missing-path card", call.name, decision)
+				}
+			}
+		decided:
+			stop()
+			outcome := <-done
+			if decision == "once" && (!outcome.OK || !strings.Contains(strings.ToLower(outcome.Content), "false")) {
+				t.Fatalf("%s approved missing-path command did not run: %+v", call.name, outcome)
+			}
+			if decision == "deny" && (outcome.OK || !strings.Contains(strings.ToLower(outcome.Content), "denied by the user")) {
+				t.Fatalf("%s decline was not returned to the model: %+v", call.name, outcome)
+			}
+		}
+	}
+	after := runner.executeTool(context.Background(), s, "run", "after-decline", "shell", map[string]any{"command": "Write-Output continued-after-decline"})
+	if !after.OK || !strings.Contains(after.Content, "continued-after-decline") {
+		t.Fatalf("run did not continue after declined tool call: %+v", after)
+	}
+}

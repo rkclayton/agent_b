@@ -432,12 +432,6 @@ func (e *ToolExecutor) shell(ctx context.Context, args map[string]any) (string, 
 	if err != nil {
 		return "", err
 	}
-	if commandRequestsExecutionPolicyBypass(command) {
-		return "", fmt.Errorf("PowerShell execution-policy bypass is forbidden")
-	}
-	if commandWritesScriptArtifact(command) {
-		return "", fmt.Errorf("writing executable script artifacts through shell is forbidden")
-	}
 	timeoutSeconds := intArg(args, "timeout_s", 60)
 	if timeoutSeconds < 1 || timeoutSeconds > 600 {
 		return "", fmt.Errorf("timeout_s must be between 1 and 600")
@@ -483,49 +477,6 @@ func isExecutableScriptPath(path string) bool {
 	lower := strings.ToLower(strings.TrimSpace(path))
 	for _, suffix := range []string{".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".sh"} {
 		if strings.HasSuffix(lower, suffix) {
-			return true
-		}
-	}
-	return false
-}
-
-func commandRequestsExecutionPolicyBypass(command string) bool {
-	normalized := strings.NewReplacer(
-		"\"", " ", "'", " ", "`", " ", ":", " ", "=", " ",
-		"(", " ", ")", " ", "{", " ", "}", " ", "[", " ", "]", " ",
-		";", " ", "|", " ", "&", " ", ",", " ",
-	).Replace(strings.ToLower(command))
-	tokens := strings.Fields(normalized)
-	options := map[string]bool{
-		"-executionpolicy": true, "/executionpolicy": true,
-		"-ep": true, "/ep": true, "-exec": true, "/exec": true,
-	}
-	for index, token := range tokens {
-		if options[token] && index+1 < len(tokens) && tokens[index+1] == "bypass" {
-			return true
-		}
-	}
-	return false
-}
-
-func commandWritesScriptArtifact(command string) bool {
-	lower := strings.ToLower(command)
-	hasScript := false
-	for _, suffix := range []string{".ps1", ".psm1", ".cmd", ".bat", ".vbs", ".wsf", ".sh"} {
-		if strings.Contains(lower, suffix) {
-			hasScript = true
-			break
-		}
-	}
-	if !hasScript {
-		return false
-	}
-	for _, marker := range []string{
-		"set-content", "add-content", "out-file", "writealltext", "writeallbytes",
-		"new-item", "copy-item", "move-item", "invoke-webrequest", "curl ", "curl.exe",
-		"wget ", "wget.exe", " -outfile", "tee ", "cp ", "mv ", ">",
-	} {
-		if strings.Contains(lower, marker) {
 			return true
 		}
 	}

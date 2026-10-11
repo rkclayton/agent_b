@@ -700,13 +700,12 @@ const (
 )
 
 type RunConfig struct {
-	MaxTurns                 int `json:"max_turns"`
-	MaxWallClockSeconds      int `json:"max_wall_clock_seconds"`
-	MaxToolCalls             int `json:"max_tool_calls"`
-	CycleWindow              int `json:"cycle_window"`
-	MaxConsecutiveToolErrors int `json:"max_consecutive_tool_errors"`
-	MaxConcurrent            int `json:"max_concurrent"`
-	QueueDepth               int `json:"queue_depth"`
+	MaxTurns            int `json:"max_turns"`
+	MaxWallClockSeconds int `json:"max_wall_clock_seconds"`
+	MaxToolCalls        int `json:"max_tool_calls"`
+	CycleWindow         int `json:"cycle_window"`
+	MaxConcurrent       int `json:"max_concurrent"`
+	QueueDepth          int `json:"queue_depth"`
 }
 
 type Cron struct {
@@ -885,7 +884,6 @@ type Shell struct {
 	MaxTimeoutS        int      `json:"max_timeout_s"`
 	MaxOutputLinesHead int      `json:"max_output_lines_head"`
 	MaxOutputLinesTail int      `json:"max_output_lines_tail"`
-	FileRoutingGuard   *bool    `json:"file_routing_guard"`
 	// OperatorContext is exposed to the UI but Save always persists it as false.
 	OperatorContext                   bool                `json:"operator_context"`
 	OperatorContextExpiresAt          string              `json:"-"`
@@ -984,9 +982,9 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: true, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 8, MaxConsecutiveToolErrors: 3, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 5, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 256 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
-		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, FileRoutingGuard: boolPointer(true), ServiceAccount: ShellServiceAccount{Enabled: false, Account: "agentb-svc", Domain: ".", initialized: true}},
+		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, ServiceAccount: ShellServiceAccount{Enabled: false, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
 	}
 }
@@ -1447,9 +1445,6 @@ func (c Config) Validate() error {
 	if c.Run.CycleWindow < 0 {
 		return fmt.Errorf("run.cycle_window: cannot be negative")
 	}
-	if c.Run.MaxConsecutiveToolErrors < 0 {
-		return fmt.Errorf("run.max_consecutive_tool_errors: cannot be negative")
-	}
 	if c.Cron.MaxRunMinutes < 1 {
 		return fmt.Errorf("cron.max_run_minutes: must be positive")
 	}
@@ -1715,9 +1710,6 @@ func applyDefaults(c *Config) {
 	if c.Signing.TimestampURL == "" {
 		c.Signing.TimestampURL = d.Signing.TimestampURL
 	}
-	if c.Shell.FileRoutingGuard == nil {
-		c.Shell.FileRoutingGuard = boolPointer(true)
-	}
 	if c.Shell.OperatorContextIdleTimeoutMinutes == 0 {
 		c.Shell.OperatorContextIdleTimeoutMinutes = d.Shell.OperatorContextIdleTimeoutMinutes
 	}
@@ -1808,9 +1800,6 @@ func (c Config) ResolvedExchangeFolder() (string, error) {
 	return filepath.Clean(value), nil
 }
 
-func (s Shell) FileRoutingGuardEnabled() bool {
-	return s.FileRoutingGuard == nil || *s.FileRoutingGuard
-}
 func boolPointer(value bool) *bool { return &value }
 func validFetchHost(value string) bool {
 	value = strings.TrimSpace(value)

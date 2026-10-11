@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,6 +42,22 @@ func TestRecursiveFileToolsSkipInaccessibleSubdirectories(t *testing.T) {
 	t.Run("find_files", func(t *testing.T) {
 		tool := NewGlob(config.FindFilesTool{})
 		tool.walkDir = denyDuringWalk
+		result, err := tool.Call(context.Background(), item, map[string]any{"pattern": "*.txt"})
+		assertSkippedResult(t, result, err, "visible.txt", "hidden.txt")
+	})
+	t.Run("find_files_sharing_violation", func(t *testing.T) {
+		tool := NewGlob(config.FindFilesTool{})
+		tool.walkDir = func(root string, callback fs.WalkDirFunc) error {
+			return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+				if path == denied {
+					if callbackErr := callback(path, entry, &os.PathError{Op: "open", Path: path, Err: syscall.Errno(32)}); callbackErr != nil && callbackErr != filepath.SkipDir {
+						return callbackErr
+					}
+					return filepath.SkipDir
+				}
+				return callback(path, entry, err)
+			})
+		}
 		result, err := tool.Call(context.Background(), item, map[string]any{"pattern": "*.txt"})
 		assertSkippedResult(t, result, err, "visible.txt", "hidden.txt")
 	})

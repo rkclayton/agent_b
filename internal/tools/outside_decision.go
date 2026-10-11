@@ -92,8 +92,8 @@ func statementArguments(statement string) string {
 // outsideCommandDecision classifies each literal outside path by the statement
 // it sits in (item 2fz): an argument of a directory change or listing runs,
 // unless a file read follows it in the same source; any other outside path is
-// a read — the card when it exists (a denied or unknown stat counts as
-// existing, 2fy's rule), a plain error when it does not. Forms the guard cannot
+// a read and raises the same card whether the path exists or not (a denied or
+// unknown stat still counts as existing, 2fy's rule). Forms the guard cannot
 // see — paths built at runtime, in variables — are as before: not seen.
 func outsideCommandDecision(source string, s *session.Session, trusted []config.TrustedFolder) outsideDecision {
 	outside := map[string]bool{}
@@ -136,11 +136,13 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 				continue
 			}
 			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-				missing = append(missing, missingPathHint(path))
+				hint := missingPathHint(path)
+				missing = append(missing, hint)
+				cards = append(cards, hint)
 			} else {
 				cards = append(cards, path)
-				folders = appendUniquePath(folders, holdingFolder(path))
 			}
+			folders = appendUniquePath(folders, holdingFolder(path))
 		}
 	}
 	// Item 2q4 (c): folders that share a parent under the user's profile are one
@@ -158,7 +160,7 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 	}
 	return outsideDecision{
 		card:    pathListReason("names a path outside the folder: ", cards),
-		missing: pathListReason("no such file or directory outside the folder: ", missing),
+		missing: "",
 		folders: folders,
 		trusted: len(seen)-own > len(cards)+len(missing),
 	}

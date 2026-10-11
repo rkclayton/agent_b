@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestScriptArtifactAndBypassCommandsAreRejected(t *testing.T) {
+func TestFileToolsRejectExecutableScriptArtifacts(t *testing.T) {
 	executor, err := NewToolExecutor(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -19,8 +19,6 @@ func TestScriptArtifactAndBypassCommandsAreRejected(t *testing.T) {
 	}{
 		{"write_file", map[string]any{"path": "temp.ps1", "content": "Write-Output unsafe"}, "script artifacts"},
 		{"edit_file", map[string]any{"path": "temp.cmd", "old_string": "a", "new_string": "b"}, "script artifacts"},
-		{"shell", map[string]any{"command": `powershell -ExecutionPolicy Bypass -Command unsafe`}, "execution-policy bypass"},
-		{"shell", map[string]any{"command": `echo unsafe > temp.sh`}, "script artifacts"},
 	} {
 		raw, err := json.Marshal(test.args)
 		if err != nil {

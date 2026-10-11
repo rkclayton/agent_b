@@ -35,7 +35,6 @@ type health struct {
 	seenCalls                map[string]bool
 	callTool                 map[string]string
 	behaviour                map[string]int
-	detectors                []string
 	compactions              int
 	compaction               map[string]any
 	outcomes                 map[string]int
@@ -136,10 +135,6 @@ func (h *health) observe(eventType string, data map[string]any, at time.Time) {
 		} else if len(h.refusals) < maxRefusals {
 			h.refusals[key] = map[string]any{"status": number(data["status"]), "error_type": word(data["error_type"]), "connection_kind": word(data["connection_kind"]), "count": 1}
 		}
-	case events.ProgressShadow:
-		if fired, _ := data["would_fire"].(bool); fired {
-			h.detectors = append(h.detectors, word(data["detector"]))
-		}
 	}
 }
 
@@ -230,10 +225,9 @@ func (h *health) tool(name string) *toolHealth {
 	return tool
 }
 
-// struggling is item 2qa's closed list. It is evaluated once when the run
-// settles, after late progress shadows have had their existing grace period.
+// struggling is item 2qa's closed list.
 func (h *health) struggling(stopReason string) bool {
-	if stopReason != "done" || len(h.detectors) > 0 || len(h.refusals) > 0 ||
+	if stopReason != "done" || len(h.refusals) > 0 ||
 		h.behaviour["unparseable_tool_calls"] > 0 || h.behaviour["unoffered_tool_calls"] > 0 {
 		return true
 	}
@@ -273,7 +267,7 @@ func (h *health) emits(summary map[string]any) []emitted {
 		}
 		out = append(out, emitted{events.ToolPerf, map[string]any{"tools": tools}})
 	}
-	behaviour := map[string]any{"detectors": append([]string{}, h.detectors...)}
+	behaviour := map[string]any{}
 	for _, name := range behaviourCounts {
 		behaviour[name] = h.behaviour[name]
 	}

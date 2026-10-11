@@ -91,7 +91,6 @@ func TestDeliveryLiveServiceSplit(t *testing.T) {
 	cfg.Context.Accounting = "estimated"
 	cfg.Deliver.Mode = config.DeliverModeBoth
 	cfg.Deliver.ExchangeFolder = exchange
-	cfg.Shell.FileRoutingGuard = liveBool(false)
 	cfg.Shell.ServiceAccount = config.ShellServiceAccount{Enabled: true, Account: account, Domain: "."}
 	cfg.Connections[0].ID = "live"
 	cfg.Connections[0].Model = "fake-model"

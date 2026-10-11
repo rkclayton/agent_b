@@ -71,7 +71,7 @@ var allowList = map[string]Classification{
 	"model.perf": sent("connection_kind", "calls", "ttft_ms", "prompt_ms", "tokens_per_second", "prompt_tokens", "cached_tokens",
 		"completion_tokens", "reasoning_tokens", "cache_hit_pct", "cache_hit_pct_after_compaction", "reasoning_share_pct"),
 	"tool.perf":        sent("tools"),
-	"model.behaviour":  sent("empty_replies", "unparseable_tool_calls", "unoffered_tool_calls", "cut_by_length", "thinking_only_answers", "detectors"),
+	"model.behaviour":  sent("empty_replies", "unparseable_tool_calls", "unoffered_tool_calls", "cut_by_length", "thinking_only_answers"),
 	"budget.drift":     sent("max_pct"),
 	"approval.wait":    sent("card_kind", "seconds", "outcome"),
 	"model.refused":    sent("status", "error_type", "connection_kind", "count"),
@@ -125,8 +125,8 @@ var allowList = map[string]Classification{
 	"navigation.suppressed": dropped, "navigation.document_started": dropped,
 	"navigation.document_completed": dropped,
 	"notification.failed":           dropped, "notification.changed": dropped,
-	"update.changed": dropped, "progress.shadow": dropped, "progress.aux": dropped,
-	"speech": dropped, "attachment.ocr_progress": dropped, "agent.connection_change": dropped,
+	"update.changed": dropped,
+	"speech":         dropped, "attachment.ocr_progress": dropped, "agent.connection_change": dropped,
 	// projection.patch and snapshot are the same material: the whole conversation
 	// as a client reads it. Dropped, emphatically.
 	"projection.patch": dropped, "snapshot": dropped,

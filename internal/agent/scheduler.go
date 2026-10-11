@@ -12,7 +12,6 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
-	"harness/internal/progress"
 	"harness/internal/session"
 )
 
@@ -198,7 +197,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 			s.startLocked(next)
 		} else {
 			s.queue = append(s.queue, next)
-			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue), ArmedDetectors: s.armedDetectors(item)})
+			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue)})
 			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, s.queuedDataLocked(item, next.runID, len(s.queue))))
 		}
 		return SubmitResult{Queued: true, Position: position}, nil
@@ -238,7 +237,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 	entry := queuedRun{s: item, runID: runID, userMessageID: message.ID}
 	s.queue = append(s.queue, entry)
 	position := len(s.queue)
-	item.SetRun(session.RunState{Status: "queued", RunID: runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: position, ArmedDetectors: s.armedDetectors(item)})
+	item.SetRun(session.RunState{Status: "queued", RunID: runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: position})
 	s.bus.Publish(events.New(events.RunQueued, sessionID, runID, s.queuedDataLocked(item, runID, position)))
 	return SubmitResult{RunID: runID, Queued: true, Position: position}, nil
 }
@@ -250,10 +249,9 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 	ctx, cancel := context.WithCancel(context.Background())
 	active := &activeRun{cancel: cancel, runID: entry.runID, done: make(chan struct{})}
 	s.active[entry.s.ID] = active
-	armed := s.armedDetectors(entry.s)
-	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID, MaxTurns: s.cfg().Run.MaxTurns, ArmedDetectors: armed})
+	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID, MaxTurns: s.cfg().Run.MaxTurns})
 	runCfg := s.cfg().Run
-	s.bus.Publish(events.New(events.RunStarted, entry.s.ID, entry.runID, map[string]any{"run_id": entry.runID, "user_message_id": entry.userMessageID, "armed_detectors": armed, "thresholds_are_guesses": true, "backstops": map[string]any{"wall_clock_seconds": runCfg.MaxWallClockSeconds, "tool_calls": runCfg.MaxToolCalls, "turn_ceiling": runCfg.MaxTurns}}))
+	s.bus.Publish(events.New(events.RunStarted, entry.s.ID, entry.runID, map[string]any{"run_id": entry.runID, "user_message_id": entry.userMessageID, "backstops": map[string]any{"wall_clock_seconds": runCfg.MaxWallClockSeconds, "tool_calls": runCfg.MaxToolCalls, "turn_ceiling": runCfg.MaxTurns}}))
 	entry.s.ResetBoundaryHits()
 	go func() {
 		reason, detail, turns := s.runner.Run(ctx, entry.s, entry.runID)
@@ -285,18 +283,17 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 		s.pending[entry.s.ID] = waiting[1:]
 		entry.s.SetQueuedMessages(len(waiting) - 1)
 		next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
-		next.s.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, ArmedDetectors: s.armedDetectors(next.s)})
+		next.s.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns})
 		s.queue = append(s.queue, next)
 	}
-	priorRun := entry.s.Snapshot().Run
-	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID, ArmedDetectors: append([]string(nil), priorRun.ArmedDetectors...)}
+	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID}
 	queueHeld := (s.held[entry.s.ID] || s.unreachable[entry.s.ID]) && len(s.pending[entry.s.ID]) > 0
 	if queueHeld {
 		state.Status = "held"
 		state.QueuePosition = len(s.pending[entry.s.ID])
 	}
 	entry.s.SetRun(state)
-	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, queueHeld, state.ArmedDetectors)
+	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, queueHeld)
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
@@ -401,16 +398,6 @@ func (s *Scheduler) ConnectionBusy(connectionID string) (bool, string) {
 	return true, "agent_" + role
 }
 
-func (s *Scheduler) armedDetectors(item *session.Session) []string {
-	hasAux := false
-	if item != nil {
-		if agentConfig, ok := s.cfg().Agent(item.Snapshot().AgentID); ok {
-			hasAux = agentConfig.C != ""
-		}
-	}
-	return progress.ArmedSet(hasAux)
-}
-
 func identicalPendingPosition(waiting []queuedRun, text string) int {
 	for index, entry := range waiting {
 		if entry.userMessage.Content == text {
@@ -447,7 +434,7 @@ func (s *Scheduler) ReleaseModel(connectionID string) {
 			s.startLocked(next)
 		} else {
 			s.queue = append(s.queue, next)
-			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue), ArmedDetectors: s.armedDetectors(item)})
+			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue)})
 			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, s.queuedDataLocked(item, next.runID, len(s.queue))))
 		}
 	}
@@ -525,9 +512,8 @@ func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason strin
 			if s.held[entry.s.ID] {
 				status = "held"
 			}
-			armed := append([]string(nil), entry.s.Snapshot().Run.ArmedDetectors...)
-			entry.s.SetRun(session.RunState{Status: status, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.pending[entry.s.ID]), LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID, ArmedDetectors: armed})
-			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, s.held[entry.s.ID], armed)
+			entry.s.SetRun(session.RunState{Status: status, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.pending[entry.s.ID]), LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
+			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, s.held[entry.s.ID])
 			stopped = append(stopped, entry.s.ID)
 		} else {
 			kept = append(kept, entry)
@@ -570,25 +556,25 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	}
 	priorRun := item.Snapshot().Run
 	turn := priorRun.Turn
-	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID, ArmedDetectors: append([]string(nil), priorRun.ArmedDetectors...)}
+	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID}
 	queueHeld := (s.held[sessionID] || s.unreachable[sessionID]) && len(s.pending[sessionID]) > 0
 	if queueHeld {
 		state.Status, state.QueuePosition = "held", len(s.pending[sessionID])
 	}
 	item.SetRun(state)
-	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, queueHeld, state.ArmedDetectors)
+	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, queueHeld)
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
 }
 
-func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool, armed []string) bool {
+func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool) bool {
 	key := sessionID + "\x00" + runID
 	if s.stoppedRuns[key] {
 		return false
 	}
 	s.stoppedRuns[key] = true
-	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld, "armed_detectors": armed}
+	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld}
 	if item, ok := s.registry.Get(sessionID); ok && item.Snapshot().Origin == "scheduled" {
 		snapshot := item.Snapshot()
 		data["scheduled_job"] = snapshot.Label

@@ -77,23 +77,17 @@ func TestStrugglingRunsReportThemselvesAndTheButtonRouteIsGone2qa(t *testing.T) 
 	if got := traceCount(); got != 1 {
 		t.Fatalf("context stop trace count=%d", got)
 	}
-	run("detector", "done", func() {
-		bus.Publish(events.New(events.ProgressShadow, "s1", "detector", map[string]any{"would_fire": true, "detector": "loop"}))
-	})
-	if got := traceCount(); got != 2 {
-		t.Fatalf("detector trace count=%d", got)
-	}
 	run("tools", "done", func() {
 		for _, call := range []string{"a", "b"} {
 			bus.Publish(events.New(events.ToolCallEvent, "s1", "tools", map[string]any{"call_id": call, "name": "read_file", "args": map[string]any{"path": call}}))
 			bus.Publish(events.New(events.ToolResult, "s1", "tools", map[string]any{"call_id": call, "name": "read_file", "ok": false, "class": "not_found"}))
 		}
 	})
-	if got := traceCount(); got != 3 {
+	if got := traceCount(); got != 2 {
 		t.Fatalf("two tool errors trace count=%d", got)
 	}
 	run("stopped", "aborted_mid_run", nil)
-	if got := traceCount(); got != 4 {
+	if got := traceCount(); got != 3 {
 		t.Fatalf("operator stop trace count=%d", got)
 	}
 	run("unoffered", "done", func() {
@@ -101,6 +95,12 @@ func TestStrugglingRunsReportThemselvesAndTheButtonRouteIsGone2qa(t *testing.T) 
 	})
 	run("refused", "done", func() {
 		bus.Publish(events.New(events.ModelRefused, "s1", "refused", map[string]any{"status": 400, "error_type": "refusal"}))
+	})
+	if got := traceCount(); got != 5 {
+		t.Fatalf("five qualifying runs sent %d traces", got)
+	}
+	run("sixth", "done", func() {
+		bus.Publish(events.New(events.ToolCallEvent, "s1", "sixth", map[string]any{"call_id": "bad-sixth", "name": "read_file", "args_invalid": true}))
 	})
 	if got := traceCount(); got != 6 {
 		t.Fatalf("six qualifying runs sent %d traces", got)

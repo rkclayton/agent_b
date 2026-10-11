@@ -35,8 +35,6 @@ func TestStep4LiveThreeRootShell(t *testing.T) {
 	clearBytes(password)
 
 	cfg := config.Defaults(workspaceRoot)
-	fileRoutingGuard := false
-	cfg.Shell.FileRoutingGuard = &fileRoutingGuard
 	cfg.Shell.ServiceAccount = config.ShellServiceAccount{Enabled: true, Account: account, Domain: "."}
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)

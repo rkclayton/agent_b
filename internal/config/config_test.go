@@ -952,20 +952,6 @@ func TestLegacyV1WithoutApprovalDefaultsToBoundaryOnly(t *testing.T) {
 	}
 }
 
-func TestFileRoutingGuardDefaultsOnAndCanBeDisabled(t *testing.T) {
-	cfg := Config{Shell: Shell{Command: []string{"unused"}}}
-	ApplyDefaults(&cfg)
-	if !cfg.Shell.FileRoutingGuardEnabled() {
-		t.Fatal("file routing guard did not default on")
-	}
-	disabled := false
-	cfg.Shell.FileRoutingGuard = &disabled
-	ApplyDefaults(&cfg)
-	if cfg.Shell.FileRoutingGuardEnabled() {
-		t.Fatal("explicitly disabled file routing guard was re-enabled")
-	}
-}
-
 func TestReserveOutputUsesCanonicalDefault(t *testing.T) {
 	cfg := Config{Connections: []Connection{{}}, Shell: Shell{Command: []string{"unused"}}}
 	ApplyDefaults(&cfg)
@@ -1527,5 +1513,44 @@ func TestFourRunsAreTheDefaultWithoutOverwritingAnExplicitOldValue2sg(t *testing
 	ApplyDefaults(&cfg)
 	if cfg.Run.MaxConcurrent != 2 {
 		t.Fatalf("written max concurrent=%d, want unchanged 2", cfg.Run.MaxConcurrent)
+	}
+}
+
+func TestRemovedLoopAndRoutingKeysLoadSilently2tc(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := Defaults(root)
+	denyBefore, _ := json.Marshal(cfg.Shell.Deny)
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["run"].(map[string]any)["max_consecutive_tool_errors"] = 3
+	document["shell"].(map[string]any)["file_routing_guard"] = true
+	data, _ = json.MarshalIndent(document, "", "  ")
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, _, err := Load(path)
+	if err != nil || len(loaded.LoadNotices) != 0 {
+		t.Fatalf("load err=%v notices=%#v", err, loaded.LoadNotices)
+	}
+	denyAfter, _ := json.Marshal(loaded.Shell.Deny)
+	if !bytes.Equal(denyBefore, denyAfter) {
+		t.Fatalf("shell deny list changed: before=%s after=%s", denyBefore, denyAfter)
+	}
+	if err := loaded.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := os.ReadFile(path)
+	if bytes.Contains(saved, []byte("max_consecutive_tool_errors")) || bytes.Contains(saved, []byte("file_routing_guard")) {
+		t.Fatalf("retired keys were serialized again: %s", saved)
 	}
 }

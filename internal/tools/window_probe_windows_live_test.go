@@ -55,8 +55,6 @@ func TestServiceAccountToolCannotReachProductionWindow(t *testing.T) {
 	})
 	cfg := config.Defaults(workspace)
 	cfg.Shell.ServiceAccount.Enabled = true
-	guard := false
-	cfg.Shell.FileRoutingGuard = &guard
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	shell.SetCredentialStore(credential.New(dataRoot))

@@ -23,13 +23,22 @@ func (t *RunScript) Description() string {
 			dialect = "PowerShell " + host.Version
 		}
 	}
-	return "Run source from standard input without creating a script file. Use powershell for multi-line " + dialect + " (chain operators are not rewritten in script source; use `if`), python/node for host interpreter source, or bash when the global Docker Sandbox setting is enabled; script files are not created or executed."
+	languages := "powershell for multi-line " + dialect + " (chain operators are not rewritten in script source; use `if`), or python/node for host interpreter source"
+	if t != nil && t.shell != nil && t.shell.SandboxStatus().Available {
+		languages += ", or bash in Docker Sandbox"
+	}
+	return "Run source from standard input without creating a script file. Use " + languages + "; script files are not created or executed."
 }
-func (*RunScript) Schema() map[string]any {
+
+func (t *RunScript) Schema() map[string]any {
+	languages := []string{"powershell", "python", "node"}
+	if t != nil && t.shell != nil && t.shell.SandboxStatus().Available {
+		languages = append(languages, "bash")
+	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"language":  map[string]any{"type": "string", "enum": []string{"powershell", "python", "node", "bash"}},
+			"language":  map[string]any{"type": "string", "enum": languages},
 			"source":    map[string]any{"type": "string"},
 			"timeout_s": map[string]any{"type": "integer"},
 		},
@@ -60,9 +69,6 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	}
 	if len(source) > 512*1024 {
 		return CallDetail{Err: fmt.Errorf("source exceeds the 512 KB limit")}
-	}
-	if reason := forbiddenSigningCommand(source); reason != "" {
-		return CallDetail{Err: fmt.Errorf("source blocked: %s", reason)}
 	}
 	if denied := deniedCommand(source, cfg.Deny); denied != "" {
 		return CallDetail{Err: fmt.Errorf("source blocked by deny list entry %q", denied)}
@@ -100,9 +106,6 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 		// compile it as one script block, and invoke that block. The source itself
 		// still travels on stdin and no script file is created.
 		argv = []string{"-NoProfile", "-NonInteractive", "-Command", `$source = [Console]::In.ReadToEnd(); & ([scriptblock]::Create($source))`}
-		if reason := forbiddenShellCommand(source, item, t.shell.fileCoordinatorSnapshot()); reason != "" {
-			return CallDetail{Err: fmt.Errorf("source blocked: %s", reason)}
-		}
 	case "python":
 		resolved, reason := usableInterpreter("python")
 		if reason != "" {
@@ -133,9 +136,6 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
 		if outside.card != "" {
 			return CallDetail{Content: "script was not started: " + outside.card, OperatorOverrideReason: outside.card, Metadata: outsideMetadata(outside.folders, true)}
-		}
-		if outside.missing != "" {
-			return CallDetail{Err: fmt.Errorf("script was not started: %s; there is nothing for the user to allow — check the path, or use a file inside your folder", outside.missing)}
 		}
 	}
 	process, usedService, err := t.shell.startInput(cfg, executable, argv, []byte(source), item.Workspace, output, forceOperator)

@@ -1200,7 +1200,7 @@ func startDisposableAgent(t *testing.T, ctx context.Context, app, broker, model 
 		"agents":   []any{map[string]any{"name": "Phone", "b": "stub", "toolset": []string{"read_file", "list_dir", "write_file", "shell"}}},
 		"approval": map[string]any{"mode": "mutating"}, "broker": map[string]any{"url": broker},
 		"memory": map[string]any{"enabled": false, "dir": filepath.Join(data, "memory"), "max_tokens": 1500},
-		"shell":  map[string]any{"command": []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, "timeout_s": 120, "max_timeout_s": 600, "file_routing_guard": true, "service_account": map[string]any{"enabled": false}},
+		"shell":  map[string]any{"command": []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, "timeout_s": 120, "max_timeout_s": 600, "service_account": map[string]any{"enabled": false}},
 	}
 	encoded, _ := json.MarshalIndent(config, "", "  ")
 	configPath := filepath.Join(data, "harness.json")

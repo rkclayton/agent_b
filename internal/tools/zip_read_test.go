@@ -65,7 +65,7 @@ func TestReadZipSafetyHintsAndSkillImport(t *testing.T) {
 		require(err != nil && !strings.Contains(err.Error(), "\n"), "refusal=%v", err)
 	}
 	decision := outsideCommandDecision(`Get-Content "`+filepath.Join(root, "report-kit", "SKILL.md")+`"`, &session.Session{Workspace: t.TempDir()}, nil)
-	require(strings.Contains(decision.missing, archive+string(filepath.Separator)+"report-kit"), "hint=%q", decision.missing)
+	require(strings.Contains(decision.card, archive+string(filepath.Separator)+"report-kit"), "hint=%q", decision.card)
 	setting, err := skills.Import(filepath.Join(root, "skills"), archive, config.Defaults(root).Tools.Attachments.MaxBytes)
 	require(err == nil && !setting.Enabled, "import=%+v err=%v", setting, err)
 	data, err := os.ReadFile(filepath.Join(root, "skills", "report-kit", "SKILL.md"))

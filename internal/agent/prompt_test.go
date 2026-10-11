@@ -1,13 +1,52 @@
 package agent
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"harness/internal/config"
 	"harness/internal/session"
+	"harness/internal/tools"
 )
+
+func TestModelTextNamesNoRemovedCommandRule2tc(t *testing.T) {
+	var text strings.Builder
+	entries, err := os.ReadDir(filepath.Join("..", "..", "prompts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join("..", "..", "prompts", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text.Write(body)
+	}
+	cfg := config.Defaults(t.TempDir())
+	shell := tools.NewShell(cfg.Shell)
+	for _, tool := range []tools.Tool{shell, tools.NewRunScript(shell)} {
+		text.WriteString(tool.Description())
+		schema, _ := json.Marshal(tool.Schema())
+		text.Write(schema)
+	}
+	runSource, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text.Write(runSource)
+	lower := strings.ToLower(text.String())
+	for _, removed := range []string{"file-routing", "file routing", "use read_file instead", "use list_dir instead", "execution-policy bypass", "script-host", "script host", "set-authenticodesignature", "certificate-store", "certificate store", "signing commands"} {
+		if strings.Contains(lower, removed) {
+			t.Errorf("model-visible text still names removed rule %q", removed)
+		}
+	}
+}
 
 func TestPromptNamesTrustedFoldersAndSaysWhenThereAreNone(t *testing.T) {
 	left, right := filepath.Join(t.TempDir(), "notes"), filepath.Join(t.TempDir(), "projects")

@@ -71,7 +71,8 @@ test("shared shell slot order is identical on the chat and Plan", () => {
 });
 
 test("the menu keeps the plan choice for d while plus always creates an ordinary chat", () => {
-  assert.match(shell, /const hasD = !!String\(configured\?\.d \|\| ""\)\.trim\(\)/);
+  assert.match(shell, /const current = configuredAgent\(store\.sessions\[store\.selection\.session_id\]\)/);
+  assert.match(shell, /showListMenu\(current, !!String\(current\?\.d \|\| ""\)\.trim\(\), act\)/);
   assert.match(shell, /agent_d · \$\{name\} — plan/);
   assert.match(shell, /createChat\("agent_d", configured\)/);
   assert.match(shell, /newChatButton\.onclick = \(\) => void createChat\("agent_b"\)/);

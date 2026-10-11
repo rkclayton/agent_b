@@ -30,12 +30,9 @@ func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *te
 		`Get-Content \\fileserver\share\notes.txt`,
 	} {
 		detail := script.CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": source})
-		// Item 2fz: an existing outside read raises the card; a missing one is a
-		// plain error. Either way the script does not run around the card.
 		carded := strings.Contains(detail.OperatorOverrideReason, "outside the folder") && strings.HasPrefix(detail.Content, "script was not started")
-		refused := detail.Err != nil && strings.Contains(detail.Err.Error(), "no such file or directory outside the folder")
-		if !carded && !refused {
-			t.Errorf("a script naming an outside path must raise the card or be refused: %q → %+v", source, detail)
+		if !carded {
+			t.Errorf("a script naming an outside path must raise the card: %q → %+v", source, detail)
 		}
 	}
 	detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": `[System.IO.File]::ReadAllText('C:\Windows\win.ini')`})
@@ -168,8 +165,8 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 		{`cd C:\Windows; [System.IO.StreamReader]::new('win.ini').ReadToEnd()`, "card"},
 		{`cd C:\Windows; iex (Get-Item win.ini)`, "card"},
 		{`pushd C:\Windows && cmd /c type win.ini`, "card"},
-		{`type C:\nope-2fz\missing.txt`, "missing"},
-		{`Get-Content C:\nope-2fz\missing.txt`, "missing"},
+		{`type C:\nope-2fz\missing.txt`, "card"},
+		{`Get-Content C:\nope-2fz\missing.txt`, "card"},
 	} {
 		decision := outsideCommandDecision(c.source, item, nil)
 		got := "run"

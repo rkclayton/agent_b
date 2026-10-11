@@ -3,7 +3,6 @@ package tools
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -69,7 +68,7 @@ func (s *Shell) Description() string {
 	if cfg.ServiceAccount.Enabled {
 		description += "Shell has no public network (enforced outside the tool layer); use web_search or fetch_url for public network reads. "
 	}
-	description += "Agent-written Windows host scripts cannot be executed; use run_script for multi-line source. This is PowerShell, not cmd.exe: use Set-Location, not `cd /d`. " + syntax
+	description += "Use run_script for multi-line source. This is PowerShell, not cmd.exe: use Set-Location, not `cd /d`. " + syntax
 	if cfg.ServiceAccount.Enabled && len(operatorCommands) > 0 {
 		description += " Git and other configured commands need one decision per run; expect one prompt, not one per call."
 	}
@@ -102,9 +101,6 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if !ok || strings.TrimSpace(command) == "" {
 		return CallDetail{Err: fmt.Errorf("command is required")}
 	}
-	if reason := forbiddenShellCommand(command, item, s.fileCoordinatorSnapshot()); reason != "" {
-		return CallDetail{Err: fmt.Errorf("command blocked: %s", reason)}
-	}
 	sandboxID, sandboxStatus, sandboxed := s.sandboxExecution(item)
 	if sandboxed && !sandboxStatus.Available {
 		sandboxed = false
@@ -125,26 +121,6 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			timeout = cfg.MaxTimeoutS
 		}
 		return s.callSandbox(ctx, item, sandboxStatus.Executable, sandboxID, []string{sandboxID, "bash", "-lc", command}, nil, timeout, cfg)
-	}
-	if cfg.FileRoutingGuardEnabled() {
-		refusal, ambiguous := inspectShellFileRouting(command)
-		if refusal != nil {
-			if cfg.ServiceAccount.Enabled && refusal.Replacement.Tool == "search" && routingReplacementOutsideWorkspace(item.Workspace, refusal) {
-				refusal.Reason = "direct file discovery path is outside the folder while the service-account split is enabled"
-				refusal.Replacement = nil
-				refusal.Guidance = "paths outside the folder require a user decision; state the need once and stop rather than retrying paths"
-			}
-			result, _ := json.Marshal(refusal)
-			replacement := "none"
-			if refusal.Replacement != nil {
-				replacement = refusal.Replacement.Tool
-			}
-			log.Printf("shell file-routing refusal: session=%s tool=%s command=%q", item.ID, replacement, command)
-			return CallDetail{Err: fmt.Errorf("note: command was not executed; %s", result)}
-		}
-		if ambiguous {
-			log.Printf("debug: shell file-routing guard allowed ambiguous compound command: %q", command)
-		}
 	}
 	if denied := deniedCommand(command, cfg.Deny); denied != "" {
 		return CallDetail{Err: fmt.Errorf("command blocked by deny list entry %q", denied)}
@@ -183,9 +159,6 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 		decision := outside
 		if decision.card != "" {
 			return CallDetail{Content: "command was not started: " + decision.card, OperatorOverrideReason: decision.card, Metadata: outsideMetadata(decision.folders, true)}
-		}
-		if decision.missing != "" {
-			return CallDetail{Err: fmt.Errorf("command was not started: %s; there is nothing for the user to allow — check the path, or use a file inside your folder", decision.missing)}
 		}
 	}
 	if !forceOperator && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {

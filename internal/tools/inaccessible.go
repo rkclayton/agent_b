@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"syscall"
 )
 
 func isInaccessible(err error) bool {
-	return errors.Is(err, fs.ErrPermission)
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.Errno(32)) || errors.Is(err, syscall.Errno(33))
 }
 
 func withSkippedInaccessible(result string, skipped int) string {

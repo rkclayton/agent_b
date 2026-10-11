@@ -34,7 +34,7 @@ func TestCompletedRunResultLabelEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	item.SetRun(session.RunState{Status: "idle", LastStopReason: "done", LastRunID: "r7", ArmedDetectors: []string{"novel_action"}})
+	item.SetRun(session.RunState{Status: "idle", LastStopReason: "done", LastRunID: "r7"})
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+item.ID+"/result-label", strings.NewReader(`{"label":"productive","run_id":"r7"}`))
 	request.Header.Set("Content-Type", "application/json")
 	authorizeMutation(request, server)

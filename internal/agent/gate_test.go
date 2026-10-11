@@ -378,6 +378,9 @@ func TestBoundaryOnlyRunRecordsCycleNoticeAndContinues2pi(t *testing.T) {
 	defer model.Close()
 
 	cfg := config.Defaults(t.TempDir())
+	// This test isolates the boundary-only automatic-continue path; threshold
+	// behavior is covered independently at the default five and stored values.
+	cfg.Run.CycleWindow = 2
 	cfg.Context.Accounting = "estimated"
 	connection := cfg.Connections[0]
 	connection.ID, connection.BaseURL = "main", model.URL

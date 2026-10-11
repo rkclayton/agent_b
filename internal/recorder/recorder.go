@@ -43,16 +43,14 @@ const (
 type Sink func(eventType string, data map[string]any)
 
 type Recorder struct {
-	mu    sync.Mutex
-	chats map[string][]*run
-	live  map[string]*run
-	order []*run // oldest first; head is the next to evict
-	head  int
-	kept  int
-	total int
-	sink  Sink
-	// Item 2q6: a stopped run waits Settle for the detectors' verdicts, which
-	// are published after run.stopped, before its aggregates leave.
+	mu      sync.Mutex
+	chats   map[string][]*run
+	live    map[string]*run
+	order   []*run // oldest first; head is the next to evict
+	head    int
+	kept    int
+	total   int
+	sink    Sink
 	Settle  time.Duration
 	closing map[string]*run
 	global  globalState
@@ -100,7 +98,7 @@ var observed = map[string]bool{
 	events.ModelRequest: true, events.ModelDelta: true, events.ModelResponse: true, events.ModelRetry: true,
 	events.ToolCallEvent: true, events.ToolResult: true, events.ToolUnoffered: true, events.Compaction: true,
 	events.CompactionSummary: true, events.ApprovalRequired: true, events.ApprovalDecided: true,
-	events.ProgressShadow: true, events.ModelRefused: true, events.ConnectionHealth: true, events.UpdateChanged: true,
+	events.ModelRefused: true, events.ConnectionHealth: true, events.UpdateChanged: true,
 }
 
 // Observe is the bus observer. Every branch costs the same however much the
@@ -145,10 +143,6 @@ func (r *Recorder) observe(event events.Event, data map[string]any) {
 	key := event.SessionID + "\x00" + event.RunID
 	if event.Type == events.RunStarted {
 		r.start(key, event.SessionID, stamp(event.TS))
-		return
-	}
-	if closing := r.closing[key]; closing != nil && event.Type == events.ProgressShadow {
-		closing.health.observe(event.Type, data, stamp(event.TS))
 		return
 	}
 	current := r.live[key]
@@ -260,7 +254,7 @@ func (r *Recorder) observe(event events.Event, data map[string]any) {
 	}
 }
 
-// close sends a stopped run's aggregates once the detectors have spoken.
+// close sends a stopped run's aggregates.
 func (r *Recorder) close(key string) {
 	r.mu.Lock()
 	current := r.closing[key]

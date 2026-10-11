@@ -259,7 +259,7 @@ try {
   const config = {
     config_version: 6, listen: `127.0.0.1:${port}`, workspace: path.join(dataRoot, "scratch"), log_dir: path.join(dataRoot, "logs"),
     connections: [connection], services: {}, agents: [{ name: "Eval", b: connection.id, toolset }],
-    run: { max_turns: 10000, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 1, queue_depth: 0 },
+    run: { max_turns: 10000, cycle_window: 8, max_concurrent: 1, queue_depth: 0 },
     approval: { mode: "boundary-only" }, deliver: { mode: "chips", exchange_folder: path.join(disposableRoot, "exchange") },
     operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
     context: { soft_pct: 0.75, summary_pct: 0.85, accounting: "auto" }, memory: { enabled: false, dir: path.join(dataRoot, "memory"), max_tokens: 1500 },

@@ -38,7 +38,7 @@ const config = {
   connections: [connection], services: {}, agents: [{ name: "Real template", b: connection.id, toolset: [] }],
   roles: { main: connection.id, aux: "" }, context: { soft_pct: 0.75, summary_pct: 0.85, accounting: "exact" },
   memory: { enabled: false, dir: join(data, "memory"), max_tokens: 1500 },
-  shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
+  shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
 };
 await writeFile(join(data, "harness.json"), JSON.stringify(config, null, 2));
 

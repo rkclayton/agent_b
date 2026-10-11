@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -98,6 +99,22 @@ func TestUnavailableGlobalSandboxIsInertForHostShellAndExplainsBash(t *testing.T
 	bash := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "bash", "source": "true"})
 	if bash.Err == nil || !strings.Contains(bash.Err.Error(), "enabled but inert") || !strings.Contains(bash.Err.Error(), "sbx is not installed") {
 		t.Fatalf("bash=%+v", bash)
+	}
+}
+
+func TestRunScriptOnlyOffersBashWhenSandboxCanStart2tb(t *testing.T) {
+	shell := NewShell(config.Defaults(t.TempDir()).Shell)
+	runner := NewRunScript(shell)
+	languages := func() []string {
+		values := runner.Schema()["properties"].(map[string]any)["language"].(map[string]any)["enum"].([]string)
+		return values
+	}
+	if strings.Contains(runner.Description(), "bash") || slices.Contains(languages(), "bash") {
+		t.Fatal("inert sandbox offered bash")
+	}
+	shell.sandboxStatus = SandboxStatus{Available: true}
+	if !strings.Contains(runner.Description(), "bash") || !slices.Contains(languages(), "bash") {
+		t.Fatal("ready sandbox did not offer bash")
 	}
 }
 

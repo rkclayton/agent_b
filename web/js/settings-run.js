@@ -16,8 +16,7 @@ function reflectionFloor(cfg) {
 
 function run() {
   const cfg = store.config;
-  return `${number("run.cycle_window", "cycle window", cfg.run?.cycle_window, "1", false, "", false, "number", "0 = off")}
-    ${number("run.max_consecutive_tool_errors", "max tool errors", cfg.run?.max_consecutive_tool_errors, "1", false, "", false, "number", "0 = off")}
+  return `${number("run.cycle_window", "identical repeats before asking", cfg.run?.cycle_window, "1", false, "", false, "number", "0 = off")}
     ${approvalChoices(cfg.approval?.mode, "With the service identity enabled, run_script still requires confirmation. Shell follows the approval mode; boundary-only runs in-folder commands silently, while boundary escapes and configured Run as you commands still ask.")}
 	${number("run.queue_depth", "queue depth (0 = unbounded)", cfg.run?.queue_depth, "1", false, "", false, "number", "How many messages may wait behind a running chat before a new one is refused.")}
     ${reflectionFloor(cfg)}`;

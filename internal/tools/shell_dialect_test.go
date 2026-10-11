@@ -137,8 +137,6 @@ func TestTheSeventeenChainTapesNoLongerDieOnTheOperator(t *testing.T) {
 		cfg.Shell.ServiceAccount.Enabled = false
 		cfg.Shell.Command = command
 		cfg.Shell.TimeoutS = 30
-		guard := false
-		cfg.Shell.FileRoutingGuard = &guard
 		shell := NewShell(cfg.Shell)
 		shell.Configure(cfg)
 		s := &session.Session{ID: "tapes", Workspace: workspace, Run: session.RunState{Status: "running"}}

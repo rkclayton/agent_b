@@ -234,6 +234,11 @@ const fakeHandler = async (request, response) => {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "scratch-write", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: "scratch-proof.txt", content: "scratch tool passed\n" }) } }] }, "tool_calls");
     return stream(response, { content: "SCRATCH FILE COMPLETE" });
   }
+  if (user.includes("acceptance: failures continue")) {
+    const count = toolCountAfterLatestUser(body);
+    if (count < 3) return stream(response, { tool_calls: [{ index: 0, id: `failure-continues-${count}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: `missing-fixture-${count}.txt` }) } }] }, "tool_calls");
+    return stream(response, { content: "FAILURES CONTINUED TO ANSWER" });
+  }
   if (user.includes("acceptance: absolute list")) {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "absolute-list", type: "function", function: { name: "list_dir", arguments: JSON.stringify({ path: bound, depth: 1 }) } }] }, "tool_calls");
     return stream(response, { content: "ABSOLUTE LIST COMPLETE" });
@@ -263,7 +268,7 @@ const fakeHandler = async (request, response) => {
   // Item 2fc: one chat holds the model while another waits behind it.
   if (user.includes("acceptance: bulk hold")) { await sleep(12000); return stream(response, { content: "BULK HELD ANSWER" }); }
   if (user.includes("acceptance: hold the model")) {
-    await sleep(4000);
+    await sleep(30000);
     return stream(response, { content: "HELD ANSWER" });
   }
   if (user.includes("acceptance: queued behind")) return stream(response, { content: "BEHIND ANSWER" });
@@ -306,17 +311,16 @@ const fakeHandler = async (request, response) => {
   }
   if (user.includes("acceptance: slow accounting")) { await sleep(700); return stream(response, { content: "Slow accounting recovered with an estimate." }); }
   if (user.includes("acceptance: compaction")) return stream(response, { content: `Compaction answer ${"stable ".repeat(180)}` });
-  // 2t-ii — the worker's two items. The first finishes cleanly after reading
-  // the repository it was given; the second fails three tool calls with
-  // DISTINCT arguments, so the cycle guard does not fire before the consecutive
-  // tool-error backstop does, while saying the one thing it could not work out.
+  // 2t-ii — the first worker finishes after reading the repository. The second
+  // keeps working until the explicit turn ceiling and posts its unresolved
+  // question into the planning chat.
   if (user.includes("2t worker reads the repository it was given")) {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "worker-read", type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: "AGENTS.md" }) } }] }, "tool_calls");
     return stream(response, { content: "Read the acceptance rules and made the item true." });
   }
   if (user.includes("2u worker cannot finish this one")) {
     const count = toolCountAfterLatestUser(body);
-    return stream(response, { content: "Which database should the cache use?", tool_calls: [{ index: 0, id: `worker-missing-${count}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: `missing-${count}.txt` }) } }] }, "tool_calls");
+    return stream(response, { content: "Which database should the cache use?", tool_calls: [{ index: 0, id: `worker-question-read-${count}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: "AGENTS.md" }) } }] }, "tool_calls");
   }
   if (user.includes("acceptance: plan proposals")) return stream(response, { content: `Plan candidates.\n\`\`\`agentb-plan-proposals\n${JSON.stringify({ version: 1, proposals: [
     { id: "browser-accept", kind: "add", path: "plan.md", old_text: "# Browser plan", new_text: "# Browser plan\n[ ] 2t accepted via tray", item_id: "2t" },
@@ -583,13 +587,13 @@ const config = {
     capabilities: { connection: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
   services: {}, agents: [{ name: "agent_b", b: "acceptance", toolset }],
 	updates: { auto_check: !realModel },
-  run: { max_turns: 12, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
+  run: { max_turns: 12, cycle_window: 8, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
   // The exchange folder is its own tree, as on an install (item 2fo: inside the
   // workspace it made the hardening check refuse, and Settings logged a 500).
   deliver: { mode: "chips", exchange_folder: join(args.data, "..", "exchange") }, context: { soft_pct: .75, summary_pct: .85, accounting: "auto" }, memory: { enabled: false, dir: join(args.data, "memory"), max_tokens: 1500 },
 	operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
   tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: args["cron-only"] === "true" ? ["127.0.0.1"] : [] }, find_files: { skip_roots: [] } },
-  shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, file_routing_guard: true, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
+  shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
 if (args["seed-profile"]) config.profiles = { active: args["seed-profile"], names: [args["seed-profile"]] };
@@ -1106,13 +1110,28 @@ if (realModel) {
   assert.equal((await stat(join(chatRoot, folder))).isDirectory(), true);
   await treeAction({ action: "rename", path: folder, name: renamedFolder });
   await treeAction({ action: "move", id: sessionID, folder: renamedFolder });
+  // The watcher debounces a tree change for 250 ms, then adds watches for new
+  // directories. Let that rescan finish before simulating an Explorer rename
+  // inside the newly created folder, or Windows can legitimately emit no event
+  // for a directory that was not watched yet.
+  await sleep(600);
   const explorerPath = join(chatRoot, renamedFolder, "Explorer name");
-  await rename(join(chatRoot, renamedFolder, basename(session.workspace_dir)), explorerPath);
-  for (const deadline = Date.now() + 2000; Date.now() < deadline && (await state()).sessions[sessionID].workspace_dir !== explorerPath;) await sleep(40);
+  const explorerSource = join(chatRoot, renamedFolder, basename(session.workspace_dir));
+  for (const deadline = Date.now() + 12000;;) {
+    try { await rename(explorerSource, explorerPath); break; }
+    catch (error) {
+      if (error?.code !== "EPERM" || Date.now() >= deadline) throw error;
+      await sleep(40);
+    }
+  }
+  for (const deadline = Date.now() + 12000; Date.now() < deadline && (await state()).sessions[sessionID].workspace_dir !== explorerPath;) await sleep(40);
   assert.equal((await state()).sessions[sessionID].workspace_dir, explorerPath, "watcher did not keep chat identity after Explorer rename");
   await toggleMenu.evaluate((menu) => { menu.hidden = true; });
+  await page.reload();
+  await page.locator("#chat-task").waitFor({ state: "visible" });
   const folderRow = page.locator(`.chat-list-folder[data-folder="${renamedFolder}"]`);
   await folderRow.waitFor({ state: "visible" });
+  await folderRow.locator(`[data-session="${sessionID}"]`).waitFor({ state: "attached" });
   assert.equal(await folderRow.getAttribute("open"), null, "folders must be collapsed by default");
   assert.equal(await folderRow.locator(`[data-session="${sessionID}"]`).count(), 1);
   await folderRow.locator("summary").hover();
@@ -1183,19 +1202,22 @@ if (realModel) {
   await writeFile(join(args.evidence, "speech-readiness.json"), `${JSON.stringify(speechReadiness, null, 2)}\n`);
 
   await openPanel("activity", sessionID);
+  await showRunDetail();
   // Item 2ip (b): Activity is idle by default now and the run apparatus -- the
   // rail, the Activity and Tools wells, Context and History -- is hidden until a
   // run starts or the operator opens it. Anything that MEASURES that apparatus
   // has to open it first: getComputedStyle inside a hidden subtree returns the
   // specified value, not the used one, so "margin: auto" never resolves to a
   // length and a measurement of it means nothing.
-  await showRunDetail();
   await page.evaluate(() => {
-    const flow = document.querySelector(".flow");
+    const flow = document.createElement("div");
+    flow.className = "flow";
+    flow.style.cssText = "position:relative;min-height:240px;width:100%";
     const fixture = document.createElement("div");
     fixture.className = "idle"; fixture.dataset.acceptanceFixture = "idle-layout";
     fixture.innerHTML = '<img src="/static/assets/idle.svg" alt=""><p>fixture</p>';
     flow.append(fixture);
+    document.querySelector("#activity-panel").append(flow);
   });
   await browser.wait(`document.querySelector('[data-acceptance-fixture="idle-layout"]')?.getBoundingClientRect().width > 96`, "Activity empty-state fixture laid out", 5000);
   const emptyStateIllustration = await page.evaluate(() => {
@@ -1214,7 +1236,7 @@ if (realModel) {
       container_width: fixtureRect.width,
       image_horizontal_center_delta: (imageRect.left + imageRect.width / 2) - (fixtureRect.left + fixtureRect.width / 2),
     };
-    fixture.remove();
+    fixture.parentElement.remove();
     return result;
   });
   assert.deepEqual({
@@ -1273,8 +1295,7 @@ if (realModel) {
   await openPanel("activity", sessionID);
   await page.locator("#panel-run-result").waitFor({ state: "visible" });
   const runResultText = await page.locator("#panel-run-stop").innerText();
-  assert.match(runResultText, /^Ended: done/);
-  for (const detector of ["novel_action", "result_repetition", "repeated_timeouts", "model_says_stuck", "error_success_ratio", "baseline_deviation"]) assert.match(runResultText, new RegExp(detector));
+  assert.equal(runResultText, "Ended: done");
   await page.locator('#panel-run-label button[data-label="mixed"]').click();
   await page.locator('#panel-run-label button[data-label="mixed"].selected').waitFor({ state: "visible" });
   assert.equal((await state()).sessions[sessionID].run.result_label, "mixed");
@@ -1577,6 +1598,17 @@ if (realModel) {
 
   await settleSession(sessionID, "a transcript fixture");
 
+  const beforeFailureChain = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
+  await setTask("acceptance: failures continue");
+  await waitProjectedChatText(sessionID, "FAILURES CONTINUED TO ANSWER", "failed calls continue to answer");
+  const failureChainStop = await waitEvent(sessionID, (event) => event.seq > beforeFailureChain && event.type === "run.stopped", "failed calls run stopped");
+  const failureChainEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeFailureChain);
+  assert.equal(failureChainEvents.filter((event) => event.type === "tool.result" && event.data?.ok === false).length, 3);
+  assert.equal(failureChainStop.data?.reason, "done");
+  record("three-failed-calls-continue-to-answer-2tc");
+
+  await settleSession(sessionID, "a transcript fixture");
+
   const missingArgsInitial = await browser.evaluate(`(async () => {
     const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
     const session = bus.store.sessions[${JSON.stringify(sessionID)}];
@@ -1610,6 +1642,33 @@ if (realModel) {
   assert.match(missingArgsFixture.text, /before malformed tool/);
   assert.match(missingArgsFixture.text, /after malformed tool/);
   record("missing-tool-args-isolated");
+
+  await settleSession(sessionID, "a compacted transcript fixture");
+  await browser.evaluate(`(async () => {
+    const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href);
+    const session = bus.store.sessions[${JSON.stringify(sessionID)}];
+    session.run = { ...session.run, status: 'idle' };
+    session.chat = [
+      { type: 'user', key: 'compact:user', text: 'show compacted tools' },
+      { type: 'tool', key: 'compact:one', name: 'read_file', args: { path: 'one.txt' }, content: 'shortened result', result: { ok: true, ms: 4, model_shortened: true, model_kept_bytes: 1536 } },
+      { type: 'tool', key: 'compact:two', name: 'search', args: { pattern: 'needle' }, content: 'second shortened result', result: { ok: true, ms: 5, model_shortened: true, model_kept_bytes: 2048 } },
+      { type: 'notice', key: 'compact:notice', event: { type: 'compaction', data: { trigger: 'byte_limit_trim', trimmed_results: 2, bytes_removed: 4096 } } }
+    ];
+    bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
+    await new Promise(resolve => setTimeout(resolve, 120));
+    return true;
+  })()`);
+  await openStepFoldIfDrawn();
+  await page.waitForFunction(() => document.querySelectorAll('[data-entry-key^="compact:"]').length === 4);
+  const compactedToolFixture = await page.evaluate(() => ({
+    text: document.querySelector('#chat-log')?.innerText || '',
+    failures: document.querySelectorAll('.chat-render-failure').length,
+  }));
+  assert.match(compactedToolFixture.text, /model kept 1\.5 KB/);
+  assert.match(compactedToolFixture.text, /model kept 2\.0 KB/);
+  assert.match(compactedToolFixture.text, /trimmed 2 old result\(s\) · removed 4\.0 KB/);
+  assert.equal(compactedToolFixture.failures, 0);
+  record("compacted-tool-rows-and-trimmed-results-draw-2tb");
 
   let events = await sessionEvents(sessionID);
   const beforeRenderFailure = events.at(-1)?.seq || 0;
@@ -2749,16 +2808,47 @@ if (realModel) {
   await writeFile(join(browserPlanDir, "NOTES.md"), "");
   await writeFile(join(browserPlanDir, "plan.json"), JSON.stringify({ repo: bound }, null, 2));
   const beforeD = await state();
+  const selectedAgentID = beforeD.sessions[plusID].agent_id;
+  const agentID = (agent) => String(agent?.name || "").trim().toLowerCase() === "agent_b"
+    ? "agent_b"
+    : String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const plannerAgent = beforeD.config.agents.find((agent) => agentID(agent) === selectedAgentID);
+  assert.ok(plannerAgent, `selected agent ${selectedAgentID} is not configured`);
   await json(`http://127.0.0.1:${appPort}/api/config`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeD.mutation_token },
-    body: JSON.stringify({ agents: [{ ...beforeD.config.agents[0], d: "acceptance" }] }),
+    body: JSON.stringify({ agents: beforeD.config.agents.map((agent) => ({ ...agent, d: "acceptance" })) }),
   });
+  let dConfigReady = false;
+  for (const deadline = Date.now() + 12000; Date.now() < deadline && !dConfigReady;) {
+    dConfigReady = (await state()).config.agents.every((agent) => agent.d === "acceptance");
+    if (!dConfigReady) await sleep(40);
+  }
+  assert.equal(dConfigReady, true, "planner connection did not project before the role menu reload");
   await page.reload();
   await browser.wait(`document.querySelector('.chat-list-new')?.title === 'New chat'`, "d-aware New chat");
-  await page.locator(".chat-list-menu-button").click();
+  await page.waitForFunction(async () => {
+    const { store } = await import(new URL("/static/js/bus.js", location.href).href);
+    const key = (agent) => String(agent?.name || "").trim().toLowerCase() === "agent_b"
+      ? "agent_b"
+      : String(agent?.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return store.config.agents?.some((agent) => key(agent) === store.sessions[store.selection.session_id]?.agent_id && agent.d === "acceptance");
+  });
   const roleChoices = page.locator(".shell-new-menu .chat-list-menu-action");
-  assert.deepEqual(await roleChoices.allTextContents(), ["Chat", "Folder", "agent_d · agent_b — plan", "Settings"]);
+  let roleLabels = [];
+  for (const deadline = Date.now() + 12000; Date.now() < deadline;) {
+    await page.evaluate(async () => {
+      const bus = await import(new URL("/static/js/bus.js", location.href).href);
+      bus.reduce({ type: "config.changed", data: { config: bus.store.config } });
+    });
+    if (await page.locator(".shell-new-menu").isVisible()) await page.locator(".chat-list-menu-button").click();
+    await page.locator(".chat-list-menu-button").click();
+    roleLabels = await roleChoices.allTextContents();
+    if (roleLabels.some((label) => label.includes("agent_d"))) break;
+    await page.locator(".chat-list-menu-button").click();
+    await sleep(40);
+  }
+  assert.deepEqual(roleLabels, ["Chat", "Folder", "agent_d · agent_b — plan", "Settings"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   const beforeDIDs = new Set(Object.keys((await state()).sessions));
   await roleChoices.nth(2).click();
@@ -2804,6 +2894,7 @@ if (realModel) {
   await page.screenshot({ path: join(evidenceRun, "plan-page.png") });
   await page.goto(chatURL(boundD.id));
   await page.locator("#chat-task").waitFor({ state: "visible" });
+  await page.locator(`.chat-list-row.selected[data-session="${boundD.id}"]`).waitFor({ state: "visible" });
   await page.locator("#chat-task").fill("acceptance: plan proposals");
   await page.locator("#chat-task").press("Enter");
   await browser.wait(`document.querySelectorAll('#chat-proposals .plan-proposal').length === 3`, "three inert proposals in the planning chat");
@@ -2813,8 +2904,15 @@ if (realModel) {
   await page.locator("#chat-task").fill("");
   await page.locator('#chat-proposals .plan-proposal').nth(1).getByRole('button', { name: 'Dismiss' }).click();
   assert.equal(await page.locator('#chat-proposals .plan-proposal').count(), 2, "Dismiss removes only that proposal");
-  await page.locator('#chat-proposals .plan-proposal').nth(0).getByRole('button', { name: 'Accept' }).click();
-  await waitFileContains(join(browserPlanDir, "plan.md"), "2t accepted via tray");
+  const acceptedProposal = page.locator('#chat-proposals .plan-proposal').nth(0);
+  await acceptedProposal.getByRole('button', { name: 'Accept' }).click();
+  await page.waitForFunction(() => {
+    const row = document.querySelector('#chat-proposals .plan-proposal');
+    return document.querySelectorAll('#chat-proposals .plan-proposal').length === 1 || !!row?.querySelector('.field-error:not([hidden])');
+  });
+  const acceptanceError = acceptedProposal.locator('.field-error');
+  if (await acceptanceError.count() && await acceptanceError.isVisible()) throw new Error(`plan proposal acceptance: ${await acceptanceError.innerText()}`);
+  await waitFileContains(join(browserPlanDir, "plan.md"), "2t accepted via tray", 60000);
   assert.equal(await readFile(join(browserPlanDir, "plan.md"), "utf8"), "# Browser plan\n[ ] 2t accepted via tray\n");
   await page.goto(planPageURL);
   await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('2t accepted via tray')`, "accepted edit in the raw plan");
@@ -2880,7 +2978,7 @@ if (realModel) {
     for (const event of (await sessionEvents(null)).slice(-40)) process.stdout.write(`WORKER EVENT ${event.type} ${event.session_id} ${JSON.stringify(event.data).slice(0, 220)}\n`);
     throw error;
   }
-  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2u]] 2u worker cannot finish this one  — stuck: tool_errors", 90000);
+  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2u]] 2u worker cannot finish this one  — stuck: turn_ceiling", 90000);
   await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2v]] 2v names no verifier  — stuck: no verifier named", 90000);
   await page.bringToFront();
   const questionText = "Which database should the cache use?";
@@ -2918,7 +3016,7 @@ if (realModel) {
   const doneText = await browserText("#plan-done");
   assert.match(doneText, /Ready to test, with gaps/, doneText);
   assert.match(doneText, /1 done · 2 stuck · 0 waiting/, doneText);
-  assert.match(doneText, /2u worker cannot finish this one: tool_errors/, doneText);
+  assert.match(doneText, /2u worker cannot finish this one: turn_ceiling/, doneText);
   assert.match(doneText, /2v names no verifier: no verifier named/, doneText);
   assert.equal(await page.locator("#plan-go").innerText(), "Go");
   assert.equal(await page.locator("#plan-go").isDisabled(), true, "Go stayed live with nothing waiting");
@@ -3015,11 +3113,11 @@ if (realModel) {
   assert.match(opening[0].content, /draft its plan/);
   assert.equal(await page.locator("#chat-task").inputValue(), "", "the request was sent, not left in the composer");
   // Its run holds the shared connection; the queue scenario below starts after it.
-  await waitEvent(planner.id, (event) => event.type === "run.stopped", "the planning chat's opening run finished", 30000);
+  await waitEvent(planner.id, (event) => event.type === "run.stopped", "the planning chat's opening run finished", 60000);
   record("plan-flyout-add-folder-build-prompt-yes-sends");
 
   // Item 2fc: runs queue per model connection. While one chat holds the connection,
-  // another waits with the role it is behind, and Go refuses with the reason.
+  // another waits with the role it is behind and answers after the holder releases it.
   const holder = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
   const waiter = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
   const post = async (id, message) => json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: id, text: message }) });
@@ -3031,13 +3129,10 @@ if (realModel) {
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await post(waiter.id, "acceptance: queued behind");
   await browser.wait(`/^queued — behind agent_b · \\d+(?:m\\d\\d)?s$/.test((document.querySelector('#chat-notice')?.innerText || '').toLowerCase())`, "the strip names the role ahead with a clock");
-  const busyGo = await json(`http://127.0.0.1:${appPort}/api/plan/go?plan_id=browser-plan`);
-  assert.equal(busyGo.enabled, false, JSON.stringify(busyGo));
-  assert.match(busyGo.refusal || "", /the model is busy: agent_b is running/, JSON.stringify(busyGo));
   await page.screenshot({ path: join(evidenceRun, "queued-behind.png") });
-  await waitProjectedChatText(waiter.id, "BEHIND ANSWER", "the waiting chat answered once the connection was free", 20000);
+  await waitProjectedChatText(waiter.id, "BEHIND ANSWER", "the waiting chat answered once the connection was free", 45000);
   await writeFile(planPath, markedPlan);
-  record("per-connection-queue-waiting-behind-and-go-refused");
+  record("per-connection-queue-waiting-behind");
 
   // Item 2fs, the walk's reproduction: chat A pauses on a card nobody answers;
   // chat B on the same model runs to its answer meanwhile; answering A's card

@@ -608,9 +608,9 @@ func TestRunStoppingAndHeldQueueReplay(t *testing.T) {
 
 func TestRunResultLabelReplay(t *testing.T) {
 	state := Empty("main")
-	state.Run = Run{Status: "idle", LastStopReason: "done", LastRunID: "r1", ArmedDetectors: []string{"novel_action"}}
+	state.Run = Run{Status: "idle", LastStopReason: "done", LastRunID: "r1"}
 	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "main.events", Offset: 10}, Event: events.New(events.RunLabeled, "main", "r1", map[string]any{"label": "mixed"})})
-	if err != nil || next.Run.ResultLabel != "mixed" || next.Run.LastStopReason != "done" || len(next.Run.ArmedDetectors) != 1 {
+	if err != nil || next.Run.ResultLabel != "mixed" || next.Run.LastStopReason != "done" {
 		t.Fatalf("run=%+v err=%v", next.Run, err)
 	}
 	stale, _, err := Next(next, Record{Cursor: Cursor{Generation: "main.events", Offset: 20}, Event: events.New(events.RunLabeled, "main", "older", map[string]any{"label": "stuck"})})

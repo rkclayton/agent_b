@@ -453,7 +453,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	messageLimitRetried, windowRetried, windowSummaryRetried := false, false, false
 	byteLimitRetries := 0
 	runMessageLimit, runByteLimit, runWindow := 0, 0, 0
-	guards := newRunGuards(runCfg.CycleWindow, runCfg.MaxConsecutiveToolErrors)
+	guards := newRunGuards(runCfg.CycleWindow)
 	currentReasoning := map[string]bool{}
 	for {
 		if ctx.Err() != nil {
@@ -866,7 +866,6 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		if s.Role == "e" && s.ParentSessionID != "" {
 			r.bus.Publish(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"usage": responseData["usage"], "tool_calls": durableToolCalls}))
 		}
-		r.maybeAuxProgress(ctx, s, runID, turn)
 		r.stage(s, runID, turn, "parse", func() {})
 		if response.FinishReason == "length" && len(toolCalls) > 0 {
 			if lengthSeen {

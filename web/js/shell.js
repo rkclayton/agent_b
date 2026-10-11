@@ -267,8 +267,6 @@ export function initShell(options = {}) {
 
   function renderChatPanel() {
     if (page !== "chat") return;
-    const configured = configuredAgent(store.sessions[store.selection.session_id]);
-    const hasD = !!String(configured?.d || "").trim();
     setAttr(newChatButton, "title", "New chat");
     setAttr(newChatButton, "aria-label", newChatButton.title);
     setProperty(newChatButton, "disabled", store.replay || !(store.config.agents || []).length);
@@ -295,7 +293,11 @@ export function initShell(options = {}) {
         renderChatPanel();
       } catch (error) { report(error.message); }
     };
-    listMenuButton.onclick = () => newChatMenu.hidden ? showListMenu(configured, hasD, act) : menuControllers.get(newChatMenu)?.close();
+    listMenuButton.onclick = () => {
+      if (!newChatMenu.hidden) return void menuControllers.get(newChatMenu)?.close();
+      const current = configuredAgent(store.sessions[store.selection.session_id]);
+      showListMenu(current, !!String(current?.d || "").trim(), act);
+    };
     const folderTargets = new Map();
     const folderHeading = (path, parent) => {
       const details = document.createElement("details"); details.className = "chat-list-folder"; details.dataset.folder = path; details.open = openFolders.has(path);

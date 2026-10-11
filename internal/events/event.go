@@ -102,8 +102,6 @@ const (
 	NotificationFailed         = "notification.failed"
 	NotificationChanged        = "notification.changed"
 	UpdateChanged              = "update.changed"
-	ProgressShadow             = "progress.shadow"
-	ProgressAux                = "progress.aux"
 	Speech                     = "speech"
 	AttachmentOCRProgress      = "attachment.ocr_progress"
 	// ReflectionSkipped records a run the floor kept reflection off (item 2ls
@@ -147,7 +145,7 @@ const (
 )
 
 var Stages = []string{"assemble", "call_model", "parse", "dispatch", "execute", "append", "compact", "wait_user"}
-var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "cron_timeout", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "tool_errors", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable", "malformed_turn"}
+var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "cron_timeout", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable", "malformed_turn"}
 
 // Item 2lw: every stop reason a run can produce is one the product names.
 //
@@ -182,8 +180,9 @@ func DeclaredStopReason(reason string) bool {
 // looking: internal/projection/testdata/pins/sources/stop-two-press.events, its
 // golden, its 2lo tape, and the pins manifest shape "run-stopping-emergency".
 var HistoricalStopReasons = map[string]string{
-	"emergency": "the second of two Stop presses, when the second press escalated; the escalation no longer exists (seen in stop-two-press)",
-	"safe":      "the first of two Stop presses, when the first was a soft stop; the same removed behaviour (seen in stop-two-press)",
+	"emergency":   "the second of two Stop presses, when the second press escalated; the escalation no longer exists (seen in stop-two-press)",
+	"safe":        "the first of two Stop presses, when the first was a soft stop; the same removed behaviour (seen in stop-two-press)",
+	"tool_errors": "the removed consecutive tool-error stop; failed calls now remain results for the model",
 }
 
 // KnownStopReason is what a READER should ask: declared, or known to be

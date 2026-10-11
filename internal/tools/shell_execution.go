@@ -36,20 +36,21 @@ func outputObserver(ctx context.Context) func(string) {
 // only its initial working directory; identity, approval, timeout, and deny-list
 // controls do not make it workspace-confined.
 type Shell struct {
-	mu                sync.RWMutex
-	cfg               config.Shell
-	operatorCommands  []string
-	workspace         string
-	sandbox           config.Sandbox
-	sandboxStatus     SandboxStatus
-	sandboxCreateMu   sync.Mutex
-	fileCoordinator   *FileCoordinator
-	credential        shellCredentialReader
-	startService      serviceProcessStarter
-	startServiceInput serviceProcessInputStarter
-	identityMu        sync.RWMutex
-	identity          ShellIdentityStatus
-	identityReporter  func(ShellIdentityStatus)
+	mu                 sync.RWMutex
+	cfg                config.Shell
+	operatorCommands   []string
+	workspace          string
+	sandbox            config.Sandbox
+	sandboxStatus      SandboxStatus
+	sandboxCreateMu    sync.Mutex
+	sandboxUnavailable func(string) error
+	fileCoordinator    *FileCoordinator
+	credential         shellCredentialReader
+	startService       serviceProcessStarter
+	startServiceInput  serviceProcessInputStarter
+	identityMu         sync.RWMutex
+	identity           ShellIdentityStatus
+	identityReporter   func(ShellIdentityStatus)
 	// alarmedCondition is the last service-account condition this launch alarmed
 	// on, so the same condition is reported once rather than once per trigger
 	// (item 2l2 (c)).
@@ -96,14 +97,20 @@ func (s *Shell) CallAsOperator(ctx context.Context, item *session.Session, args 
 
 func (s *Shell) call(ctx context.Context, item *session.Session, args map[string]any, forceOperator bool) (detail CallDetail) {
 	cfg := s.config()
-	defer func() { detail.OperatorContext = cfg.OperatorContext && !forceOperator }()
+	sandboxNotice := ""
+	defer func() {
+		detail.OperatorContext = cfg.OperatorContext && !forceOperator
+		if sandboxNotice != "" && detail.Err == nil {
+			detail.Content = sandboxNotice + "\n" + detail.Content
+		}
+	}()
 	command, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(command) == "" {
 		return CallDetail{Err: fmt.Errorf("command is required")}
 	}
-	sandboxID, sandboxStatus, sandboxed := s.sandboxExecution(item)
-	if sandboxed && !sandboxStatus.Available {
-		sandboxed = false
+	sandboxID, sandboxStatus, sandboxed, sandboxNotice, disableErr := s.sandboxExecution(item)
+	if disableErr != nil {
+		return CallDetail{Err: disableErr}
 	}
 	if sandboxed && !forceOperator && !cfg.OperatorContext {
 		reason := "sandbox execution uses the user's Docker session, outside the agentb-svc identity and firewall boundary"

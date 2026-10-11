@@ -756,6 +756,15 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		config.ApplyDefaults(&next)
+		if next.Sandbox.Enabled && (s.shell == nil || !s.shell.RefreshSandboxStatus().Available) {
+			reason := "Docker Sandbox is unavailable"
+			if s.shell != nil && s.shell.SandboxStatus().Reason != "" {
+				reason = s.shell.SandboxStatus().Reason
+			}
+			s.mu.Unlock()
+			writeError(w, http.StatusConflict, reason+"; the Docker Sandbox switch stays off", "sandbox.enabled")
+			return
+		}
 		if shell, ok := patch["shell"].(map[string]any); ok {
 			if _, changed := shell["trusted_folders"]; changed {
 				if err := normalizeTrustedFolders(&next, "settings"); err != nil {

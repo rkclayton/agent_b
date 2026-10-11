@@ -23,7 +23,36 @@ import (
 	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/identity"
+	"harness/internal/tools"
 )
+
+func TestUnavailableSandboxCannotBeEnabledAndStoredOnIsDisabled2te(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("ProgramFiles", t.TempDir())
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	cfg.Sandbox.Enabled = true
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, root, RuntimeRoots{Data: root, Profile: root, Workspace: root}, events.NewBus())
+	shell := tools.NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	server.SetShellSecurity(nil, shell)
+	if server.ConfigSnapshot().Sandbox.Enabled {
+		t.Fatal("stored on sandbox survived unavailable startup")
+	}
+	loaded, _, _, err := config.Load(path)
+	if err != nil || loaded.Sandbox.Enabled {
+		t.Fatalf("disk enabled=%t err=%v", loaded.Sandbox.Enabled, err)
+	}
+	response := postConfigPatch(t, server, `{"sandbox":{"enabled":true}}`)
+	if response.Code != http.StatusConflict || server.ConfigSnapshot().Sandbox.Enabled || !strings.Contains(response.Body.String(), "sbx is not installed") {
+		t.Fatalf("status=%d enabled=%t body=%s", response.Code, server.ConfigSnapshot().Sandbox.Enabled, response.Body.String())
+	}
+}
 
 type recordedIdentityProvider struct {
 	origin, account            string

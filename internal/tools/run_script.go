@@ -74,12 +74,15 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 		return CallDetail{Err: fmt.Errorf("source blocked by deny list entry %q", denied)}
 	}
 	if strings.EqualFold(strings.TrimSpace(language), "bash") {
-		sandboxID, sandboxStatus, sandboxed := t.shell.sandboxExecution(item)
+		sandboxID, sandboxStatus, sandboxed, notice, disableErr := t.shell.sandboxExecution(item)
+		if disableErr != nil {
+			return CallDetail{Err: disableErr}
+		}
+		if notice != "" {
+			return CallDetail{Err: fmt.Errorf("%s; bash was not run", notice)}
+		}
 		if !sandboxed {
 			return CallDetail{Err: fmt.Errorf("bash requires the global Docker Sandbox setting")}
-		}
-		if !sandboxStatus.Available {
-			return CallDetail{Err: fmt.Errorf("Docker Sandbox is enabled but inert: %s", sandboxStatus.Reason)}
 		}
 		if !forceOperator && !cfg.OperatorContext {
 			reason := "sandbox execution uses the user's Docker session, outside the agentb-svc identity and firewall boundary"

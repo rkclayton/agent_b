@@ -98,9 +98,9 @@ function shell(active) {
 		operator_context: store.config.shell?.operator_context ?? store.shell_identity?.operator_context,
 	});
 	const lanEnabled = !!store.config.shell?.allow_local_network;
-	const sandboxEnabled = store.config.sandbox?.enabled !== false;
+	const sandboxEnabled = !!store.config.sandbox?.enabled;
 	const sandboxStatus = store.sandbox || {};
-	const sandboxState = sandboxStatus.available ? "ready" : `inert · ${sandboxStatus.reason || "Docker Sandbox is unavailable"}`;
+	const sandboxState = sandboxStatus.available ? "ready" : (sandboxStatus.reason || "Docker Sandbox is unavailable");
 	const trustedFolders = Array.isArray(store.config.shell?.trusted_folders) ? store.config.shell.trusted_folders : [];
 	const trustedRows = trustedFolders.map((entry, index) => `<span class="settings-actions"><input id="trusted-folder-${index}" value="${attr(entry.path)}" aria-label="Trusted folder"><span>${html((entry.added_at || "").slice(0, 10))} · ${entry.source === "card" ? "from a card" : "in Settings"}</span><button type="button" data-action="trusted-folder-change" data-id="${index}">Change</button><button type="button" data-action="trusted-folder-delete" data-id="${index}">Delete</button></span>`).join("");
 	const confirmedSubnets = new Set(store.config.shell?.confirmed_local_subnets || []);
@@ -124,9 +124,9 @@ function shell(active) {
 	${toggle("approval.unattended", "Unattended: never ask; boundary hits fail the item", !!store.config.approval?.unattended, "A chat you are typing in still asks you. This is for a worker started by Go and for a scheduled run, which have nobody in front of them.")}
 	${subhead("Standing grants", "Exact repo, folder, connector, and host approvals for this user. They survive restarts and new chats until revoked.")}
 	${row("grants", standingGrants.length ? `<span class="settings-actions vertical">${standingGrants.map((grant)=>`<span>${html(grant.kind)} · ${html(grant.subject)} <button type="button" data-action="revoke-standing-grant" data-id="${attr(grant.id)}" data-confirm="the ${attr(grant.kind)} grant for ${attr(grant.subject)}">Revoke</button></span>`).join("")}</span>` : '<span class="account-status">none</span>')}
-	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox. When Docker Sandbox is unavailable the setting stays on but is inert and reports why.")}
+	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox when it is ready.")}
 	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
-	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`, "", "Inert means the setting is on but Docker Sandbox is unavailable; the reason is shown here.")}
+	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`)}
 	${subhead("Folders that don't ask", "A folder and its descendants skip outside-folder prompts; with Service identity on they run as you.")}
 	${row("folders", `<span class="settings-actions vertical">${trustedRows || '<span class="account-status">none</span>'}<span class="settings-actions"><input id="trusted-folder-new" placeholder="C:\\folder" aria-label="Add trusted folder"><button type="button" data-action="trusted-folder-add">Add</button></span></span>`)}
 	${subhead("Service identity", "Use the restricted Windows account for tools. Switching it on sets the account up and asks Windows once; switching it off takes effect immediately.")}

@@ -43,6 +43,14 @@ func (s *Shell) SandboxStatus() SandboxStatus {
 	return status
 }
 
+func (s *Shell) RefreshSandboxStatus() SandboxStatus {
+	status := probeSandboxStatusUncached()
+	s.mu.Lock()
+	s.sandboxStatus = status
+	s.mu.Unlock()
+	return status
+}
+
 func (s *Shell) sandboxTarget(item *session.Session) (string, bool) {
 	s.mu.RLock()
 	configured := config.Config{Sandbox: s.sandbox}
@@ -50,9 +58,34 @@ func (s *Shell) sandboxTarget(item *session.Session) (string, bool) {
 	return configured.SandboxTarget(item.ID, item.SandboxMounts())
 }
 
-func (s *Shell) sandboxExecution(item *session.Session) (string, SandboxStatus, bool) {
+func (s *Shell) SetSandboxUnavailable(fn func(string) error) {
+	s.mu.Lock()
+	s.sandboxUnavailable = fn
+	s.mu.Unlock()
+}
+
+func (s *Shell) sandboxExecution(item *session.Session) (string, SandboxStatus, bool, string, error) {
 	target, configured := s.sandboxTarget(item)
-	return target, s.SandboxStatus(), configured
+	if !configured {
+		return target, s.SandboxStatus(), false, "", nil
+	}
+	status := s.RefreshSandboxStatus()
+	if status.Available {
+		return target, status, true, "", nil
+	}
+	s.mu.RLock()
+	disable := s.sandboxUnavailable
+	s.mu.RUnlock()
+	if disable != nil {
+		if err := disable(status.Reason); err != nil {
+			return target, status, true, "", fmt.Errorf("Docker Sandbox stopped but its switch could not be turned off: %w", err)
+		}
+	}
+	s.mu.Lock()
+	s.sandbox.Enabled = false
+	s.sandboxStatus = status
+	s.mu.Unlock()
+	return target, status, false, "Docker Sandbox stopped: " + status.Reason + "; switch is now off", nil
 }
 
 func probeSandboxStatus() SandboxStatus {

@@ -323,6 +323,31 @@ func (s *Server) SetShellSecurity(store *credential.Store, shell *tools.Shell) {
 	s.credential = store
 	s.shell = shell
 	s.shellTest = shell.TestServiceAccount
+	shell.SetSandboxUnavailable(s.disableUnavailableSandbox)
+	if status := shell.SandboxStatus(); s.ConfigSnapshot().Sandbox.Enabled && !status.Available {
+		if err := s.disableUnavailableSandbox(status.Reason); err != nil {
+			log.Printf("disable unavailable Docker Sandbox: %v", err)
+		}
+	}
+}
+
+func (s *Server) disableUnavailableSandbox(reason string) error {
+	s.mu.Lock()
+	if !s.cfg.Sandbox.Enabled {
+		s.mu.Unlock()
+		return nil
+	}
+	s.cfg.Sandbox.Enabled = false
+	if err := s.saveMachineConfig(*s.cfg); err != nil {
+		s.cfg.Sandbox.Enabled = true
+		s.mu.Unlock()
+		return err
+	}
+	next, masked := *s.cfg, s.cfg.Masked()
+	s.mu.Unlock()
+	s.shell.Configure(next)
+	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "notice": "Docker Sandbox stopped: " + reason + "; switch is now off"}))
+	return nil
 }
 func (s *Server) SetNotifications(manager notificationManager, store *credential.Store) {
 	s.notifications, s.notificationStore = manager, store

@@ -872,7 +872,8 @@ function secret(path, label, value, id, hint = "") {
 
 function toggle(path, label, value, hint = "") {
   const selected = !!currentValue(path, value);
-  return field(path, label, `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`, false, hint);
+  const disabled = path === "sandbox.enabled" && !store.sandbox?.available;
+  return field(path, label, `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}" ${disabled ? "disabled" : ""}></button>`, false, hint);
 }
 
 function choices(path, label, values, selected, hint = "") {

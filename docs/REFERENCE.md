@@ -175,7 +175,7 @@ Startup locates configuration in this order: an explicit launcher `-config` argu
 | Runs | `run.{max_turns,max_wall_clock_seconds,max_tool_calls,cycle_window,max_concurrent,queue_depth}`, `approval.mode`; `cycle_window` is consecutive identical call/result repeats before asking (default 5, 0 off) |
 | Context and memory | `context.{soft_pct,summary_pct,accounting}`, `memory.{enabled,dir,max_tokens}` |
 | Operator files | `operator_files.{allow_mailbox_approvals,log_retention_days}` (mailbox approvals default off; live-log retention defaults to 30 days and never prunes evidence archives) |
-| Tool caps | `tools.{read_file,list_dir,grep,shell,fetch,web_search,find_files,attachments}`, `services`, `sandbox`, and `shell` (the service identity defaults enabled but must be provisioned once; operator context defaults off and lapses after 20 idle minutes) |
+| Tool caps | `tools.{read_file,list_dir,grep,shell,fetch,web_search,find_files,attachments}`, `services`, `sandbox`, and `shell` (the service identity defaults disabled and must be provisioned before it can be enabled; operator context defaults off and lapses after 20 idle minutes) |
 | Signing | `signing.{thumbprint,timestamp_url}` is retained release metadata for file-edited/operator tooling; the application has no signing UI or signing API |
 
 See [web/DESIGN.md](../web/DESIGN.md) for the UI contract, [INTERFACES.md](../INTERFACES.md) for events and APIs, [operator files](OPERATOR-FILES.md) for the local mailbox/bookshelf convention, and [SECURITY.md](../SECURITY.md) plus [Windows host hardening](HARDENING.md) before granting a model shell access. The UI uses only the six-color industrial-console system; artwork and vendored fonts live under `web/assets/`.

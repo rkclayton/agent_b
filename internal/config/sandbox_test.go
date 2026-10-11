@@ -6,8 +6,12 @@ import (
 	"testing"
 )
 
-func TestSandboxIsGlobalDefaultOnAndDeterministicPerMountSet(t *testing.T) {
+func TestSandboxIsGlobalDefaultOffAndDeterministicWhenEnabled2te(t *testing.T) {
 	cfg := Defaults(t.TempDir())
+	if cfg.Sandbox.Enabled {
+		t.Fatal("new install starts with Docker Sandbox on")
+	}
+	cfg.Sandbox.Enabled = true
 	first, ok := cfg.SandboxTarget("s2", []string{`C:\scratch\s2`, `C:\repo-a`})
 	second, again := cfg.SandboxTarget("s2", []string{`C:\scratch\s2`, `C:\repo-a`})
 	if !ok || !again || first != second || !strings.HasPrefix(first, "agentb-") {
@@ -29,7 +33,7 @@ func TestSandboxLegacyMapMigratesWithoutSurvivingMarshal(t *testing.T) {
 	}{
 		{`{"workspaces":{"C:\\repo":true}}`, true},
 		{`{"workspaces":{"C:\\repo":false}}`, false},
-		{`{}`, true},
+		{`{}`, false},
 	} {
 		var sandbox Sandbox
 		if err := json.Unmarshal([]byte(test.raw), &sandbox); err != nil {

@@ -6,6 +6,7 @@ const settings = (await Promise.all([
   "settings.js", "settings-chats.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
   "settings-about.js", "settings-workspace.js", "settings-security.js",
 ].map((name) => readFile(new URL(`./${name}`, import.meta.url), "utf8")))).join("\n");
+const security = await readFile(new URL("./settings-security.js", import.meta.url), "utf8");
 
 test("Settings has no Workspace tab and Security retains folder policy controls", () => {
   assert.doesNotMatch(settings, /\["workspace", "Workspace"\]/);
@@ -41,7 +42,7 @@ test("Security has one install-wide Docker Sandbox switch and no per-folder cont
   // The explanation is hover text on the subheading and the switch now, not a
   // visible paragraph. The words are kept, not weakened.
   assert.match(settings, /Install-wide: routes shell and bash through Docker Sandbox/);
-  assert.match(settings, /inert/);
+  assert.doesNotMatch(security, /inert/);
   assert.doesNotMatch(settings, /data-action="sandbox-workspace-toggle"/);
   assert.doesNotMatch(settings, /sandbox\.workspaces/);
 });

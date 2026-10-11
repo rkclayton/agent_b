@@ -26,6 +26,7 @@ func TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash(t *testing
 	repoA, repoB := t.TempDir(), t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside-secret")
 	cfg := config.Defaults(workspace)
+	cfg.Sandbox.Enabled = true
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	item := &session.Session{ID: "sandbox", Role: "b", Workspace: workspace, PlanRepos: func() []string { return []string{repoA, repoB} }}
@@ -70,35 +71,12 @@ func TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash(t *testing
 	if !strings.Contains(logText, "exec -i agentb-") || !strings.Contains(logText, "stdin=printf sandbox-stdin-ok") {
 		t.Fatalf("bash stdin call=%q", logText)
 	}
-}
-
-func TestBashIsInertWithoutDeclaredReadySandbox(t *testing.T) {
-	workspace := t.TempDir()
-	cfg := config.Defaults(workspace)
-	cfg.Shell.ServiceAccount.Enabled = false
-	cfg.Sandbox.Enabled = false
-	shell := NewShell(cfg.Shell)
-	shell.Configure(cfg)
-	detail := NewRunScript(shell).CallDetailed(context.Background(), &session.Session{Workspace: workspace}, map[string]any{"language": "bash", "source": "uname -s"})
-	if detail.Err == nil || !strings.Contains(detail.Err.Error(), "requires the global Docker Sandbox setting") {
-		t.Fatalf("detail=%+v", detail)
-	}
-}
-
-func TestUnavailableGlobalSandboxIsInertForHostShellAndExplainsBash(t *testing.T) {
-	workspace := t.TempDir()
-	cfg := config.Defaults(workspace)
-	cfg.Shell.ServiceAccount.Enabled = false
-	shell := NewShell(cfg.Shell)
-	shell.Configure(cfg)
-	item := &session.Session{ID: "inert", Workspace: workspace}
-	host := shell.CallDetailed(context.Background(), item, map[string]any{"command": "Write-Output host"})
-	if host.Err != nil || !strings.Contains(host.Content, "host") {
-		t.Fatalf("host fallback=%+v", host)
-	}
-	bash := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "bash", "source": "true"})
-	if bash.Err == nil || !strings.Contains(bash.Err.Error(), "enabled but inert") || !strings.Contains(bash.Err.Error(), "sbx is not installed") {
-		t.Fatalf("bash=%+v", bash)
+	disabled := ""
+	shell.SetSandboxUnavailable(func(reason string) error { disabled = reason; return nil })
+	t.Setenv("SBX_STUB_FAIL", "1")
+	detail := shell.CallDetailed(context.Background(), item, map[string]any{"command": "Write-Output host"})
+	if detail.Err != nil || !strings.HasPrefix(detail.Content, "Docker Sandbox stopped: ") || !strings.Contains(detail.Content, "switch is now off\nexit=0\nhost") || disabled == "" || shell.sandbox.Enabled {
+		t.Fatalf("fallback=%+v disabled=%q enabled=%t", detail, disabled, shell.sandbox.Enabled)
 	}
 }
 
@@ -127,6 +105,7 @@ func main(){
  args:=os.Args[1:]
  if len(args)>0 && args[0]=="version" { fmt.Print("{\"client\":\"0.47-test\",\"server\":\"0.47-test\"}"); return }
  if len(args)>0 && args[0]=="ls" {
+	if os.Getenv("SBX_STUB_FAIL")=="1" { fmt.Fprint(os.Stderr,"signed out"); os.Exit(1) }
   if len(args)>1 && args[1]=="-q" { if b,e:=os.ReadFile(os.Getenv("SBX_STUB_STATE")); e==nil { fmt.Print(string(b)) }; return }
   fmt.Print("[]"); return
  }

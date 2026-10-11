@@ -103,8 +103,8 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 		writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled", "agent_id": agentID})
 		return
 	}
-	if body.Action != "set" || body.ConnectionID == "" {
-		writeError(w, http.StatusBadRequest, "action must be set with connection_id, or cancel", "action")
+	if body.Action != "set" {
+		writeError(w, http.StatusBadRequest, "action must be set, or cancel", "action")
 		return
 	}
 	// An absent role is b: every caller that predates this item, including the
@@ -123,20 +123,19 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusBadRequest, "role must be b, c or d", "role")
 		return
 	}
-	// (d): d exists only when the agent has one. Assigning to a role the agent
-	// does not have is refused here, so the page hiding the row is an
-	// ergonomic and not the guarantee.
-	if role == roleD && agent.D == "" {
-		writeError(w, http.StatusBadRequest, "this agent has no d role", "role")
-		return
-	}
 	if s.registry == nil {
 		writeError(w, http.StatusServiceUnavailable, "agent runtime unavailable", "agent_id")
 		return
 	}
-	if runnable, reason := s.registry.ConnectionRunnable(body.ConnectionID); !runnable {
-		writeError(w, http.StatusBadRequest, reason, "connection_id")
+	if body.ConnectionID == "" && role == roleB {
+		writeError(w, http.StatusBadRequest, "connection_id is required for b", "connection_id")
 		return
+	}
+	if body.ConnectionID != "" {
+		if runnable, reason := s.registry.ConnectionRunnable(body.ConnectionID); !runnable {
+			writeError(w, http.StatusBadRequest, reason, "connection_id")
+			return
+		}
 	}
 	if role != roleB {
 		// (b): c and d take effect on the next run that reads them. Nothing is

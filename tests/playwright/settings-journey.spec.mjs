@@ -179,17 +179,9 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(reopened).not.toHaveAttribute("placeholder", /.*/);
   await expect(page.locator(".connection-editor .control-note").first()).toHaveText("stored");
 
-  // 7. Put the built-in agent on it. Connections are assigned only in the agent
-  // editor; the chat switcher now selects agents and never mutates one.
-  await page.locator('.settings-nav [data-id="agents"]').click();
-  await page.locator('#panel-agent').selectOption('agent_b');
-  const agentSave = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST');
-  await page.locator('#panel-roles').evaluate((root, connection) => {
-    root.querySelector('[data-field="connection"]').value = connection;
-    root.querySelector('[data-action="save"]').click();
-  }, id);
-  expect((await agentSave).ok()).toBe(true);
-  await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.agents.find((agent) => agent.name === 'agent_b').b).toBe(id);
+  // 7. A connection with no named profile uses agent_b, and the chat switcher
+  // selects that connection without mutating another one.
+  await expect(editor.locator(`[data-path="connections.${id}.agent_profile"]`)).toHaveValue("");
   await toggleSettings(page);
   await expect(page.locator("#settings-page")).toBeHidden();
   await expect(page.locator(".shell-session-title")).toHaveText("agent_b");
@@ -209,9 +201,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(page.locator("[data-save-status]")).not.toContainText("Saving changes");
   await toggleSettings(page);
 
-  // 9. Delete the chat through its four-entry row menu. This leaves the role
-  // assignment as the first connection-removal refusal, just as Close did before
-  // the tab strip was removed.
+  // 9. Delete the chat through its four-entry row menu.
   const selected = page.locator(".chat-list-row.selected");
   const session = await selected.getAttribute("data-session");
   await selected.hover();
@@ -229,34 +219,6 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(popover).toBeVisible();
   await popover.locator('[data-action="confirm-proceed"]').click();
 
-  // 11. AND THE REFUSAL IS PART OF THE JOURNEY. Choosing this connection in the
-  // agent editor bound agent_b to it, so removing it is refused - on the row
-  // that was clicked, naming what to do about it (items 2mb (b), 2nc (c) and (d)).
-  const row = page.locator(`.connection-row[data-id="${id}"]`);
-  await expect(row).toContainText(/assigned to .* B role/);
-  await expect(row).toContainText("Agents page");
-
-  // 12. So he does what it says, and then it goes.
-  await page.locator('.settings-nav [data-id="agents"]').click();
-  await expect(page.locator("#panel-roles")).toBeVisible();
-  // Any connection but the one being removed.
-  await page.locator('#panel-agent').selectOption('agent_b');
-  const role = page.locator('#panel-roles select[data-field="connection"]');
-  const otherValue = () => role.locator("option").evaluateAll((options, connection) =>
-    options.map((option) => option.value).find((value) => value && value !== connection) || "", id);
-  await expect.poll(otherValue, { message: "alternate B-role connection option exists", timeout: 5000 }).not.toBe("");
-  const other = await otherValue();
-  const rebind = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST');
-  await page.locator('#panel-roles').evaluate((root, connection) => {
-    root.querySelector('[data-field="connection"]').value = connection;
-    root.querySelector('[data-action="save"]').click();
-  }, other);
-  expect((await rebind).ok()).toBe(true);
-  await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.agents.find((agent) => agent.name === 'agent_b').b).toBe(other);
-  await page.locator('.settings-nav [data-id="connections"]').click();
-  await page.locator(`.connection-row [data-action="remove-connection"][data-id="${id}"]`).click();
-  await expect(page.locator(".confirm-popover")).toBeVisible();
-  await page.locator('.confirm-popover [data-action="confirm-proceed"]').click();
   await expect(page.locator(`.connection-row[data-id="${id}"] .connection-summary`)).toHaveCount(0);
   await expect(page.locator(".connection-row")).toHaveCount(rowsBefore);
 });
@@ -344,8 +306,10 @@ test("the confirmation popover stays with its control on a scrolled sheet", asyn
   await page.locator('.settings-nav [data-id="connections"]').click();
   // Enough rows that the sheet scrolls.
   await page.setViewportSize({ width: 1250, height: 600 });
-  for (let index = 0; index < 6; index++) {
+  for (let index = 0; index < 10; index++) {
+    const before = await page.locator(".connection-row").count();
     await page.locator('[data-action="add-connection"]').click();
+    await expect(page.locator(".connection-row")).toHaveCount(before + 1);
   }
   // Scrolled by the control the operator would be reaching for, and read back in the
   // same evaluation, because a render restores this scroller's position.
@@ -458,9 +422,9 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
   await page.close();
 });
 
-// 2qx replaces the two identity halves with the seven settings people change;
+// 2qx replaces the two identity halves with the settings people change;
 // the action line and collapsed Defaults remain beneath them.
-test("the sheet reads as seven ordered fields above its actions and Defaults", async () => {
+test("the sheet reads as eight ordered fields above its actions and Defaults", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -471,14 +435,14 @@ test("the sheet reads as seven ordered fields above its actions and Defaults", a
   const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
 
 	const labels = async () => (await editor.locator(":scope > .connection-fields > .connection-primary > .setting-row > label").allTextContents()).filter(Boolean);
-	expect(await labels()).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
   await expect(page.locator(".connection-defaults")).not.toHaveAttribute("open", /.*/);
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Defaults");
   await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
 
 	// The empty new connection does not collapse or reorder the fields.
 	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-	expect(await labels()).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
   await page.close();
 });
 

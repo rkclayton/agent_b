@@ -39,7 +39,7 @@ func dispatchServer(t *testing.T) *Server {
 	remote.Label, remote.Model, remote.BaseURL, remote.APIKey = "Remote GPU", "model-r", "https://models.example.test:8443/private/v1", "PLANTED-SECRET"
 	remote.Capabilities.Vision, remote.Capabilities.DocumentInput, remote.Capabilities.ToolCalls, remote.Capabilities.NCtx = config.VisionReadsImages, true, true, 65536
 	cfg.Connections = append(cfg.Connections, remote)
-	cfg.Agents = []config.Agent{{Name: "local", B: "local", Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{{Name: "agent_b", B: "local", Toolset: config.FullToolset()}}
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}

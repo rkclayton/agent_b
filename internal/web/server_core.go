@@ -122,29 +122,30 @@ type Server struct {
 	probeCancels     map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
-	probeRetries         map[string]int
-	reachabilityMu       sync.Mutex
-	reachability         map[string]*reachabilityRetry
-	reachabilityAfter    func(time.Duration, func()) operatorTimer
-	healthMu             sync.Mutex
-	health               map[string]connectionHealth
-	healthEvery          time.Duration
-	navigationMu         sync.Mutex
-	requestWatchdogAfter time.Duration
-	requestWatchdogLog   func(string)
-	navigationIDs        map[string]time.Time
-	agentConnectionMu    sync.Mutex
-	agentConnections     map[string]pendingAgentConnection
-	pendingSessionAgents map[string]string
-	tryAgentIdle         func(string) bool
-	hostWindowAction     func(string, string) bool
-	startedAt            string
-	chatMu               sync.RWMutex
-	chatStore            *chatstore.Store
-	chatEntries          []chatstore.Entry
-	chatWatchMu          sync.Mutex
-	chatCancel           context.CancelFunc
-	chatDone             chan struct{}
+	probeRetries              map[string]int
+	reachabilityMu            sync.Mutex
+	reachability              map[string]*reachabilityRetry
+	reachabilityAfter         func(time.Duration, func()) operatorTimer
+	healthMu                  sync.Mutex
+	health                    map[string]connectionHealth
+	healthEvery               time.Duration
+	navigationMu              sync.Mutex
+	requestWatchdogAfter      time.Duration
+	requestWatchdogLog        func(string)
+	navigationIDs             map[string]time.Time
+	agentConnectionMu         sync.Mutex
+	agentConnections          map[string]pendingAgentConnection
+	pendingSessionAgents      map[string]string
+	pendingSessionConnections map[string]string
+	tryAgentIdle              func(string) bool
+	hostWindowAction          func(string, string) bool
+	startedAt                 string
+	chatMu                    sync.RWMutex
+	chatStore                 *chatstore.Store
+	chatEntries               []chatstore.Entry
+	chatWatchMu               sync.Mutex
+	chatCancel                context.CancelFunc
+	chatDone                  chan struct{}
 }
 
 type probeRun struct{ cancel context.CancelFunc }
@@ -181,15 +182,16 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
-		navigationIDs:        map[string]time.Time{},
-		agentConnections:     map[string]pendingAgentConnection{},
-		pendingSessionAgents: map[string]string{},
-		measurements:         map[string]measureState{},
-		measureCancels:       map[string]context.CancelFunc{},
-		extractClient:        &http.Client{},
-		attachmentStops:      map[string]context.CancelFunc{},
-		ocrExtract:           ocr.Extract,
-		ocrPDF:               ocr.ExtractPDF,
+		navigationIDs:             map[string]time.Time{},
+		agentConnections:          map[string]pendingAgentConnection{},
+		pendingSessionAgents:      map[string]string{},
+		pendingSessionConnections: map[string]string{},
+		measurements:              map[string]measureState{},
+		measureCancels:            map[string]context.CancelFunc{},
+		extractClient:             &http.Client{},
+		attachmentStops:           map[string]context.CancelFunc{},
+		ocrExtract:                ocr.Extract,
+		ocrPDF:                    ocr.ExtractPDF,
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},
@@ -338,6 +340,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 		scheduler.SetAgentIdleCallback(func(agentID string) {
 			s.applyPendingAgentConnection(agentID)
 			s.applyPendingSessionAgents()
+			s.applyPendingSessionConnections()
 		})
 		s.tryAgentIdle = scheduler.TryAgentIdle
 	}

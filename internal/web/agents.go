@@ -9,15 +9,13 @@ import (
 )
 
 type agentRequest struct {
-	Action     string   `json:"action"`
-	ID         string   `json:"id"`
-	SourceID   string   `json:"source_id"`
-	Name       string   `json:"name"`
-	Connection string   `json:"connection_id"`
-	Model      string   `json:"model"`
-	Prompt     string   `json:"prompt"`
-	Tools      []string `json:"tools"`
-	Private    bool     `json:"private"`
+	Action   string   `json:"action"`
+	ID       string   `json:"id"`
+	SourceID string   `json:"source_id"`
+	Name     string   `json:"name"`
+	Prompt   string   `json:"prompt"`
+	Tools    []string `json:"tools"`
+	Private  bool     `json:"private"`
 }
 
 func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +34,7 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 	body.Name = strings.TrimSpace(body.Name)
 	s.mu.Lock()
 	before := append([]config.Agent(nil), s.cfg.Agents...)
+	connectionsBefore := append([]config.Connection(nil), s.cfg.Connections...)
 	find := func(id string) int {
 		for i := range s.cfg.Agents {
 			if config.AgentID(s.cfg.Agents[i].Name) == id {
@@ -63,6 +62,7 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		next := s.cfg.Agents[source]
 		next.Name = body.Name
+		next.B, next.Model = "", ""
 		s.cfg.Agents = append(s.cfg.Agents, next)
 		changedID = config.AgentID(next.Name)
 	case "update":
@@ -73,6 +73,7 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		builtIn := body.ID == "agent_b"
+		s.cfg.Agents[index].B, s.cfg.Agents[index].Model = "", ""
 		if !builtIn {
 			if body.Name == "" {
 				s.mu.Unlock()
@@ -88,11 +89,14 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "agent_b name, prompt and tools are read-only", "agent")
 			return
 		}
-		if body.Connection != "" {
-			s.cfg.Agents[index].B = body.Connection
-		}
-		s.cfg.Agents[index].Model = strings.TrimSpace(body.Model)
 		changedID = config.AgentID(s.cfg.Agents[index].Name)
+		if body.ID != changedID {
+			for index := range s.cfg.Connections {
+				if config.AgentID(s.cfg.Connections[index].AgentProfile) == body.ID {
+					s.cfg.Connections[index].AgentProfile = changedID
+				}
+			}
+		}
 	case "delete":
 		if body.ID == "agent_b" {
 			s.mu.Unlock()
@@ -107,6 +111,11 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		deletedID = body.ID
 		s.cfg.Agents = append(s.cfg.Agents[:index], s.cfg.Agents[index+1:]...)
+		for index := range s.cfg.Connections {
+			if config.AgentID(s.cfg.Connections[index].AgentProfile) == deletedID {
+				s.cfg.Connections[index].AgentProfile = ""
+			}
+		}
 	default:
 		s.mu.Unlock()
 		writeError(w, 400, "action must be add, duplicate, update or delete", "action")
@@ -114,12 +123,14 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.cfg.Validate(); err != nil {
 		s.cfg.Agents = before
+		s.cfg.Connections = connectionsBefore
 		s.mu.Unlock()
 		writeError(w, 400, err.Error(), "agent")
 		return
 	}
 	if err := s.saveProfileConfig(*s.cfg); err != nil {
 		s.cfg.Agents = before
+		s.cfg.Connections = connectionsBefore
 		s.mu.Unlock()
 		writeError(w, 500, err.Error(), "config")
 		return
@@ -130,11 +141,6 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		s.runner.Configure(s.ConfigSnapshot())
 	}
 	if deletedID != "" {
-		for _, item := range s.registry.List() {
-			if item.Snapshot().AgentID == deletedID {
-				s.setOrQueueSessionAgent(item.ID, "agent_b")
-			}
-		}
 		if s.memoryState != nil {
 			_ = s.memoryState.DeleteAgent(deletedID)
 		}
@@ -149,11 +155,6 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.statsState != nil {
 			_ = s.statsState.Rename(body.ID, changedID)
-		}
-		for _, item := range s.registry.List() {
-			if item.Snapshot().AgentID == body.ID {
-				s.setOrQueueSessionAgent(item.ID, changedID)
-			}
 		}
 	}
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
@@ -191,6 +192,30 @@ func (s *Server) applyPendingSessionAgents() {
 		if err := s.registry.SetAgent(sessionID, agentID); err != nil {
 			s.agentConnectionMu.Lock()
 			s.pendingSessionAgents[sessionID] = agentID
+			s.agentConnectionMu.Unlock()
+		}
+	}
+}
+
+func (s *Server) setOrQueueSessionConnection(sessionID, connectionID string) bool {
+	if err := s.registry.SetConnection(sessionID, connectionID); err == nil {
+		return false
+	}
+	s.agentConnectionMu.Lock()
+	s.pendingSessionConnections[sessionID] = connectionID
+	s.agentConnectionMu.Unlock()
+	return true
+}
+
+func (s *Server) applyPendingSessionConnections() {
+	s.agentConnectionMu.Lock()
+	pending := s.pendingSessionConnections
+	s.pendingSessionConnections = map[string]string{}
+	s.agentConnectionMu.Unlock()
+	for sessionID, connectionID := range pending {
+		if err := s.registry.SetConnection(sessionID, connectionID); err != nil {
+			s.agentConnectionMu.Lock()
+			s.pendingSessionConnections[sessionID] = connectionID
 			s.agentConnectionMu.Unlock()
 		}
 	}

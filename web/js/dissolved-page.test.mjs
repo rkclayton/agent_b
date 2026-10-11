@@ -83,7 +83,7 @@ test("the page, its route and its tab-menu entry are gone", async () => {
   assert.doesNotMatch(shell, /flip\.label|flip\.open/);
 
   // Every group it held has a home: two sections of Settings, and the chat.
-  assert.match(settings, /\["agents", "Agents"\]/);
+  assert.match(settings, /\["profiles", "Profiles"\]/);
   assert.match(settings, /\["activity", "Activity"\]/);
   for (const id of ["panel-agent", "panel-tools", "panel-tools-count"]) {
     assert.match(html, new RegExp(`id="${id}"[\\s\\S]*id="activity-panel"`), id);

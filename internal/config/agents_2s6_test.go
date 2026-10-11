@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -40,5 +42,66 @@ func TestAgentConnectionSelectsItsModel(t *testing.T) {
 	connection, ok := cfg.AgentConnection("agent_b", "b")
 	if !ok || connection.Model != "m2" {
 		t.Fatalf("agent connection = %#v, %v", connection, ok)
+	}
+}
+
+func TestAgentsBecomeProfilesAndConnectionsKeepBehavior2t8(t *testing.T) {
+	root := t.TempDir()
+	cfg := Defaults(root)
+	a := cfg.Connections[0]
+	a.ID, a.Label, a.Model = "alpha", "Alpha", "model-a"
+	b := a
+	b.ID, b.Label, b.Model = "beta", "Beta", "model-b"
+	cfg.ConfigVersion = 14
+	cfg.Connections = []Connection{a, b}
+	cfg.Agents = []Agent{
+		{Name: "agent_b", B: "alpha", Model: "model-a", Toolset: FullToolset()},
+		{Name: "Writer", B: "beta", Model: "model-b", Prompt: "writer prompt", Toolset: []string{"read_file"}, Private: true},
+		{Name: "Reviewer", B: "alpha", Prompt: "review prompt", Toolset: []string{"read_file", "search"}},
+	}
+	path := filepath.Join(root, "harness.json")
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, migrated, _, err := LoadWithTemplate(path, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !migrated || loaded.ConfigVersion != CurrentConfigVersion {
+		t.Fatalf("migrated=%t version=%d", migrated, loaded.ConfigVersion)
+	}
+	if len(loaded.Agents) != 3 || loaded.Agents[1].Prompt != "writer prompt" || !loaded.Agents[1].Private || loaded.Agents[1].B != "" || loaded.Agents[1].Model != "" {
+		t.Fatalf("profiles changed: %+v", loaded.Agents)
+	}
+	if got, ok := loaded.Connection("beta"); !ok || got.AgentProfile != "writer" || got.Model != "model-b" {
+		t.Fatalf("beta = %+v, %t", got, ok)
+	}
+	var duplicate *Connection
+	for index := range loaded.Connections {
+		if loaded.Connections[index].Label == "Alpha · Reviewer" {
+			duplicate = &loaded.Connections[index]
+		}
+	}
+	if duplicate == nil || duplicate.AgentProfile != "reviewer" || duplicate.BaseURL != a.BaseURL || duplicate.Model != "model-a" {
+		t.Fatalf("shared connection was not duplicated without loss: %+v", loaded.Connections)
+	}
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadedAgain, migratedAgain, _, err := LoadWithTemplate(path, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migratedAgain || string(first) != string(second) || len(loadedAgain.Connections) != len(loaded.Connections) {
+		t.Fatalf("second load changed migration: migrated=%t", migratedAgain)
 	}
 }

@@ -208,7 +208,7 @@ test("web_search and delegate remain file-configured without new Settings contro
 test("new chats expose no folder selection surface", () => {
   assert.doesNotMatch(consoleHTML, /new-chat-workspace|New chat…/);
   assert.doesNotMatch(shell, /pick-folder|Folder path|Browse|Last plan|planRepoEditor|pending_bind/);
-  assert.match(shell, /\{ agent_id: configuredID \}/);
+  assert.match(shell, /\{ connection_id: connectionID \}/);
   assert.doesNotMatch(shell, /source_session_id/);
 });
 

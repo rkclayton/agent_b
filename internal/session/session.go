@@ -727,7 +727,7 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	connectionID := agent.ConnectionFor(s.Role)
+	connectionID := connection.ID
 	if s.Role == "d" {
 		enabled["shell"] = false
 		enabled["run_script"] = false

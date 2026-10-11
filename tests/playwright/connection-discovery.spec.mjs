@@ -192,7 +192,7 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   await narrow.close();
 });
 
-test("2qx seven-field editor and closed Defaults fit wide and narrow", async () => {
+test("2qx eight-field editor and closed Defaults fit wide and narrow", async () => {
   const evidence = process.env.AGENTB_EVIDENCE_DIR;
   for (const width of [1400, 304]) {
     const context = await harness.browser.newContext({ viewport: { width, height: width === 304 ? 700 : 900 } });
@@ -201,7 +201,7 @@ test("2qx seven-field editor and closed Defaults fit wide and narrow", async () 
     await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
     const editor = page.locator(".connection-editor");
     const visibleLabels = editor.locator(':scope > .connection-fields > .connection-primary > .setting-row > label');
-    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
     const defaults = editor.locator("details.connection-defaults");
     await expect(defaults.locator(":scope > summary")).toHaveText("Defaults");
     await expect(defaults).not.toHaveAttribute("open", "");
@@ -408,12 +408,12 @@ test("the Plan is a top-level Settings section, not a tab, and the switch hides 
 	await expect(page.locator(".chat-list-row[data-session]").first()).toHaveCount(1);
 	await expect(page.locator(".agent-tabs, .agent-tab-wrap")).toHaveCount(0);
 
-	// (a): one top-level entry, third, after the two the sheet is opened to read,
+	// (a): one top-level entry, second, after Activity,
 	// carrying the operator's own prepared mark.
 	await openSettings(page);
 	const nav = page.locator(".settings-nav button");
-	await expect(nav.nth(2)).toHaveAttribute("data-id", "plan");
-	await expect(nav.nth(2)).toHaveText(/Plan/);
+	await expect(nav.nth(1)).toHaveAttribute("data-id", "plan");
+	await expect(nav.nth(1)).toHaveText(/Plan/);
 	await expect(page.locator('.settings-nav [data-id="plan"] img.shell-page-chip')).toHaveCount(1);
 
 	// The entry exists whatever the planner situation is; what changes is what it
@@ -670,7 +670,7 @@ test("an unassigned planner leaves the entry and shows the one line in the pane"
   await openSettings(page);
   // Give the agent a planner that is not this chat's role, which is what makes the
   // Plan unavailable on this chat.
-  await page.locator('.settings-nav [data-id="agents"]').click();
+  await page.locator('.settings-nav [data-id="profiles"]').click();
   await expect(page.locator("#panel-roles")).toBeVisible();
   const planner = page.locator('#panel-roles select[data-role="d"]');
   const choice = await planner.locator("option").evaluateAll((options) =>
@@ -687,18 +687,18 @@ test("an unassigned planner leaves the entry and shows the one line in the pane"
   // never neither, and never a blank pane.
   expect(await note.count() + await panel.count(), "the Plan section is empty").toBeGreaterThan(0);
   if (await note.count()) {
-    await expect(note).toContainText("Assign a planner in Agents");
+    await expect(note).toContainText("Assign a planner in Profiles");
     await expect(panel).toHaveCount(0);
   }
   await page.close();
 });
 
-test("Agents and Connections share fields, whole numbers, switches, and stable failure layout 2t0", async () => {
+test("Profiles and Connections share fields, whole numbers, switches, and stable failure layout 2t0", async () => {
   const styles = (nodes) => nodes.map((node) => { const value = getComputedStyle(node); return { tag: node.tagName, element: node.outerHTML, background: value.backgroundColor, color: value.color, border: value.border, family: value.fontFamily, size: value.fontSize, height: value.lineHeight, weight: value.fontWeight }; });
   for (const viewport of [{ width: 304, height: 254 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }]) {
     const page = await harness.context.newPage({ viewport });
     await page.goto(`${harness.base}/chat`); await openSettings(page);
-    await page.locator('.settings-nav [data-id="agents"]').click();
+    await page.locator('.settings-nav [data-id="profiles"]').click();
     const agentMetrics = async () => ({
       labels: await page.locator('.settings-content .panel-role-name').evaluateAll(styles),
       fields: await page.locator('.settings-content .panel-role-row > input:not([type="checkbox"]), .settings-content .panel-role-row > select, .settings-content .panel-role-row > textarea').evaluateAll(styles),

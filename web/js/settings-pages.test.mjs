@@ -72,7 +72,7 @@ test("Profiles lists agent-layer memory with a named remove action", () => {
 	context.store.active = "s1";
 	context.store.sessions.s1 = { agent_id: "agent-b", agent_memory_content: "Notes about how this agent works with the operator:\n- ping output\n- durable preference\n" };
 	const page = renderProfilesPage(context);
-	assert.match(page, /Agent memory/);
+	assert.match(page, /Agent profiles/);
 	assert.match(page, /ping output/);
 	assert.match(page, /data-action="remove-agent-memory" data-id="ping output"/);
 });
@@ -120,8 +120,8 @@ test("all rendered Settings rows have one direct label and one control cell", ()
 
 test("Settings navigation has the required eight sections in order", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
-  const labels = [...controller.matchAll(/\["(?:agents|activity|connections|profiles|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
-  assert.deepEqual(labels, ["Agents", "Activity", "Connections", "Users", "Chats", "Notifications", "Security", "About"]);
+  const labels = [...controller.matchAll(/\["(?:activity|plan|connections|profiles|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
+  assert.deepEqual(labels, ["Activity", "Plan", "Connections", "Profiles", "Chats", "Notifications", "Security", "About"]);
 });
 
 test("Delivery has no Settings page while file configuration remains supported", () => {
@@ -615,7 +615,7 @@ test("Context reports the server value without replacing the saved value and hid
   const empty = renderConnectionsPage(context);
   assert.match(empty, /server context: 32768 tokens/);
 });
-test("2qx connection editor has exactly seven ordered fields, one closed Defaults group, and no explanatory prose", () => {
+test("connection editor adds agent profile to the seven established fields", () => {
   const context = pageContext();
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", reads_images: false, context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { enabled: true, effort: "medium", valid_efforts: ["low", "medium", "high"], control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
   context.connectionList = () => [connection];
@@ -628,14 +628,14 @@ test("2qx connection editor has exactly seven ordered fields, one closed Default
   assert.doesNotMatch(defaults?.[0] || "", /\sopen(?:\s|>)/);
   const visible = editor.slice(0, editor.indexOf('<details class="connection-defaults"'));
   const labels = [...visible.matchAll(/<label[^>]*>([^<]*)<\/label>/g)].map((match) => match[1]).filter(Boolean);
-  assert.deepEqual(labels, ["name", "address", "key", "model", "context size", "thinking", "reads images"]);
+  assert.deepEqual(labels, ["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
   assert.match(visible, /context unknown — enter the size/);
   for (const sentence of ["Model endpoints and their current probe state.", "This server runs one model", "The name this connection", "How much the model thinks"]) {
     assert.doesNotMatch(editor, new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   const textNodes = [...editor.matchAll(/>([^<>]+)</g)].map((match) => match[1].trim()).filter(Boolean);
   const allowed = new Set([
-    "acme", "http://acme:8080/", "name", "address", "key", "show", "model", "alpha", "type a name…",
+    "acme", "http://acme:8080/", "name", "address", "agent profile", "agent_b (default)", "key", "show", "model", "alpha", "type a name…",
     "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
     "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "attachment handling",
     "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",

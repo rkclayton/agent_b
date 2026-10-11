@@ -95,11 +95,12 @@ test("chat list rows, actions, independent state, resize persistence and capture
 	await expect(page.locator('.chat-list-row[data-session="p1"] .chat-list-name')).toHaveClass(/working/);
 	await expect(page.locator('.chat-list-row[data-session="f1"] .chat-list-name')).toHaveClass(/working/);
 	for (const id of ["p2", "f2", "root"]) await expect(page.locator(`.chat-list-row[data-session="${id}"] .chat-list-name`)).not.toHaveClass(/working/);
-	const pulse = async (id) => page.locator(`.chat-list-row[data-session="${id}"] .chat-list-name`).evaluate((node) => node.getAnimations()[0]?.effect.getComputedTiming().progress ?? -1);
+	const pulse = async (id) => page.locator(`.chat-list-row[data-session="${id}"] .chat-list-name`).evaluate((node) => ({ progress: node.getAnimations()[0]?.effect.getComputedTiming().progress ?? -1, time: document.timeline.currentTime }));
 	const beforePulse = await pulse("p1");
 	await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); for (let index = 0; index < 50; index++) bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
 	const afterPulse = await pulse("p1"), together = await pulse("f1"), phaseDistance = (a, b) => Math.min(Math.abs(a - b), 1 - Math.abs(a - b));
-	expect(phaseDistance(beforePulse, afterPulse)).toBeLessThan(.1); expect(phaseDistance(afterPulse, together)).toBeLessThan(.05);
+	const expectedPulse = (beforePulse.progress + (afterPulse.time - beforePulse.time) / 1000) % 1;
+	expect(phaseDistance(expectedPulse, afterPulse.progress)).toBeLessThan(.1); expect(phaseDistance(afterPulse.progress, together.progress)).toBeLessThan(.05);
 	expect(await page.locator('.chat-list-row[data-session="p1"]').evaluate((row) => row.getBoundingClientRect().height)).toBe(await page.locator('.chat-list-row[data-session="root"]').evaluate((row) => row.getBoundingClientRect().height));
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	expect(await page.locator('.chat-list-row[data-session="p1"] .chat-list-name').evaluate((node) => ({ duration: getComputedStyle(node).animationDuration, color: getComputedStyle(node).color, image: getComputedStyle(node).backgroundImage }))).toEqual({ duration: "0s", color: "rgb(60, 240, 138)", image: "none" });

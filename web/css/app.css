@@ -1458,7 +1458,7 @@
   gap: 0 24px;
 }
 .connection-primary > .connection-test-failure {
-  grid-column: 2;
+  grid-column: 1 / -1;
   margin: 0 0 0 124px;
 }
 .connection-thinking { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1591,6 +1591,14 @@
 .setting-row .settings-actions {
   margin-top: 0;
 }
+.setting-row > .profile-user-actions, .setting-row > .profile-create-actions, .setting-row > .profile-skill-import-actions, .setting-row > .profile-hermes-actions {
+  display: grid;
+  gap: 8px;
+}
+.setting-row > .profile-user-actions { grid-template-columns: auto minmax(0, 1fr) auto; }
+.setting-row > .profile-create-actions,
+.setting-row > .profile-hermes-actions { grid-template-columns: minmax(0, 1fr) auto; }
+.setting-row > .profile-skill-import-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
 .settings-actions.vertical {
   flex-direction: column;
   align-items: stretch;
@@ -1969,7 +1977,7 @@
 }
 .panel-agent-group {
   display: grid;
-  grid-template-rows: 22px 36px;
+  grid-template-rows: 36px auto;
 }
 .panel-agent-group > .panel-caption,
 .panel-maintenance > .panel-caption {
@@ -2064,11 +2072,11 @@
    columns as the surface can hold. At 1250px that is three, and Lifetime is a
    third as tall as it was. Nothing was removed from either pane.
 
-   Only Activity is changed. The Agents page has the same shape with its own
+   Only Activity is changed. The Profiles page has the same shape with its own
    Tool panel, and is carded rather than restyled here: it is not this item's. */
 #activity-panel > .panel-pane,
 #activity-panel > .panel-lifetime-group,
-/* Item 2ln (e): the Agents page has the same shape -- the Tools pane sat in one
+/* Item 2ln (e): the Profiles page has the same shape -- the Tools pane sat in one
    column at 300px beside a 721px role group. rel-1.15.0 card 8 carried this
    forward unmeasured; measured at 1250px it was still there. */
 #agents-panel > .panel-pane {
@@ -2102,7 +2110,7 @@
 .panel-reflection { display:grid; grid-template-rows:22px minmax(0,1fr); }
 @media (max-width: 820px) {
   .panel-surface { display:block; }
-  .panel-agent-group { min-height:78px; grid-template-rows:22px auto; }
+  .panel-agent-group { min-height:56px; grid-template-rows:36px auto; }
   .panel-maintenance { min-height:58px; }
   .panel-reflection { min-height:120px; }
   #panel-tools-panel,.panel-lifetime-group { min-height:120px; }
@@ -2113,7 +2121,7 @@
   .panel-selector { flex-wrap:wrap; }
 }
 @media (max-width: 520px) {
-  .panel-agent-group { min-height:110px; grid-template-rows:22px auto; }
+  .panel-agent-group { min-height:88px; grid-template-rows:36px auto; }
   .panel-tool-line { grid-template-columns:24px minmax(100px,1fr) 48px 48px; }
   .panel-tool-counts { grid-template-columns:minmax(100px,1fr) 48px 48px; }
   .panel-tool-line > :last-child { grid-column:2 / -1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -2262,6 +2270,10 @@
   gap: 8px;
 }
 @media (max-width: 520px) {
+  .profile-row,
+  .profile-create-row,
+  .profile-skill-import-row,
+  .profile-hermes-row { grid-template-columns: minmax(0, 1fr); }
   .panel-role-row.settings-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .panel-role-name {

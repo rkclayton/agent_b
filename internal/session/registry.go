@@ -164,12 +164,33 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		role = "b"
 	}
 	connectionID := saved.ConnectionID
-	if connectionID == "" {
-		connectionID = agent.ConnectionFor(role)
-	}
-	connection, connectionFound := r.agentConnection(saved.AgentID, role)
-	if saved.ConnectionID != "" && saved.ConnectionID != agent.ConnectionFor(role) {
+	var connection *config.Connection
+	var connectionFound bool
+	if connectionID != "" {
+		if role == "" || role == "b" {
+			desired := config.AgentID(saved.AgentID)
+			for _, candidate := range r.config().Connections {
+				profile := config.AgentID(candidate.AgentProfile)
+				if profile == "" {
+					profile = "agent_b"
+				}
+				if profile == desired && (candidate.ID == connectionID || strings.HasPrefix(candidate.ID, connectionID+"-")) {
+					connectionID = candidate.ID
+					break
+				}
+			}
+		}
 		connection, connectionFound = r.connections(connectionID)
+		if connectionFound && (role == "" || role == "b") {
+			if selected, found := r.config().ProfileForConnection(connectionID); found {
+				agent = selected
+			}
+		}
+	} else {
+		connection, connectionFound = r.agentConnection(config.AgentID(agent.Name), role)
+		if connectionFound {
+			connectionID = connection.ID
+		}
 	}
 	connectionRunnable, connectionReason := restoredConnectionRunnable(connectionID, connectionFound, saved.Runnable, saved.NotRunnableReason)
 	planID, planDir, planRepo := "", "", ""
@@ -318,6 +339,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if !ok {
 		return nil, fmt.Errorf("agent_id: %s connection %s was not found", role, connectionID)
 	}
+	connectionID = connection.ID
 	id := "main"
 	if len(r.sessions) > 0 {
 		id = fmt.Sprintf("s%d", r.next)
@@ -702,11 +724,14 @@ func (r *Registry) AgentRoleRunnable(agentID, role string) (bool, string) {
 	if !ok {
 		return false, "unknown agent " + agentID
 	}
-	connectionID := agent.ConnectionFor(role)
-	if role == "d" && connectionID == "" {
+	if role == "d" && agent.ConnectionFor(role) == "" {
 		return false, "agent_d is not assigned"
 	}
-	return r.ConnectionRunnable(connectionID)
+	connection, ok := r.config().AgentConnection(agentID, role)
+	if !ok {
+		return false, "connection for " + agentID + " no longer exists"
+	}
+	return runnable(connection, r.config().Context.Accounting)
 }
 func (r *Registry) resolveAgent(id string) (*config.Agent, bool) {
 	cfg := r.config()
@@ -816,6 +841,11 @@ func (r *Registry) SetConnection(id, connectionID string) error {
 	if !runnable {
 		return fmt.Errorf("connection_id: %s", reason)
 	}
+	profile, ok := r.config().ProfileForConnection(connectionID)
+	if !ok {
+		return fmt.Errorf("connection_id: connection %s names an unknown agent profile", connectionID)
+	}
+	profileID := config.AgentID(profile.Name)
 
 	s.mu.Lock()
 	if s.Closed {
@@ -826,13 +856,21 @@ func (r *Registry) SetConnection(id, connectionID string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session is running")
 	}
-	workspace, scratch := s.Workspace, s.Scratch
+	workspace, scratch, previousAgent := s.Workspace, s.Scratch, s.AgentName
 	memoryBlock, memoryPath := s.MemoryBlock, s.MemoryPath
 	s.mu.Unlock()
 
 	if r.memory != nil {
 		var err error
 		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, connectionID)
+		if err != nil {
+			return err
+		}
+	}
+	agentMemoryBlock, agentMemoryPath := "", ""
+	if r.agentMemory != nil {
+		var err error
+		agentMemoryBlock, agentMemoryPath, err = r.agentMemory(context.Background(), profileID, connectionID)
 		if err != nil {
 			return err
 		}
@@ -847,22 +885,28 @@ func (r *Registry) SetConnection(id, connectionID string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("session is running")
 	}
-	s.ConnectionID = connectionID
-	s.AgentName, s.BConnection = connection.Label, connection.Label
+	s.mu.Unlock()
+	s.ApplyAgentConfig(profileID, *profile, *connection)
+	s.mu.Lock()
 	s.Runnable, s.NotRunnableReason = true, ""
 	s.MemoryBlock, s.MemoryPath = memoryBlock, memoryPath
+	s.AgentMemoryBlock, s.AgentMemoryPath = agentMemoryBlock, agentMemoryPath
 	s.Budget = initialBudget(connection)
 	s.mu.Unlock()
 
 	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{
-		"session_id":          id,
-		"connection_id":       connectionID,
-		"agent_name":          connection.Label,
-		"b_connection":        connection.Label,
-		"runnable":            true,
-		"not_runnable_reason": "",
-		"memory_path":         memoryPath,
-		"memory_content":      memoryBlock,
+		"session_id":           id,
+		"connection_id":        connectionID,
+		"agent_id":             profileID,
+		"agent_name":           profile.Name,
+		"b_connection":         connection.Label,
+		"runnable":             true,
+		"not_runnable_reason":  "",
+		"memory_path":          memoryPath,
+		"memory_content":       memoryBlock,
+		"agent_memory_path":    agentMemoryPath,
+		"agent_memory_content": agentMemoryBlock,
+		"notice":               "Agent changed from " + previousAgent + " to " + profile.Name + ".",
 	}))
 	return nil
 }
@@ -875,6 +919,16 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	agent, ok := r.resolveAgent(agentID)
 	if !ok {
 		return fmt.Errorf("agent_id: unknown agent %s", agentID)
+	}
+	if snapshot := s.Snapshot(); snapshot.Role == "" || snapshot.Role == "b" {
+		connection, found := r.config().ConnectionForProfile(config.AgentID(agent.Name))
+		if !found && agent.B != "" {
+			connection, found = r.connections(agent.B)
+		}
+		if !found {
+			return fmt.Errorf("agent_id: profile %s has no connection", agentID)
+		}
+		return r.SetConnection(id, connection.ID)
 	}
 	snapshot := s.Snapshot()
 	previousAgent := snapshot.AgentName
@@ -953,8 +1007,14 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		if snapshot.Run.Status == "running" || snapshot.Run.Status == "stopping" {
 			return fmt.Errorf("agent_id: session %s is running", snapshot.ID)
 		}
-		connectionID := agent.ConnectionFor(snapshot.Role)
-		connection, ok := r.agentConnection(agentID, snapshot.Role)
+		connectionID := snapshot.ConnectionID
+		connection, ok := r.connections(connectionID)
+		if snapshot.Role != "" && snapshot.Role != "b" {
+			connection, ok = r.agentConnection(agentID, snapshot.Role)
+			if ok {
+				connectionID = connection.ID
+			}
+		}
 		if !ok {
 			return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
 		}

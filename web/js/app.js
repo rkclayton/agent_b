@@ -52,7 +52,7 @@ agentSelect.addEventListener("change", () => {
 // Item 2iq (a): b's row and the strip's switcher write the same setting, so
 // the table delegates rather than binding a listener per render.
 roleTable.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLSelectElement && event.target.dataset.field === "connection") return;
+  if (event.target instanceof HTMLSelectElement && event.target.dataset.role) void changeAgentConnection(event.target.value, event.target.dataset.role);
 });
 roleTable.addEventListener("click", (event) => {
   const action = event.target instanceof HTMLElement ? event.target.dataset.action : "";
@@ -252,11 +252,14 @@ function renderAgentConnection(agent) {
   const builtIn = selectedAgent === "agent_b";
   const field = (label, control) => { const row = node("label", "panel-role-row"); row.append(text(label, "panel-role-name"), control); return row; };
   const name = document.createElement("input"); name.value = agent.name || ""; name.dataset.field = "name"; name.disabled = builtIn;
-  const connection = document.createElement("select"); connection.dataset.field = "connection";
-  connection.replaceChildren(...connections.map((value) => option(value.id, value.label || value.id, value.id === agent.b)));
-  const model = document.createElement("input"); model.value = agent.model || ""; model.dataset.field = "model"; model.placeholder = "connection default";
   const prompt = document.createElement("textarea"); prompt.value = builtIn ? "Shipped opening prompt" : (agent.prompt || ""); prompt.dataset.field = "prompt"; prompt.disabled = builtIn;
-  const rows = [field("name", name), field("connection", connection), field("model", model), field("opening prompt", prompt)];
+  const helper = (role) => {
+    const select = document.createElement("select"); select.dataset.role = role;
+    select.append(option("", role === "c" ? "chat connection" : "not assigned", !agent[role]));
+    select.append(...connections.map((value) => option(value.id, value.label || value.id, value.id === agent[role])));
+    return field(roleNames[role], select);
+  };
+  const rows = [field("name", name), field("opening prompt", prompt), helper("c"), helper("d")];
   if (!builtIn) {
     const privateToggle = document.createElement("input"); privateToggle.type = "checkbox"; privateToggle.checked = !!agent.private; privateToggle.dataset.field = "private";
     privateToggle.title = "this agent only writes to its own memory but can still read shared";
@@ -264,7 +267,7 @@ function renderAgentConnection(agent) {
   }
   const actions = node("div", "panel-role-row settings-actions");
   for (const [action, label] of [["save", "Save"], ["add", "Add"], ["duplicate", "Duplicate"], ["delete", "Delete"]]) {
-    const control = button(label, label); control.dataset.action = action; control.disabled = store.replay || (builtIn && action === "delete"); actions.append(control);
+    const control = button(label, label); control.dataset.action = action; control.disabled = store.replay || (builtIn && (action === "save" || action === "delete")); actions.append(control);
   }
   rows.push(actions);
   roleTable.replaceChildren(...rows);
@@ -285,8 +288,7 @@ async function editAgent(action) {
     if (!confirm(`Delete ${agent.name}?`)) return;
     body = { action: "delete", id: selectedAgent };
   } else {
-    body = { action: "update", id: selectedAgent, name: read("name")?.value, connection_id: read("connection")?.value,
-      model: read("model")?.value, prompt: selectedAgent === "agent_b" ? "" : read("prompt")?.value,
+    body = { action: "update", id: selectedAgent, name: read("name")?.value, prompt: selectedAgent === "agent_b" ? "" : read("prompt")?.value,
       tools: agent.toolset || [], private: !!read("private")?.checked };
   }
   try {

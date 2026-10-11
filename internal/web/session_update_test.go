@@ -68,7 +68,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 	}
 
 	item.SetRun(session.RunState{Status: "running"})
-	response = postSessionUpdate(t, server, `{"agent_id":"first"}`)
+	response = postSessionUpdate(t, server, `{"connection_id":"first"}`)
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("running status=%d body=%s", response.Code, response.Body)
 	}
@@ -77,6 +77,10 @@ func TestSessionAgentReassignment(t *testing.T) {
 	}
 
 	item.SetRun(session.RunState{Status: "idle"})
+	server.applyPendingSessionConnections()
+	if snapshot := item.Snapshot(); snapshot.ConnectionID != "first" {
+		t.Fatalf("idle did not apply pending connection: %q", snapshot.ConnectionID)
+	}
 	response = postSessionUpdate(t, server, `{"agent_id":"incomplete"}`)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "base_url is empty") {
 		t.Fatalf("incomplete status=%d body=%s", response.Code, response.Body)

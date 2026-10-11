@@ -474,7 +474,7 @@ async function openPanel(section, sessionID) {
   await page.locator("#chat-task").waitFor({ state: "visible" });
   await openSettings();
   await browser.wait(`document.querySelector('#settings-page') && !document.querySelector('#settings-page').hidden`, `Settings ${section}`);
-  assert.equal(await clickText(".settings-nav button", section === "agents" ? "Agents" : "Activity"), true);
+  assert.equal(await clickText(".settings-nav button", section === "agents" ? "Profiles" : "Activity"), true);
   await page.locator(`#${section}-panel`).waitFor({ state: "visible" });
 }
 
@@ -581,7 +581,7 @@ const config = {
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
     capabilities: { connection: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
-  services: {}, agents: [{ name: "Acceptance", b: "acceptance", toolset }],
+  services: {}, agents: [{ name: "agent_b", b: "acceptance", toolset }],
 	updates: { auto_check: !realModel },
   run: { max_turns: 12, cycle_window: 8, max_consecutive_tool_errors: 3, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
   // The exchange folder is its own tree, as on an install (item 2fo: inside the
@@ -703,7 +703,7 @@ if (!realModel) {
 record("open-chat");
 
 if (args["cron-only"] === "true") {
-	const created = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+	const created = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 	const send = async (text) => {
 		const prior = (await sessionEvents(created.id)).filter((event) => event.type === "run.stopped").length;
 		await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: created.id, text }) });
@@ -893,7 +893,7 @@ if (realModel) {
 
   const fixtureSessionID = sessionID;
 	if (args["w6-only"] === "true") {
-		const bulkBusy = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+		const bulkBusy = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 		const beforeBulk = await state(), bulkCount = Object.keys(beforeBulk.sessions).length;
 		const bulkKept = join(beforeBulk.sessions[bulkBusy.id].workspace_dir, "bulk-kept.txt"); await writeFile(bulkKept, "keep");
 		await page.goto(`http://127.0.0.1:${appPort}/chat?session=${bulkBusy.id}`); await openSettings(); assert.equal(await clickText(".settings-nav button", "Chats"), true);
@@ -940,7 +940,7 @@ if (realModel) {
 
   if (args["2rv-only"] === "true") {
     const created = [], mutation = (await state()).mutation_token;
-    for (let index = 0; index < 40; index++) created.push((await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": mutation }, body: JSON.stringify({ agent_id: "acceptance" }) })).session.id);
+    for (let index = 0; index < 40; index++) created.push((await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": mutation }, body: JSON.stringify({ agent_id: "agent_b" }) })).session.id);
     const tree = (body) => page.evaluate(async (value) => (await import(new URL("/static/js/bus.js", location.href).href)).api("/api/chats/tree", value), body);
     for (const folder of ["Alpha", "Beta", "Gamma"]) await tree({ action: "add", name: folder });
     for (let index = 0; index < 3; index++) for (let attempt = 0; attempt < 40; attempt++) { try { await tree({ action: "move", id: created[index], folder: ["Alpha", "Beta", "Gamma"][index] }); break; } catch (error) { if (attempt === 39) throw error; await sleep(50); } }
@@ -1063,7 +1063,7 @@ if (realModel) {
   assert.equal(await planEntry.locator("img.shell-page-chip").count(), 1);
   assert.deepEqual(
     (await page.locator(".settings-nav button").allInnerTexts()).map((line) => line.trim()).slice(0, 3),
-    ["Agents", "Activity", "Plan"],
+    ["Activity", "Plan", "Connections"],
   );
   const panelGeometry = await captureShellGeometry();
   assert.deepEqual(panelGeometry.shell, chatGeometry.shell, JSON.stringify({ chatGeometry, panelGeometry }));
@@ -1072,7 +1072,7 @@ if (realModel) {
   assert.equal(chatGeometry.connection.x - panelGeometry.connection.x, 0);
 	// Agents holds the configurable half. web_search and delegate are deliberately
 	// file-only, but remain observable as the two additional Activity rows.
-  assert.equal(await clickText(".settings-nav button", "Agents"), true);
+  assert.equal(await clickText(".settings-nav button", "Profiles"), true);
   await page.locator("#agents-panel").waitFor({ state: "visible" });
   const toolHalves = await page.evaluate(() => ({
     toggles: document.querySelectorAll('#panel-tools input[type="checkbox"]').length,
@@ -1237,9 +1237,10 @@ if (realModel) {
   await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
   const connectionState = page.locator('.connection-row[data-action="connection-toggle"][data-id="acceptance"] .connection-state');
-  await page.locator('[data-action="connection-toggle"][data-id="acceptance"]').click();
+  const connectionEditor = page.locator('.connection-editor [data-action="probe"][data-id="acceptance"]');
+  if (!await connectionEditor.isVisible()) await page.locator('[data-action="connection-toggle"][data-id="acceptance"]').click();
   // Item 2px (a): Test is in the form; Edit opens it.
-  await page.locator('.connection-editor [data-action="probe"][data-id="acceptance"]').click();
+  await connectionEditor.click();
   // Item 2nb (g): ONE MESSAGE, ONE PLACE. The row header carries the STATE WORD, and
   // the sentence lives once in the editor under the field it is about. Before this the
   // row carried the whole message, which overflowed it and was also shown twice more.
@@ -1299,14 +1300,20 @@ if (realModel) {
   // Item 2gk: the page that was captured here is dissolved. Its two new homes
   // are captured instead, and the chat readout that carries this chat figures.
   await captureWithMasks(page, join(baselineDirectory, "settings-activity.png"));
-  assert.equal(await clickText(".settings-nav button", "Agents"), true);
+  assert.equal(await clickText(".settings-nav button", "Profiles"), true);
   await page.locator("#agents-panel").waitFor({ state: "visible" });
   await captureWithMasks(page, join(baselineDirectory, "settings-agents.png"));
   assert.equal(await clickText(".settings-nav button", "Connections"), true);
   await browser.wait(`document.querySelector('.settings-content')?.innerText.length > 0`, "Connections drawn");
+  await page.locator('[data-action="connection-toggle"]').first().click();
+  const profilePicker = page.locator('select[data-path$=".agent_profile"]').first();
+  await profilePicker.waitFor({ state: "visible" });
+  assert.equal((await profilePicker.locator("option").first().innerText()).trim(), "agent_b (default)");
   await captureWithMasks(page, join(baselineDirectory, "settings.png"));
-	assert.equal(await clickText(".settings-nav button", "Users"), true);
-	await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('active')`, "Users drawn");
+	assert.equal(await clickText(".settings-nav button", "Profiles"), true);
+	await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('active')`, "Profiles users drawn");
+	assert.deepEqual(await page.locator(".settings-content .settings-subhead").allInnerTexts(), ["Agent profiles", "Users", "Create user", "Skills", "Import from Hermes"]);
+	assert.equal(await page.locator('#agents-panel [data-field="connection"], #agents-panel [data-field="model"]').count(), 0);
 	await captureWithMasks(page, join(baselineDirectory, "settings-profiles.png"));
 	if (!realModel) {
 		assert.equal(await clickText(".settings-nav button", "About"), true);
@@ -1318,6 +1325,8 @@ if (realModel) {
   await page.getByTitle("Close").click();
   await page.locator(".shell-session-title").click();
   await page.locator(".shell-connection-menu").waitFor({ state: "visible" });
+  assert.equal(await page.locator(".shell-connection-choice").count(), (await state()).config.connections.length);
+  assert.ok((await page.locator(".shell-connection-choice").first().innerText()).includes((await state()).config.connections[0].model));
   await captureWithMasks(page, join(baselineDirectory, "profile-header.png"));
   await page.locator(".shell-session-title").click();
   const wizard = await edgeContext.newPage();
@@ -2048,7 +2057,7 @@ if (realModel) {
   // DRAWN IN THE PANE now, like every other section — no navigation, so the address
   // stays the Settings pattern and the gear is the sheet's own close, which it always
   // was for every other section.
-  assert.deepEqual(settingsSections.map((name) => name.trim()).slice(0, 3), ["Agents", "Activity", "Plan"]);
+  assert.deepEqual(settingsSections.map((name) => name.trim()).slice(0, 3), ["Activity", "Plan", "Connections"]);
   assert.equal(await page.locator('.settings-nav [data-id="plan"] img.shell-page-chip').count(), 1);
   assert.equal(await clickText(".settings-nav button", "Plan"), true);
   await browser.wait(`location.hash === '#settings/plan' && document.querySelector('#settings-page #plan-panel')`, "the Plan entry draws the Plan in the pane");
@@ -2397,9 +2406,10 @@ if (realModel) {
   await startFake(modelPort);
   await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
-  await page.locator('[data-action="connection-toggle"][data-id="acceptance"]').click();
+  const recoveryConnectionEditor = page.locator('.connection-editor [data-action="probe"][data-id="acceptance"]');
+  if (!await recoveryConnectionEditor.isVisible()) await page.locator('[data-action="connection-toggle"][data-id="acceptance"]').click();
   // Item 2px (a): Test is in the form; Edit opens it.
-  await page.locator('.connection-editor [data-action="probe"][data-id="acceptance"]').click();
+  await recoveryConnectionEditor.click();
   await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.reachable", "Settings Test model.reachable");
   await page.getByTitle("Close").click();
   assert.equal(await page.locator("#settings-page").isHidden(), true);
@@ -2600,7 +2610,7 @@ if (realModel) {
   // Fifty chats is the realistic-size list for 2rv and exceeds the engineering floor.
   const beforeLongList = await state();
   for (let index = 0; index < 50; index++) {
-    await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
+    await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ connection_id: "acceptance" }) });
   }
   await page.reload();
   await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 40);
@@ -2648,7 +2658,7 @@ if (realModel) {
   // row remains in the list and reopens when selected; no other chat closes.
   await page.setViewportSize({ width: 1250, height: 975 });
   const liveNow = await state();
-  const created = await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": liveNow.mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) });
+  const created = await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": liveNow.mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) });
   const idleCloseID = created.session?.id || created.id;
   assert.ok(idleCloseID, JSON.stringify(created));
   await json(`http://127.0.0.1:${appPort}/api/sessions/${idleCloseID}/close`, { method: "POST", headers: { "X-AgentB-Mutation-Token": liveNow.mutation_token } });
@@ -2775,7 +2785,7 @@ if (realModel) {
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": dState.mutation_token },
-    body: JSON.stringify({ agent_id: "acceptance", role: "d", plan_id: "browser-plan" }),
+    body: JSON.stringify({ agent_id: "agent_b", role: "d", plan_id: "browser-plan" }),
   });
   const boundD = boundCreated.session;
   // Item 2fc: the Plan page lists plans and shows one raw; the planning chat is
@@ -3010,8 +3020,8 @@ if (realModel) {
 
   // Item 2fc: runs queue per model connection. While one chat holds the connection,
   // another waits with the role it is behind, and Go refuses with the reason.
-  const holder = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
-  const waiter = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+  const holder = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
+  const waiter = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
   const post = async (id, message) => json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: id, text: message }) });
   await writeFile(planPath, markedPlan + "- [ ] 2x waits for the model\n");
   await writeFile(join(browserPlanDir, "plan", "items", "2x.md"), "state: live\nverify: echo verified\n\n# 2x\n");
@@ -3039,8 +3049,8 @@ if (realModel) {
     headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": cardPolicyState.mutation_token },
     body: JSON.stringify({ approval: { mode: "mutating" } }),
   });
-  const carded = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
-  const beside = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "acceptance" }) })).session;
+  const carded = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
+  const beside = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 	const pausedPlanDir = join(args.data, "paused-card-plan");
 	await mkdir(join(pausedPlanDir, "plan", "items"), { recursive: true });
 	await writeFile(join(pausedPlanDir, "plan.md"), "# Paused card plan\n");

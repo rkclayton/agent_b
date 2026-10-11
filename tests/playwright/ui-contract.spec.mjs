@@ -729,11 +729,11 @@ test("Activity's upper grid leaves no empty column at 1250px", async ({ page }) 
   expect(geometry.paneWidth, "Tool use does not take the width of the surface").toBeGreaterThan(700);
 });
 
-// Item 2ln (e): rel-1.15.0 card 8 said the Agents page leaves a column empty at
+// Item 2ln (e): rel-1.15.0 card 8 said the Profiles page leaves a column empty at
 // 1250px. [[2iq]] replaced that page with a role table in v1.16.0 and the card
 // was carried forward UNMEASURED. This measures it, which is how the item says
 // to close it: either the column is no longer empty, or it is fixed here.
-test("the Agents page leaves no empty column at 1250px", async ({ page }) => {
+test("the Profiles page leaves no empty column at 1250px", async ({ page }) => {
   await page.setViewportSize({ width: 1250, height: 900 });
   const agentsMarkup = (() => {
     const start = indexHTML.indexOf('<div id="agents-panel"');

@@ -22,9 +22,9 @@ const scopesSource = read("../../internal/config/scopes.go");
 // each one owns, and the key is still checked against Go -- so if either stops
 // being per-profile there, this fails rather than going quietly stale.
 const indirect = {
-  // The Agents page adopts a panel rather than rendering a settings page, and the
+  // The Profiles page adopts a panel rather than rendering a settings page, and the
   // panel writes config.agents (each agent's connection assignment).
-  agents: "agents",
+  profiles: "agents",
   // The Notifications page saves a DPAPI credential, and the profile's
   // notifications.discord_credential is the NAME it saves under -- so which
   // webhook the page is editing follows the profile even though the page never

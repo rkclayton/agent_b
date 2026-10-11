@@ -12,7 +12,7 @@ test("the switcher row names the model, not only the label", () => {
   // operator is choosing between.
   const row = shell.slice(shell.indexOf("function renderConnectionMenu"), shell.indexOf("row.onclick"));
   assert.match(row, /shell-connection-model/);
-  assert.match(row, /agent\.model \|\| connection\.model/);
+  assert.match(row, /String\(connection\.model \|\| ""\)/);
 });
 
 test("a path is shown by its basename, with the whole string on hover", () => {

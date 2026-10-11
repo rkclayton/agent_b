@@ -347,6 +347,18 @@ func TestRestoreKeepsThreeChatBindingsAndFallsBackOnlyWhenEmpty(t *testing.T) {
 			t.Fatalf("restore %s = connection %q runnable=%v reason=%q", row.id, got.ConnectionID, got.Runnable, got.NotRunnableReason)
 		}
 	}
+	duplicate := &config.Connection{ID: "server-reviewer", Label: "Acmeholding · Reviewer", AgentProfile: "reviewer", Model: "main", Context: config.Context{NCtx: 32768}}
+	connections[duplicate.ID] = duplicate
+	cfg.Connections = []config.Connection{*connections["server"], *duplicate}
+	cfg.Agents = []config.Agent{{Name: "agent_b", Toolset: config.FullToolset()}, {Name: "Reviewer", Toolset: []string{"read_file"}}}
+	migrated := Snapshot{ID: "migrated-shared", AgentID: "reviewer", ConnectionID: "server", Role: "b", CreatedAt: created, Workspace: t.TempDir(), Runnable: true, Run: RunState{Status: "idle"}}
+	restored, err := registry.Restore(migrated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := restored.Snapshot(); got.ConnectionID != duplicate.ID || got.AgentID != "reviewer" {
+		t.Fatalf("shared legacy chat restored to connection=%q profile=%q", got.ConnectionID, got.AgentID)
+	}
 }
 
 func TestRestoreUnknownConnectionIsNeverRunnable(t *testing.T) {

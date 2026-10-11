@@ -1105,8 +1105,11 @@ func TestSchema4ModelConnectionsMigrateWithUTF8BOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !migrated || loaded.ConfigVersion != CurrentConfigVersion || len(loaded.Agents) != 1 || loaded.Agents[0].B != "acme" || loaded.Agents[0].C != "" {
+	if !migrated || loaded.ConfigVersion != CurrentConfigVersion || len(loaded.Agents) != 1 || loaded.Agents[0].B != "" || loaded.Agents[0].C != "" {
 		t.Fatalf("migrated=%t version=%d agents=%+v", migrated, loaded.ConfigVersion, loaded.Agents)
+	}
+	if profile, ok := loaded.ProfileForConnection("acme"); !ok || AgentID(profile.Name) != "agent_b" {
+		t.Fatalf("acme profile=%+v ok=%t", profile, ok)
 	}
 	if loaded.Connections[1].Context.NCtx != 16384 || loaded.Connections[1].Capabilities.NCtx != 32768 {
 		t.Fatalf("connection context=%+v capabilities=%+v", loaded.Connections[1].Context, loaded.Connections[1].Capabilities)
@@ -1132,8 +1135,8 @@ func TestAgentConnectionsUseLetteredSlots(t *testing.T) {
 	c.ID, c.Label = "small", "Small"
 	cfg.Connections = append(cfg.Connections, c)
 	cfg.Agents[0].C = "small"
-	agent, ok := cfg.Agent("local")
-	if !ok || agent.B != "local" || agent.C != "small" || agent.D != "" {
+	agent, ok := cfg.ProfileForConnection("local")
+	if !ok || AgentID(agent.Name) != "agent_b" || agent.B != "" || agent.C != "small" || agent.D != "" {
 		t.Fatalf("lettered agent=%+v ok=%t", agent, ok)
 	}
 }

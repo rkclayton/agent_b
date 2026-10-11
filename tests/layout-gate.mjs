@@ -70,7 +70,7 @@ export function collectLayoutSnapshot(rootSelector = "body") {
   const scrolls = scrollNodes.map((node, index) => { const style = getComputedStyle(node); return { id: node === page ? "page" : identity(node, index), box: node === page ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight, width: innerWidth, height: innerHeight } : rect(node), horizontal: node.scrollWidth > node.clientWidth + 1 && (node === page || /^(auto|scroll|overlay)$/.test(style.overflowX)) }; });
   const groups = [...root.querySelectorAll(".connection-fieldset")].map((node, index) => ({ id: identity(node, index), rows: [...node.querySelectorAll(":scope > .setting-row")].filter(visible).map((row) => ({ label: rect(row.querySelector(":scope > label")), control: rect(row.querySelector(":scope > div")), controlHeights: [...row.querySelectorAll(":scope > div input,:scope > div select,:scope > div textarea,:scope > div button")].filter(visible).map((control) => rect(control).height) })) })).filter(({ rows }) => rows.length > 1);
   const gaps = [];
-  for (const group of root.querySelectorAll(".settings-actions,.connection-actions")) { const children = [...group.children].filter(visible).sort((a, b) => rect(a).top - rect(b).top || rect(a).left - rect(b).left); for (let index = 1; index < children.length; index++) if (Math.abs(rect(children[index]).top - rect(children[index - 1]).top) <= 1) gaps.push({ id: identity(group), value: Math.round(rect(children[index]).left - rect(children[index - 1]).right), compound: group.classList.contains("connection-actions") }); }
+  for (const group of root.querySelectorAll(".settings-actions,.connection-actions")) { const children = [...group.children].filter(visible).sort((a, b) => { const first = rect(a), second = rect(b); return Math.abs(first.top - second.top) <= 1 ? first.left - second.left : first.top - second.top; }); for (let index = 1; index < children.length; index++) if (Math.abs(rect(children[index]).top - rect(children[index - 1]).top) <= 1) gaps.push({ id: identity(group), value: Math.round(rect(children[index]).left - rect(children[index - 1]).right), compound: group.classList.contains("connection-actions") }); }
   return { viewport: { width: innerWidth, height: innerHeight }, elements, scrolls, groups, gaps };
 }
 
@@ -120,7 +120,7 @@ async function capture(exe, evidence) {
   await mkdir(root, { recursive: true });
   const harness = await start({ exe: resolve(exe), appRoot: resolve("."), data: join(temp, "data"), modelIDs: ["model-alpha", "model-beta", "model-gamma"], agents: ["Private fixture"] });
   const report = { schema: 1, results: [], reviews: [], other_page_failures: [] };
-  const captureState = async (page, pageName, state, size, blocking = pageName === "Connections" || pageName === "Agents") => {
+  const captureState = async (page, pageName, state, size, blocking = pageName === "Connections" || pageName === "Profiles") => {
     const file = join(root, `${safe(pageName)}-${safe(state)}-${size.name}.png`);
     await page.screenshot({ path: file, animations: "disabled" });
     const snapshot = await page.evaluate(collectLayoutSnapshot, ".settings-content");
@@ -133,19 +133,19 @@ async function capture(exe, evidence) {
       const page = await harness.context.newPage();
       await page.setViewportSize(size);
       await openSettings(page, harness.base);
-      for (const pageName of ["Agents", "Activity", "Plan", "Users", "Chats", "Notifications", "Security", "About"]) {
+      for (const pageName of ["Activity", "Plan", "Profiles", "Chats", "Notifications", "Security", "About"]) {
         await page.locator(".settings-nav button", { hasText: pageName, exact: true }).click();
-        if (pageName === "Agents") {
-          await captureState(page, pageName, "agent-b", size);
+        if (pageName === "Profiles") {
+          await captureState(page, pageName, "rest", size);
           await page.locator("#panel-agent").selectOption({ label: "Private fixture" });
           await page.locator('.settings-content [data-field="private"]').waitFor();
-          await captureState(page, pageName, "added-agent", size);
+          await captureState(page, pageName, "open-profile", size);
         } else await captureState(page, pageName, "rest", size, false);
       }
       await page.locator('.settings-nav [data-id="connections"]').click();
-      await captureState(page, "Connections", "list", size);
+      await captureState(page, "Connections", "rest", size);
       await page.locator('[data-action="connection-toggle"]').first().click();
-      await captureState(page, "Connections", "row-open", size);
+      await captureState(page, "Connections", "open-profile-field", size);
       await page.locator(".connection-defaults summary").click();
       await captureState(page, "Connections", "defaults-open", size);
       await page.route("**/api/connections/*/probe", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "fixture refusal", field: "connections.ui.base_url" }) }));

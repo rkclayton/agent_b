@@ -125,13 +125,13 @@ test("Stop follows the selected chat from each page-local lower control", () => 
   assert.doesNotMatch(chat+consoleApp+plan, /all:\s*true/);
 });
 
-test("top-right label is the per-chat agent switcher", () => {
-  assert.match(shell, /button\("", "Switch agent", "shell-session-title"\)/);
-  assert.match(shell, /for \(const agent of store\.config\.agents \|\| \[\]\)/);
-  assert.match(shell, /agent\.model \|\| connection\.model/);
-  assert.match(shell, /escapeHTML\(agent\.name\)/);
+test("top-right label is the per-chat connection switcher", () => {
+  assert.match(shell, /button\("", "Switch connection", "shell-session-title"\)/);
+  assert.match(shell, /for \(const connection of store\.connections \|\| store\.config\.connections \|\| \[\]\)/);
+  assert.match(shell, /String\(connection\.model \|\| ""\)/);
+  assert.match(shell, /escapeHTML\(connection\.label \|\| id\)/);
   assert.match(shell, /connectionState\(connection, session\)/);
-  assert.match(shell, /api\(`\/api\/sessions\/\$\{encodeURIComponent\(current\.id\)\}`, \{ agent_id: id \}\)/);
+  assert.match(shell, /api\(`\/api\/sessions\/\$\{encodeURIComponent\(current\.id\)\}`, \{ connection_id: id \}\)/);
   assert.doesNotMatch(shell, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentID\)\}\/connection`/);
   assert.match(shell, /session\.runnable === false \? \(notRunnableReason \|\| "Chat is not runnable"\) : sessionTitle\(session\)/);
   assert.match(shell, /"No chat selected"/);

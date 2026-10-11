@@ -6,9 +6,9 @@ const connectionIcons = {
   trash: '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M6 2h4v1h3v1H3V3h3V2Zm-2 3h8l-.7 9H4.7L4 5Zm2.2 1 .4 7h1V6H6.2Zm3.6 0H8.8v7h1l.4-7Z"/></svg>',
 };
 
-let expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup;
+let expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, agentProfiles, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup;
 function useSettingsContext(context) {
-  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup } = context);
+  ({ expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, connectionList, agentProfiles, row, subhead, text, number, numberControl, textarea, secret, toggle, choices, connectionReason, html, attr, store, errorMarkup } = context);
 }
 
 export function connectionFailureSentence(message, address) {
@@ -146,6 +146,12 @@ function memoryFinding() {
 function connectionFields(connection, reason, discovery) {
   const id = connection.id;
   const p = `connections.${id}`;
+	const profilePath = `${p}.agent_profile`;
+	const selectedProfile = String(drafts.has(profilePath) ? drafts.get(profilePath) : connection.agent_profile || "");
+	const profileOptions = [`<option value="" ${selectedProfile ? "" : "selected"}>agent_b (default)</option>`]
+	  .concat((agentProfiles?.() || []).filter((profile) => String(profile.name || "").toLowerCase() !== "agent_b")
+	    .map((profile) => { const value = String(profile.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); return `<option value="${attr(value)}" ${selectedProfile === value ? "selected" : ""}>${html(profile.name)}</option>`; }));
+	const profileControl = row("agent profile", `<select class="setting-input" data-path="${attr(profilePath)}" data-kind="text">${profileOptions.join("")}</select>`, "", false);
   const draftModel = drafts.has(`${p}.model`) ? String(drafts.get(`${p}.model`)).trim() : null;
   const shownModel = draftModel ?? (connection.model || "").trim();
   const modelSettings = (connection.models || []).find((item) => item.model === shownModel) || discovery?.modelDefaults?.[shownModel];
@@ -253,6 +259,7 @@ function connectionFields(connection, reason, discovery) {
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${probing ? "disabled" : ""}>${probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
     ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}
+    ${profileControl}
     ${secret(`${p}.api_key`, "key", connection.api_key, id, false)}
 	${modelControl}${contextControl}${thinkingControl}${imageControl}
 	${row("", primaryActions, "connection-primary-row", false)}${discoveryNote}</div>

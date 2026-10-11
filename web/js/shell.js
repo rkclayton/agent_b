@@ -95,7 +95,7 @@ export function initShell(options = {}) {
 
   const right = node("div", "shell-right");
   const sessionActivity = node("time", "shell-session-activity");
-  const sessionHeading = button("", "Switch agent", "shell-session-title");
+  const sessionHeading = button("", "Switch connection", "shell-session-title");
 	let headerTelemetry = "";
   const connectionMenu = node("div", "shell-menu shell-connection-menu");
   connectionMenu.hidden = true;
@@ -168,30 +168,29 @@ export function initShell(options = {}) {
     return connectionHealth(store, connection.id).word;
   }
 
-  let pendingNewAgent = "agent_b";
+  let pendingNewConnection = "";
   function renderConnectionMenu() {
     const session = store.sessions[store.selection.session_id];
     connectionMenu.replaceChildren();
     const user = node("span", "shell-menu-empty");
     user.textContent = `User · ${store.profiles?.active || store.config.profiles?.active || "unknown"}`;
     connectionMenu.append(user);
-    for (const agent of store.config.agents || []) {
-      const id = agentKey(agent);
-      const connection = (store.connections || store.config.connections || []).find((value) => value.id === agent.b) || {};
-      const rawModel = String(agent.model || connection.model || "").trim();
+    for (const connection of store.connections || store.config.connections || []) {
+      const id = connection.id;
+      const rawModel = String(connection.model || "").trim();
       const named = rawModel && rawModel !== "model";
       const modelLabel = named ? rawModel.split(/[\/]/).pop() : "not tested";
-      const row = button("", `Use ${agent.name}`, `shell-connection-choice ${(session?.agent_id || pendingNewAgent) === id ? "selected" : ""}`);
-      row.innerHTML = `<span>${escapeHTML(agent.name)}</span>`
+      const row = button("", `Use ${connection.label || id}`, `shell-connection-choice ${(session?.connection_id || pendingNewConnection) === id ? "selected" : ""}`);
+      row.innerHTML = `<span>${escapeHTML(connection.label || id)}</span>`
         + `<span class="shell-connection-model${named ? "" : " shell-connection-untested"}" title="${escapeHTML(named ? rawModel : "this agent's model has not been tested")}">${escapeHTML(modelLabel)}</span>`
         + `<span>${escapeHTML(connectionState(connection, session))}</span>`;
       row.onclick = async () => {
         try {
           const current = store.sessions[store.selection.session_id];
           if (current) {
-            await api(`/api/sessions/${encodeURIComponent(current.id)}`, { agent_id: id });
+            await api(`/api/sessions/${encodeURIComponent(current.id)}`, { connection_id: id });
             reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          } else pendingNewAgent = id;
+          } else pendingNewConnection = id;
           connectionMenu.hidden = true;
           sessionHeading.setAttribute("aria-expanded", "false");
         } catch (error) { report(error.message); }
@@ -488,10 +487,11 @@ export function initShell(options = {}) {
   async function createChat(agentID = "agent_b", configured = null) {
     const source = store.sessions[store.selection.session_id] || Object.values(store.sessions).sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0))[0];
     try {
-      const configuredID = configured ? agentKey(configured) : pendingNewAgent || agentKey(configuredAgent(source));
+      const configuredID = configured ? agentKey(configured) : agentKey(configuredAgent(source));
+	  const connectionID = pendingNewConnection || source?.connection_id || (store.connections || store.config.connections || [])[0]?.id || "";
       const body = agentID === "agent_d"
         ? { agent_id: configuredID, role: "d" }
-        : { agent_id: configuredID };
+        : { connection_id: connectionID };
       const result = await api("/api/sessions", body);
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       setSelection(agentID, result.session.id);

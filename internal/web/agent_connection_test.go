@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -63,11 +64,11 @@ func TestAgentConnectionChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "first request did not reach original server")
-	response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"set","connection_id":"new"}`)
+	response := postSessionUpdate(t, fixture.server, `{"connection_id":"new"}`)
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
-	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != fixture.oldID {
+	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != "" {
 		t.Fatalf("binding changed during run: %s", got)
 	}
 	if got := fixture.session.Snapshot().ConnectionID; got != fixture.oldID {
@@ -76,7 +77,7 @@ func TestAgentConnectionChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 
 	close(releaseOld)
 	waitFor(t, func() bool {
-		return !fixture.scheduler.Active(fixture.session.ID) && fixture.server.ConfigSnapshot().Agents[0].B == fixture.newID
+		return !fixture.scheduler.Active(fixture.session.ID) && fixture.session.Snapshot().ConnectionID == fixture.newID
 	}, "pending binding was not applied at idle")
 	if got := fixture.session.Snapshot().ConnectionID; got != fixture.newID {
 		t.Fatalf("session binding=%s, want %s", got, fixture.newID)
@@ -115,7 +116,7 @@ func TestAgentConnectionChangeAppliesAfterStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "request did not reach original server")
-	if response := postAgentConnection(t, fixture.server, fixture.session.AgentID, `{"action":"set","connection_id":"new"}`); response.Code != http.StatusAccepted {
+	if response := postSessionUpdate(t, fixture.server, `{"connection_id":"new"}`); response.Code != http.StatusAccepted {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
 	eventStream, unsubscribe := fixture.server.bus.Subscribe()
@@ -128,7 +129,7 @@ func TestAgentConnectionChangeAppliesAfterStop(t *testing.T) {
 	waitEventType(t, eventStream, events.RunStopping, "run did not enter stopping state")
 	close(releaseOld)
 	waitSignal(t, stopDone, "STOP did not finish")
-	waitFor(t, func() bool { return fixture.server.ConfigSnapshot().Agents[0].B == fixture.newID }, "STOP did not apply pending binding")
+	waitFor(t, func() bool { return fixture.session.Snapshot().ConnectionID == fixture.newID }, "STOP did not apply pending binding")
 }
 
 func TestAgentConnectionChangeCanBeCancelled(t *testing.T) {
@@ -166,7 +167,7 @@ func TestAgentConnectionChangeCanBeCancelled(t *testing.T) {
 	}
 	close(releaseOld)
 	waitFor(t, func() bool { return !fixture.scheduler.Active(fixture.session.ID) }, "run did not finish")
-	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != fixture.oldID {
+	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != "" {
 		t.Fatalf("cancelled binding changed to %s", got)
 	}
 }
@@ -187,8 +188,9 @@ func newAgentConnectionFixture(t *testing.T, oldURL, newURL string) agentConnect
 	oldConnection.BaseURL, oldConnection.RequestTimeoutS = oldURL, 30
 	newConnection := runnableTestConnection("new")
 	newConnection.BaseURL, newConnection.RequestTimeoutS = newURL, 30
+	oldConnection.AgentProfile, newConnection.AgentProfile = "coder", "coder"
 	cfg.Connections = []config.Connection{oldConnection, newConnection}
-	cfg.Agents = []config.Agent{{Name: "Coder", B: oldConnection.ID, Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{{Name: "Coder", Toolset: config.FullToolset()}}
 	configPath := filepath.Join(root, "harness.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
@@ -303,8 +305,8 @@ func TestEveryRoleIsAssignable2ln(t *testing.T) {
 	}
 
 	// (c): clearing a role is a valid state, not an error.
-	if response := postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"c","connection_id":""}`); response.Code != http.StatusBadRequest {
-		t.Fatalf("an empty connection_id is still refused by the route's own contract: status=%d", response.Code)
+	if response := postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"c","connection_id":""}`); response.Code != http.StatusOK {
+		t.Fatalf("clearing c status=%d body=%s", response.Code, response.Body)
 	}
 
 	// (d): a role the agent does not have is refused BY THE ROUTE, not only
@@ -313,8 +315,8 @@ func TestEveryRoleIsAssignable2ln(t *testing.T) {
 		t.Fatalf("fixture unexpectedly has a d role: %q", got)
 	}
 	response = postAgentConnection(t, fixture.server, agentID, `{"action":"set","role":"d","connection_id":"new"}`)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "no d role") {
-		t.Fatalf("assigning to an absent d must be refused: status=%d body=%s", response.Code, response.Body)
+	if response.Code != http.StatusOK || fixture.server.ConfigSnapshot().Agents[0].D != "new" {
+		t.Fatalf("assigning d: status=%d body=%s", response.Code, response.Body)
 	}
 
 	// An unknown role is refused too.
@@ -324,7 +326,7 @@ func TestEveryRoleIsAssignable2ln(t *testing.T) {
 
 	// b keeps its own path: no role named means b, which is how the strip's
 	// switcher has always called this route.
-	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != fixture.oldID {
+	if got := fixture.server.ConfigSnapshot().Agents[0].B; got != "" {
 		t.Fatalf("b moved while c was being set: %q", got)
 	}
 }
@@ -352,6 +354,9 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	fixture := newAgentConnectionFixture(t, model.URL, model.URL)
 	fixture.server.mu.Lock()
 	fixture.server.cfg.Agents[0].Name = "agent_b"
+	for index := range fixture.server.cfg.Connections {
+		fixture.server.cfg.Connections[index].AgentProfile = ""
+	}
 	if err := fixture.server.saveProfileConfig(*fixture.server.cfg); err != nil {
 		fixture.server.mu.Unlock()
 		t.Fatal(err)
@@ -374,13 +379,16 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	if result := post(`{"action":"duplicate","source_id":"research","name":"Copy"}`); result.Code != http.StatusOK {
 		t.Fatalf("duplicate=%d %s", result.Code, result.Body)
 	}
-	if result := post(`{"action":"update","id":"copy","name":"Analyst","connection_id":"new","model":"fixture-model","prompt":"begin here","tools":["read_file"],"private":true}`); result.Code != http.StatusOK {
+	if result := post(`{"action":"update","id":"copy","name":"Analyst","prompt":"begin here","tools":["read_file"],"private":true}`); result.Code != http.StatusOK {
 		t.Fatalf("rename=%d %s", result.Code, result.Body)
 	}
 	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Prompt != "begin here" || !agent.Private || len(agent.Toolset) != 1 {
 		t.Fatalf("renamed agent=%#v, %v", agent, ok)
 	}
-	if err := fixture.server.registry.SetAgent(fixture.session.ID, "research"); err != nil {
+	if result := postConfigPatch(t, fixture.server, `{"connections":[{"id":"old","agent_profile":"research"}]}`); result.Code != http.StatusOK {
+		t.Fatalf("assign profile=%d %s", result.Code, result.Body)
+	}
+	if err := fixture.server.registry.SetConnection(fixture.session.ID, "old"); err != nil {
 		t.Fatal(err)
 	}
 	if result := post(`{"action":"update","id":"agent_b","name":"renamed"}`); result.Code != http.StatusBadRequest {
@@ -395,7 +403,36 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	if result := post(`{"action":"delete","id":"research"}`); result.Code != http.StatusOK {
 		t.Fatalf("delete=%d %s", result.Code, result.Body)
 	}
+	if got := fixture.session.Snapshot().AgentID; got != "research" {
+		t.Fatalf("profile changed before the next message: %q", got)
+	}
+	eventStream, unsubscribe := fixture.server.bus.Subscribe()
+	defer unsubscribe()
+	if _, err := fixture.scheduler.Submit(context.Background(), fixture.session.ID, "after deletion"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return !fixture.scheduler.Active(fixture.session.ID) }, "post-delete run did not finish")
 	if got := fixture.session.Snapshot().AgentID; got != "agent_b" {
 		t.Fatalf("chat agent=%q", got)
+	}
+	foundNotice := false
+	for draining := true; draining; {
+		select {
+		case event := <-eventStream:
+			encoded, _ := json.Marshal(event.Data)
+			foundNotice = foundNotice || strings.Contains(string(encoded), "Agent profile deleted; using agent_b.")
+		default:
+			draining = false
+		}
+	}
+	if !foundNotice {
+		t.Fatal("next message did not say that the deleted profile fell back to agent_b")
+	}
+	reloaded, _, _, err := config.Load(fixture.server.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection, ok := reloaded.Connection("old"); !ok || connection.AgentProfile != "" {
+		t.Fatalf("deleted profile survived restart on connection: %+v", connection)
 	}
 }

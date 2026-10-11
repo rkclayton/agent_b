@@ -95,26 +95,30 @@ func (r *Runner) Configure(cfg config.Config) {
 
 func (r *Runner) refreshAgent(s *session.Session) (*config.Connection, bool) {
 	snapshot := s.Snapshot()
-	if snapshot.AgentID == "" {
-		return r.connection(snapshot.ConnectionID)
+	connection, ok := r.connection(snapshot.ConnectionID)
+	if !ok {
+		return nil, false
 	}
 	cfg := r.cfg()
-	agent, ok := cfg.Agent(snapshot.AgentID)
-	if !ok {
-		agent, ok = cfg.Agent("agent_b")
-		if !ok {
-			return nil, false
+	agentID := snapshot.AgentID
+	agent, ok := cfg.Agent(agentID)
+	if snapshot.Role == "" || snapshot.Role == "b" {
+		agent, ok = cfg.ProfileForConnection(snapshot.ConnectionID)
+		if snapshot.AgentID == "" || !ok {
+			// Direct runner fixtures and released callers can provide a connection
+			// without a complete Config. Routing remains connection-authoritative;
+			// only profile refresh is unavailable in that compatibility case.
+			return connection, true
 		}
+		agentID = config.AgentID(agent.Name)
+	} else if !ok {
+		return nil, false
 	}
-	connection, ok := r.agentConnection(agent, snapshot.Role)
-	if !ok {
-		connection, ok = r.connection(snapshot.ConnectionID)
-		if !ok {
-			return nil, false
-		}
-		return connection, true
+	changedProfile := snapshot.AgentID != "" && snapshot.AgentID != agentID
+	s.ApplyAgentConfig(agentID, *agent, *connection)
+	if changedProfile && agentID == "agent_b" {
+		r.bus.Publish(events.New(events.SessionUpdated, snapshot.ID, "", map[string]any{"session_id": snapshot.ID, "agent_id": agentID, "connection_id": snapshot.ConnectionID, "notice": "Agent profile deleted; using agent_b."}))
 	}
-	s.ApplyAgentConfig(config.AgentID(agent.Name), *agent, *connection)
 	return connection, true
 }
 
@@ -131,16 +135,7 @@ func (r *Runner) agentConnection(agent *config.Agent, role string) (*config.Conn
 }
 
 func (r *Runner) currentConnection(s *session.Session) (*config.Connection, bool) {
-	snapshot := s.Snapshot()
-	if snapshot.AgentID == "" {
-		return r.connection(snapshot.ConnectionID)
-	}
-	if agent, ok := r.cfg().Agent(snapshot.AgentID); ok {
-		if connection, ok := r.agentConnection(agent, snapshot.Role); ok {
-			return connection, true
-		}
-	}
-	return r.connection(snapshot.ConnectionID)
+	return r.connection(s.Snapshot().ConnectionID)
 }
 func (r *Runner) Gate() *Gate                     { return r.gate }
 func (r *Runner) SetToolActivity(fn func(string)) { r.toolActivity = fn }

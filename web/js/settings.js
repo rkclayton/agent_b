@@ -90,11 +90,10 @@ const connectionList = () => Array.isArray(store.connections) ? store.connection
 // the operator opened this sheet to read and before the machine settings, which is
 // where a document he writes in belongs.
 const sectionLabels = [
-  ["agents", "Agents"],
   ["activity", "Activity"],
   ["plan", "Plan"],
   ["connections", "Connections"],
-  ["profiles", "Users"],
+  ["profiles", "Profiles"],
   ["chats", "Chats"],
   ["notifications", "Notifications"],
   ["shell", "Security"],
@@ -236,6 +235,7 @@ export function openSettings(section = "") {
     probeMessages.clear();
     errorPanel = "";
   }
+  if (section === "agents" || section === "users") section = "profiles";
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
   notePage(activeSection);
   if (section === "plan") planRequestedByAddress = true;
@@ -335,7 +335,6 @@ function render() {
   const content = {
     // The two adopted panels are drawn by app.js, not here: this leaves the
     // seat and the nodes are moved into it below.
-    agents: () => '<div data-adopt="agents-panel"></div>',
     activity: () => '<div data-adopt="activity-panel"></div>',
     // Item 2ni (a) and (b): the Plan page is its own document, so the entry NAVIGATES
     // there and this body is only what is shown when it cannot. The availability rule
@@ -491,7 +490,7 @@ function settingsPageContext(active) {
     brokerStatus, brokerMessage, brokerAlarm,
     credentialList, credentialMessage, credentialAlarm, credentialDevice,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
-    hardeningAlarm, connectionList,
+    hardeningAlarm, connectionList, agentProfiles: () => store.config.agents || [],
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
     row, subhead, field, text, number, numberControl, textarea, secret, toggle, choices, selectSetting, approvalChoices,
     copyRow, currentValue, issue, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView, errorMarkup,
@@ -533,7 +532,7 @@ function controlKey(node) {
 // in sectionLabels and so cannot be the active section at all -- and left Agents
 // and Notifications, which an operator reaches from the nav, saying nothing. The
 // test was written second and found it.
-export const perProfileSections = new Set(["chats", "agents", "notifications"]);
+export const perProfileSections = new Set(["chats", "profiles", "notifications"]);
 
 // Item 2ni (b): the AVAILABILITY RULE, moved with the Plan and not widened. It is
 // the rule the tab carried: the Plan is offered on a planner chat, or when no
@@ -580,7 +579,7 @@ function planSection() {
   // what the entry shows when he arrives at it from the nav on a chat that cannot
   // plan (item 2ni (b), kept by 2no (e)).
   if (planAvailable() || planRequestedByAddress) return '<div data-adopt="plan-panel"></div>';
-  return `<p class="settings-plan-note">Assign a planner in Agents to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
+  return `<p class="settings-plan-note">Assign a planner in Profiles to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
 }
 
 // Item 2ni: hiding the Plan hides its ENTRY, which is the user's own choice

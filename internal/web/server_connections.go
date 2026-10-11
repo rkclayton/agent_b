@@ -209,7 +209,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// rather than on a page nobody aimed at.
 		if holder := agentRoleHolding(s.cfg.Agents, tail); holder != "" {
 			s.mu.Unlock()
-			writeError(w, 409, "assigned to "+holder+" — change that assignment on the Agents page, then remove this connection", "connections."+tail)
+			writeError(w, 409, "assigned to "+holder+" — change that assignment on the Profiles page, then remove this connection", "connections."+tail)
 			return
 		}
 		if len(s.cfg.Connections) == 1 {

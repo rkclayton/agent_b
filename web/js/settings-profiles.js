@@ -8,7 +8,7 @@ export function renderProfilesPage(context) {
     const active = name === state.active;
     return `<div class="setting-row profile-row" title="Switch or rename this user.">
       <label>${html(name)}${active ? " · active" : ""}</label>
-      <div class="settings-actions">
+      <div class="settings-actions profile-user-actions">
         <button type="button" data-action="switch-profile" data-id="${attr(name)}" ${active ? "disabled" : ""}>Switch</button>
         <input id="rename-profile-${attr(name)}" value="${attr(name)}" aria-label="Rename ${attr(name)}">
         <button type="button" data-action="rename-profile" data-id="${attr(name)}">Rename</button>
@@ -29,13 +29,13 @@ export function renderProfilesPage(context) {
   const hermesRows = (hermesPreview?.rows || []).map((row) => `<tr class="hermes-row"><td><strong>${html(row.name)}</strong></td><td>${html(row.kind)}</td><td>${html(row.detail)}${row.bytes ? ` · ${row.bytes} bytes` : ""}${(row.calls || []).length ? ` · unmapped ${html(row.calls.join(", "))}` : ""}</td><td>${row.selectable ? `<button type="button" role="switch" aria-checked="${!!row.included}" class="switch ${row.included ? "on" : ""}" data-action="hermes-toggle" data-id="${attr(row.id)}"></button>` : "excluded"}</td></tr>`).join("");
   const hermesPreviewBlock = hermesPreview ? `<p class="settings-note inline">${hermesPreview.secret_count || 0} secret names found · values are not read</p><table class="hermes-preview"><thead><tr><th>item</th><th>kind</th><th>preview</th><th>include</th></tr></thead><tbody>${hermesRows}</tbody></table><div class="setting-row"><label>preview only · nothing written</label><div><button type="button" data-action="hermes-confirm">Import selected</button></div></div>` : "";
   const hermesReportBlock = hermesReport ? `<p class="settings-note inline hermes-report">${html(hermesReport.message)}${(hermesReport.rewritten || []).length ? ` · rewritten ${html(hermesReport.rewritten.join(", "))}` : ""}${(hermesReport.unresolved || []).length ? ` · unmapped ${html(hermesReport.unresolved.join(", "))}` : ""}${(hermesReport.cut || []).length ? ` · trimmed ${html(hermesReport.cut.join(", "))}` : ""}</p>` : "";
-  return `${rows || '<p class="settings-note inline">No users configured.</p>'}
+  return `${subhead("Agent profiles")}<div data-adopt="agents-panel"></div>${memory}
+    ${subhead("Users")}${rows || '<p class="settings-note inline">No users configured.</p>'}
     ${subhead("Create user", "Creates an empty user; connections remain shared.")}
-    <div class="setting-row" title="Create an empty user; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>
+    <div class="setting-row profile-create-row" title="Create an empty user; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions profile-create-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>
     ${subhead("Skills", "Skills are on when added; use the switch to turn one off. Their scripts use the ordinary approval policy.")}
     ${skills || '<p class="settings-note inline">No skills found.</p>'}
-    <div class="setting-row" title="Import one skill folder or ZIP archive into this user."><label for="skill-import-path">folder to import</label><div class="settings-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>
+    <div class="setting-row profile-skill-import-row" title="Import one skill folder or ZIP archive into this user."><label for="skill-import-path">folder to import</label><div class="settings-actions profile-skill-import-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>
     ${subhead("Import from Hermes", "Preview memory, skills and excluded data before anything is written.")}
-    <div class="setting-row" title="Choose the Hermes folder to preview before importing memory and skills into this user."><label for="hermes-import-path">Hermes folder</label><div class="settings-actions"><input id="hermes-import-path" value="${attr(actionDrafts?.get?.("hermes-import-path") || "~/.hermes")}"><button type="button" data-action="hermes-preview">Import from Hermes</button></div></div>${hermesPreviewBlock}${hermesReportBlock}
-    ${subhead("Agent memory", "Durable notes loaded by every chat of this agent. Remove deletes only the named entry.")}${memory}`;
+    <div class="setting-row profile-hermes-row" title="Choose the Hermes folder to preview before importing memory and skills into this user."><label for="hermes-import-path">Hermes folder</label><div class="settings-actions profile-hermes-actions"><input id="hermes-import-path" value="${attr(actionDrafts?.get?.("hermes-import-path") || "~/.hermes")}"><button type="button" data-action="hermes-preview">Import from Hermes</button></div></div>${hermesPreviewBlock}${hermesReportBlock}`;
 }

@@ -120,6 +120,12 @@ if ($candidateState -notmatch 'function Invoke-AgentBInstallerQuestion' -or
 if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'signing-report\.json') {
     throw 'Deploy does not report/recover a matching stale candidate or relay the signing identity.'
 }
+foreach ($required in @('ResumeStagedCandidate', 'Assert-RetainedStagedCandidate', 'RESUMED CANDIDATE')) {
+    if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy cannot continue a retained staged candidate: missing $required." }
+}
+foreach ($required in @('function Assert-RetainedStagedCandidate', 'exe_sha256', 'setup_sha256', 'Get-FileHash', "Status -cne 'Valid'")) {
+    if ($candidateState -notmatch [regex]::Escape($required)) { throw "Retained candidate validation is incomplete: missing $required." }
+}
 foreach ($required in @('candidate-final.json', 'Agent_b.exe', 'Agent_b-setup.exe', 'setup_sha256', 'setup_bytes', 'Get-AuthenticodeSignature', 'TimeStamperCertificate', 'DEPLOY REFUSED')) {
     if ($verify -notmatch [regex]::Escape($required)) { throw "Deploy verifier does not require $required." }
 }

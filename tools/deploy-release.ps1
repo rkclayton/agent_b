@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^v\d+\.\d+\.\d+$')][string]$Tag,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9A-Fa-f ]+$')][string]$SigningThumbprint
+    [string]$SigningThumbprint = '',
+    [switch]$ResumeStagedCandidate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,6 +41,11 @@ $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)
 if ($commitExit -ne 0 -or $commit.Trim() -notmatch '^[0-9a-fA-F]{40}$') { throw "DEPLOY REFUSED: tag $Tag does not resolve to a commit." }
 $commit = $commit.Trim().ToLowerInvariant()
+if ($ResumeStagedCandidate) {
+    Assert-RetainedStagedCandidate -Candidate $candidate -ExpectedTag $Tag -ExpectedCommit $commit
+    Write-Host "RESUMED CANDIDATE: retained signed $Tag at $commit; staging, signing, and completed gates were not repeated"
+} else {
+if ($SigningThumbprint -notmatch '^[0-9A-Fa-f ]+$') { throw 'DEPLOY REFUSED: a signing thumbprint is required for a new candidate.' }
 $headOutput = @(& git -C $repository rev-parse HEAD 2>&1)
 $headExit = $LASTEXITCODE
 $head = [string]($headOutput | Select-Object -First 1)
@@ -102,6 +108,7 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: a product invariant was missin
 
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }
+}
 
 # Item 2t5: the setup's outer signature being Valid does not prove that its
 # embedded payload carries the pinned release key. Ask the staged product's

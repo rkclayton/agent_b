@@ -20,6 +20,34 @@ function Get-StagedCandidateState {
     return [pscustomobject]@{ Tag = $tag; Commit = $commit; SignedState = ($signatures -join ', ') }
 }
 
+function Assert-RetainedStagedCandidate {
+    param(
+        [Parameter(Mandatory = $true)][string]$Candidate,
+        [Parameter(Mandatory = $true)][string]$ExpectedTag,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit
+    )
+    $root = [IO.Path]::GetFullPath($Candidate)
+    $manifestPath = Join-Path $root 'candidate-final.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "DEPLOY REFUSED: retained candidate has no candidate-final.json: $root" }
+    try { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json } catch { throw "DEPLOY REFUSED: retained candidate manifest is unreadable: $($_.Exception.Message)" }
+    if ([string]$manifest.tag -cne $ExpectedTag -or [string]$manifest.commit -cne $ExpectedCommit) {
+        throw "DEPLOY REFUSED: retained candidate identity is tag=$($manifest.tag) commit=$($manifest.commit), expected tag=$ExpectedTag commit=$ExpectedCommit."
+    }
+    foreach ($entry in @(
+        @{ Name = 'Agent_b.exe'; Hash = [string]$manifest.exe_sha256 },
+        @{ Name = 'Agent_b-setup.exe'; Hash = [string]$manifest.setup_sha256 }
+    )) {
+        $path = Join-Path $root $entry.Name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "DEPLOY REFUSED: retained candidate is missing $($entry.Name)." }
+        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($entry.Hash) -or $actual -cne $entry.Hash.ToLowerInvariant()) {
+            throw "DEPLOY REFUSED: retained candidate $($entry.Name) does not match candidate-final.json."
+        }
+        $signature = Get-AuthenticodeSignature -LiteralPath $path
+        if ($signature.Status -cne 'Valid') { throw "DEPLOY REFUSED: retained candidate $($entry.Name) signature is $($signature.Status)." }
+    }
+}
+
 # Agent_b.exe is a WINDOWS_GUI executable. A direct PowerShell invocation may
 # return before such a child has written redirected output, so every installer
 # question uses an owned hidden process and an explicit wait. Stdout and stderr

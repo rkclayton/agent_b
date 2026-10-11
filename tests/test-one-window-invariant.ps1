@@ -12,6 +12,7 @@ if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) { $RepositoryRoot = $Applicat
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 $repository = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repository 'scripts\removal-guard.ps1')
+. (Join-Path $PSScriptRoot 'one-window-cleanup.ps1')
 $temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
 
 function Get-PESubsystem([string]$Path) {
@@ -117,7 +118,7 @@ function Invoke-OneWindowCase([string]$CaseExe, [string]$CaseRoot, [string]$Labe
     if ($process.process -ne [IntPtr]::Zero) { [AgentBInvariant.Desktop]::WaitForSingleObject($process.process, 15000) | Out-Null; [AgentBInvariant.Desktop]::CloseHandle($process.process) | Out-Null }
     if ($job -ne [IntPtr]::Zero) { [AgentBInvariant.Desktop]::CloseHandle($job) | Out-Null }
     [AgentBInvariant.Desktop]::CloseDesktop($desktop) | Out-Null
-    if (Test-Path -LiteralPath $root) { Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @($temp) -Purpose 'one-window invariant cleanup' }
+    if (Test-Path -LiteralPath $root) { Wait-RemoveOneWindowRoot -Path $root -AllowedRoot $temp }
     }
 }
 

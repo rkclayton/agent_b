@@ -26,15 +26,31 @@ type doer interface {
 type State struct {
 	Configured bool   `json:"configured"`
 	Host       string `json:"host,omitempty"`
+	Desktop    bool   `json:"desktop"`
+	Phone      string `json:"phone"`
+}
+
+type DesktopNotice struct{ Title, Body, ChatID, Link string }
+type Desktop interface {
+	Viewing(string) bool
+	Select(string)
+	Show(DesktopNotice) error
+}
+type Phone interface {
+	NotificationState() string
+	Notify(context.Context, string, string, string) (string, error)
 }
 
 type Manager struct {
-	bus        *events.Bus
-	client     doer
-	label      func(string) string
-	baseURL    string
-	allowLocal bool
-	wait       func(context.Context, time.Duration) error
+	bus            *events.Bus
+	client         doer
+	label          func(string) string
+	baseURL        string
+	allowLocal     bool
+	wait           func(context.Context, time.Duration) error
+	desktop        Desktop
+	phone          Phone
+	desktopEnabled func() bool
 
 	mu             sync.RWMutex
 	webhook        *url.URL
@@ -45,6 +61,19 @@ type Manager struct {
 	started        bool
 }
 
+func (m *Manager) SetChannels(desktop Desktop, phone Phone, enabled func() bool) {
+	m.mu.Lock()
+	m.desktop, m.phone, m.desktopEnabled = desktop, phone, enabled
+	m.mu.Unlock()
+}
+func (m *Manager) SetViewing(session string) {
+	m.mu.RLock()
+	desktop := m.desktop
+	m.mu.RUnlock()
+	if desktop != nil {
+		desktop.Select(session)
+	}
+}
 func New(bus *events.Bus, label func(string) string, baseURL string) *Manager {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -119,10 +148,19 @@ func (m *Manager) Validate(raw string) error {
 func (m *Manager) State() State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.webhook == nil {
-		return State{}
+	enabled := false
+	if m.desktopEnabled != nil {
+		enabled = m.desktopEnabled()
 	}
-	return State{Configured: true, Host: m.webhook.Hostname()}
+	state := State{Desktop: enabled, Phone: "not paired"}
+	if m.phone != nil {
+		state.Phone = m.phone.NotificationState()
+	}
+	if m.webhook == nil {
+		return state
+	}
+	state.Configured, state.Host = true, m.webhook.Hostname()
+	return state
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -147,7 +185,7 @@ func (m *Manager) Start(ctx context.Context) {
 					return
 				}
 				data, _ := event.Data.(map[string]any)
-				if data["notification_suppressed"] == true || !notifiable(event.Type) || !m.State().Configured {
+				if data["notification_suppressed"] == true || !notifiable(event.Type) {
 					continue
 				}
 				select {
@@ -160,7 +198,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 	go func() {
 		for event := range jobs {
-			_ = m.deliver(workerContext, event.Type, m.message(event))
+			m.deliverEvent(workerContext, event)
 		}
 	}()
 }
@@ -177,11 +215,84 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 }
 
-func (m *Manager) SendTest(ctx context.Context) error {
-	if !m.State().Configured {
-		return errors.New("Discord webhook is not configured")
+func (m *Manager) SendTest(ctx context.Context) (map[string]string, error) {
+	m.mu.RLock()
+	desktop, phone, enabled, webhook := m.desktop, m.phone, m.desktopEnabled, m.webhook != nil
+	m.mu.RUnlock()
+	desktopOn := enabled != nil && enabled()
+	answers := map[string]string{}
+	if desktopOn && desktop != nil {
+		if err := desktop.Show(DesktopNotice{Title: "Agent_b", Body: "Test notification", Link: m.baseURL}); err != nil {
+			answers["desktop"] = "refused"
+		} else {
+			answers["desktop"] = "shown"
+		}
 	}
-	return m.deliver(ctx, "test", "Agent_b test notification.\nThe harness sent this from Settings without starting a run.\n"+m.baseURL)
+	if webhook {
+		if err := m.deliver(ctx, "test", "Agent_b test notification.\nThe harness sent this from Settings without starting a run.\n"+m.baseURL); err != nil {
+			answers["webhook"] = "refused"
+		} else {
+			answers["webhook"] = "accepted"
+		}
+	}
+	if phone != nil {
+		answer, err := phone.Notify(ctx, "run_stopped", "", "Agent_b test notification")
+		if err != nil {
+			answer = "refused"
+		}
+		if answer == "" {
+			answer = phone.NotificationState()
+		}
+		answers["phone"] = answer
+	}
+	return answers, nil
+}
+
+func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
+	m.mu.RLock()
+	desktop, phone, enabled, webhook := m.desktop, m.phone, m.desktopEnabled, m.webhook != nil
+	m.mu.RUnlock()
+	desktopOn := enabled != nil && enabled()
+	data, _ := event.Data.(map[string]any)
+	notice := humanNotice(data, event.Type)
+	title := "chat"
+	if job, ok := data["scheduled_job"].(string); ok && strings.TrimSpace(job) != "" {
+		title = strings.TrimSpace(job)
+	} else if m.label != nil {
+		if value := strings.TrimSpace(m.label(event.SessionID)); value != "" {
+			title = value
+		}
+	}
+	body := notice.Happened
+	if notice.HarnessAction != "" {
+		body += "\n" + notice.HarnessAction
+	}
+	if lines := strings.Split(body, "\n"); len(lines) > 2 {
+		body = strings.Join(lines[:2], "\n")
+	}
+	link := m.baseURL + "/chat?session=" + url.QueryEscape(event.SessionID)
+	if data["role"] == "c" {
+		link = m.baseURL + "/plan"
+	}
+	if desktopOn && desktop != nil && !desktop.Viewing(event.SessionID) {
+		_ = desktop.Show(DesktopNotice{Title: title, Body: body, ChatID: event.SessionID, Link: link})
+	}
+	if webhook {
+		_ = m.deliver(ctx, event.Type, m.message(event))
+	}
+	if phone != nil {
+		_, _ = phone.Notify(ctx, pushKind(event.Type), event.SessionID, strings.ReplaceAll(body, "\n", " "))
+	}
+}
+
+func pushKind(eventType string) string {
+	if eventType == events.ApprovalRequired {
+		return "approval_required"
+	}
+	if eventType == events.ItemStuck {
+		return "item_stuck"
+	}
+	return "run_stopped"
 }
 
 func (m *Manager) deliver(ctx context.Context, eventType, message string) error {

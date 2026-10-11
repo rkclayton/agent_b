@@ -84,7 +84,7 @@ func TestARunIsSummarisedAndRecorded(t *testing.T) {
 		SessionLogs: func(string) []string { return []string{path} },
 		Call: func(_ context.Context, connection, system, user string) (string, error) {
 			sawSystem, sawUser = system, user
-			return "```json\n{\"files_read\":[\"guard.go\"],\"files_written\":[\"guard.go\"],\"changed\":\"tightened the routing guard\",\"open\":\"the eval is carded\",\"text\":\"Read and rewrote the guard.\"}\n```", nil
+			return "```json\n{\"files_read\":[\"guard.go\"],\"files_written\":[\"guard.go\"],\"changed\":\"tightened the routing guard\",\"open\":\"the eval is carded\",\"text\":\"Read and rewrote the guard.\",\"planner_note\":\"The write tool refused a valid guarded path; the user wanted the edit applied.\"}\n```", nil
 		},
 	}
 	summary := runner.SummariseRun(context.Background(), "s1", "r1", `C:\ws`, "", "acme", false)
@@ -93,6 +93,12 @@ func TestARunIsSummarisedAndRecorded(t *testing.T) {
 	}
 	if summary.Changed != "tightened the routing guard" || summary.Open != "the eval is carded" {
 		t.Fatalf("summary = %+v", summary)
+	}
+	if !strings.Contains(summary.PlannerNote, "write tool refused") {
+		t.Fatalf("planner note = %q", summary.PlannerNote)
+	}
+	if _, _, _, _, _, quiet := parseSummary(`{"text":"Everything worked.","planner_note":""}`); quiet != "" {
+		t.Fatalf("successful chat proposed %q", quiet)
 	}
 	if len(summary.Written) != 1 || summary.Written[0] != "guard.go" {
 		t.Fatalf("written = %v", summary.Written)

@@ -31,10 +31,11 @@ import (
 //     asked the model to consolidate, so the file grew forever and nobody met
 //     the limit. The write is refused now and the harness never trims.
 type Remember struct {
-	memory *memory.Manager
-	bus    *events.Bus
-	cfg    func() config.Config
-	mu     sync.Mutex
+	memory  *memory.Manager
+	bus     *events.Bus
+	cfg     func() config.Config
+	planner *memory.PlannerNotes
+	mu      sync.Mutex
 	// writes counts this run's writes, per session and run. (c) is a per-RUN
 	// cap, so the key is both.
 	writes map[string]int
@@ -46,18 +47,19 @@ func NewRemember(manager *memory.Manager, bus *events.Bus) *Remember {
 
 // SetConfig gives the tool the layer budget. Without it the budget is the
 // package default, which is what a caller that does not configure gets.
-func (r *Remember) SetConfig(cfg func() config.Config) { r.cfg = cfg }
+func (r *Remember) SetConfig(cfg func() config.Config)      { r.cfg = cfg }
+func (r *Remember) SetPlanner(planner *memory.PlannerNotes) { r.planner = planner }
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), or environment (about this machine). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes, plus one per 25 turns (six maximum), per run; a full layer refuses the write. Never save command output, tool results, transient state, or anything already recorded by this chat."
+	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), environment (about this machine), or planner (local product feedback). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes, plus one per 25 turns (six maximum), per run; a full layer refuses the write. Never save command output, tool results, transient state, or anything already recorded by this chat."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"note":     map[string]any{"type": "string"},
-			"scope":    map[string]any{"type": "string", "enum": []string{"user", "repository", "environment"}},
+			"scope":    map[string]any{"type": "string", "enum": []string{"user", "repository", "environment", "planner"}},
 			"replaces": map[string]any{"type": "string"},
 		},
 		"required": []string{"note", "scope"},
@@ -82,19 +84,28 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if strings.TrimSpace(note) == "" {
 		return "", fmt.Errorf("note is empty")
 	}
-	if memory.AboutAgentNote(note) {
-		return "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do", nil
-	}
 	// (b): an unscoped note is REFUSED. The scope is the model saying what kind
 	// of fact this is, and guessing it for them is how the folder layer filled
 	// up with facts about the operator.
 	scope := strings.ToLower(strings.TrimSpace(stringValue(args["scope"], "")))
 	switch scope {
-	case "user", "repository", "environment":
+	case "user", "repository", "environment", "planner":
 	case "":
-		return "error: scope is required: user (about the user), repository (about this project), or environment (about this machine)", nil
+		return "error: scope is required: user, repository, environment, or planner", nil
 	default:
-		return fmt.Sprintf("error: scope %q is not one of user, repository or environment", scope), nil
+		return fmt.Sprintf("error: scope %q is not one of user, repository or environment; use planner for local product feedback", scope), nil
+	}
+	if scope == "planner" {
+		if r.planner == nil {
+			return "", errors.New("planner notes are unavailable")
+		}
+		if err := r.planner.Add("", note); err != nil {
+			return "", err
+		}
+		return "ok: noted for planner on this PC", nil
+	}
+	if memory.AboutAgentNote(note) {
+		return "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do", nil
 	}
 
 	// (c): two writes per run, counted here rather than asked for in the prompt.
@@ -109,7 +120,6 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if written >= allowance {
 		return "", fmt.Errorf("%d notes this run; replace one or skip", written)
 	}
-
 	target, fell := layerFor(scope), ""
 	path := ""
 	if r.memory.TargetPath(s.AgentID) != r.memory.SharedPath() {

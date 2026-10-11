@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,14 +52,17 @@ type BrokerClient struct {
 	pairingLog    string
 	logMu         sync.Mutex
 
-	mu          sync.Mutex
-	offer       *broker.PairingOffer
-	pairing     *broker.Pairing
-	confirm     chan bool
-	frames      chan broker.Frame
-	status      broker.Status
-	device      string
-	lastRefusal string
+	mu             sync.Mutex
+	offer          *broker.PairingOffer
+	pairing        *broker.Pairing
+	confirm        chan bool
+	frames         chan broker.Frame
+	status         broker.Status
+	device         string
+	lastRefusal    string
+	lastPushAnswer string
+	pushAnswer     chan string
+	notifyMu       sync.Mutex
 	// Item 2nz: the pairing runs until it succeeds or the operator cancels. cancel is
 	// closed by CancelPairing and is the only thing besides success that ends it.
 	cancel chan struct{}
@@ -258,6 +262,72 @@ func (c *BrokerClient) Status() broker.Status {
 	return status
 }
 
+func (c *BrokerClient) NotificationState() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pairing == nil {
+		return "not paired"
+	}
+	if c.lastPushAnswer == "accepted" {
+		return "ready"
+	}
+	return "paired, no notification permission"
+}
+
+func (c *BrokerClient) Notify(ctx context.Context, kind, chatID, notice string) (string, error) {
+	c.notifyMu.Lock()
+	defer c.notifyMu.Unlock()
+	c.mu.Lock()
+	client := c.client
+	if c.pairing == nil || client == nil {
+		c.mu.Unlock()
+		return "not paired", nil
+	}
+	c.pushAnswer = make(chan string, 1)
+	waiter := c.pushAnswer
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		if c.pushAnswer == waiter {
+			c.pushAnswer = nil
+		}
+		c.mu.Unlock()
+	}()
+	if err := client.Notify(kind, chatID, notice); err != nil {
+		return "refused", err
+	}
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	select {
+	case answer := <-waiter:
+		return answer, nil
+	case <-ctx.Done():
+		return "refused", ctx.Err()
+	case <-timer.C:
+		return "refused", errors.New("phone push answer timed out")
+	}
+}
+
+func (c *BrokerClient) recordPushAnswer(message string) {
+	const prefix = "PUSH kind="
+	if !strings.HasPrefix(message, prefix) {
+		return
+	}
+	parts := strings.SplitN(strings.TrimPrefix(message, prefix), " answer=", 2)
+	if len(parts) != 2 {
+		return
+	}
+	c.mu.Lock()
+	c.lastPushAnswer = parts[1]
+	if c.pushAnswer != nil {
+		select {
+		case c.pushAnswer <- parts[1]:
+		default:
+		}
+	}
+	c.mu.Unlock()
+}
+
 func pairingFrameName(kind byte) string {
 	switch kind {
 	case broker.FramePairBegin:
@@ -305,6 +375,7 @@ func (c *BrokerClient) recordPairing(message string) {
 const pairingLogMaxBytes = 256 << 10
 
 func (c *BrokerClient) recordSession(pairing broker.Pairing, message string) {
+	c.recordPushAnswer(message)
 	id := hex.EncodeToString(pairing.PairingID)
 	if len(id) > 8 {
 		id = id[:8]

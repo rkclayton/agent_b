@@ -217,6 +217,11 @@ func (s *Server) reflectOnClosedRun(sessionID, runID string) {
 	// No aux connection exists on this schema: the run's own connection summarises
 	// and the summary says so (item 17-i's @verify, answered in v1.1.0/W1).
 	summary := state.runner.SummariseRun(ctx, sessionID, runID, workspace, planID, connectionID, false)
+	if summary.PlannerNote != "" && !summary.Untrusted && s.plannerNotes != nil {
+		if err := s.plannerNotes.Add(sessionID, summary.PlannerNote); err != nil {
+			log.Printf("reflection: planner note: %v", err)
+		}
+	}
 	if summary.Failed != "" {
 		log.Printf("reflection: the summary for run %s was not written (the run is unaffected): %s", runID, summary.Failed)
 	}

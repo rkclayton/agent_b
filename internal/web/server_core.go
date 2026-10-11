@@ -70,6 +70,7 @@ type Server struct {
 	credential         *credential.Store
 	notifications      notificationManager
 	notificationStore  *credential.Store
+	plannerNotes       *memory.PlannerNotes
 	updater            *updater.Manager
 	shell              *tools.Shell
 	account            serviceaccount.Manager
@@ -197,6 +198,9 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		},
 	}
 	server.recorder = recorder.New()
+	if roots.Data != "" {
+		server.plannerNotes = memory.NewPlannerNotes(roots.Data)
+	}
 	server.recorder.SetSink(server.queueRunTelemetry)
 	// Item 2q7: the app around the runs, an hour at a time.
 	server.app = recorder.NewApp(time.Now())
@@ -210,6 +214,8 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	server.initModelInstaller()
 	return server
 }
+
+func (s *Server) PlannerNotes() *memory.PlannerNotes { return s.plannerNotes }
 
 func removeLegacyPhoneAccess(root string) error {
 	store, err := credential.NewNamed(root, "web-push-vapid")

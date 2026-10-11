@@ -23,6 +23,17 @@ type persistenceTransport struct {
 	sent chan []byte
 }
 
+func TestPhoneNotificationStateFollowsPairingAndAcceptedPush2rz(t *testing.T) {
+	client := &BrokerClient{}
+	unpaired := client.NotificationState()
+	client.pairing = &broker.Pairing{}
+	paired := client.NotificationState()
+	client.recordPushAnswer("PUSH kind=run_stopped answer=accepted")
+	if ready := client.NotificationState(); unpaired != "not paired" || paired != "paired, no notification permission" || ready != "ready" {
+		t.Fatalf("states: %q, %q, %q", unpaired, paired, ready)
+	}
+}
+
 type pairingLogTransport struct {
 	incoming chan []byte
 	onSend   func(broker.Frame)

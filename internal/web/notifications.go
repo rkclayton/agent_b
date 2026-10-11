@@ -14,7 +14,8 @@ type notificationManager interface {
 	Validate(string) error
 	Configure(string) error
 	State() notifications.State
-	SendTest(context.Context) error
+	SendTest(context.Context) (map[string]string, error)
+	SetViewing(string)
 }
 
 func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
@@ -31,13 +32,18 @@ func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body struct {
-			Action string `json:"action"`
-			URL    string `json:"url"`
+			Action  string `json:"action"`
+			URL     string `json:"url"`
+			Session string `json:"session"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
 		switch body.Action {
+		case "viewing":
+			s.notifications.SetViewing(strings.TrimSpace(body.Session))
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return
 		case "save":
 			if strings.TrimSpace(body.URL) == "" {
 				if s.notifications.State().Configured {
@@ -70,10 +76,13 @@ func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
 		case "test":
 			ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 			defer cancel()
-			if err := s.notifications.SendTest(ctx); err != nil {
+			answers, err := s.notifications.SendTest(ctx)
+			if err != nil {
 				writeError(w, http.StatusBadGateway, err.Error(), "notifications.discord_url")
 				return
 			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notifications": s.notifications.State(), "answers": answers})
+			return
 		default:
 			writeError(w, http.StatusBadRequest, "action must be save, clear, or test", "action")
 			return

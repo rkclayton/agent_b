@@ -282,7 +282,7 @@ func TestUnevaluatedConnectionUsesProbeOffAssumptionsWithoutPretendingEvalRan2qw
 	}
 }
 
-func TestSaveAndMaskKeepEmptyConnectionsAsArray(t *testing.T) {
+func TestSaveAndMaskKeepEmptyCatalogsAsArrays(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	cfg.Connections = []Connection{}
 	cfg.Agents = []Agent{}
@@ -297,12 +297,18 @@ func TestSaveAndMaskKeepEmptyConnectionsAsArray(t *testing.T) {
 	if !bytes.Contains(data, []byte(`"connections": []`)) {
 		t.Fatalf("saved empty connection catalog was not an array: %s", data)
 	}
+	if !bytes.Contains(data, []byte(`"agents": []`)) {
+		t.Fatalf("saved empty agent catalog was not an array: %s", data)
+	}
 	masked, err := json.Marshal(cfg.Masked())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(masked, []byte(`"connections":[]`)) {
 		t.Fatalf("masked empty connection catalog was not an array: %s", masked)
+	}
+	if !bytes.Contains(masked, []byte(`"agents":[]`)) {
+		t.Fatalf("masked empty agent catalog was not an array: %s", masked)
 	}
 }
 

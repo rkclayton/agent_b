@@ -369,6 +369,7 @@ function readSelection() {
 }
 function persistSelection() {
   try { globalThis.sessionStorage?.setItem("agentb.selection", JSON.stringify(store.selection)); } catch {}
+	if (globalThis.chrome?.webview && !store.replay && store.mutation_token) void api("/api/notifications", { action: "viewing", session: store.selection.session_id || "" }).catch(() => {});
 }
 export async function api(path, body, method = "POST", requestOptions = {}) {
 	if (method === "GET" && path === "/api/state" && store.selection.session_id) path += `?session=${encodeURIComponent(store.selection.session_id)}`;

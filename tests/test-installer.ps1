@@ -1588,6 +1588,7 @@ try {
     $treeCommit = [string](& $git.Source -C $sourceRoot rev-parse HEAD | Select-Object -First 1)
     if ($UseExistingSignedCandidate) {
         Copy-Item -LiteralPath (Join-Path $sourceRoot 'Agent_b.exe') -Destination (Join-Path $tree 'Agent_b.exe') -Force
+        Copy-Item -LiteralPath (Join-Path $sourceRoot 'agentb.exe') -Destination (Join-Path $tree 'agentb.exe') -Force
     }
     if ($UseExistingSignedCandidate) {
         & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest

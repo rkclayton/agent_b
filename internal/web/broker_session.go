@@ -74,9 +74,6 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		c.recordSession(pairing, message)
 		server.app.Link(message) // item 2q7 (c): its shape only
 	})
-	client.OnHolding(func(connection context.Context) {
-		server.streamPushes(connection, client)
-	})
 	client.OnConnected(func(connection context.Context) {
 		c.mu.Lock()
 		c.lastRefusal = ""
@@ -113,34 +110,27 @@ func (c *BrokerClient) stopSessionLocked() {
 	c.client, c.stopSession = nil, nil
 }
 
-var pushKinds = map[string]string{
-	events.ApprovalRequired: "approval_required",
-	events.RunStopped:       "run_stopped",
-	events.ItemStuck:        "item_stuck",
-}
-
 // streamToDevice is the tailnet client's view, unit by unit: a snapshot of every
 // session on connect, then its projection patches and the global durable events,
 // until the connection ends. A device that sees a gap resyncs by cursor.
 // deviceSink is the part of the broker client the stream uses.
 type deviceSink interface {
 	Deliver(plaintext []byte) error
-	Notify(kind, chatID, notice string) error
 }
 
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
-	s.streamToDeviceWithPushes(ctx, client, true, nil)
+	s.streamToDeviceWithPushes(ctx, client, nil)
 }
 
 func (s *Server) streamUnitsToDevice(ctx context.Context, client deviceSink) {
-	s.streamToDeviceWithPushes(ctx, client, false, nil)
+	s.streamToDeviceWithPushes(ctx, client, nil)
 }
 
 func (s *Server) streamUnitsToDeviceResuming(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot) {
-	s.streamToDeviceWithPushes(ctx, client, false, resume)
+	s.streamToDeviceWithPushes(ctx, client, resume)
 }
 
-func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, includePushes bool, resume map[string]projection.Snapshot) {
+func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot) {
 	raw, unsubscribeRaw := s.bus.Subscribe()
 	defer unsubscribeRaw()
 	var sent int64
@@ -224,12 +214,6 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			if !ok {
 				return
 			}
-			data, _ := event.Data.(map[string]any)
-			if kind, wake := pushKinds[event.Type]; includePushes && wake && data["notification_suppressed"] != true {
-				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
-					log.Printf("broker: the %s push was not sent: %v", kind, err)
-				}
-			}
 			if unit, mirrored := s.outboundMirror(event); mirrored {
 				send(unit)
 			}
@@ -239,49 +223,5 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		case <-ctx.Done():
 			return
 		}
-	}
-}
-
-func (s *Server) streamPushes(ctx context.Context, client deviceSink) {
-	raw, unsubscribe := s.bus.Subscribe()
-	defer unsubscribe()
-	for {
-		select {
-		case event, ok := <-raw:
-			if !ok {
-				return
-			}
-			data, _ := event.Data.(map[string]any)
-			if kind, wake := pushKinds[event.Type]; wake && data["notification_suppressed"] != true {
-				if err := client.Notify(kind, event.SessionID, pushNotice(event)); err != nil {
-					log.Printf("broker: the %s push was not sent: %v", kind, err)
-				}
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func pushNotice(event events.Event) string {
-	if data, ok := event.Data.(map[string]any); ok {
-		if name, ok := data["scheduled_job"].(string); ok && name != "" {
-			if data["reason"] != "done" {
-				return "Scheduled job " + name + " failed"
-			}
-			notice := "Scheduled job " + name + " finished"
-			if human, ok := data["human"].(events.HumanNotice); ok && human.Happened != "" {
-				return human.Happened
-			}
-			return notice
-		}
-	}
-	switch event.Type {
-	case events.ApprovalRequired:
-		return "Agent_b is waiting for your approval"
-	case events.RunStopped:
-		return "Agent_b stopped"
-	default:
-		return "An item is stuck"
 	}
 }

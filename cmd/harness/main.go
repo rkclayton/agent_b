@@ -323,11 +323,13 @@ func main() {
 	// broker.DefaultURL and a phone can be paired on a fresh install. Constructing the
 	// client loads this install's protected identity and any durable pairing. It opens
 	// nothing unless a pairing is under way or already exists (2nu (d), 2ob).
+	var notificationPhone notifications.Phone
 	if address := strings.TrimSpace(cfg.Broker.URL); address != "" {
 		if brokerClient, brokerErr := webserver.NewBrokerClient(address, paths.Data); brokerErr != nil {
 			log.Printf("broker: %v", brokerErr)
 		} else {
 			web.SetBrokerHost(brokerClient)
+			notificationPhone = brokerClient
 		}
 	}
 	notificationStore, err := credential.NewNamed(profileRoot, cfg.Notifications.DiscordCredential)
@@ -335,6 +337,7 @@ func main() {
 		log.Fatal(err)
 	}
 	notificationManager := notifications.New(bus, registry.Label, "http://"+cfg.Listen)
+	notificationManager.SetChannels(desktopNotifier{}, notificationPhone, func() bool { return web.ConfigSnapshot().Notifications.Desktop })
 	if fixture := notificationFixtureURL(); fixture != "" {
 		if configureErr := notificationManager.ConfigureLoopbackFixture(fixture); configureErr != nil {
 			log.Printf("notification acceptance fixture is invalid; notifications disabled: %v", configureErr)
@@ -468,6 +471,7 @@ func main() {
 	// Item 2jf (d): the tool enforces the layer budget, so it needs the number.
 	rememberTool := tools.NewRemember(memoryManager, bus)
 	rememberTool.SetConfig(web.ConfigSnapshot)
+	rememberTool.SetPlanner(web.PlannerNotes())
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	delegateTool := tools.NewDelegate()
 	callServiceTool := tools.NewCallService(cfg.Services)

@@ -90,7 +90,7 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 		body, _ := io.ReadAll(r.Body)
 		asked <- string(body)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"files_read\":[\"guard.go\"],\"files_written\":[],\"changed\":\"read the guard\",\"open\":\"\",\"text\":\"Looked at the guard.\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"files_read\":[\"guard.go\"],\"files_written\":[],\"changed\":\"read the guard\",\"open\":\"\",\"text\":\"Looked at the guard.\",\"planner_note\":\"The read tool refused a valid file; the user wanted it inspected.\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`))
 	}))
 	defer fake.Close()
 
@@ -145,6 +145,10 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	if !strings.Contains(summaries[0].Text, "no aux connection is configured") {
 		t.Fatalf("summary text = %q", summaries[0].Text)
 	}
+	planner, err := os.ReadFile(filepath.Join(root, "planner", "notes-for-planner.md"))
+	if err != nil || strings.Count(string(planner), "read tool refused") != 1 {
+		t.Fatalf("planner note=%q err=%v", planner, err)
+	}
 	if after := item.Snapshot().Run; !reflect.DeepEqual(after, before) {
 		t.Fatalf("the run's state changed: %+v -> %+v", before, after)
 	}
@@ -186,6 +190,9 @@ func TestAFailingSummaryLeavesTheRunsOutcomeAlone(t *testing.T) {
 	after := item.Snapshot()
 	if !reflect.DeepEqual(after.Run, before.Run) {
 		t.Fatalf("the run changed: %+v -> %+v", before.Run, after.Run)
+	}
+	if _, err := os.Stat(filepath.Join(root, "planner", "notes-for-planner.md")); !os.IsNotExist(err) {
+		t.Fatalf("failed reflection wrote a planner note: %v", err)
 	}
 }
 

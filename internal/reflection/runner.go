@@ -61,8 +61,8 @@ func (r *Runner) now() time.Time {
 
 const summarySystemPrompt = `You summarise one finished run of a coding agent, for the user's own record.
 Answer with JSON only, no prose around it, in this shape:
-{"files_read":["..."],"files_written":["..."],"changed":"one or two sentences on what changed","open":"what was left unresolved, or an empty string","text":"three sentences at most, plain and concrete"}
-Name only files the transcript shows. If the run changed nothing, say so. Never invent a file, a test result, or an outcome.`
+{"files_read":["..."],"files_written":["..."],"changed":"one or two sentences on what changed","open":"what was left unresolved, or an empty string","text":"three sentences at most, plain and concrete","planner_note":"product shortfall and what was wanted, or empty"}
+Set planner_note only when the product itself failed, refused a valid action, or lacked an ability the user asked for. Name only files the transcript shows. Never invent an outcome.`
 
 // RunDigest is what the summary call is given: the run's own record, read from
 // the JSONL, which is the authority.
@@ -203,7 +203,7 @@ func orUnknown(value string) string {
 // parseSummary reads the model's JSON, tolerating a fenced block or prose
 // around it. A summary that cannot be read is not an error for the run: the
 // raw text is kept as the summary's text.
-func parseSummary(answer string) (files, written []string, changed, open, text string) {
+func parseSummary(answer string) (files, written []string, changed, open, text, planner string) {
 	trimmed := strings.TrimSpace(answer)
 	if start := strings.Index(trimmed, "{"); start >= 0 {
 		if end := strings.LastIndex(trimmed, "}"); end > start {
@@ -213,13 +213,14 @@ func parseSummary(answer string) (files, written []string, changed, open, text s
 				Changed      string   `json:"changed"`
 				Open         string   `json:"open"`
 				Text         string   `json:"text"`
+				PlannerNote  string   `json:"planner_note"`
 			}
 			if err := json.Unmarshal([]byte(trimmed[start:end+1]), &parsed); err == nil {
-				return parsed.FilesRead, parsed.FilesWritten, parsed.Changed, parsed.Open, strings.TrimSpace(parsed.Text)
+				return parsed.FilesRead, parsed.FilesWritten, parsed.Changed, parsed.Open, strings.TrimSpace(parsed.Text), strings.TrimSpace(parsed.PlannerNote)
 			}
 		}
 	}
-	return nil, nil, "", "", trimmed
+	return nil, nil, "", "", trimmed, ""
 }
 
 // SummariseRun is the call at a run's close. It never returns an error to its
@@ -244,14 +245,14 @@ func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, 
 		if callErr != nil {
 			summary.Failed = "summary call: " + callErr.Error()
 		} else {
-			read, written, changed, open, text := parseSummary(answer)
+			read, written, changed, open, text, planner := parseSummary(answer)
 			if len(read) > 0 {
 				summary.Read = mergeStrings(summary.Read, read)
 			}
 			if len(written) > 0 {
 				summary.Written = mergeStrings(summary.Written, written)
 			}
-			summary.Changed, summary.Open, summary.Text = changed, open, text
+			summary.Changed, summary.Open, summary.Text, summary.PlannerNote = changed, open, text, planner
 		}
 	}
 	if !aux {

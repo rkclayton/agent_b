@@ -112,7 +112,7 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 	} {
 		bus.Publish(event)
 	}
-	if err := manager.SendTest(context.Background()); err != nil {
+	if _, err := manager.SendTest(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -262,5 +262,54 @@ func TestWorkerApprovalNotificationPointsAtThePlan(t *testing.T) {
 	}
 	if !strings.Contains(message, "needs your") {
 		t.Fatalf("worker approval lost its human sentence: %q", message)
+	}
+}
+
+type desktopStandIn struct {
+	notices []DesktopNotice
+}
+
+func (d *desktopStandIn) Viewing(session string) bool { return session == "open" }
+func (d *desktopStandIn) Select(string)               {}
+func (d *desktopStandIn) Show(notice DesktopNotice) error {
+	d.notices = append(d.notices, notice)
+	return nil
+}
+
+type phoneStandIn struct {
+	sent int
+}
+
+func (p *phoneStandIn) NotificationState() string { return "not paired" }
+func (p *phoneStandIn) Notify(context.Context, string, string, string) (string, error) {
+	p.sent++
+	return "not paired", nil
+}
+
+func TestEveryNoticeFansOutOnceAndDesktopHonorsViewingAndSwitch2rz(t *testing.T) {
+	bus := events.NewBus()
+	desktop := &desktopStandIn{}
+	phone := &phoneStandIn{}
+	manager := New(bus, func(id string) string { return "title " + id }, "http://127.0.0.1:8790")
+	desktopOn := true
+	manager.SetChannels(desktop, phone, func() bool { return desktopOn })
+	for _, kind := range []string{events.ApprovalRequired, events.RunStopped, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob} {
+		manager.deliverEvent(context.Background(), events.New(kind, "other", "r1", events.WithHuman(kind, map[string]any{"reason": "done", "scheduled_job": "job", "scheduled_answer": "one\ntwo\nthree"})))
+	}
+	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "open", "r2", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})))
+	if len(desktop.notices) != 6 || phone.sent != 7 {
+		t.Fatalf("desktop=%d phone=%d", len(desktop.notices), phone.sent)
+	}
+	if notice := desktop.notices[1]; notice.Title != "job" || notice.Body == "" || strings.Count(notice.Body, "\n") > 1 || notice.ChatID != "other" {
+		t.Fatalf("notice=%+v", notice)
+	}
+	answers, err := manager.SendTest(context.Background())
+	if err != nil || answers["desktop"] != "shown" || answers["phone"] != "not paired" || len(answers) != 2 {
+		t.Fatalf("answers=%v err=%v", answers, err)
+	}
+	desktopOn = false
+	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "off", "r3", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})))
+	if len(desktop.notices) != 7 || phone.sent != 9 {
+		t.Fatalf("desktop=%d phone=%d", len(desktop.notices), phone.sent)
 	}
 }

@@ -1751,6 +1751,9 @@
   .setting-row > div {
     justify-content: flex-start;
   }
+  .setting-row .notification-actions {
+    flex-wrap: wrap;
+  }
   .setting-row:has([data-action="broker-pair"]) > div {
     flex-wrap: wrap;
   }

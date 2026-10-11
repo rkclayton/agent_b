@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"unsafe"
+
+	"harness/internal/notifications"
 )
 
 func TestWindowsCallbacksKeepIntegerParametersOutOfPointerSlots2p5(t *testing.T) {
@@ -122,6 +124,40 @@ func TestNativeTitleFollowsSwitchAndRenameOffscreen2sh(t *testing.T) {
 		if got := readTitle(); got != want {
 			t.Fatalf("native title=%q want %q", got, want)
 		}
+	}
+}
+
+func TestDesktopNoticeDoesNotTakeFocusAndClickNavigates2rz(t *testing.T) {
+	before := foregroundWindow()
+	hostWindowState.Lock()
+	previousHWND := hostWindowState.hwnd
+	hostWindowState.hwnd = 0x2a
+	hostWindowState.Unlock()
+	previousNotify, previousNavigate, previousActivate := desktopNotifyCall, desktopNavigate, desktopActivate
+	defer func() {
+		hostWindowState.Lock()
+		hostWindowState.hwnd = previousHWND
+		hostWindowState.Unlock()
+		desktopNotifyCall, desktopNavigate, desktopActivate = previousNotify, previousNavigate, previousActivate
+	}()
+	var id uint32
+	desktopNotifyCall = func(_ uintptr, data *notifyIconData) uintptr { id = data.ID; return 1 }
+	var navigated string
+	desktopNavigate = func(_ *hostWindow, link string) bool { navigated = link; return true }
+	activated := false
+	desktopActivate = func(uintptr) { activated = true }
+	link := "http://127.0.0.1:8790/chat?session=stand-in"
+	for range 130 {
+		if err := (desktopNotifier{}).Show(notifications.DesktopNotice{Title: "stand-in", Body: "finished", Link: link}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if activated || foregroundWindow() != before || len(desktopNoticeState.links) > 128 {
+		t.Fatalf("raise changed foreground: activated=%v before=%x after=%x", activated, before, foregroundWindow())
+	}
+	desktopNotificationClicked(&hostWindow{hwnd: 0x2a}, id)
+	if navigated != link || !activated {
+		t.Fatalf("click navigated=%q activated=%v", navigated, activated)
 	}
 }
 

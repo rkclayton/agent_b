@@ -483,9 +483,8 @@ func TestTheEncoderReproducesEveryVector2o7(t *testing.T) {
 
 // recordingDevice is the broker client's downstream half, observed.
 type recordingDevice struct {
-	mu     sync.Mutex
-	units  []map[string]any
-	pushes []string
+	mu    sync.Mutex
+	units []map[string]any
 }
 
 func (d *recordingDevice) Deliver(plaintext []byte) error {
@@ -495,13 +494,6 @@ func (d *recordingDevice) Deliver(plaintext []byte) error {
 	}
 	d.mu.Lock()
 	d.units = append(d.units, unit)
-	d.mu.Unlock()
-	return nil
-}
-
-func (d *recordingDevice) Notify(kind, chatID, notice string) error {
-	d.mu.Lock()
-	d.pushes = append(d.pushes, kind+" "+chatID)
 	d.mu.Unlock()
 	return nil
 }
@@ -586,44 +578,6 @@ func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 		data, _ := unit["data"].(map[string]any)
 		return unit["kind"] == "event" && data["type"] == "broker.test.global"
 	})
-	device.mu.Lock()
-	pushes := append([]string(nil), device.pushes...)
-	device.mu.Unlock()
-	want := []string{"approval_required " + existing.ID, "run_stopped " + existing.ID, "item_stuck " + existing.ID}
-	if strings.Join(pushes, "|") != strings.Join(want, "|") {
-		t.Fatalf("pushes = %v, want %v", pushes, want)
-	}
-}
-
-func TestOfflinePushStreamSendsEveryWakeEventExactlyOnce2pn(t *testing.T) {
-	server, _, writers, _, _, _ := consoleServer(t)
-	defer writers.Close()
-	device := &recordingDevice{}
-	ctx, stop := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { server.streamPushes(ctx, device); close(done) }()
-	for deadline := time.Now().Add(time.Second); server.bus.SubscriberCount() != 1 && time.Now().Before(deadline); {
-		time.Sleep(time.Millisecond)
-	}
-	wake := []string{events.ApprovalRequired, events.RunStopped, events.ItemStuck}
-	for index := 0; index < 10; index++ {
-		server.bus.Publish(events.New(wake[index%len(wake)], fmt.Sprintf("chat-%d", index), "run", map[string]any{"notice": "PLANTED"}))
-	}
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-		device.mu.Lock()
-		count := len(device.pushes)
-		device.mu.Unlock()
-		if count == 10 {
-			break
-		}
-	}
-	stop()
-	<-done
-	device.mu.Lock()
-	defer device.mu.Unlock()
-	if len(device.pushes) != 10 {
-		t.Fatalf("offline wake pushes = %d, want 10 exactly once: %v", len(device.pushes), device.pushes)
-	}
 }
 
 // Item 2o7 (a): a pairing starts the session and revoke ends it; with no pairing

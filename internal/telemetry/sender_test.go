@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"harness/internal/memory"
 )
 
 func TestReceiverRefusalIsCountedDroppedAndNeverRetried2ov(t *testing.T) {
@@ -111,15 +113,19 @@ func TestOffMeansThereIsNoSender2jg(t *testing.T) {
 
 // An event the allow-list drops never reaches a batch, so "nothing is collected"
 // is true of content even while the sender is running.
-// Item 2pw: a receiver that refuses the recorder's types refuses their batch
-// only, never the older events'.
+// Item 2pw: recorder types get their own batch. Item 2s0: a planner note made
+// before that batch is neither picked nor sent.
 func TestTheRecorderTypesTravelInABatchOfTheirOwn2pw(t *testing.T) {
+	note := "PLANTED planner-only product note"
+	if err := memory.NewPlannerNotes(t.TempDir()).Add("", note); err != nil {
+		t.Fatal(err)
+	}
 	sink := &capture{}
 	sender, _ := newSender(t, sink)
 	sender.Observe("tool.result", "2026-10-04T17:00:00Z", map[string]any{"name": "read_file", "ok": true, "ms": 3})
-	sender.Observe("run.summary", "2026-10-04T17:00:00Z", map[string]any{"inference_calls": 1, "stop_reason": "done"})
+	sender.Observe("run.summary", "2026-10-04T17:00:00Z", map[string]any{"inference_calls": 1, "stop_reason": "done", "planner_note": note})
 	sender.Flush()
-	if sink.count() != 2 || strings.Contains(string(sink.bodies[0]), "run.summary") || !strings.Contains(string(sink.bodies[1]), "run.summary") {
+	if sink.count() != 2 || strings.Contains(string(sink.bodies[0]), "run.summary") || !strings.Contains(string(sink.bodies[1]), "run.summary") || strings.Contains(string(sink.bodies[0])+string(sink.bodies[1]), note) {
 		t.Fatalf("batches: %q", sink.bodies)
 	}
 }

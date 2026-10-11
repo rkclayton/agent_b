@@ -318,6 +318,11 @@ func isMinimized(hwnd uintptr) bool {
 // names a Windows-owned structure convert it to a pointer, at the point of use.
 func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uintptr {
 	switch message {
+	case wmDesktopNotice:
+		if uint32(lParam&0xffff) == ninBalloonUserClick {
+			desktopNotificationClicked(w, uint32(wParam))
+		}
+		return 0
 	case wmNCCalcSize:
 		// BOTH forms matter. With wParam TRUE lParam is an NCCALCSIZE_PARAMS,
 		// with wParam FALSE it is a bare RECT -- and since NCCALCSIZE_PARAMS

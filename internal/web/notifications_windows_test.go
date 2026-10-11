@@ -31,9 +31,10 @@ func (m *fakeNotificationManager) Configure(raw string) error {
 }
 func (m *fakeNotificationManager) Validate(string) error      { return nil }
 func (m *fakeNotificationManager) State() notifications.State { return m.state }
-func (m *fakeNotificationManager) SendTest(context.Context) error {
+func (m *fakeNotificationManager) SetViewing(string)          {}
+func (m *fakeNotificationManager) SendTest(context.Context) (map[string]string, error) {
 	m.tests++
-	return nil
+	return map[string]string{"webhook": "accepted"}, nil
 }
 
 func TestNotificationEndpointStoresOnlyDPAPICredentialAndSupportsTestAndClear(t *testing.T) {

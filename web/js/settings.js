@@ -1651,7 +1651,7 @@ async function notificationAction(action) {
 	try {
 		const result = await api("/api/notifications", action === "save" ? { action, url: value } : { action });
 		notificationStatus = result.notifications || notificationStatus;
-		notificationMessage = action === "test" ? "Test sent." : action === "clear" ? "Discord notifications disabled." : "Discord webhook saved.";
+		notificationMessage = action === "test" ? Object.entries(result.answers || {}).map(([way, answer]) => `${way} · ${answer}`).join(" · ") : action === "clear" ? "Discord notifications disabled." : "Discord webhook saved.";
 	} catch (error) {
 		notificationMessage = error.message;
 		notificationAlarm = true;

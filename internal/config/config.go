@@ -737,6 +737,22 @@ type OperatorFiles struct {
 
 type Notifications struct {
 	DiscordCredential string `json:"discord_credential"`
+	Desktop           bool   `json:"desktop"`
+	initialized       bool
+}
+
+func defaultNotifications() Notifications {
+	return Notifications{DiscordCredential: "discord-webhook", Desktop: true, initialized: true}
+}
+func (n *Notifications) UnmarshalJSON(data []byte) error {
+	type plain Notifications
+	value := plain(defaultNotifications())
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*n = Notifications(value)
+	n.initialized = true
+	return nil
 }
 
 // Broker is item 2kq (f)'s one config key. Item 2nu made it a key with a BUILT-IN
@@ -981,7 +997,7 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", Toolset: FullToolset()}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: false, initialized: true},
-		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 5, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: Notifications{DiscordCredential: "discord-webhook"}, Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
+		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 5, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: defaultNotifications(), Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 256 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 16 << 10, MaxLimit: 64 << 10, AllowDomains: []string{}, DenyDomains: []string{}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, ServiceAccount: ShellServiceAccount{Enabled: false, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -1162,7 +1178,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 
 func (c Config) Save(path string) error {
 	persisted := c
-	persisted.Agents = append([]Agent(nil), c.Agents...)
+	persisted.Agents = append([]Agent{}, c.Agents...)
 	persisted.Connections = make([]Connection, len(c.Connections))
 	copy(persisted.Connections, c.Connections)
 	for _, agent := range persisted.Agents {
@@ -1679,6 +1695,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.OperatorFiles.LogRetentionDays == 0 {
 		c.OperatorFiles.LogRetentionDays = d.OperatorFiles.LogRetentionDays
+	}
+	if !c.Notifications.initialized {
+		c.Notifications = d.Notifications
 	}
 	if c.Notifications.DiscordCredential == "" {
 		c.Notifications.DiscordCredential = d.Notifications.DiscordCredential

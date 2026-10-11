@@ -28,6 +28,73 @@ type Manager struct {
 	baseMu  sync.RWMutex
 }
 
+type PlannerNotes struct {
+	mu    sync.Mutex
+	path  string
+	rows  []string
+	bytes int
+}
+
+func NewPlannerNotes(dataRoot string) *PlannerNotes {
+	return &PlannerNotes{path: filepath.Join(dataRoot, "planner", "notes-for-planner.md")}
+}
+func (p *PlannerNotes) Path() string { return p.path }
+func (p *PlannerNotes) Add(chat, note string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rows == nil {
+		body, err := os.ReadFile(p.path)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		p.rows = strings.FieldsFunc(strings.TrimSpace(string(body)), func(r rune) bool { return r == '\n' || r == '\r' })
+		for _, row := range p.rows {
+			p.bytes += len(row) + 1
+		}
+	}
+	note = strings.Join(strings.Fields(note), " ")
+	if runes := []rune(note); len(runes) > 600 {
+		note = string(runes[:600])
+	}
+	marker := ""
+	if chat != "" {
+		digest := sha256.Sum256([]byte(chat))
+		marker = " [chat " + hex.EncodeToString(digest[:6]) + "]"
+		for _, row := range p.rows {
+			if strings.Contains(row, marker) {
+				return nil
+			}
+		}
+	}
+	row := "- " + time.Now().UTC().Format("2006-01-02") + marker + " " + note
+	p.rows, p.bytes = append(p.rows, row), p.bytes+len(row)+1
+	pruned := false
+	for len(p.rows) > 200 || p.bytes > 256<<10 {
+		p.bytes -= len(p.rows[0]) + 1
+		p.rows = p.rows[1:]
+		pruned = true
+	}
+	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
+		return err
+	}
+	if pruned {
+		temporary := p.path + ".tmp"
+		if err := os.WriteFile(temporary, []byte(strings.Join(p.rows, "\n")+"\n"), 0o600); err != nil {
+			return err
+		}
+		return os.Rename(temporary, p.path)
+	}
+	file, err := os.OpenFile(p.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString(row + "\n")
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
 func New(baseDir string, cfg func() config.Config, count Counter) *Manager {
 	manager := &Manager{baseDir: baseDir, cfg: cfg, count: count}
 	_ = manager.migrateBuiltInMemory()

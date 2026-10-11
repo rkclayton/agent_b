@@ -34,14 +34,15 @@ type Summary struct {
 	Connection string    `json:"connection"`
 	// Aux is false when the summary came from the run's own connection because no
 	// aux connection is configured; the text is marked the same way.
-	Aux      bool     `json:"aux"`
-	Read     []string `json:"read"`
-	Written  []string `json:"written"`
-	Changed  string   `json:"changed"`
-	Open     string   `json:"open"`
-	Text     string   `json:"text"`
-	Failed   string   `json:"failed,omitempty"`
-	Duration int64    `json:"duration_ms"`
+	Aux         bool     `json:"aux"`
+	Read        []string `json:"read"`
+	Written     []string `json:"written"`
+	Changed     string   `json:"changed"`
+	Open        string   `json:"open"`
+	Text        string   `json:"text"`
+	PlannerNote string   `json:"-"`
+	Failed      string   `json:"failed,omitempty"`
+	Duration    int64    `json:"duration_ms"`
 	// Untrusted marks a run that read content the operator did not write — a
 	// fetched page, an untrusted tool result. Reflection writes no memory note
 	// from such a run (v1.1.0/W6 cold review).

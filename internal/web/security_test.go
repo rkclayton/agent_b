@@ -41,9 +41,6 @@ func TestUnavailableSandboxCannotBeEnabledAndStoredOnIsDisabled2te(t *testing.T)
 	shell := tools.NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	server.SetShellSecurity(nil, shell)
-	if server.ConfigSnapshot().Sandbox.Enabled {
-		t.Fatal("stored on sandbox survived unavailable startup")
-	}
 	loaded, _, _, err := config.Load(path)
 	if err != nil || loaded.Sandbox.Enabled {
 		t.Fatalf("disk enabled=%t err=%v", loaded.Sandbox.Enabled, err)

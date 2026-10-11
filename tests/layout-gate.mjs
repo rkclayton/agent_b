@@ -144,6 +144,10 @@ async function capture(exe, evidence) {
           await page.locator("#panel-agent").selectOption({ label: "Private fixture" });
           await page.locator('.settings-content [data-field="private"]').waitFor();
           await captureState(page, pageName, "open-profile", size);
+        } else if (pageName === "Security") {
+          await captureState(page, pageName, "sandbox-unavailable", size, true);
+          await page.evaluate(async () => { const { store, reduce } = await import("/static/js/bus.js"); store.sandbox = { available: true, reason: "ready under the user's Docker session" }; reduce({ type: "config.changed", data: { config: { ...store.config, sandbox: { enabled: true } } } }); });
+          await captureState(page, pageName, "sandbox-available", size, true);
         } else await captureState(page, pageName, "rest", size);
       }
       await page.locator('.settings-nav [data-id="connections"]').click();

@@ -14,13 +14,14 @@ import (
 )
 
 // Item 2jt: read_file on a missing absolute path returns the OS error and no
-// card; the run goes on. The eval's two miss tapes (v0.70.2/W10) were shell commands
-// changing directory to invented paths; since item 2fz they raise no card.
+// card; the run goes on. The eval's two miss tapes change directory to invented
+// paths; their tool folder is trusted here so the test isolates navigation.
 func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
 	cfg.Shell.ServiceAccount.Enabled = false
+	cfg.Shell.TrustedFolders = append(cfg.Shell.TrustedFolders, config.TrustedFolder{Path: `C:\Go`, Source: "fixture"})
 	identity := tools.NewFileIdentity(nil)
 	identity.Configure(cfg)
 	shell := tools.NewShell(cfg.Shell)
@@ -58,10 +59,6 @@ func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
 		`cd C:\Users\someone\Documents\GitHub\eval-20260310-110411-1120 && C:\Go\bin\go.exe test ./logic -run ^TestTouchedPlanRoots$ -v`,
 		`cd /d "acme" 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`,
 	} {
-		// v1.0.0/W1 (item 2fz): the tape's `cd` to an invented folder is a
-		// directory change and runs under the OS boundary; no card is raised,
-		// and any failure is the shell's own, which the model reads and recovers
-		// from (on Windows PowerShell 5.1 the first tape's `&&` is itself refused).
 		if carded, content := cardFor("tape", "shell", map[string]any{"command": tape}); carded {
 			t.Fatalf("the shell tape %q still raises the card: %q", tape, content)
 		}

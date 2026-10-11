@@ -1751,6 +1751,9 @@
   .setting-row > div {
     justify-content: flex-start;
   }
+  .setting-row:has([data-action="broker-pair"]) > div {
+    flex-wrap: wrap;
+  }
   .connection-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }

@@ -146,7 +146,14 @@ async function capture(exe, evidence) {
           await captureState(page, pageName, "open-profile", size);
         } else if (pageName === "Security") {
           await captureState(page, pageName, "sandbox-unavailable", size, true);
-          await page.evaluate(async () => { const { store, reduce } = await import("/static/js/bus.js"); store.sandbox = { available: true, reason: "ready under the user's Docker session" }; reduce({ type: "config.changed", data: { config: { ...store.config, sandbox: { enabled: true } } } }); });
+          await page.evaluate(async () => {
+            const busURL = performance.getEntriesByType("resource").map((entry) => entry.name).find((name) => name.endsWith("/js/bus.js"));
+            if (!busURL) throw new Error("loaded bus module was not found");
+            const { store, reduce } = await import(busURL);
+            store.sandbox = { available: true, reason: "ready under the user's Docker session" };
+            reduce({ type: "config.changed", data: { config: { ...store.config, sandbox: { enabled: true } } } });
+          });
+          await page.locator('[data-path="sandbox.enabled"][aria-checked="true"]:not(:disabled)').waitFor();
           await captureState(page, pageName, "sandbox-available", size, true);
         } else await captureState(page, pageName, "rest", size);
       }

@@ -145,6 +145,7 @@ async function capture(exe, evidence) {
           await page.locator('.settings-content [data-field="private"]').waitFor();
           await captureState(page, pageName, "open-profile", size);
         } else if (pageName === "Security") {
+          await page.locator('[data-path="sandbox.enabled"]').scrollIntoViewIfNeeded();
           await captureState(page, pageName, "sandbox-unavailable", size, true);
           await page.evaluate(async () => {
             const busURL = performance.getEntriesByType("resource").map((entry) => entry.name).find((name) => name.endsWith("/js/bus.js"));

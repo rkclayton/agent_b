@@ -8,7 +8,7 @@ import (
 	"unsafe"
 )
 
-func atomicReplace(source, target string) error {
+func AtomicReplace(source, target string) error {
 	s, _ := syscall.UTF16PtrFromString(source)
 	t, _ := syscall.UTF16PtrFromString(target)
 	proc := syscall.NewLazyDLL("kernel32.dll").NewProc("MoveFileExW")

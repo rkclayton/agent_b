@@ -281,7 +281,7 @@ func main() {
 	// from the same place and cannot disagree.
 	stats.InstallRunTally(bus)
 	projector := projection.NewStore()
-	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
+	bus.SetDurableSink(retainedSink(writers), projector.Apply, projector.MarkStale)
 	bus.SetTransientSink(projector.ApplyTransient)
 	web := webserver.New(cfg, paths.Config, filepath.Join(paths.Application, "web"), roots, bus)
 	web.SetProfiles(profileManager)
@@ -559,7 +559,7 @@ func main() {
 		}
 		web.SetRegistry(registry)
 		nextProjector := projection.NewStore()
-		bus.SetDurableSink(nextWriters.WriteRecord, nextProjector.Apply, nextProjector.MarkStale)
+		bus.SetDurableSink(retainedSink(nextWriters), nextProjector.Apply, nextProjector.MarkStale)
 		bus.SetTransientSink(nextProjector.ApplyTransient)
 		web.SetProjection(nextProjector, nextWriters)
 		if closeErr := writers.Close(); closeErr != nil {
@@ -615,6 +615,7 @@ func main() {
 		if cleanupErr != nil {
 			log.Fatal(cleanupErr)
 		}
+		slimRetainedChats(writers, paths)
 		journals := make(map[string]bool, len(paths))
 		for _, path := range paths {
 			journals[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] = true
@@ -842,6 +843,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	if err != nil {
 		return nil, floor, err
 	}
+	slimRetainedChats(writers, paths)
 	hadDurable := len(paths) > 0
 	journals := make(map[string]bool, len(paths))
 	for _, path := range paths {
@@ -935,6 +937,27 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	}
 	startupTimer.mark("register restored sessions")
 	return result, floor, nil
+}
+
+func slimRetainedChats(writers *events.Writers, paths []string) {
+	for _, path := range paths {
+		id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		changed, err := projection.SlimJournal(path, events.PendingChatPath(writers.ChatDir(), id))
+		if err != nil {
+			log.Printf("startup journal kept %s byte for byte: %v", filepath.Base(path), err)
+			continue
+		}
+		if changed {
+			log.Printf("startup journal slimmed %s", filepath.Base(path))
+		}
+	}
+}
+
+func retainedSink(writers *events.Writers) func(events.Event) (events.LogCursor, error) {
+	reducer := projection.NewRetainedReducer()
+	return func(event events.Event) (events.LogCursor, error) {
+		return writers.WriteRetainedRecord(event, reducer.Prepare(event))
+	}
 }
 
 func snapshotIDFloor(snapshot projection.Snapshot, floor int64) int64 {

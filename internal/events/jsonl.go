@@ -20,6 +20,7 @@ type Writers struct {
 	global              *os.File
 	sessions            map[string]*os.File
 	chats               map[string]*os.File
+	pending             map[string]*os.File
 	paths               map[string]string
 	sizes               map[string]int64
 	history             map[string]*historyIndex
@@ -70,7 +71,7 @@ func NewWriters(dir string) (*Writers, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Writers{dir: dir, chatDir: chatDir, start: stamp, global: file, sessions: map[string]*os.File{}, chats: map[string]*os.File{}, paths: map[string]string{}, sizes: map[string]int64{}, history: map[string]*historyIndex{}}, nil
+	return &Writers{dir: dir, chatDir: chatDir, start: stamp, global: file, sessions: map[string]*os.File{}, chats: map[string]*os.File{}, pending: map[string]*os.File{}, paths: map[string]string{}, sizes: map[string]int64{}, history: map[string]*historyIndex{}}, nil
 }
 
 const retainedLogCount = 128
@@ -156,7 +157,8 @@ func (w *Writers) ProjectionCacheDir() string {
 	w.mu.Unlock()
 	return filepath.Join(filepath.Dir(dir), "cache", "projection")
 }
-func (w *Writers) ChatDir() string { w.mu.Lock(); defer w.mu.Unlock(); return w.chatDir }
+func (w *Writers) ChatDir() string              { w.mu.Lock(); defer w.mu.Unlock(); return w.chatDir }
+func PendingChatPath(chatDir, id string) string { return filepath.Join(filepath.Dir(chatDir), ".chat-flight-"+id+".jsonl") }
 
 // DurableChatPaths returns the retained chat journals. Unlike the operational
 // tapes in logs, these files are not subject to log retention.
@@ -442,7 +444,9 @@ func (w *Writers) DeleteSession(id string) (SessionInventory, error) {
 	}
 	w.mu.Lock()
 	chat := w.chats[id]
+	pending := w.pending[id]
 	delete(w.chats, id)
+	delete(w.pending, id)
 	chatPath := filepath.Join(w.chatDir, id+".jsonl")
 	w.mu.Unlock()
 	if chat != nil {
@@ -453,6 +457,10 @@ func (w *Writers) DeleteSession(id string) (SessionInventory, error) {
 	if err := os.Remove(chatPath); err != nil && !os.IsNotExist(err) {
 		return SessionInventory{}, err
 	}
+	if pending != nil {
+		_ = pending.Close()
+	}
+	_ = os.Remove(PendingChatPath(w.chatDir, id))
 	return inventory, nil
 }
 
@@ -479,6 +487,14 @@ func (w *Writers) Write(event Event) error {
 
 // WriteRecord returns a cursor only after a complete JSONL record was appended.
 func (w *Writers) WriteRecord(event Event) (LogCursor, error) {
+	return w.writeRecord(event, event)
+}
+
+func (w *Writers) WriteRetainedRecord(event, retained Event) (LogCursor, error) {
+	return w.writeRecord(event, retained)
+}
+
+func (w *Writers) writeRecord(event, retained Event) (LogCursor, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	file := w.global
@@ -493,28 +509,38 @@ func (w *Writers) WriteRecord(event Event) (LogCursor, error) {
 	}
 	line := append(data, '\n')
 	var chat *os.File
-	if event.SessionID != "" {
+	if event.SessionID != "" && retained.Type != "" {
 		chat, err = w.durableChatLocked(event.SessionID)
 		if err != nil {
 			return LogCursor{}, err
 		}
 	}
 	offset := w.sizes[event.SessionID]
-	written, err := file.Write(line)
+	written, err := appendRecord(file, line)
 	if err != nil {
 		return LogCursor{}, err
 	}
-	if written != len(line) {
-		return LogCursor{}, io.ErrShortWrite
+	if event.Type == ModelDelta && retained.Type == "" {
+		pendingPath := PendingChatPath(w.chatDir, event.SessionID)
+		if w.pending[event.SessionID] == nil {
+			w.pending[event.SessionID], err = os.OpenFile(pendingPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		}
+		if err == nil {
+			_, err = appendRecord(w.pending[event.SessionID], line)
+		}
+	} else if chat != nil {
+		chatLine, marshalErr := json.Marshal(retained)
+		if marshalErr != nil {
+			return LogCursor{}, marshalErr
+		}
+		chatLine = append(chatLine, '\n')
+		_, err = appendRecord(chat, chatLine)
 	}
-	if chat != nil {
-		chatWritten, chatErr := chat.Write(line)
-		if chatErr != nil {
-			return LogCursor{}, chatErr
-		}
-		if chatWritten != len(line) {
-			return LogCursor{}, io.ErrShortWrite
-		}
+	if err != nil {
+		return LogCursor{}, err
+	}
+	if event.Type == ModelResponse || event.Type == RunStopped {
+		w.closePending(event.SessionID)
 	}
 	if event.SessionID != "" && file == w.sessions[event.SessionID] {
 		w.sizes[event.SessionID] += int64(written)
@@ -536,6 +562,22 @@ func (w *Writers) WriteRecord(event Event) (LogCursor, error) {
 		return LogCursor{}, nil
 	}
 	return LogCursor{Generation: filepath.Base(path), Offset: offset + int64(written), Path: path}, nil
+}
+
+func appendRecord(file *os.File, line []byte) (int, error) {
+	written, err := file.Write(line)
+	if err == nil && written != len(line) {
+		err = io.ErrShortWrite
+	}
+	return written, err
+}
+
+func (w *Writers) closePending(id string) {
+	if file := w.pending[id]; file != nil {
+		_ = file.Close()
+	}
+	delete(w.pending, id)
+	_ = os.Remove(PendingChatPath(w.chatDir, id))
 }
 
 func (w *Writers) SessionCursors() map[string]LogCursor {
@@ -627,6 +669,7 @@ func (w *Writers) Close() error {
 	var first error
 	files := append([]*os.File{w.global}, mapFiles(w.sessions)...)
 	files = append(files, mapFiles(w.chats)...)
+	files = append(files, mapFiles(w.pending)...)
 	for _, file := range files {
 		if file == nil {
 			continue

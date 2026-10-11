@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"harness/internal/events"
+	"harness/internal/tools"
 )
 
 const maxRecordBytes = 64 * 1024 * 1024
@@ -25,6 +27,99 @@ func ReadFile(path string, through int64) ([]Record, int64, error) {
 		source = io.LimitReader(file, through)
 	}
 	return read(filepath.Base(path), source, through)
+}
+
+func SlimJournal(path, pending string) (bool, error) {
+	return slimJournal(path, pending, nil, tools.AtomicReplace)
+}
+
+func slimJournal(path, pending string, alter func([]Record), replace func(string, string) error) (bool, error) {
+	records, _, err := ReadFile(path, 0)
+	if err != nil {
+		return false, err
+	}
+	merged := false
+	if pending != "" {
+		if recovered, _, readErr := ReadFile(pending, 0); readErr == nil {
+			records = append(records, recovered...)
+			merged = len(recovered) > 0
+		} else if !os.IsNotExist(readErr) {
+			return false, readErr
+		}
+	}
+	full, err := projectRecords(records)
+	if err != nil {
+		return false, err
+	}
+	complete := map[string]bool{}
+	prepared, reducer := make([]events.Event, len(records)), NewRetainedReducer()
+	for index, record := range records {
+		prepared[index] = reducer.Prepare(record.Event)
+		data := eventMap(record.Event.Data)
+		if record.Event.Type == events.ModelResponse {
+			complete[turnKey(record.Event, data)] = true
+		}
+		if record.Event.Type == events.RunStopped {
+			complete[record.Event.RunID] = true
+		}
+	}
+	slim := make([]Record, 0, len(records))
+	changed, encoded := merged, []byte(nil)
+	for index, record := range records {
+		if record.Event.Type == events.ModelDelta && (complete[turnKey(record.Event, eventMap(record.Event.Data))] || complete[record.Event.RunID]) {
+			changed = true
+			continue
+		}
+		changed = changed || record.Event.Body != nil || record.Event.Raw != nil
+		record.Event = prepared[index]
+		if record.Event.Type == "" {
+			record.Event = stripDiagnostic(records[index].Event)
+		}
+		slim = append(slim, record)
+		line, marshalErr := json.Marshal(record.Event)
+		if marshalErr != nil {
+			return false, marshalErr
+		}
+		encoded = append(encoded, line...)
+		encoded = append(encoded, '\n')
+	}
+	if alter != nil {
+		alter(slim)
+	}
+	if !changed && alter == nil {
+		return false, nil
+	}
+	reduced, err := projectRecords(slim)
+	if err != nil {
+		return false, err
+	}
+	full.Cursor, reduced.Cursor = Cursor{}, Cursor{}
+	if !reflect.DeepEqual(full, reduced) {
+		return false, fmt.Errorf("slim projection differs")
+	}
+	temporary := path + ".slim.tmp"
+	if err = os.WriteFile(temporary, encoded, 0o600); err == nil {
+		err = replace(temporary, path)
+	}
+	if err != nil {
+		_ = os.Remove(temporary)
+		return false, err
+	}
+	if pending != "" {
+		_ = os.Remove(pending)
+	}
+	return true, nil
+}
+
+func projectRecords(records []Record) (state Snapshot, err error) {
+	state = Empty(sessionID(records))
+	for _, record := range records {
+		state, err = NextState(state, record)
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
+	return
 }
 
 // ProjectFileState is ProjectFile without the patches (item 2gm). Computing
@@ -58,17 +153,12 @@ func projectFile(path string, through int64, wantPatches bool) (Snapshot, []Patc
 		patches = make([]Patch, 0, len(records))
 	}
 	for _, record := range records {
-		var (
-			next    Snapshot
-			patch   Patch
-			nextErr error
-		)
+		var patch Patch
 		if wantPatches {
-			next, patch, nextErr = Next(state, record)
+			state, patch, err = Next(state, record)
 		} else {
-			next, nextErr = NextState(state, record)
+			state, err = NextState(state, record)
 		}
-		state, err = next, nextErr
 		if err != nil {
 			return Snapshot{}, nil, fmt.Errorf("project %s at byte %d: %w", path, record.Cursor.Offset, err)
 		}

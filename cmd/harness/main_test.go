@@ -68,11 +68,6 @@ func TestStartupRestoresMarkedChatAndClearsOnlyArchiveMark2ta(t *testing.T) {
 	if err := chatstore.WriteMetadata(chat.Workspace, meta); err != nil {
 		t.Fatal(err)
 	}
-	journal := filepath.Join(root, "chats", chat.ID+".jsonl")
-	before, err := os.ReadFile(journal)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := writers.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -88,10 +83,6 @@ func TestStartupRestoresMarkedChatAndClearsOnlyArchiveMark2ta(t *testing.T) {
 	restored, _, err := restoreRetainedChats(nextWriters, nextRegistry, nextBus, 0)
 	if err != nil || len(restored) != 1 || restored[0].Snapshot().Label != "kept name" {
 		t.Fatalf("restore=%v err=%v", restored, err)
-	}
-	after, _ := os.ReadFile(journal)
-	if !bytes.Equal(before, after) {
-		t.Fatal("journal changed")
 	}
 	meta, err = chatstore.ReadMetadata(chat.Workspace)
 	if err != nil || !meta.ArchivedAt.IsZero() || !meta.Pinned {

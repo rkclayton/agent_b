@@ -10,11 +10,26 @@ import (
 	"time"
 )
 
-func TestChatHistoryStreamsOneHundredMegabytes2qh(t *testing.T) {
-	writers, err := NewWriters(t.TempDir())
+func testWriters(t *testing.T, dir string) *Writers {
+	t.Helper()
+	writers, err := NewWriters(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return writers
+}
+
+func testSession(t *testing.T, writers *Writers, id string) string {
+	t.Helper()
+	path, err := writers.OpenSession(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestChatHistoryStreamsOneHundredMegabytes2qh(t *testing.T) {
+	writers := testWriters(t, t.TempDir())
 	t.Cleanup(func() { _ = writers.Close() })
 	body := strings.Repeat("x", 64*1024)
 	for index := 0; index < 1600; index++ {
@@ -65,10 +80,7 @@ func TestLogRetentionBoundsCountAndAgeAndKeepsNewestKind2pd(t *testing.T) {
 		_ = os.Chtimes(path, at, at)
 		newest[kind] = path
 	}
-	writers, err := NewWriters(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	writers := testWriters(t, dir)
 	if err := writers.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -84,15 +96,9 @@ func TestLogRetentionBoundsCountAndAgeAndKeepsNewestKind2pd(t *testing.T) {
 }
 
 func TestCloseSessionReleasesWriter(t *testing.T) {
-	writers, err := NewWriters(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	writers := testWriters(t, t.TempDir())
 	t.Cleanup(func() { _ = writers.Close() })
-	path, err := writers.OpenSession("main")
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := testSession(t, writers, "main")
 	if err := writers.Write(New(ToolResult, "main", "run", map[string]any{"ok": true})); err != nil {
 		t.Fatal(err)
 	}
@@ -105,10 +111,7 @@ func TestCloseSessionReleasesWriter(t *testing.T) {
 }
 
 func TestWriteReturnsMarshalFailure(t *testing.T) {
-	writers, err := NewWriters(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	writers := testWriters(t, t.TempDir())
 	t.Cleanup(func() { _ = writers.Close() })
 	if err := writers.Write(New(Error, "", "", make(chan int))); err == nil {
 		t.Fatal("unsupported event data was reported as persisted")
@@ -116,14 +119,9 @@ func TestWriteReturnsMarshalFailure(t *testing.T) {
 }
 
 func TestWritersIndexCompactedHistoryWithoutRetainingBodies(t *testing.T) {
-	writers, err := NewWriters(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	writers := testWriters(t, t.TempDir())
 	t.Cleanup(func() { _ = writers.Close() })
-	if _, err := writers.OpenSession("main"); err != nil {
-		t.Fatal(err)
-	}
+	testSession(t, writers, "main")
 	ok := true
 	call := Message{ID: "m-1", Role: "assistant", Category: "history", Turn: 1, ToolCalls: []ToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"app.css","offset":1,"content":"secret"}`}}}
 	result := Message{ID: "m-2", Role: "tool", Category: "files", Turn: 1, ToolCallID: "call-1", Name: "read_file", Content: "complete recorded body", OK: &ok}
@@ -158,30 +156,20 @@ func TestWritersIndexCompactedHistoryWithoutRetainingBodies(t *testing.T) {
 }
 
 func TestOpenSessionResetsHistoryIndex(t *testing.T) {
-	writers, err := NewWriters(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	writers := testWriters(t, t.TempDir())
 	t.Cleanup(func() { _ = writers.Close() })
-	if _, err := writers.OpenSession("main"); err != nil {
-		t.Fatal(err)
-	}
+	testSession(t, writers, "main")
 	if err := writers.Write(New(MessageAppended, "main", "run", map[string]any{"message": Message{ID: "m-1", Role: "tool", Content: "old"}})); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writers.OpenSession("main"); err != nil {
-		t.Fatal(err)
-	}
+	testSession(t, writers, "main")
 	if _, err := writers.ResolveHistory("main", "m-1"); err == nil {
 		t.Fatal("history survived session log reset")
 	}
 }
 
 func TestRotateSessionReturnsExactPredecessorBoundary(t *testing.T) {
-	writers, err := NewWriters(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	writers := testWriters(t, t.TempDir())
 	t.Cleanup(func() { _ = writers.Close() })
 	first, predecessor, err := writers.RotateSession("main")
 	if err != nil || predecessor.Offset != 0 {

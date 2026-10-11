@@ -241,7 +241,7 @@ func TestASecondLaunchReadsTheProjectionInsteadOfTheJournal2m5(t *testing.T) {
 		}
 		defer func() { _ = next.Close() }()
 		nextBus := events.NewBus()
-		nextBus.SetDurableSink(next.WriteRecord, nil, nil)
+		nextBus.SetDurableSink(retainedSink(next), nil, nil)
 		nextRegistry := session.NewRegistry(nextBus, next, connections, 40, func() config.Config { return cfg })
 		restored, _, err := restoreRetainedChats(next, nextRegistry, nextBus, 0)
 		if err != nil || len(restored) != 1 {

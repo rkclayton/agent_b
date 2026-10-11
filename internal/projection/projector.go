@@ -252,6 +252,39 @@ func Empty(sessionID string) Snapshot {
 	}
 }
 
+type RetainedReducer map[string]Snapshot
+
+func NewRetainedReducer() RetainedReducer { return RetainedReducer{} }
+
+func (r RetainedReducer) Prepare(event events.Event) events.Event {
+	state := r[event.SessionID]
+	if state.ID == "" {
+		state = Empty(event.SessionID)
+	}
+	retained := stripDiagnostic(event)
+	completed := event.Type == events.ModelResponse || event.Type == events.RunStopped
+	if completed && (event.Type == events.ModelResponse || state.Activity.Stream != nil) {
+		retained.Data = retainedData(event.Data, state)
+		delete(r, event.SessionID)
+	} else if event.Type == events.ModelRequest || event.Type == events.ModelProgress || event.Type == events.ModelDelta {
+		r[event.SessionID], _ = NextState(state, Record{Event: event})
+	}
+	if event.Type == events.ModelDelta {
+		return events.Event{}
+	}
+	return retained
+}
+
+func retainedData(original any, state Snapshot) any {
+	data := cloneMap(eventMap(original))
+	value := map[string]any{"stream": state.Activity.Stream, "partial": state.Run.Partial}
+	if len(state.Chat) > 0 {
+		value["chat"] = state.Chat[len(state.Chat)-1]
+	}
+	data["_retained"] = value
+	return data
+}
+
 // Next is pure: it does not mutate previous, record, or package state.
 // Next folds one record into the snapshot AND computes the patch describing
 // the change, for the clients that follow a live stream.
@@ -317,7 +350,20 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next.Label = record.Event.SessionID
 	}
 	data := eventMap(record.Event.Data)
-
+	if value := data["_retained"]; value != nil {
+		var kept struct {
+			Chat    ChatEntry        `json:"chat"`
+			Stream  *StreamTelemetry `json:"stream"`
+			Partial string           `json:"partial"`
+		}
+		if decode(value, &kept) == nil {
+			next.Activity.Stream, next.Run.Partial = kept.Stream, kept.Partial
+			if kept.Chat.Key != "" && chatTurn(next.Chat, kept.Chat.RunID, kept.Chat.Turn) != nil {
+				next.Chat = cloneChat(next.Chat)
+				*chatTurn(next.Chat, kept.Chat.RunID, kept.Chat.Turn) = kept.Chat
+			}
+		}
+	}
 	switch record.Event.Type {
 	case events.SessionCreated:
 		var wrapper struct {
@@ -1232,6 +1278,11 @@ func pointer(value string) string {
 func stripDiagnostic(event events.Event) events.Event {
 	event.Body = nil
 	event.Raw = nil
+	if data := eventMap(event.Data); data["_retained"] != nil {
+		clean := cloneMap(data)
+		delete(clean, "_retained")
+		event.Data = clean
+	}
 	return event
 }
 

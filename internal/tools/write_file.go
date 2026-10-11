@@ -212,7 +212,7 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err != nil {
 		return fail(err)
 	}
-	if err := atomicReplace(tempPath, resolved); err != nil {
+	if err := AtomicReplace(tempPath, resolved); err != nil {
 		return fail(err)
 	}
 	commitState(true)

@@ -4,4 +4,4 @@ package tools
 
 import "os"
 
-func atomicReplace(source, target string) error { return os.Rename(source, target) }
+func AtomicReplace(source, target string) error { return os.Rename(source, target) }

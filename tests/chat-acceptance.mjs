@@ -951,6 +951,7 @@ if (realModel) {
   await setTask("acceptance: clock search"); await waitProjectedChatText(sessionID, "CLOCK SEARCH COMPLETE", "clock search completed");
   const clockEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeClockSearch), clockResult = clockEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "clock-search");
   assert.equal(clockEvents.some((event) => event.type === "approval.required"), false); assert.equal(clockResult?.data?.ok, true);
+  await openStepFoldIfDrawn();
   await page.locator('[data-entry-key="tool:clock-search"] .tool-tick').waitFor({ state: "visible" }); record("clock-search-runs-without-drive-card-2ts");
 
   if (args["2rv-only"] === "true") {

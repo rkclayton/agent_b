@@ -41,7 +41,7 @@ func TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt(t *testing.T
 	}
 	smallSearch, smallIndex := storeSearch(30)
 	largeSearch, largeIndex := storeSearch(3000)
-	middle, largest, rounds := interleavedSearchRatios(t, smallSearch, largeSearch, true)
+	middle, largest, rounds, batch := interleavedSearchRatios(t, smallSearch, largeSearch, true)
 	smallRecords, largeRecords := directoryEntries(t, smallIndex), directoryEntries(t, largeIndex)
 	server := new(Server)
 	extractText := func() {
@@ -50,7 +50,7 @@ func TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt(t *testing.T
 		}
 	}
 	smallExtraction, largeExtraction := medianWait(extractText, nil), medianWait(extractText, nil)
-	t.Logf("2pt interleaved search middle=%.2fx largest_round=%.2fx rounds=%v; records small=%d large=%d; extraction small=%s large=%s", middle, largest, rounds, smallRecords, largeRecords, smallExtraction, largeExtraction)
+	t.Logf("2pt interleaved search batch=%d middle=%.2fx largest_round=%.2fx rounds=%v; records small=%d large=%d; extraction small=%s large=%s", batch, middle, largest, rounds, smallRecords, largeRecords, smallExtraction, largeExtraction)
 	if middle > 2 {
 		t.Fatalf("attachment storage search grows with retained files: middle=%.2fx rounds=%v", middle, rounds)
 	}
@@ -78,16 +78,21 @@ func TestAttachmentStorageGrowthMeasureDetectsLinearStandIn2pt(t *testing.T) {
 			}
 		}
 	}
-	middle, largest, rounds := interleavedSearchRatios(t, linearSearch(index(30)), linearSearch(index(3000)), false)
-	t.Logf("2pt linear-search stand-in middle=%.2fx largest_round=%.2fx rounds=%v", middle, largest, rounds)
+	middle, largest, rounds, batch := interleavedSearchRatios(t, linearSearch(index(30)), linearSearch(index(3000)), false)
+	t.Logf("2pt linear-search stand-in batch=%d middle=%.2fx largest_round=%.2fx rounds=%v", batch, middle, largest, rounds)
 	if middle <= 2 {
 		t.Fatalf("attachment growth measure missed linear stand-in: middle=%.2fx rounds=%v", middle, rounds)
 	}
 }
 
-func interleavedSearchRatios(t *testing.T, small, large func(), requireFloor bool) (float64, float64, []float64) {
+func interleavedSearchRatios(t *testing.T, small, large func(), requireFloor bool) (float64, float64, []float64, int) {
 	t.Helper()
-	const searchesPerTiming = 128
+	searchesPerTiming := 128
+	if requireFloor {
+		for timedSearches(searchesPerTiming, small) < 50*time.Millisecond {
+			searchesPerTiming *= 2
+		}
+	}
 	rounds := make([]float64, 0, 9)
 	zeroes := 0
 	for len(rounds) < cap(rounds) {
@@ -100,14 +105,11 @@ func interleavedSearchRatios(t *testing.T, small, large func(), requireFloor boo
 			}
 			continue
 		}
-		if requireFloor && smallTime < 50*time.Millisecond {
-			t.Fatalf("attachment search measurement is shorter than the clock and noise: %s for %d searches", smallTime, searchesPerTiming)
-		}
 		rounds = append(rounds, float64(largeTime)/float64(smallTime))
 	}
 	ordered := append([]float64(nil), rounds...)
 	sort.Float64s(ordered)
-	return ordered[len(ordered)/2], ordered[len(ordered)-1], rounds
+	return ordered[len(ordered)/2], ordered[len(ordered)-1], rounds, searchesPerTiming
 }
 
 func timedSearches(count int, operation func()) time.Duration {

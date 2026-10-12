@@ -2259,11 +2259,11 @@ if (realModel) {
 	await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "queue leader running");
 	await setTask("acceptance: queued follower");
 	await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1, "message.queued");
-	await browser.wait(`[...document.querySelectorAll('#chat-log .chat-user')].some((row) => row.innerText.includes('acceptance: queued follower') && row.innerText.includes('queued'))`, "queued bubble");
+	await browser.wait(`[...document.querySelectorAll('#chat-log .chat-user')].some((row) => row.innerText.includes('acceptance: queued follower') && row.querySelector('.chat-queued-state'))`, "queued bubble");
 	await captureWithMasks(page, join(args.evidence, "captures", "queued-bubble.png"));
   releaseQueue?.();
   await waitProjectedChatText(sessionID, "Queued follower completed.", "queued follower answer");
-	await browser.wait(`![...document.querySelectorAll('#chat-log .chat-user')].some((row) => row.innerText.includes('acceptance: queued follower') && row.innerText.includes('queued'))`, "queued label removed");
+	await browser.wait(`[...document.querySelectorAll('#chat-log .chat-user')].some((row) => row.innerText.includes('acceptance: queued follower') && !row.querySelector('.chat-queued-state'))`, "queued label removed");
 	await captureWithMasks(page, join(args.evidence, "captures", "queued-delivered.png"));
   events = await sessionEvents(sessionID);
   const queueUsers = events.filter((event) => event.type === "message.appended" && event.data.message?.role === "user").map((event) => event.data.message.content);

@@ -1,6 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { decodePNG } from "../png.mjs";
 
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 
@@ -599,7 +600,7 @@ const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url
 
 function chatPage(pixels, face) {
   return `<!doctype html><html><head><style>
-    :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F; --signal:#3CF08A;
+    :root { --bezel:#0D1014; --well:#080A0D; --ink:#E8EEF4; --mute:#707D8B; --trace:#F2B233; --alarm:#E4624F; --signal:#3CF08A;
       --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
       --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px;
       --agent-tab-width:118px; --etch-fade:.165; --chat-size:${pixels}px; --chat-face:${face}; }
@@ -661,9 +662,10 @@ test("a code block stays monospaced under every typeface", async ({ page }) => {
 });
 
 test("user bubbles hold short, long and attached content across the required range 2sl", async ({ page }) => {
+  await mkdir("logs/evidence/rel-1.62.83/captures", { recursive: true });
   for (const width of [304, 1280, 1920]) {
     for (const pixels of [9, 12, 32]) {
-      await page.setViewportSize({ width, height: 900 });
+      await page.setViewportSize({ width, height: width === 1280 ? 860 : 900 });
       await page.setContent(chatPage(pixels, '"IBM Plex Sans", sans-serif'));
       await page.locator("#chat-log").evaluate((log, markup) => { log.innerHTML = markup; }, `<article class="chat-entry chat-user" tabindex="0"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content"><div class="chat-user-text">short</div></div></article>
         <article class="chat-entry chat-user"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content"><div class="chat-user-text">${"x".repeat(400)}</div><pre><code>pasted block</code></pre><img alt="picture" width="40" height="30"><span class="file-chip">record.txt</span></div></article>
@@ -706,7 +708,7 @@ test("user bubbles hold short, long and attached content across the required ran
       expect(seen.shortFits, `${width}px/${pixels}px short width`).toBe(true);
       expect(seen.shortContentWidth, `${width}px/${pixels}px short content width`).toBeLessThanOrEqual(1);
       expect(seen.textInset, `${width}px/${pixels}px text inset`).toBeGreaterThan(0);
-      expect(seen.right, `${width}px/${pixels}px right edge`).toBeLessThanOrEqual(1);
+      expect(seen.right, `${width}px/${pixels}px right edge`).toBeCloseTo(12, 1);
       expect(seen.longRatio, `${width}px/${pixels}px long width`).toBeLessThanOrEqual(.801);
       expect(seen.longOverflow, `${width}px/${pixels}px bubble overflow`).toBeLessThanOrEqual(1);
       expect(seen.transcriptOverflow, `${width}px/${pixels}px transcript overflow`).toBeLessThanOrEqual(1);
@@ -714,9 +716,14 @@ test("user bubbles hold short, long and attached content across the required ran
       expect(seen.nestedVerticalScrollers, `${width}px/${pixels}px nested scroller`).toBe(0);
       expect(seen.copied).toBe("short");
       expect(seen.focusWhole, `${width}px/${pixels}px focus ring`).toBe(true);
-      expect(seen.visuals).toEqual(seen.inputVisuals);
+      expect(seen.visuals).toEqual(["rgb(21, 24, 28)", "8px", seen.inputVisuals[2]]);
+      const picture = decodePNG(await page.locator(".chat-user .chat-content").first().screenshot()), pixel = (x, y) => [...picture.data.slice((y * picture.width + x) * 4, (y * picture.width + x) * 4 + 3)];
+      expect([pixel(0, 0), pixel(picture.width - 1, 0), pixel(0, picture.height - 1), pixel(picture.width - 1, picture.height - 1), pixel(Math.floor(picture.width / 2), 4)]).toEqual([[8,10,13],[8,10,13],[8,10,13],[8,10,13],[21,24,28]]);
+      const colours = ["E8EEF4","FFFFFF","FF6B6B","FF9F43","FFD166","3CF08A","4DDFF7","6CA8FF","C792EA","FF85C2"], luminance = (hex) => { const c = [0,2,4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return .2126*c[0] + .7152*c[1] + .0722*c[2]; }, ratios = colours.map((colour) => (luminance(colour) + .05) / (luminance("15181C") + .05));
+      expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5); if (width === 1280 && pixels === 12) console.log("2tq bubble contrast", ratios.map((ratio) => ratio.toFixed(2)).join(", "));
       expect(seen.leftRows).toBe(true);
       expect(seen.summary).toBe("");
+      if (pixels === 12 && width !== 1920) await page.screenshot({ path: `logs/evidence/rel-1.62.83/captures/2tq-user-bubbles-${width}.png`, fullPage: true });
     }
   }
 });

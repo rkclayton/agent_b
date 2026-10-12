@@ -402,9 +402,9 @@ test("Chats is the minimal ordered profile reading approval context delete surfa
 });
 
 test("user messages are right-side composer-matched bubbles without changing other rows 2sl", () => {
-  assert.match(css, /\.chat-user\s*\{[^}]*display:flex[^}]*justify-content:flex-end/s);
+  assert.match(css, /\.chat-user\s*\{[^}]*display:flex[^}]*justify-content:flex-end[^}]*padding-right:12px/s);
   assert.match(css, /\.chat-user \.chat-speaker\s*\{\s*display:none/);
-  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*background:var\(--well\)[^}]*border-radius:0[^}]*box-shadow:inset 0 0 0 1px rgba\(112,125,139,\.28\)/s);
+  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*background:#15181C[^}]*border-radius:8px[^}]*box-shadow:inset 0 0 0 1px rgba\(112,125,139,\.28\)/s);
   assert.match(chat, /view\.userText\.className = "chat-user-text"/);
   assert.match(css, /\.chat-user-text,\.chat-response-answer,\.chat-composer textarea\s*\{\s*color:var\(--chat-ink,var\(--ink\)\)/);
   assert.match(css, /\.chat-content code,\.chat-content pre\s*\{\s*color:var\(--ink\)/);

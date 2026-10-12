@@ -51,6 +51,9 @@ func TestApprovedConnectorMutationValidatesPersistsAndRemoves(t *testing.T) {
 }
 
 func TestApprovedMCPConnectorCanStorePublishedEntraDefinition(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the production credential vault uses Windows DPAPI")
+	}
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)

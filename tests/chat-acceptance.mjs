@@ -2213,10 +2213,8 @@ if (realModel) {
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data.reason === "aborted_mid_model", "stopped run");
   record("stop-visible-reachable-and-under-one-second");
 
-  // Item 2fg: Stop during a long tool, a message sent while the run is still
-  // stopping — the message is held (nothing releases it on a timer or a
-  // reachability event), the transcript shows the stop, and only the operator's
-  // next message releases the queue, in order.
+  // Item 2tl: Stop during a long tool returns a message sent while stopping to
+  // the composer. Clearing it and sending B must never release A later.
   events = await sessionEvents(sessionID);
   const beforeStopMidTool = events.at(-1)?.seq || 0;
   await setTask("acceptance: stop mid tool");
@@ -2230,8 +2228,9 @@ if (realModel) {
   }, sessionID);
   assert.equal(sentWhileStopping, 202);
   const stoppedMidTool = await waitEvent(sessionID, (event) => event.seq > beforeStopMidTool && event.type === "run.stopped" && event.data?.reason === "aborted_mid_tool", "stopped mid-tool", 10000);
-  assert.equal(stoppedMidTool.data.queue_held, true, "a message sent while stopping is held");
-  await sleep(3000);
+  assert.equal(stoppedMidTool.data.queue_held, false, "Stop must not retain a held queue");
+  await browser.wait(`document.querySelector('#chat-task')?.value.includes('acceptance: sent while stopping')`, "stopped message returned to composer");
+  await captureWithMasks(page, join(args.evidence, "captures", "queued-box-after-stop.png"));
   events = await sessionEvents(sessionID);
   assert.equal(events.some((event) => event.seq > stoppedMidTool.seq && (event.type === "run.started" || event.type === "model.unreachable")), false, "the held message ran, or the stop read as an outage");
   await browser.wait(`[...document.querySelectorAll('#chat-log > .chat-notice-row')].some((row) => row.innerText.startsWith('stopped mid-tool'))`, "stopped-mid-tool marker in the transcript");
@@ -2239,8 +2238,8 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "Resumed after the stop.", "resume after stop");
   events = await sessionEvents(sessionID);
   const afterStopUsers = events.filter((event) => event.seq > stoppedMidTool.seq && event.type === "message.appended" && event.data.message?.role === "user").map((event) => event.data.message.content);
-  assert.deepEqual(afterStopUsers, ["acceptance: sent while stopping", "acceptance: resume after stop"]);
-  record("stop-mid-tool-holds-a-message-sent-while-stopping");
+  assert.deepEqual(afterStopUsers, ["acceptance: resume after stop"]);
+  record("stop-mid-tool-returns-unsent-message");
 
 	events = await sessionEvents(sessionID);
 	const beforeInboxStop = events.at(-1)?.seq || 0;
@@ -2260,13 +2259,16 @@ if (realModel) {
 	await browser.wait(`document.querySelector('#chat-send').dataset.mode === 'stop'`, "queue leader running");
 	await setTask("acceptance: queued follower");
 	await waitEvent(sessionID, (event) => event.type === "message.queued" && event.data.position === 1, "message.queued");
-	await browser.wait(`document.querySelector('#chat-status-line')?.innerText.toLowerCase().includes('queued (1)')`, "queued count");
+	await browser.wait(`[...document.querySelectorAll('#chat-log .chat-user')].some((row) => row.innerText.includes('acceptance: queued follower') && row.innerText.includes('queued'))`, "queued bubble");
+	await captureWithMasks(page, join(args.evidence, "captures", "queued-bubble.png"));
   releaseQueue?.();
   await waitProjectedChatText(sessionID, "Queued follower completed.", "queued follower answer");
+	await browser.wait(`![...document.querySelectorAll('#chat-log .chat-user')].some((row) => row.innerText.includes('acceptance: queued follower') && row.innerText.includes('queued'))`, "queued label removed");
+	await captureWithMasks(page, join(args.evidence, "captures", "queued-delivered.png"));
   events = await sessionEvents(sessionID);
   const queueUsers = events.filter((event) => event.type === "message.appended" && event.data.message?.role === "user").map((event) => event.data.message.content);
   assert.ok(queueUsers.indexOf("acceptance: queue leader") < queueUsers.indexOf("acceptance: queued follower"));
-  record("active-run-queue-fifo");
+  record("active-run-next-step-delivery");
 
   await page.locator("#chat-attach").click();
   await page.locator("#chat-attach-exchange").click();

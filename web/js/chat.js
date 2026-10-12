@@ -152,6 +152,7 @@ subscribe((_state, event) => {
     else if (store.selection.agent_id === "agent_b" && (!store.sessions[selectedID()] || store.sessions[selectedID()].closed)) changeBound(open[0]?.id || "");
   }
   if (event.type === "config.changed") applyReadingSettings();
+	cacheQueuedDraft(store.sessions[selectedID()]);
   // The sweep below exists for a selection that went stale on its own. A chat
   // the operator asked for by name is not stale, so it is left in front of him
   // until he chooses another (item 2gn).
@@ -213,11 +214,9 @@ function render() {
 
 function reconcileQueuedDraft(session) {
 	if (!session) return;
+	cacheQueuedDraft(session);
 	const ids = Array.isArray(session.queued_message_ids) ? session.queued_message_ids : [];
 	if (ids.length) {
-		const byID = new Map((session.chat || []).filter((entry) => entry.type === "user").map((entry) => [String(entry.key || "").replace(/^message:/, ""), entry]));
-		const messages = ids.map((id) => byID.get(id)).filter(Boolean).map((entry) => ({ text: entry.text || "", attachments: entry.attachments || [] }));
-		if (messages.length) queuedDrafts.set(session.id, messages);
 		if (session.run?.status === "idle" && !session.model_unreachable && !returningQueues.has(session.id)) {
 			returningQueues.add(session.id);
 			void api("/api/stop", { session_id: session.id }).finally(() => returningQueues.delete(session.id));
@@ -236,6 +235,15 @@ function reconcileQueuedDraft(session) {
 		}
 		queuedDrafts.delete(session.id);
 	} else if (session.run?.status === "running") queuedDrafts.delete(session.id);
+}
+
+function cacheQueuedDraft(session) {
+	if (!session) return;
+	const ids = Array.isArray(session.queued_message_ids) ? session.queued_message_ids : [];
+	if (!ids.length) return;
+	const byID = new Map((session.chat || []).filter((entry) => entry.type === "user").map((entry) => [String(entry.key || "").replace(/^message:/, ""), entry]));
+	const messages = ids.map((id) => byID.get(id)).filter(Boolean).map((entry) => ({ text: entry.text || "", attachments: entry.attachments || [] }));
+	if (messages.length) queuedDrafts.set(session.id, messages);
 }
 
 export function mountChat(shellController) {

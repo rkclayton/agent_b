@@ -335,6 +335,13 @@
      "value": 1
     },
     {
+     "op": "replace",
+     "path": "/queued_message_ids",
+     "value": [
+      "m2"
+     ]
+    },
+    {
      "op": "append",
      "path": "/timeline",
      "value": {

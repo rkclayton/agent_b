@@ -60,6 +60,25 @@ func TestQueuedMessagePositionZeroRemovesOnlyThatQueuedTurn2tl(t *testing.T) {
 	}
 }
 
+func TestQueuedMessageIDsReachLiveProjectionPatches2tl(t *testing.T) {
+	state := Empty("session")
+	queued := events.New(events.MessageQueued, "session", "", map[string]any{"message_id": "m-1", "position": 1})
+	queued.Seq = 1
+	next, patch, err := Next(state, Record{Cursor: Cursor{Generation: "queue.events", Offset: 1}, Event: queued})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, operation := range patch.Operations {
+		if operation.Path == "/queued_message_ids" {
+			found = true
+		}
+	}
+	if !found || len(next.QueuedMessageIDs) != 1 || next.QueuedMessageIDs[0] != "m-1" {
+		t.Fatalf("live patch omitted queued ids: operations=%+v ids=%v", patch.Operations, next.QueuedMessageIDs)
+	}
+}
+
 func TestReplayReconstructsSupersededDecisionAndNewestPendingCard(t *testing.T) {
 	state := Empty("session")
 	inputs := []events.Event{

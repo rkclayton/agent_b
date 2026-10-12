@@ -138,6 +138,15 @@ func (r *Runner) agentConnection(agent *config.Agent, role string) (*config.Conn
 func (r *Runner) currentConnection(s *session.Session) (*config.Connection, bool) {
 	return r.connection(s.Snapshot().ConnectionID)
 }
+
+func connectionWithProfileThinking(connection config.Connection, profile config.Agent) config.Connection {
+	control := connection.Reasoning.Control
+	if control == "auto" {
+		control = connection.Capabilities.ReasoningControl
+	}
+	connection.Reasoning.Enabled = profile.Thinking && control != "" && control != "none"
+	return connection
+}
 func (r *Runner) Gate() *Gate                     { return r.gate }
 func (r *Runner) SetToolActivity(fn func(string)) { r.toolActivity = fn }
 func (r *Runner) SetDeliverer(fn func(*session.Session, string, []delivery.Source) delivery.Result) {
@@ -497,6 +506,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			return "connection_not_runnable", windowErr.Error(), turn - 1
 		}
 		localConnection := *connection
+		if profile, found := r.cfg().Agent(s.Snapshot().AgentID); found {
+			localConnection = connectionWithProfileThinking(localConnection, *profile)
+		}
 		connection = &localConnection
 		connection.Capabilities.ObservedMessageLimit = runMessageLimit
 		connection.Capabilities.ObservedByteLimit = runByteLimit

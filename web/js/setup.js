@@ -68,7 +68,6 @@ function whereScreen() {
       <label>API key<input data-field="api-key" type="password" autocomplete="off" placeholder="optional"></label>
       <label>Model<span class="setup-inline">${modelField}<button data-action="query-models" type="button">Query models</button></span></label>
       <label>Context size<input data-field="context" type="number" value="${attr(connection?.context?.n_ctx || "")}" placeholder="${attr(connection?.capabilities?.n_ctx || "")}"><span class="setup-note">${html(contextReading)}</span></label>
-      <label>Reasoning enabled<select data-field="reasoning"><option value="true" ${connection?.reasoning?.enabled !== false ? "selected" : ""}>on</option><option value="false" ${connection?.reasoning?.enabled === false ? "selected" : ""}>off</option></select></label>
       <label>State<strong class="setup-value">${html(connection?.not_runnable_reason || (connection?.capabilities?.probed_at ? "ready" : "not tested"))}</strong></label>
     </div>
     <div class="setup-actions setup-connection-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="measure" ${!connection || (busy && !measuring) ? "disabled" : ""}>${measuring ? "Stop" : "Eval"}</button><button data-action="recommended" ${!connection || disabled() ? "disabled" : ""}>Recommended</button></div>
@@ -187,7 +186,6 @@ async function recommended() {
   try {
     const answer = await request(`/api/connections/${encodeURIComponent(connectionID)}/recommended`, {});
     if (Object.hasOwn(answer.values || {}, "context.n_ctx")) document.querySelector('[data-field="context"]').value = answer.values["context.n_ctx"];
-    if (Object.hasOwn(answer.values || {}, "reasoning.enabled")) document.querySelector('[data-field="reasoning"]').value = String(answer.values["reasoning.enabled"]);
     connectionDraft = captureConnectionDraft();
     message = Object.entries(answer.sources || {}).map(([field, source]) => `${field}: ${source}`).join(" · ");
     alarm = false;
@@ -200,7 +198,6 @@ function connectionFromFields(current, id, url = field("url"), model = field("mo
   if (credential) next.credential = credential;
   if (apiKey) next.api_key = apiKey;
   next.context = { ...(current.context || {}), n_ctx: nctx };
-  next.reasoning = { ...(current.reasoning || {}), enabled: field("reasoning") !== "false" };
   return next;
 }
 

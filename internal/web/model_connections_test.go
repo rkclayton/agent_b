@@ -346,7 +346,7 @@ func TestPickingModelsThroughConfigKeepsTheirOwnSettings2s5(t *testing.T) {
 	}
 	recommended := httptest.NewRecorder()
 	server.connection(recommended, httptest.NewRequest(http.MethodPost, "/api/connections/local/recommended", nil))
-	if recommended.Code != http.StatusOK || !strings.Contains(recommended.Body.String(), `"reasoning.max_tokens":777`) {
+	if recommended.Code != http.StatusOK || strings.Contains(recommended.Body.String(), `reasoning.enabled`) || !strings.Contains(recommended.Body.String(), `"reasoning.max_tokens":0`) {
 		t.Fatalf("recommended second: %d %s", recommended.Code, recommended.Body)
 	}
 	if response := postConfigPatch(t, server, `{"connections":[{"id":"local","model":"first"}]}`); response.Code != http.StatusOK {

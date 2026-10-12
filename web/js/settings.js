@@ -736,7 +736,6 @@ function applyRecommendedValues(id, answer) {
 		"context.reserve_output": "output reserve",
 		"reasoning.max_tokens": "reasoning cap",
 		"reasoning.effort": "reasoning effort",
-		"reasoning.enabled": "thinking",
 		reads_images: "reads images",
 	};
   const changed = [];
@@ -1274,7 +1273,7 @@ async function dispatchAction(event, button, action, id) {
         measureRunning: !currentState.running,
         message: currentState.running ? "Evaluation Harness stopping" : "",
         alarm: false,
-        harnessWalking: currentState.running ? null : { line: "brief 0 of 10 — thinking off", processed: 0, total: 10 },
+		harnessWalking: currentState.running ? null : { line: "brief 0 of 10", processed: 0, total: 10 },
       });
       if (!currentState.running) void refreshMeasurement(id);
     } catch (error) { probeMessages.set(id, { ...(probeMessages.get(id) || {}), message: error.message, alarm: true }); }

@@ -49,7 +49,7 @@ func TestBuildRequestCarriesConnectionReasoningCap(t *testing.T) {
 		t.Fatalf("unprobed server reasoning budget leaked: %v", body)
 	}
 	connection.Capabilities.Findings = append(connection.Capabilities.Findings, "server reasoning budget: accepted")
-	body = buildRequest(connection, Request{}, false)
+	body = buildRequest(connection, Request{Thinking: true}, false)
 	if body["reasoning_budget"] != 1000 {
 		t.Fatalf("body=%v", body)
 	}

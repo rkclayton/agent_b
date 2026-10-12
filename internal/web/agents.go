@@ -16,6 +16,7 @@ type agentRequest struct {
 	Prompt   string   `json:"prompt"`
 	Tools    []string `json:"tools"`
 	Private  bool     `json:"private"`
+	Thinking *bool    `json:"thinking"`
 }
 
 func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +63,9 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		next := s.cfg.Agents[source]
 		next.Name = body.Name
+		if body.Action == "add" {
+			next.Thinking = true
+		}
 		next.B, next.Model = "", ""
 		s.cfg.Agents = append(s.cfg.Agents, next)
 		changedID = config.AgentID(next.Name)
@@ -74,6 +78,9 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		builtIn := body.ID == "agent_b"
 		s.cfg.Agents[index].B, s.cfg.Agents[index].Model = "", ""
+		if body.Thinking != nil {
+			s.cfg.Agents[index].Thinking = *body.Thinking
+		}
 		if !builtIn {
 			if body.Name == "" {
 				s.mu.Unlock()

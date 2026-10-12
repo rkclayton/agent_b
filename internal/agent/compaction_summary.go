@@ -70,7 +70,7 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 	started := time.Now()
 	var response llm.Response
 	if err == nil {
-		response, err = llm.New(&connection).Chat(ctx, llm.Request{Messages: messages, MaxTokens: compactionMaxTokens, Thinking: connection.Reasoning.Enabled})
+		response, err = llm.New(&connection).Chat(ctx, llm.Request{Messages: messages, MaxTokens: compactionMaxTokens})
 	}
 	duration := time.Since(started).Milliseconds()
 	if err != nil {

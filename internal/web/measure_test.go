@@ -41,42 +41,30 @@ func TestMeasurementRunsTenBriefsAndPersistsProvenance(t *testing.T) {
 	cfg := config.Defaults(root)
 	connection := runnableTestConnection("measured")
 	connection.Label, connection.BaseURL, connection.Model, connection.RequestTimeoutS = "Measured", model.URL, "fake", 2
-	// Item 2ih (f): without a reasoning control the on-arm cannot mean anything
-	// and is not run at all, which TestAConnectionThatCannotExpressTheSwitchIsNotMeasured2ih
-	// covers. This test is the two-arm path, so the connection can hear the switch.
 	connection.Reasoning.Control = "chat_template_kwargs"
+	connection.Reasoning.Enabled = false
 	connection.ProbeMode = "off"
 	cfg.Connections = []config.Connection{connection}
-	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset(), Thinking: true}}
 	path := filepath.Join(root, "harness.json")
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runEvaluation(context.Background(), "measured", cfg.Connections[0])
 	state := server.measurements["measured"]
-	// Item 2ih (b), wired at rel-1.22.0: TWO ARMS, so twenty briefs and two
-	// trials, and the state line is the DECISION rather than a pass count --
-	// (c) requires every write to be one line saying what it decided on.
-	if state.Error != "" || state.Result == nil || state.Result.Total != 10 || state.Result.BriefsRun != 20 || state.Result.Provenance != measurementProvenance || state.Result.Trials != 2 {
+	if state.Error != "" || state.Result == nil || state.Result.Total != 10 || state.Result.BriefsRun != 10 || state.Result.Provenance != measurementProvenance || state.Result.Trials != 1 {
 		t.Fatalf("state=%+v", state)
 	}
 	if got := server.ConfigSnapshot().Connections[0].Capabilities; got.ProbedAt == "" || len(got.Findings) == 0 {
 		t.Fatalf("Eval did not store capability findings: %+v", got)
 	}
-	if state.Result.ReasoningOn == nil || state.Result.ReasoningOff == nil || state.Result.Decision == nil {
-		t.Fatalf("a two-arm measurement did not record both arms and its decision: %+v", state.Result)
+	if state.Result.ReasoningOn != nil || state.Result.ReasoningOff != nil || state.Result.Decision != nil || !strings.Contains(state.Text, "10/10 passed") {
+		t.Fatalf("measurement still has reasoning arms or a decision: state=%q result=%+v", state.Text, state.Result)
 	}
-	if state.Result.ReasoningOn.Passed != 10 || state.Result.ReasoningOff.Passed != 10 {
-		t.Fatalf("arms on=%+v off=%+v", state.Result.ReasoningOn, state.Result.ReasoningOff)
-	}
-	// Both arms passed everything, so the rule keeps reasoning OFF -- a tie is
-	// not enough to justify it -- and says so in one line naming the numbers.
-	if state.Result.Decision.Enabled || !strings.Contains(state.Result.Decision.Line, "10/10 with thinking vs 10/10") {
-		t.Fatalf("decision=%+v", state.Result.Decision)
-	}
-	if state.Text != state.Result.Decision.Line {
-		t.Fatalf("the state line is not the decision: %q", state.Text)
-	}
-	if calls.Load() != 20 {
+	if calls.Load() != 10 {
 		t.Fatalf("calls=%d", calls.Load())
+	}
+	after := server.ConfigSnapshot()
+	if !after.Agents[0].Thinking || after.Connections[0].Reasoning.Enabled || after.Connections[0].Reasoning.MaxTokens != connection.Reasoning.MaxTokens {
+		t.Fatalf("measurement changed thinking settings: agent=%+v connection=%+v", after.Agents[0], after.Connections[0].Reasoning)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil || !containsAll(string(raw), `"measurement"`, measurementProvenance) {
@@ -195,14 +183,8 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	server.runMeasurement(context.Background(), "measured", cfg.Connections[0])
 
 	result := server.measurements["measured"].Result
-	if result == nil || result.Decision == nil {
-		t.Fatal("no decision was recorded")
-	}
-	if result.ReasoningOn.EmptyReplies != 10 || result.ReasoningOff.Passed != 10 {
-		t.Fatalf("the arms did not measure what the fixture served: on=%+v off=%+v", result.ReasoningOn, result.ReasoningOff)
-	}
-	if result.Decision.Enabled || !strings.Contains(result.Decision.Line, "empty") {
-		t.Fatalf("the empty-reply veto did not decide: %+v", result.Decision)
+	if result == nil || result.Decision != nil || result.ReasoningOn != nil || result.ReasoningOff != nil || result.Passed != 10 || result.Trials != 1 {
+		t.Fatalf("measurement was not one thinking-free run: %+v", result)
 	}
 	// 2qw: Eval records the decision but never changes a setting.
 	if !server.ConfigSnapshot().Connections[0].Reasoning.Enabled {
@@ -214,10 +196,6 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	// (e): the window the model will run with is on the same record.
 	if result.NCtx != 8192 || result.WindowTokens != 7168 {
 		t.Errorf("the window is not recorded: n_ctx=%d window=%d", result.NCtx, result.WindowTokens)
-	}
-	// @keep: no cap was observed, so the operator's value is left alone.
-	if result.Decision.ReasoningCap != 0 {
-		t.Errorf("a cap was invented from an arm that produced no reasoning: %d", result.Decision.ReasoningCap)
 	}
 }
 
@@ -254,15 +232,12 @@ func TestAConnectionThatCannotExpressTheSwitchIsNotMeasured2ih(t *testing.T) {
 	server.runMeasurement(context.Background(), "plain", cfg.Connections[0])
 
 	result := server.measurements["plain"].Result
-	if result == nil || result.ReasoningOn == nil || result.ReasoningOn.Ran {
-		t.Fatalf("the on-arm claimed to have run against a connection that cannot hear the switch: %+v", result)
+	if result == nil || result.ReasoningOn != nil || result.ReasoningOff != nil || result.Decision != nil {
+		t.Fatalf("measurement retained reasoning arms: %+v", result)
 	}
 	// Ten briefs, not twenty: the arm that could mean nothing was not spent.
 	if calls.Load() != 10 {
 		t.Errorf("the unmeasurable arm was run anyway: %d calls", calls.Load())
-	}
-	if !strings.Contains(result.Decision.Line, "did not run") {
-		t.Errorf("the line does not say the measurement could not run: %q", result.Decision.Line)
 	}
 	// And nothing was written: the operator's own setting survives.
 	if !server.ConfigSnapshot().Connections[0].Reasoning.Enabled {

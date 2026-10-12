@@ -235,14 +235,11 @@ function connectionFields(connection, reason, discovery) {
 	    : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
 	const boolDraft = (path, saved) => drafts.has(path) ? drafts.get(path) === true || drafts.get(path) === "true" : !!saved;
 	const switchControl = (path, selected, label) => `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`;
-	const thinkingPath = `${p}.reasoning.enabled`;
-	const thinkingOn = boolDraft(thinkingPath, shown.reasoning.enabled);
 	const effortPath = `${p}.reasoning.effort`;
 	const selectedEffort = drafts.has(effortPath) ? drafts.get(effortPath) : shown.reasoning.effort;
 	const effortControl = efforts.length
 	  ? `<span class="choice-row">${efforts.map((effort) => `<button type="button" class="${effort === selectedEffort ? "selected" : ""}" data-action="config-choice" data-path="${attr(effortPath)}" data-value="${attr(effort)}">${html(effort)}</button>`).join("")}</span>`
 	  : '<span class="settings-note inline">unavailable</span>';
-	const thinkingControl = row("thinking", `<span class="connection-thinking">${switchControl(thinkingPath, thinkingOn, "thinking")} ${effortControl}</span>`, "", false);
 	const imagePath = `${p}.reads_images`;
 	const readsImages = boolDraft(imagePath, shown.reads_images);
 	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
@@ -261,7 +258,7 @@ function connectionFields(connection, reason, discovery) {
     ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}
     ${profileControl}
     ${secret(`${p}.api_key`, "key", connection.api_key, id, false)}
-	${modelControl}${contextControl}${thinkingControl}${imageControl}
+	${modelControl}${contextControl}${imageControl}
 	${row("", primaryActions, "connection-primary-row", false)}${discoveryNote}</div>
 	${feedback}${measurementResult}
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
@@ -272,6 +269,7 @@ function connectionFields(connection, reason, discovery) {
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}</div>
 	    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
 	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], shown.reasoning.control, false)}
+	    ${row("effort", effortControl, "", false)}
 	    ${toggle(`${p}.reasoning.preserve`, "preserve", shown.reasoning.preserve, false)}
 	    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", shown.reasoning.max_tokens || 0, "1", false, "", false, "number", false)}
 	    ${number(`${p}.context.reserve_output`, "reserve", shown.context.reserve_output, "1", false, "", false, "number", false)}</div>
@@ -302,21 +300,7 @@ export function renderConnectionsPage(context) {
 // renders as what it was: this shows the arms only when both are present.
 export function renderMeasurement(measurement) {
   const when = html(measurement.measured_at || "measured");
-  const rows = [];
-  const arms = measurement.reasoning_on && measurement.reasoning_off;
-  if (arms) {
-    const arm = (name, side) => `<tr><td>${name}</td><td>${Number(side.passed || 0)}/${Number(side.total || 0)}</td><td>${Number(side.empty_replies || 0)}</td><td>${Number(side.tool_errors || 0)}</td><td>${Number(side.completion_ms || 0)} ms</td></tr>`;
-    rows.push(`<table class="harness-arms">
-      <thead><tr><th>arm</th><th>passed</th><th>empty</th><th>tool errors</th><th>p95</th></tr></thead>
-      <tbody>${arm("thinking on", measurement.reasoning_on)}${arm("thinking off", measurement.reasoning_off)}</tbody>
-    </table>`);
-  } else {
-    rows.push(`<ul><li>${Number(measurement.passed || 0)}/${Number(measurement.total || 10)} passed</li><li>${Number(measurement.tool_errors || 0)} tool errors</li></ul>`);
-  }
-  // (c): every write is ONE LINE, and this is where the operator reads it. A
-  // switch that moved by itself with no sentence beside it is the thing this
-  // exists to prevent.
-  if (measurement.decision?.line) rows.push(`<p class="settings-note">${html(measurement.decision.line)}</p>`);
+  const rows = [`<ul><li>${Number(measurement.passed || 0)}/${Number(measurement.total || 10)} passed</li><li>${Number(measurement.tool_errors || 0)} tool errors</li><li>${Number(measurement.completion_ms || 0)} ms p95</li></ul>`];
   if (measurement.n_ctx) {
     rows.push(`<p class="settings-note">window ${Number(measurement.window_tokens || 0).toLocaleString()} of ${Number(measurement.n_ctx).toLocaleString()} tokens</p>`);
   }

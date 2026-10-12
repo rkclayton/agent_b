@@ -258,7 +258,8 @@ function renderAgentConnection(agent) {
     select.append(...connections.map((value) => option(value.id, value.label || value.id, value.id === agent[role])));
     return field(roleNames[role], select);
   };
-  const rows = [field("name", name), field("opening prompt", prompt), helper("c"), helper("d")];
+  const thinking = button("", "thinking"); thinking.type = "button"; thinking.dataset.action = "thinking"; thinking.setAttribute("role", "switch"); thinking.setAttribute("aria-checked", String(!!agent.thinking)); thinking.className = `switch ${agent.thinking ? "on" : ""}`;
+  const rows = [field("name", name), field("thinking", thinking), field("opening prompt", prompt), helper("c"), helper("d")];
   if (!builtIn) {
     const privateToggle = document.createElement("input"); privateToggle.type = "checkbox"; privateToggle.checked = !!agent.private; privateToggle.dataset.field = "private";
     privateToggle.title = "this agent only writes to its own memory but can still read shared";
@@ -277,7 +278,9 @@ async function editAgent(action) {
   if (!agent) return;
   const read = (field) => roleTable.querySelector(`[data-field="${field}"]`);
   let body;
-  if (action === "add") {
+  if (action === "thinking") {
+    body = { action: "update", id: selectedAgent, thinking: !agent.thinking };
+  } else if (action === "add") {
     const name = prompt("Agent name"); if (!name) return;
     body = { action: "add", name };
   } else if (action === "duplicate") {
@@ -288,7 +291,7 @@ async function editAgent(action) {
     body = { action: "delete", id: selectedAgent };
   } else {
     body = { action: "update", id: selectedAgent, name: read("name")?.value, prompt: selectedAgent === "agent_b" ? "" : read("prompt")?.value,
-      tools: agent.toolset || [], private: !!read("private")?.checked };
+      tools: agent.toolset || [], private: !!read("private")?.checked, thinking: !!agent.thinking };
   }
   try {
     const result = await api("/api/agents", body);

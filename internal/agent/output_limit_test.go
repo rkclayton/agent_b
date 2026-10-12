@@ -116,3 +116,25 @@ func TestThinkingShareIsHalfTheAllowance2l9(t *testing.T) {
 		t.Fatalf("a share was sent to a server that never accepted one: %v", body["reasoning_budget"])
 	}
 }
+
+func TestProfileThinkingDecidesEachRequestForm2tp(t *testing.T) {
+	base := config.Connection{Reasoning: config.Reasoning{Control: "chat_template_kwargs", Effort: "high", ValidEfforts: []string{"high"}, MaxTokens: 400}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: accepted"}}}
+	for _, on := range []bool{false, true} {
+		connection := connectionWithProfileThinking(base, config.Agent{Thinking: on})
+		body := llm.BuildRequest(&connection, llm.Request{Thinking: connection.Reasoning.Enabled, MaxTokens: 800}, false)
+		kwargs := body["chat_template_kwargs"].(map[string]any)
+		if kwargs["enable_thinking"] != on {
+			t.Fatalf("template on=%v body=%v", on, body)
+		}
+		connection.Reasoning.Control = "top_level"
+		body = llm.BuildRequest(&connection, llm.Request{Thinking: connection.Reasoning.Enabled, MaxTokens: 800}, false)
+		if (body["reasoning_effort"] != nil) != on || (body["reasoning_budget"] != nil) != on {
+			t.Fatalf("top-level on=%v body=%v", on, body)
+		}
+	}
+	plain := base
+	plain.Reasoning.Control = "none"
+	if connectionWithProfileThinking(plain, config.Agent{Thinking: true}).Reasoning.Enabled {
+		t.Fatal("a server that cannot think was sent thinking")
+	}
+}

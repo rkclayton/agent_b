@@ -398,7 +398,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	timeoutSeconds := max(5, min(updated.RequestTimeoutS, 30))
 	check, stop := context.WithTimeout(r.Context(), time.Duration(timeoutSeconds)*time.Second)
 	defer stop()
-	answer, err := llm.New(&updated).Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Reply OK."}}, MaxTokens: 64, Thinking: updated.Reasoning.Enabled, ReasoningMaxTokens: 48})
+	answer, err := llm.New(&updated).Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Reply OK."}}, MaxTokens: 64})
 	if err != nil {
 		detail := strings.Join(strings.Fields(strings.TrimSpace(err.Error())), " ")
 		if tested.APIKey != "" {
@@ -494,25 +494,12 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 	values := map[string]any{}
 	sources := map[string]string{}
 	defaults := config.Defaults("").Connections[0]
-	if connection.Measurement != nil && connection.Measurement.Decision != nil {
-		values["reasoning.enabled"] = connection.Measurement.Decision.Enabled
-		sources["reasoning.enabled"] = "Eval"
-		if connection.Measurement.Decision.ReasoningCap > 0 {
-			values["reasoning.max_tokens"] = connection.Measurement.Decision.ReasoningCap
-			sources["reasoning.max_tokens"] = "Eval"
-		}
-	} else {
-		values["reasoning.enabled"] = defaults.Reasoning.Enabled
-		sources["reasoning.enabled"] = "shipped default"
-	}
 	if connection.Measurement != nil && connection.Capabilities.Vision != "" {
 		values["reads_images"] = connection.Capabilities.Vision == config.VisionReadsImages
 		sources["reads_images"] = "Eval"
 	}
-	if _, ok := values["reasoning.max_tokens"]; !ok {
-		values["reasoning.max_tokens"] = defaults.Reasoning.MaxTokens
-		sources["reasoning.max_tokens"] = "shipped default"
-	}
+	values["reasoning.max_tokens"] = defaults.Reasoning.MaxTokens
+	sources["reasoning.max_tokens"] = "shipped default"
 	check, cancel := context.WithTimeout(r.Context(), time.Duration(max(3, min(connection.RequestTimeoutS, 8)))*time.Second)
 	defer cancel()
 	window := 0

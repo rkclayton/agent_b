@@ -558,14 +558,14 @@ test("the sheet reads as eight ordered fields above its actions and Defaults", a
   const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
 
 	const labels = async () => (await editor.locator(":scope > .connection-fields > .connection-primary > .setting-row > label").allTextContents()).filter(Boolean);
-	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
+	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
   await expect(page.locator(".connection-defaults")).not.toHaveAttribute("open", /.*/);
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Defaults");
   await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
 
 	// The empty new connection does not collapse or reorder the fields.
 	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
+	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
   await page.close();
 });
 

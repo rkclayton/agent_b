@@ -88,7 +88,7 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		s.measurements[connectionID] = measureState{Running: true, Text: "brief 0 of " + strconv.Itoa(len(measurementBriefs)) + " — thinking off", Total: len(measurementBriefs)}
+		s.measurements[connectionID] = measureState{Running: true, Text: "brief 0 of " + strconv.Itoa(len(measurementBriefs)), Total: len(measurementBriefs)}
 		s.measureCancels[connectionID] = cancel
 		s.measureMu.Unlock()
 		go s.runEvaluation(ctx, connectionID, *connection)
@@ -155,79 +155,30 @@ func (s *Server) runMeasurement(ctx context.Context, connectionID string, connec
 		s.measureMu.Unlock()
 	}()
 
-	// Item 2ih (b) and (c): TWO ARMS, then the rule decides.
-	//
-	// The arms are the same ten briefs with thinking on and thinking off, and
-	// the only difference between them is the switch -- if the two differed in
-	// any other way the comparison would measure that instead. The rule that
-	// consumes them is config.DecideReasoning, which shipped at v1.20.0 and was
-	// fed live numbers at rel-1.21.0; nothing here re-derives it.
-	//
-	// The off-arm runs FIRST. It is the cheaper one, and if the operator stops
-	// the measurement or the cap bites, the arm that finished is the one that
-	// costs least to repeat.
-	off, offErr := s.measureArm(ctx, connectionID, connection, false)
-
-	// (f): A MEASUREMENT THAT CANNOT RUN SAYS SO AND WRITES NOTHING.
-	//
-	// If the connection advertises no way to express the switch, both arms would
-	// go out identical and the comparison would measure sampling noise and call
-	// it reasoning. An on-arm that never ran is exactly what DecideReasoning
-	// refuses to decide from, and its line says the measurement did not run.
-	var on config.MeasurementArm
-	var onErr error
-	if reasoningControlOf(connection) == "" {
-		on = config.MeasurementArm{Total: len(measurementBriefs)}
-	} else {
-		on, onErr = s.measureArm(ctx, connectionID, connection, true)
-	}
-	runErr := offErr
-	if runErr == nil {
-		runErr = onErr
-	}
-
-	decision := config.DecideReasoning(on, off)
+	measured, runErr := s.measureArm(ctx, connectionID, connection)
 	result := &config.Measurement{
-		Passed: off.Passed, Total: len(measurementBriefs), BriefsRun: off.BriefsRun + on.BriefsRun,
-		ToolErrors:    off.ToolErrors + on.ToolErrors,
-		ToolErrorRate: measurementErrorRate(off.ToolErrors+on.ToolErrors, off.BriefsRun+on.BriefsRun), Trials: 2,
+		Passed: measured.Passed, Total: len(measurementBriefs), BriefsRun: measured.BriefsRun,
+		ToolErrors: measured.ToolErrors, ToolErrorRate: measurementErrorRate(measured.ToolErrors, measured.BriefsRun), Trials: 1,
 		Provenance: measurementProvenance, MeasuredAt: time.Now().UTC().Format(time.RFC3339),
-		DurationMS: time.Since(started).Milliseconds(),
-		Capped:     off.Capped || on.Capped, Stopped: off.Stopped || on.Stopped,
-		ReasoningOn: &on, ReasoningOff: &off, Decision: &decision,
+		DurationMS:   time.Since(started).Milliseconds(),
+		CompletionMS: measured.CompletionMS,
+		Capped:       measured.Capped, Stopped: measured.Stopped,
 		NCtx: connection.Context.NCtx, WindowTokens: connection.Context.NCtx - connection.Context.ReserveOutput,
 	}
 
 	if err := s.storeMeasurement(connectionID, result); err != nil {
 		runErr = err
 	}
-	state := measureState{Text: decision.Line, Result: result}
+	state := measureState{Text: fmt.Sprintf("%d/%d passed · %d tool errors", measured.Passed, measured.Total, measured.ToolErrors), Result: result}
 	if runErr != nil {
 		state.Error = runErr.Error()
 	}
 	s.setMeasurement(connectionID, state)
 }
 
-// measureArm is one arm of item 2ih (b): the same ten briefs, with the thinking
-// switch in one position.
-func (s *Server) measureArm(ctx context.Context, connectionID string, connection config.Connection, thinking bool) (config.MeasurementArm, error) {
-	label := "thinking off"
-	if thinking {
-		label = "thinking on"
-	}
-	// THE SWITCH LIVES IN TWO PLACES AND BOTH HAVE TO MOVE, which is not obvious
-	// and cost this item a test to find out. Request.Thinking chooses the
-	// SAMPLING COLUMN; what the server is actually told is the CONNECTION's
-	// Reasoning.Enabled, through whichever control it advertises --
-	// chat_template_kwargs for a llama.cpp template, a top-level field
-	// otherwise. An arm that flipped only the request would have measured two
-	// sampling columns against one thinking model and called the difference
-	// reasoning.
-	//
-	// The copy is local to the arm, so nothing is written to the operator's
-	// configuration until (c) writes the decision.
+func (s *Server) measureArm(ctx context.Context, connectionID string, connection config.Connection) (config.MeasurementArm, error) {
 	armConnection := connection
-	armConnection.Reasoning.Enabled = thinking
+	armConnection.Reasoning.Enabled = false
 	client := llm.New(&armConnection)
 	arm := config.MeasurementArm{Total: len(measurementBriefs)}
 	var runErr error
@@ -238,7 +189,7 @@ func (s *Server) measureArm(ctx context.Context, connectionID string, connection
 		}
 		s.setMeasurement(connectionID, measureState{
 			Running:   true,
-			Text:      fmt.Sprintf("brief %d of %d — %s", index+1, len(measurementBriefs), label),
+			Text:      fmt.Sprintf("brief %d of %d", index+1, len(measurementBriefs)),
 			Processed: index + 1,
 			Total:     len(measurementBriefs),
 		})
@@ -250,8 +201,6 @@ func (s *Server) measureArm(ctx context.Context, connectionID string, connection
 				{Role: "user", Content: brief},
 			},
 			Tools: []any{measurementTool}, ToolChoice: "required", MaxTokens: 256,
-			// The ONLY difference between the arms.
-			Thinking: thinking,
 		})
 		completions = append(completions, time.Since(at).Milliseconds())
 		if err != nil {

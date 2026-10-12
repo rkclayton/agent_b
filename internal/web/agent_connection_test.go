@@ -373,6 +373,9 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	if result := post(`{"action":"add","name":"Research"}`); result.Code != http.StatusOK {
 		t.Fatalf("add=%d %s", result.Code, result.Body)
 	}
+	if agent, _ := fixture.server.ConfigSnapshot().Agent("research"); agent == nil || !agent.Thinking {
+		t.Fatalf("new agent thinking=%#v", agent)
+	}
 	if result := post(`{"action":"add","name":"agent_a"}`); result.Code != http.StatusBadRequest {
 		t.Fatalf("reserved name=%d", result.Code)
 	}
@@ -393,6 +396,12 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	}
 	if result := post(`{"action":"update","id":"agent_b","name":"renamed"}`); result.Code != http.StatusBadRequest {
 		t.Fatalf("rename built-in=%d", result.Code)
+	}
+	if result := post(`{"action":"update","id":"agent_b","thinking":false}`); result.Code != http.StatusOK {
+		t.Fatalf("thinking=%d %s", result.Code, result.Body)
+	}
+	if agent, _ := fixture.server.ConfigSnapshot().Agent("agent_b"); agent == nil || agent.Thinking {
+		t.Fatalf("built-in thinking switch did not save: %#v", agent)
 	}
 	if result := post(`{"action":"delete","id":"agent_b"}`); result.Code != http.StatusBadRequest {
 		t.Fatalf("delete built-in=%d", result.Code)

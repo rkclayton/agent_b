@@ -125,13 +125,17 @@ func TestModelNamingDoesNotTouchWorkers(t *testing.T) {
 }
 
 func TestModelNamingStillUsesFirstPairWhenAnotherMessageWasQueued(t *testing.T) {
-	var request llm.Request
+	var request struct {
+		Messages     []llm.Message  `json:"messages"`
+		Thinking     *bool          `json:"thinking"`
+		ChatTemplate map[string]any `json:"chat_template_kwargs"`
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "First pair name"}, "finish_reason": "stop"}}})
 	}))
 	defer server.Close()
-	connection := config.Connection{ID: "p", BaseURL: server.URL, Model: "fake", RequestTimeoutS: 2}
+	connection := config.Connection{ID: "p", BaseURL: server.URL, Model: "fake", RequestTimeoutS: 2, Reasoning: config.Reasoning{Control: "chat_template_kwargs", Enabled: true}}
 	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return config.Config{} })
 	var renamed string
 	runner.SetSessionRenamer(func(_ string, label string, _ string) error { renamed = label; return nil })
@@ -146,6 +150,9 @@ func TestModelNamingStillUsesFirstPairWhenAnotherMessageWasQueued(t *testing.T) 
 	content, _ := request.Messages[1].Content.(string)
 	if len(request.Messages) != 2 || !strings.Contains(content, "first question") || strings.Contains(content, "second question") {
 		t.Fatalf("naming request did not isolate the first pair: %+v", request.Messages)
+	}
+	if request.ChatTemplate["enable_thinking"] != false {
+		t.Fatalf("naming request used profile thinking: %+v", request.ChatTemplate)
 	}
 }
 

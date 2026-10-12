@@ -616,7 +616,7 @@ test("Context reports the server value without replacing the saved value and hid
   const empty = renderConnectionsPage(context);
   assert.match(empty, /server context: 32768 tokens/);
 });
-test("connection editor adds agent profile to the seven established fields", () => {
+test("connection editor keeps server controls and leaves thinking to agent profiles", () => {
   const context = pageContext();
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", reads_images: false, context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { enabled: true, effort: "medium", valid_efforts: ["low", "medium", "high"], control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
   context.connectionList = () => [connection];
@@ -629,7 +629,7 @@ test("connection editor adds agent profile to the seven established fields", () 
   assert.doesNotMatch(defaults?.[0] || "", /\sopen(?:\s|>)/);
   const visible = editor.slice(0, editor.indexOf('<details class="connection-defaults"'));
   const labels = [...visible.matchAll(/<label[^>]*>([^<]*)<\/label>/g)].map((match) => match[1]).filter(Boolean);
-  assert.deepEqual(labels, ["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
+	assert.deepEqual(labels, ["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
   assert.match(visible, /context unknown — enter the size/);
   for (const sentence of ["Model endpoints and their current probe state.", "This server runs one model", "The name this connection", "How much the model thinks"]) {
     assert.doesNotMatch(editor, new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -640,7 +640,7 @@ test("connection editor adds agent profile to the seven established fields", () 
     "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
     "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "attachment handling",
     "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
-    "control", "chat_template_kwargs", "top_level", "server_flag", "none", "preserve", "reasoning cap", "reserve",
+    "control", "chat_template_kwargs", "top_level", "server_flag", "none", "effort", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",
     "repeat penalty", "llama.cpp only", "System prompt", "system prompt override", "Capabilities", "not probed",
     "no findings", "Save", "Duplicate",

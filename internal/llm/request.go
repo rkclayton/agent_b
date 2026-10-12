@@ -46,18 +46,18 @@ func buildRequest(connection *config.Connection, request Request, stream bool) m
 	effortAllowed := len(connection.Reasoning.ValidEfforts) > 0 && contains(connection.Reasoning.ValidEfforts, connection.Reasoning.Effort)
 	switch control {
 	case "chat_template_kwargs":
-		kwargs := map[string]any{"enable_thinking": connection.Reasoning.Enabled, "preserve_thinking": connection.Reasoning.Preserve}
-		if effortAllowed {
+		kwargs := map[string]any{"enable_thinking": request.Thinking, "preserve_thinking": connection.Reasoning.Preserve}
+		if request.Thinking && effortAllowed {
 			kwargs["reasoning_effort"] = connection.Reasoning.Effort
 		}
 		body["chat_template_kwargs"] = kwargs
 	case "top_level":
-		if effortAllowed {
+		if request.Thinking && effortAllowed {
 			body["reasoning_effort"] = connection.Reasoning.Effort
 		}
-		if connection.Reasoning.MaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
+		if request.Thinking && connection.Reasoning.MaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
 			body["reasoning_budget"] = connection.Reasoning.MaxTokens
-		} else if request.ReasoningMaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
+		} else if request.Thinking && request.ReasoningMaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
 			body["reasoning_budget"] = request.ReasoningMaxTokens
 		}
 	}

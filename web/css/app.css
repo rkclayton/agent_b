@@ -1458,6 +1458,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 24px;
 }
+.connection-primary > .connection-primary-row { grid-column: 1; }
 .connection-primary > .connection-test-failure {
   grid-column: 1 / -1;
   margin: 0 0 0 124px;

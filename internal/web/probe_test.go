@@ -366,10 +366,10 @@ func TestRecommendedUsesEvalThenServerWithoutCompletionAndDoesNotSave2qw(t *test
 	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != http.StatusOK || answer.Values["reasoning.enabled"] != false || answer.Values["reasoning.max_tokens"] != float64(777) || answer.Values["context.n_ctx"] != float64(32768) || answer.Values["reads_images"] != true {
+	if response.Code != http.StatusOK || answer.Values["reasoning.enabled"] != nil || answer.Values["reasoning.max_tokens"] != float64(0) || answer.Values["context.n_ctx"] != float64(32768) || answer.Values["reads_images"] != true {
 		t.Fatalf("status=%d answer=%+v body=%s", response.Code, answer, response.Body)
 	}
-	if answer.Sources["reasoning.enabled"] != "Eval" || answer.Sources["reasoning.max_tokens"] != "Eval" || answer.Sources["context.n_ctx"] != "server" || answer.Sources["reads_images"] != "Eval" {
+	if answer.Sources["reasoning.enabled"] != "" || answer.Sources["reasoning.max_tokens"] != "shipped default" || answer.Sources["context.n_ctx"] != "server" || answer.Sources["reads_images"] != "Eval" {
 		t.Fatalf("sources=%v", answer.Sources)
 	}
 	after, _ := os.ReadFile(path)

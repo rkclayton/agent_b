@@ -201,7 +201,7 @@ test("2qx eight-field editor and closed Defaults fit wide and narrow", async () 
     await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
     const editor = page.locator(".connection-editor");
     const visibleLabels = editor.locator(':scope > .connection-fields > .connection-primary > .setting-row > label');
-    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "address", "agent profile", "key", "model", "context size", "thinking", "reads images"]);
+    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
     const defaults = editor.locator("details.connection-defaults");
     await expect(defaults.locator(":scope > summary")).toHaveText("Defaults");
     await expect(defaults).not.toHaveAttribute("open", "");

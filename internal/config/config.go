@@ -73,14 +73,15 @@ type Roles struct {
 }
 
 type Agent struct {
-	Name    string   `json:"name"`
-	B       string   `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
-	C       string   `json:"c,omitempty"`
-	D       string   `json:"d,omitempty"`
-	Toolset []string `json:"toolset"`
-	Model   string   `json:"model,omitempty"` // legacy model override; migrated into the connection
-	Prompt  string   `json:"prompt,omitempty"`
-	Private bool     `json:"private,omitempty"`
+	Name     string   `json:"name"`
+	Thinking bool     `json:"thinking"`
+	B        string   `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
+	C        string   `json:"c,omitempty"`
+	D        string   `json:"d,omitempty"`
+	Toolset  []string `json:"toolset"`
+	Model    string   `json:"model,omitempty"` // legacy model override; migrated into the connection
+	Prompt   string   `json:"prompt,omitempty"`
+	Private  bool     `json:"private,omitempty"`
 }
 
 func (a *Agent) UnmarshalJSON(data []byte) error {
@@ -89,6 +90,7 @@ func (a *Agent) UnmarshalJSON(data []byte) error {
 		plain
 		PromptAddendum string `json:"prompt_addendum"`
 	}
+	value.plain.Thinking = true
 	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
@@ -361,6 +363,7 @@ type Measurement struct {
 	Provenance    string  `json:"provenance"`
 	MeasuredAt    string  `json:"measured_at"`
 	DurationMS    int64   `json:"duration_ms"`
+	CompletionMS  int64   `json:"completion_ms,omitempty"`
 	Capped        bool    `json:"capped"`
 	Stopped       bool    `json:"stopped,omitempty"`
 	// Item 2ih (c), (d) and (e): the two arms the harness ran, the decision it
@@ -988,7 +991,7 @@ func Defaults(workspace string) Config {
 	return Config{
 		ConfigVersion: CurrentConfigVersion,
 		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
-		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", Toolset: FullToolset()}},
+		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", Toolset: FullToolset(), Thinking: true}},
 		Services: map[string]Service{},
 		Sandbox:  Sandbox{Enabled: false, initialized: true},
 		Run:      RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 5, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: defaultNotifications(), Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),

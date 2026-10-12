@@ -8,21 +8,17 @@ import test from "node:test";
 // — the convention the other settings contract tests follow.
 const source = fs.readFileSync(new URL("./settings-connections.js", import.meta.url), "utf8");
 
-test("the measurement surface shows both arms, the decision and the window", () => {
+test("the measurement surface shows one run, speed and the window 2tp", () => {
   const fn = source.slice(source.indexOf("export function renderMeasurement"));
   assert.ok(fn.length > 0, "renderMeasurement is not exported");
-  for (const shown of ["reasoning_on", "reasoning_off", "empty_replies", "decision?.line", "n_ctx", "window_tokens"]) {
-    assert.ok(fn.includes(shown), `the table does not show ${shown}`);
+  for (const shown of ["passed", "tool_errors", "completion_ms", "n_ctx", "window_tokens"]) {
+	assert.ok(fn.includes(shown), `the result does not show ${shown}`);
   }
-  // (c): the one line the harness wrote is rendered, not summarised.
-  assert.ok(fn.includes("measurement.decision?.line"), "the decision line is not rendered verbatim");
+  for (const gone of ["reasoning_on", "reasoning_off", "decision?.line", "thinking on", "thinking off"]) assert.ok(!fn.includes(gone), `the old two-arm result still reads ${gone}`);
 });
 
-test("a measurement from before the two arms still renders as what it was", () => {
+test("an older measurement still renders its common results", () => {
   const fn = source.slice(source.indexOf("export function renderMeasurement"));
-  // The arms are shown only when BOTH are present; otherwise the old
-  // passed/tool-errors list. A single-arm record must not render as a two-arm
-  // run with empty halves.
-  assert.ok(fn.includes("measurement.reasoning_on && measurement.reasoning_off"), "the arms are not guarded");
-  assert.ok(fn.includes("passed</li>"), "the pre-2m2 rendering was dropped");
+  assert.ok(fn.includes("passed</li>"), "the common pass result was dropped");
+  assert.ok(fn.includes("tool errors</li>"), "the common tool-error result was dropped");
 });

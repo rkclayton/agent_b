@@ -19,9 +19,9 @@ export function renderChatsPage(active, context) {
   const size = Number.isInteger(chat.text_size) ? chat.text_size : (NAMED_PIXELS[chat.text_size] || 12);
   const installed = context.fontFamilies();
   const chosen = String(chat.typeface || SHIPPED_FACES[0]);
-  const faces = installed.map((family) => ({ value: family, label: family, style: `font-family:&quot;${safeFace(family)}&quot;,sans-serif` }));
-  if (!installed.includes(chosen)) faces.unshift({ value: chosen, label: chosen, missing: true, style: 'font-family:"IBM Plex Sans",sans-serif' });
-  const colors = TEXT_COLORS.map(([value, label, color]) => ({ value, label, style: `color:${color}` }));
+  const faces = installed.map((family) => ({ value: family, label: family, face: safeFace(family) }));
+  if (!installed.includes(chosen)) faces.unshift({ value: chosen, label: chosen, missing: true, face: "IBM Plex Sans" });
+  const colors = TEXT_COLORS.map(([value, label, color]) => ({ value, label, color }));
   return `${context.subhead("Reading")}
     ${context.field("chat.text_size", "text size", `<input class="setting-input number" type="number" min="9" max="32" step="1" data-path="chat.text_size" data-kind="number" value="${context.attr(size)}">`, false, "Set transcript text size from 9 to 32 pixels.")}
     ${context.menuSetting("chat.typeface", "typeface", faces, chosen, "font-menu", "Choose the transcript typeface.")}

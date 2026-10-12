@@ -22,7 +22,7 @@ import (
 var waitMeasurementSink atomic.Uint64
 
 func TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt(t *testing.T) {
-	measureSearch := func(count int) (time.Duration, int) {
+	storeSearch := func(count int) (func(), string) {
 		root := t.TempDir()
 		connection := config.Defaults(root).Connections[0]
 		for index := 0; index < count; index++ {
@@ -32,20 +32,17 @@ func TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt(t *testing.T
 			}
 		}
 		var serial atomic.Uint64
-		wait := medianWait(func() {
+		return func() {
 			content := []byte(fmt.Sprintf("measured-%d", serial.Add(1)))
 			if _, _, _, err := storeAttachment(root, "report.txt", content, &connection, attachmentfile.Text); err != nil {
 				t.Fatal(err)
 			}
-		}, nil)
-		entries, err := os.ReadDir(filepath.Join(root, "attachments", ".agentb-index"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return wait, len(entries)
+		}, filepath.Join(root, "attachments", ".agentb-index")
 	}
-	smallSearch, smallRecords := measureSearch(30)
-	largeSearch, largeRecords := measureSearch(3000)
+	smallSearch, smallIndex := storeSearch(30)
+	largeSearch, largeIndex := storeSearch(3000)
+	middle, largest, rounds := interleavedSearchRatios(t, smallSearch, largeSearch, true)
+	smallRecords, largeRecords := directoryEntries(t, smallIndex), directoryEntries(t, largeIndex)
 	server := new(Server)
 	extractText := func() {
 		if _, _, _, err := server.extractAttachment(context.Background(), config.Connection{}, "", "", attachmentfile.Text, nil); err != nil {
@@ -53,10 +50,81 @@ func TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt(t *testing.T
 		}
 	}
 	smallExtraction, largeExtraction := medianWait(extractText, nil), medianWait(extractText, nil)
-	t.Logf("2pt split search small=%s (%d index records) large=%s (%d index records) ratio=%.2fx; extraction small=%s large=%s", smallSearch, smallRecords, largeSearch, largeRecords, float64(largeSearch)/float64(smallSearch), smallExtraction, largeExtraction)
-	if largeSearch > 2*smallSearch {
-		t.Fatalf("attachment storage search grows with retained files: small=%s large=%s ratio=%.2fx", smallSearch, largeSearch, float64(largeSearch)/float64(smallSearch))
+	t.Logf("2pt interleaved search middle=%.2fx largest_round=%.2fx rounds=%v; records small=%d large=%d; extraction small=%s large=%s", middle, largest, rounds, smallRecords, largeRecords, smallExtraction, largeExtraction)
+	if middle > 2 {
+		t.Fatalf("attachment storage search grows with retained files: middle=%.2fx rounds=%v", middle, rounds)
 	}
+}
+
+func TestAttachmentStorageGrowthMeasureDetectsLinearStandIn2pt(t *testing.T) {
+	index := func(count int) string {
+		root := t.TempDir()
+		connection := config.Defaults(root).Connections[0]
+		for item := range count {
+			if _, _, _, err := storeAttachment(root, "report.txt", []byte(fmt.Sprintf("stand-in-%d", item)), &connection, attachmentfile.Text); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return filepath.Join(root, "attachments", ".agentb-index")
+	}
+	linearSearch := func(directory string) func() {
+		return func() {
+			entries, err := os.ReadDir(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				waitMeasurementSink.Add(uint64(len(entry.Name())))
+			}
+		}
+	}
+	middle, largest, rounds := interleavedSearchRatios(t, linearSearch(index(30)), linearSearch(index(3000)), false)
+	t.Logf("2pt linear-search stand-in middle=%.2fx largest_round=%.2fx rounds=%v", middle, largest, rounds)
+	if middle <= 2 {
+		t.Fatalf("attachment growth measure missed linear stand-in: middle=%.2fx rounds=%v", middle, rounds)
+	}
+}
+
+func interleavedSearchRatios(t *testing.T, small, large func(), requireFloor bool) (float64, float64, []float64) {
+	t.Helper()
+	const searchesPerTiming = 128
+	rounds := make([]float64, 0, 9)
+	zeroes := 0
+	for len(rounds) < cap(rounds) {
+		smallTime := timedSearches(searchesPerTiming, small)
+		largeTime := timedSearches(searchesPerTiming, large)
+		if smallTime <= 0 || largeTime <= 0 {
+			zeroes++
+			if zeroes >= 3 {
+				t.Fatalf("attachment search measurement clock returned zero three times")
+			}
+			continue
+		}
+		if requireFloor && smallTime < 50*time.Millisecond {
+			t.Fatalf("attachment search measurement is shorter than the clock and noise: %s for %d searches", smallTime, searchesPerTiming)
+		}
+		rounds = append(rounds, float64(largeTime)/float64(smallTime))
+	}
+	ordered := append([]float64(nil), rounds...)
+	sort.Float64s(ordered)
+	return ordered[len(ordered)/2], ordered[len(ordered)-1], rounds
+}
+
+func timedSearches(count int, operation func()) time.Duration {
+	started := time.Now()
+	for range count {
+		operation()
+	}
+	return time.Since(started)
+}
+
+func directoryEntries(t *testing.T, directory string) int {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(entries)
 }
 
 func TestProjectorSnapshotDoesNotWaitForActiveWriter2pr(t *testing.T) {

@@ -385,6 +385,8 @@ function render() {
     const input = sheet.querySelector(`#${CSS.escape(id)}`);
     if (input) input.value = value;
   }
+  for (const node of sheet.querySelectorAll("[data-setting-face]")) node.style.fontFamily = `"${node.dataset.settingFace}", sans-serif`;
+  for (const node of sheet.querySelectorAll("[data-setting-colour]")) node.style.color = node.dataset.settingColour;
   const focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
     .find((node) => controlKey(node) === focusKey);
   focusNode?.focus({ preventScroll: true });
@@ -912,8 +914,9 @@ function choices(path, label, values, selected, hint = "") {
 function menuSetting(path, label, options, selected, extra = "", hint = "") {
   selected = currentValue(path, selected);
   const current = options.find((option) => option.value === selected) || { value: selected, label: selected };
-  const rows = options.map((option) => `<button type="button" role="option" aria-selected="${option.value === selected}" data-action="config-choice" data-path="${attr(path)}" data-value="${attr(option.value)}" style="${attr(option.style || "")}"><strong>${html(option.label)}</strong>${option.detail ? `<span>${html(option.detail)}</span>` : ""}</button>`).join("");
-  return field(path, label, `<span class="setting-menu-control ${extra}"><button type="button" data-action="setting-menu-toggle" data-menu-path="${attr(path)}" ${path === "chat.typeface" ? "data-refresh-fonts" : ""} style="${attr(current.style || "")}">${html(current.label || selected)}${current.missing ? " · missing" : ""}</button><div class="setting-menu" role="listbox" hidden>${rows}</div></span>`, false, hint);
+  const appearance = (option) => `${option.face ? ` data-setting-face="${attr(option.face)}"` : ""}${option.color ? ` data-setting-colour="${attr(option.color)}"` : ""}`;
+  const rows = options.map((option) => `<button type="button" role="option" aria-selected="${option.value === selected}" data-action="config-choice" data-path="${attr(path)}" data-value="${attr(option.value)}"><strong${appearance(option)}>${html(option.label)}</strong>${option.detail ? `<span>${html(option.detail)}</span>` : ""}</button>`).join("");
+  return field(path, label, `<span class="setting-menu-control ${extra}"><button type="button" data-action="setting-menu-toggle" data-menu-path="${attr(path)}" ${path === "chat.typeface" ? "data-refresh-fonts" : ""}${appearance(current)}>${html(current.label || selected)}${current.missing ? " · missing" : ""}</button><div class="setting-menu" role="listbox" hidden>${rows}</div></span>`, false, hint);
 }
 
 function selectSetting(path, label, options, selected) {

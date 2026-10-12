@@ -72,6 +72,10 @@ type ConnectorChange struct {
 	Operation string
 	Name      string
 	Service   config.Service
+	// Entra is a public-client definition the remote MCP resource published for
+	// operator-approved setup. It contains no token or client secret and is never
+	// persisted in harness.json; ApplyConnector stores it in the credential vault.
+	Entra *credential.EntraDefinition
 	// Document is the OpenAPI document this change imported, carried from the approval
 	// to the snapshot the server writes. It is never part of the configuration.
 	Document []byte
@@ -99,7 +103,7 @@ func (c *CallService) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"connector": map[string]any{"type": "object", "description": "User-requested connector change: operation add, edit, or remove; entry has name, url, kind (mcp or http), auth, allowed_methods for http, and openapi {document, operations} to import an OpenAPI document"},
+			"connector": map[string]any{"type": "object", "description": "User-requested connector add/edit/remove. Entry: name, url, kind, auth; HTTP allowed_methods; optional openapi {document, operations}; optional published MCP entra {tenant, client_id, scopes}."},
 			"operation": map[string]any{"type": "string", "description": c.operationsDescription()},
 			"accept":    map[string]any{"type": "string", "description": "One response content type declared by the chosen imported operation"},
 			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
@@ -160,6 +164,35 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 		if err != nil || len(argv) == 0 || (!strings.EqualFold(argv[len(argv)-1], "token") && !strings.EqualFold(argv[len(argv)-1], "headers")) {
 			return ConnectorChange{}, true, fmt.Errorf("connector.entry.auth: exec helper must end with token or headers")
 		}
+	}
+	if raw, present := entry["entra"]; present && raw != nil {
+		if op != "add" || change.Service.Kind != "mcp" {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.entra is supported only when adding an MCP connector")
+		}
+		auth := strings.TrimSpace(change.Service.Auth)
+		if !strings.HasPrefix(auth, "entra:") {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.entra requires auth entra:<credential-name>")
+		}
+		setup, ok := raw.(map[string]any)
+		if !ok {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.entra must be an object")
+		}
+		definition := &credential.EntraDefinition{}
+		definition.Tenant, _ = setup["tenant"].(string)
+		definition.ClientID, _ = setup["client_id"].(string)
+		definition.Tenant = strings.TrimSpace(definition.Tenant)
+		definition.ClientID = strings.TrimSpace(definition.ClientID)
+		if values, ok := setup["scopes"].([]any); ok {
+			for _, value := range values {
+				if scope, ok := value.(string); ok && strings.TrimSpace(scope) != "" {
+					definition.Scopes = append(definition.Scopes, strings.TrimSpace(scope))
+				}
+			}
+		}
+		if definition.Tenant == "" || definition.ClientID == "" || len(definition.Scopes) == 0 {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.entra requires tenant, client_id, and at least one scope")
+		}
+		change.Entra = definition
 	}
 	if change.Service.Kind == "mcp" {
 		change.Service.AllowedMethods = []string{"POST"}
@@ -259,6 +292,9 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 			return detail
 		}
 		detail.Content = fmt.Sprintf("connector %s %s; configuration reloaded", change.Name, change.Operation)
+		if change.Entra != nil {
+			detail.Content += "; its Entra definition was stored—ask the user to complete sign-in in Settings → Security → Credentials"
+		}
 		return detail
 	}
 	serviceName, ok := requiredString(args, "service")

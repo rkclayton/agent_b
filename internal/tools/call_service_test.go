@@ -430,6 +430,26 @@ func TestCallServiceConnectorChangeAndExecHeaders(t *testing.T) {
 	}
 }
 
+func TestConnectorChangeAcceptsPublishedEntraSetupOnlyForNewMCPConnector(t *testing.T) {
+	entry := map[string]any{
+		"name": "work-api", "url": "https://api.example.test/mcp", "kind": "mcp", "auth": "entra:work-api",
+		"entra": map[string]any{
+			"tenant":    "11111111-1111-1111-1111-111111111111",
+			"client_id": "22222222-2222-2222-2222-222222222222",
+			"scopes":    []any{"https://api.example.test/mcp/access"},
+		},
+	}
+	change, present, err := ParseConnectorChange(map[string]any{"connector": map[string]any{"operation": "add", "entry": entry}})
+	if err != nil || !present || change.Entra == nil || change.Entra.ClientID != "22222222-2222-2222-2222-222222222222" || len(change.Entra.Scopes) != 1 {
+		t.Fatalf("change=%+v present=%t err=%v", change, present, err)
+	}
+
+	entry["auth"] = "none"
+	if _, _, err := ParseConnectorChange(map[string]any{"connector": map[string]any{"operation": "add", "entry": entry}}); err == nil || !strings.Contains(err.Error(), "requires auth entra:") {
+		t.Fatalf("wrong-auth error=%v", err)
+	}
+}
+
 func helperCredentialCommand(args ...string) string {
 	values := []string{quoteServiceTestArg(os.Args[0]), "-test.run=^TestCallServiceCredentialHelper$", "--"}
 	for _, arg := range args {
@@ -474,7 +494,7 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	// 1845, and 2pz's "the user" for "the operator" 1837. The operation form is present WITH NO CONNECTOR CONFIGURED.
 	// A connector that has imported a document adds its operations on top, which is the
 	// point of (d) and is paid for only by the installs that have one.
-	const wantDelta = 1837
+	const wantDelta = 1827
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

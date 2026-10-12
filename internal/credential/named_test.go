@@ -177,3 +177,30 @@ func TestTheVaultRefusesWhatItCannotKeepSafely2nv(t *testing.T) {
 		}
 	}
 }
+
+func TestPublishedEntraDefinitionCannotReplaceAnExistingCredential(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("SKIPPED: credential storage is DPAPI, so this case is Windows-only.")
+	}
+	vault := NewVault(t.TempDir())
+	if err := vault.PutEntra(
+		"work-api",
+		"https://api.example.test",
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		[]string{"scope.read"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.PutEntraIfAbsent(
+		"work-api",
+		"https://api.example.test",
+		"33333333-3333-3333-3333-333333333333",
+		"44444444-4444-4444-4444-444444444444",
+		[]string{"scope.write"}); err == nil {
+		t.Fatal("published definition replaced an existing credential")
+	}
+	definition, _, err := vault.Entra("work-api")
+	if err != nil || definition.ClientID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("definition=%+v err=%v", definition, err)
+	}
+}

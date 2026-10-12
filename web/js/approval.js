@@ -22,6 +22,18 @@ export function approvalChoices(data = {}) {
 // where his key goes, which is the only question that matters here.
 function boundCredential(data) {
 	if (!(data.name === "call_service" && data.args?.connector && data.args.connector_credential)) return "";
+	if (data.args.connector_credential_kind === "entra") {
+		const scopes = Array.isArray(data.args.connector_entra_scopes) ? data.args.connector_entra_scopes : [];
+		return [
+			`This creates Microsoft Entra credential "${data.args.connector_credential}" for ${data.args.connector_origin || "an address it cannot read"}.`,
+			`Tenant: ${data.args.connector_entra_tenant || "missing"}`,
+			`Public client: ${data.args.connector_entra_client_id || "missing"}`,
+			`Scopes: ${scopes.join(" ") || "missing"}`,
+			"After approval, complete sign-in in Settings → Security → Credentials.",
+			"",
+			"",
+		].join("\n");
+	}
 	const lines = [`This binds the credential "${data.args.connector_credential}" to ${data.args.connector_origin || "an address it cannot read"}.`];
 	if (data.args.connector_previous_origin) {
 		lines.push(`It was approved for ${data.args.connector_previous_origin}, and this moves it.`);

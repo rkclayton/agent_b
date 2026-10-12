@@ -16,9 +16,10 @@ import (
 // These endpoints are reachable only with the operator's page session cookie AND the
 // mutation token, which the server's own guards enforce for every mutation and, for the
 // listing, through the protected-read set — so a tool process, the model, a chat, or a
-// broker-paired phone cannot create, read, list or change a credential. The value never travels
-// outward: the listing carries name, kind, origin and date, and the only way in is a
-// masked field in Settings.
+// broker-paired phone cannot read, list or change a credential. A model may propose a public
+// Entra definition published by an MCP resource, but it is written only after the local
+// operator approves the connector card; interactive sign-in remains Settings-only. Secret
+// values never travel outward: the listing carries name, kind, origin and date.
 
 var (
 	credentialMu      sync.RWMutex

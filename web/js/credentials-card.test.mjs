@@ -28,6 +28,26 @@ test("the card names the credential and the exact origin", () => {
 	assert.doesNotMatch(plain.detail, /binds the credential/);
 });
 
+test("a discovered Entra connector card shows every public identity value before storing it", () => {
+	const wording = approvalText({
+		name: "call_service",
+		args: {
+			connector: { operation: "add", entry: { name: "work-api", auth: "entra:work-api" } },
+			connector_credential: "work-api",
+			connector_credential_kind: "entra",
+			connector_origin: "https://api.example.test:443",
+			connector_entra_tenant: "11111111-1111-1111-1111-111111111111",
+			connector_entra_client_id: "22222222-2222-2222-2222-222222222222",
+			connector_entra_scopes: ["https://api.example.test/mcp/access"],
+		},
+	});
+	assert.match(wording.detail, /creates Microsoft Entra credential "work-api"/);
+	assert.match(wording.detail, /11111111-1111-1111-1111-111111111111/);
+	assert.match(wording.detail, /22222222-2222-2222-2222-222222222222/);
+	assert.match(wording.detail, /https:\/\/api\.example\.test\/mcp\/access/);
+	assert.match(wording.detail, /complete sign-in in Settings/);
+});
+
 // Item 2nv (c): the section exists, the key field is masked, and no value is ever drawn.
 test("Settings carries a Credentials section whose key field is masked", () => {
 	const security = readFileSync(new URL("./settings-security.js", import.meta.url), "utf8");

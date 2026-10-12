@@ -50,6 +50,34 @@ func TestApprovedConnectorMutationValidatesPersistsAndRemoves(t *testing.T) {
 	}
 }
 
+func TestApprovedMCPConnectorCanStorePublishedEntraDefinition(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "harness.json")
+	cfg := config.Defaults(root)
+	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	vault := credential.NewVault(root)
+	SetCredentialVault(vault)
+	t.Cleanup(func() { SetCredentialVault(nil) })
+
+	service := config.Service{Kind: "mcp", BaseURL: "https://api.example.test/mcp", Auth: "entra:work-api", AllowedMethods: []string{"POST"}, TimeoutS: 60, MaxBodyKB: 64}
+	definition := &credential.EntraDefinition{
+		Tenant:   "11111111-1111-1111-1111-111111111111",
+		ClientID: "22222222-2222-2222-2222-222222222222",
+		Scopes:   []string{"https://api.example.test/mcp/access"},
+	}
+	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "add", Name: "work-api", Service: service, Entra: definition}); err != nil {
+		t.Fatal(err)
+	}
+	stored, entry, err := vault.Entra("work-api")
+	if err != nil || stored.ClientID != definition.ClientID || entry.Origin != "https://api.example.test:443" {
+		t.Fatalf("stored=%+v entry=%+v err=%v", stored, entry, err)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(persisted, []byte(`"auth": "entra:work-api"`)) || bytes.Contains(persisted, []byte(definition.ClientID)) {
+		t.Fatalf("persisted=%s err=%v", persisted, err)
+	}
+}
+
 func TestDuplicateConnectionPreservesCredentialReferenceWithoutExposingSecret(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")

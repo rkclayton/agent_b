@@ -156,6 +156,20 @@ func (v *Vault) Put(name, origin, header, secret string) error {
 }
 
 func (v *Vault) PutEntra(name, origin, tenant, clientID string, scopes []string) error {
+	return v.putEntra(name, origin, tenant, clientID, scopes, false)
+}
+
+// PutEntraIfAbsent creates a discovered public-client definition without ever
+// replacing a credential the operator may have created concurrently in Settings.
+func (v *Vault) PutEntraIfAbsent(name, origin, tenant, clientID string, scopes []string) error {
+	return v.putEntra(name, origin, tenant, clientID, scopes, true)
+}
+
+func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string, requireAbsent bool) error {
+	origin, err := NormalizeOrigin(origin)
+	if err != nil {
+		return err
+	}
 	definition := EntraDefinition{Tenant: strings.TrimSpace(tenant), ClientID: strings.TrimSpace(clientID)}
 	for _, scope := range scopes {
 		if scope = strings.TrimSpace(scope); scope != "" {
@@ -169,18 +183,31 @@ func (v *Vault) PutEntra(name, origin, tenant, clientID string, scopes []string)
 	if err != nil {
 		return err
 	}
-	if err := v.Put(name, origin, "", string(encoded)); err != nil {
-		return err
-	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	records, err := v.readRecords()
 	if err != nil {
 		return err
 	}
-	entry := records[name]
-	entry.Kind = "entra"
-	records[name] = entry
+	if _, exists := records[name]; requireAbsent && exists {
+		return fmt.Errorf("credential %q already exists", name)
+	}
+	store, err := v.store(name)
+	if err != nil {
+		return err
+	}
+	if err := store.Write(encoded); err != nil {
+		return err
+	}
+	readBack, err := store.Read()
+	if err != nil {
+		return fmt.Errorf("the Entra definition was stored but did not read back: %w", err)
+	}
+	if string(readBack) != string(encoded) {
+		_ = store.Clear()
+		return errors.New("the Entra definition did not read back as it was written")
+	}
+	records[name] = Entry{Name: name, Kind: "entra", Origin: origin, StoredAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := v.writeRecords(records); err != nil {
 		return err
 	}

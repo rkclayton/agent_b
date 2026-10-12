@@ -1573,8 +1573,19 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		// connector to another address, says so on this card in those words — the
 		// credential's name and the exact origin it would be sent to. Nothing binds or
 		// moves silently, and the card is the existing one.
-		if connectorErr == nil && strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") {
-			eventArgs["connector_credential"] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:"))
+		if connectorErr == nil && (strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") || strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "entra:")) {
+			auth := strings.TrimSpace(proposedConnector.Service.Auth)
+			kind := "stored"
+			if strings.HasPrefix(auth, "entra:") {
+				kind = "entra"
+			}
+			eventArgs["connector_credential"] = strings.TrimSpace(strings.TrimPrefix(auth, kind+":"))
+			eventArgs["connector_credential_kind"] = kind
+			if proposedConnector.Entra != nil {
+				eventArgs["connector_entra_tenant"] = proposedConnector.Entra.Tenant
+				eventArgs["connector_entra_client_id"] = proposedConnector.Entra.ClientID
+				eventArgs["connector_entra_scopes"] = proposedConnector.Entra.Scopes
+			}
 			if origin, originErr := credential.NormalizeOrigin(proposedConnector.Service.BaseURL); originErr == nil {
 				eventArgs["connector_origin"] = origin
 				if existing, present := cfg.Services[proposedConnector.Name]; present {

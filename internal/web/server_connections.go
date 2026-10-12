@@ -960,16 +960,44 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 		change.Service.OpenAPI = &imported
 	}
 	// Item 2nv (b) and (f): a binding is refused here unless the credential exists and
-	// the connector's address is an https origin. The operator approved a name and an
-	// origin on the card; saving something else would make that approval a lie.
-	if auth := strings.TrimSpace(change.Service.Auth); strings.HasPrefix(auth, "stored:") {
-		name := strings.TrimSpace(strings.TrimPrefix(auth, "stored:"))
-		vault := vaultOrNil()
-		if vault == nil || !vault.Has(name) {
-			return fmt.Errorf("no credential named %q is stored; add it in Settings → Security first", name)
+	// the connector's address is an https origin. A discovered Entra definition is the
+	// one exception: the same approval card names its tenant, public client, scopes and
+	// exact origin, so the definition can be created without making the operator retype it.
+	auth := strings.TrimSpace(change.Service.Auth)
+	var stagedEntraName string
+	var stagedEntraVault *credential.Vault
+	if strings.HasPrefix(auth, "stored:") || strings.HasPrefix(auth, "entra:") {
+		kind := "stored"
+		if strings.HasPrefix(auth, "entra:") {
+			kind = "entra"
 		}
-		if _, err := credential.NormalizeOrigin(change.Service.BaseURL); err != nil {
+		name := strings.TrimSpace(strings.TrimPrefix(auth, kind+":"))
+		origin, err := credential.NormalizeOrigin(change.Service.BaseURL)
+		if err != nil {
 			return fmt.Errorf("connector %q: %w", change.Name, err)
+		}
+		vault := vaultOrNil()
+		if vault == nil {
+			return fmt.Errorf("no credential store is available")
+		}
+		if change.Entra != nil {
+			if kind != "entra" || change.Operation != "add" {
+				return fmt.Errorf("connector %q: discovered Entra setup is valid only for a new entra credential", change.Name)
+			}
+			if vault.Has(name) {
+				return fmt.Errorf("credential %q already exists; select it without an entra setup block", name)
+			}
+			stagedEntraName, stagedEntraVault = name, vault
+		} else if !vault.Has(name) {
+			return fmt.Errorf("no credential named %q is stored; add it in Settings → Security first", name)
+		} else if kind == "entra" {
+			_, entry, entraErr := vault.Entra(name)
+			if entraErr != nil {
+				return entraErr
+			}
+			if !strings.EqualFold(entry.Origin, origin) {
+				return fmt.Errorf("credential %q is approved for %s, not %s", name, entry.Origin, origin)
+			}
 		}
 	}
 	_, exists := next.Services[change.Name]
@@ -995,7 +1023,21 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
+	if change.Entra != nil {
+		origin, _ := credential.NormalizeOrigin(change.Service.BaseURL)
+		if err := stagedEntraVault.PutEntraIfAbsent(
+			stagedEntraName,
+			origin,
+			change.Entra.Tenant,
+			change.Entra.ClientID,
+			change.Entra.Scopes); err != nil {
+			return fmt.Errorf("connector %q: store its Entra definition: %w", change.Name, err)
+		}
+	}
 	if err := s.saveMachineConfig(next); err != nil {
+		if stagedEntraName != "" {
+			_ = stagedEntraVault.Delete(stagedEntraName)
+		}
 		return err
 	}
 	*s.cfg = next

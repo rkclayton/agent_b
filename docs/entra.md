@@ -16,6 +16,13 @@ The target API must validate the token issuer and audience. Its exposed Applicat
 
 ## Add and sign in
 
+When an MCP endpoint publishes a pre-registered public-client definition in its
+protected-resource metadata or unauthenticated `401` body, an agent may include that
+public definition in a connector proposal. The approval card shows the exact tenant,
+client ID, scopes, credential name, and destination origin. Approval stores the Entra
+definition and connector binding together; it never signs in or grants consent. Continue
+with **Sign in with browser** in Settings as below.
+
 In **Settings → Security → Credentials**:
 
 1. Open **Add Microsoft Entra**.

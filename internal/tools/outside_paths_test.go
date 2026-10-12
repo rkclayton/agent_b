@@ -232,6 +232,16 @@ func TestRelativePathsAndPatternsRaiseNoCard2q3(t *testing.T) {
 	}
 }
 
+func TestSearchPatternsAreNotTakenForDrivePaths2ts(t *testing.T) {
+	item := &session.Session{ID: "2ts", Workspace: t.TempDir()}
+	for source, want := range map[string]string{`Select-String -Pattern '\d:\d\d:\d\d' notes.txt`: "", `rg "\d\d:\d\d:\d\d" .`: "", `grep -E \d:\d\d:\d\d log.txt`: "", `Select-String '\w:\s' x`: "", `type D:\data\x.txt`: `D:\data\x.txt`, `type "D:\my data\x.txt"`: `D:\my data\x.txt`, `type D:\a\b.txt:zone`: `D:\a\b.txt:zone`, `type \\server\share\x.txt`: `\\server\share\x.txt`, `Select-String -Pattern 'E:\\' x`: `E:\`} {
+		paths := outsideLiteralPaths(source, item)
+		if (want == "" && len(paths) != 0) || (want != "" && (len(paths) != 1 || paths[0] != want)) {
+			t.Errorf("%q named %v, want %q", source, paths, want)
+		}
+	}
+}
+
 // Item 2q3 (c): Agent_b's own data and install folders are readable without a
 // card; writing there still asks.
 func TestOwnFoldersReadWithoutACardWriteWithOne2q3(t *testing.T) {

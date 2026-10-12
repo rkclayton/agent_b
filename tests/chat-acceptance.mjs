@@ -234,6 +234,10 @@ const fakeHandler = async (request, response) => {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "scratch-write", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: "scratch-proof.txt", content: "scratch tool passed\n" }) } }] }, "tool_calls");
     return stream(response, { content: "SCRATCH FILE COMPLETE" });
   }
+  if (user.includes("acceptance: clock search")) {
+    if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "clock-search", type: "function", function: { name: "shell", arguments: JSON.stringify({ command: String.raw`Select-String -Pattern '\d:\d\d:\d\d' notes.txt` }) } }] }, "tool_calls");
+    return stream(response, { content: "CLOCK SEARCH COMPLETE" });
+  }
   if (user.includes("acceptance: failures continue")) {
     const count = toolCountAfterLatestUser(body);
     if (count < 3) return stream(response, { tool_calls: [{ index: 0, id: `failure-continues-${count}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: `missing-fixture-${count}.txt` }) } }] }, "tool_calls");
@@ -941,6 +945,13 @@ if (realModel) {
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");
   assert.equal(await readFile(join(session.workspace_dir, "scratch-proof.txt"), "utf8"), "scratch tool passed\n");
   record("scratch-chat-title-and-file-tool");
+
+  await writeFile(join(session.workspace_dir, "notes.txt"), "12:34:56 fixture\n");
+  const beforeClockSearch = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
+  await setTask("acceptance: clock search"); await waitProjectedChatText(sessionID, "CLOCK SEARCH COMPLETE", "clock search completed");
+  const clockEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeClockSearch), clockResult = clockEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "clock-search");
+  assert.equal(clockEvents.some((event) => event.type === "approval.required"), false); assert.equal(clockResult?.data?.ok, true);
+  await page.locator('[data-entry-key="tool:clock-search"] .tool-tick').waitFor({ state: "visible" }); record("clock-search-runs-without-drive-card-2ts");
 
   if (args["2rv-only"] === "true") {
     const created = [], mutation = (await state()).mutation_token;

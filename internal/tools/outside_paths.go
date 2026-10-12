@@ -24,10 +24,28 @@ var quotedAbsolutePath = regexp.MustCompile(`(?i)["']((?:[a-z]:[\\/]|\\\\[a-z0-9
 func literalPaths(source string) []string {
 	paths := []string{}
 	for _, match := range quotedAbsolutePath.FindAllStringSubmatch(source, -1) {
-		paths = append(paths, match[1])
+		if windowsCouldOpenLiteral(match[1]) {
+			paths = append(paths, match[1])
+		}
 	}
 	rest := quotedAbsolutePath.ReplaceAllString(source, " ")
-	return append(paths, literalAbsolutePath.FindAllString(rest, -1)...)
+	for _, indexes := range literalAbsolutePath.FindAllStringIndex(rest, -1) {
+		candidate := rest[indexes[0]:indexes[1]]
+		if (indexes[0] > 0 && rest[indexes[0]-1] == '\\') || !windowsCouldOpenLiteral(candidate) {
+			continue
+		}
+		paths = append(paths, candidate)
+	}
+	return paths
+}
+
+func windowsCouldOpenLiteral(candidate string) bool {
+	for index := 2; index+1 < len(candidate); index++ {
+		if candidate[index] == ':' && (candidate[index+1] == '\\' || candidate[index+1] == '/') {
+			return false
+		}
+	}
+	return true
 }
 
 // outsideLiteralPaths lists the absolute paths a command or script names that

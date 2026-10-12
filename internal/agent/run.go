@@ -195,6 +195,7 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 		turns = 20
 	}
 	parentState := parent.Snapshot()
+	parentRoom := max(0, parentState.Budget.NCtx-guardedPromptTokens(parentState.Budget))
 	child := &session.Session{
 		ID: parent.ID + "-delegate-" + r.id("e"), Label: "delegate", Role: "e", AgentID: parentState.AgentID,
 		ParentSessionID: parent.ID,
@@ -224,7 +225,11 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 		return tools.DelegateResult{}, fmt.Errorf("delegate stopped: %s: %s", reason, detail)
 	}
 	if partial {
-		message, _ := r.makeMessage(ctx, connection, "user", "Tool access is now withdrawn. Return the best concise evidence-based summary from what you found; do not request or call another tool.", "history", 0)
+		instruction := "Tool access is now withdrawn. Return the best concise evidence-based summary from what you found; do not request or call another tool."
+		if parentRoom > 0 {
+			instruction += fmt.Sprintf(" Keep the answer within %d tokens and end on a complete sentence.", parentRoom)
+		}
+		message, _ := r.makeMessage(ctx, connection, "user", instruction, "history", 0)
 		child.Append(message)
 		child.DisableTools()
 		child.SetRun(session.RunState{Status: "idle", MaxTurns: 1})
@@ -233,27 +238,38 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 			detail = strings.TrimSpace(detail + "; final summary: " + finalReason + ": " + finalDetail)
 		}
 	}
-	transcript, summary := child.MessagesCopy(), ""
-	for index := len(transcript) - 1; index >= 0; index-- {
-		if transcript[index].Role == "assistant" && strings.TrimSpace(transcript[index].Content) != "" {
-			summary = strings.TrimSpace(transcript[index].Content)
-			break
-		}
-	}
+	transcript := child.MessagesCopy()
+	summary := lastAssistantSummary(transcript)
 	if summary == "" {
 		summary = "No summary was produced before the child stopped."
 		partial = true
 	}
-	if tokens, _ := r.count(ctx, connection, summary); tokens > 2000 {
-		runes := []rune(summary)
-		runes = runes[:max(1, len(runes)*2000/tokens)]
-		summary, partial = strings.TrimSpace(string(runes))+"\n[summary capped at 2,000 tokens]", true
+	if tokens, _ := r.count(ctx, connection, summary); !partial && parentRoom > 0 && tokens > parentRoom {
+		message, _ := r.makeMessage(ctx, connection, "user", fmt.Sprintf("Tool access is now withdrawn. Rewrite your final answer within %d tokens and end on a complete sentence; do not request or call another tool.", parentRoom), "history", 0)
+		child.Append(message)
+		child.DisableTools()
+		child.SetRun(session.RunState{Status: "idle", MaxTurns: 1})
+		if finalReason, finalDetail, _ := r.Run(ctx, child, r.id("delegate-fit")); finalReason != "done" {
+			return tools.DelegateResult{}, fmt.Errorf("delegate shorten stopped: %s: %s", finalReason, finalDetail)
+		}
+		transcript = child.MessagesCopy()
+		summary = "[helper answer shortened to fit the parent context]\n" + lastAssistantSummary(transcript)
+		partial = true
 	}
 	toolCalls := 0
 	for _, tool := range child.Snapshot().Tools {
 		toolCalls += tool.Calls
 	}
 	return tools.DelegateResult{Summary: summary, Partial: partial, DurationMS: time.Since(started).Milliseconds(), ToolCalls: toolCalls, Transcript: transcript}, nil
+}
+
+func lastAssistantSummary(transcript []events.Message) string {
+	for index := len(transcript) - 1; index >= 0; index-- {
+		if transcript[index].Role == "assistant" && strings.TrimSpace(transcript[index].Content) != "" {
+			return strings.TrimSpace(transcript[index].Content)
+		}
+	}
+	return ""
 }
 
 // ReserveIDs moves the id counter past floor, so ids minted after a restart

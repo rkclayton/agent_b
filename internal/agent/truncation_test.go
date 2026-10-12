@@ -105,6 +105,7 @@ func TestDelegateKeepsSixReadsOutOfParentContext(t *testing.T) {
 }
 
 func TestDelegateAskedToWriteRefusesWithToolAbsent(t *testing.T) {
+	whole := strings.Repeat("abc", 7200)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
 			Tools []map[string]any `json:"tools"`
@@ -118,7 +119,7 @@ func TestDelegateAskedToWriteRefusesWithToolAbsent(t *testing.T) {
 				t.Fatalf("child received forbidden tool %q", name)
 			}
 		}
-		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "I cannot write; this child is read-only."}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 8}})
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": whole}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 6000}})
 	}))
 	defer server.Close()
 	cfg := config.Defaults(t.TempDir())
@@ -130,8 +131,32 @@ func TestDelegateAskedToWriteRefusesWithToolAbsent(t *testing.T) {
 	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true}
 	result, err := runner.runDelegate(context.Background(), parent, "write a file", "quick")
-	if err != nil || result.Partial || !strings.Contains(result.Summary, "cannot write") {
+	if err != nil || result.Partial || result.Summary != whole || strings.Contains(result.Summary, "capped") {
 		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestDelegateRewritesOnceWhenAnswerCannotFitParent2to(t *testing.T) {
+	var calls atomic.Int32
+	long, short := strings.Repeat("abc", 7200), "Shortened finding. Complete."
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		content := long
+		if calls.Add(1) == 2 {
+			content = short
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": content}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 20}})
+	}))
+	defer server.Close()
+	cfg := config.Defaults(t.TempDir())
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "fixture", server.URL, "fixture"
+	connection.Context.NCtx, connection.Capabilities.NCtx = 10000, 10000
+	connection.Capabilities.Server, connection.Capabilities.OverflowBehavior = "openai-compatible", "error"
+	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Budget: events.Budget{NCtx: 10000, UsedEst: 7000}}
+	result, err := runner.runDelegate(context.Background(), parent, "report findings", "quick")
+	if err != nil || calls.Load() != 2 || !result.Partial || !strings.HasSuffix(result.Summary, short) || !strings.Contains(result.Summary, "shortened") || strings.Contains(result.Summary, "capped") {
+		t.Fatalf("calls=%d result=%+v err=%v", calls.Load(), result, err)
 	}
 }
 

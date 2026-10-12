@@ -948,7 +948,7 @@ if (realModel) {
 
   await writeFile(join(session.workspace_dir, "notes.txt"), "12:34:56 fixture\n");
   const beforeClockSearch = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
-  await setTask("acceptance: clock search"); await waitProjectedChatText(sessionID, "CLOCK SEARCH COMPLETE", "clock search completed");
+  await setTask("acceptance: clock search"); await waitProjectedChatText(sessionID, "CLOCK SEARCH COMPLETE", "clock search completed"); await page.getByText("CLOCK SEARCH COMPLETE", { exact: true }).waitFor({ state: "visible" });
   const clockEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeClockSearch), clockResult = clockEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "clock-search");
   assert.equal(clockEvents.some((event) => event.type === "approval.required"), false); assert.equal(clockResult?.data?.ok, true);
   await openStepFoldIfDrawn();

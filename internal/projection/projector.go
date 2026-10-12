@@ -818,6 +818,12 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			next.Chat = removeAssistantTurn(next.Chat, removed.Turn)
 		}
 	case events.MessageQueued:
+		position := intValue(data["position"])
+		if position == 0 {
+			next.QueuedMessages = max(0, next.QueuedMessages-1)
+			next.QueuedMessageIDs = withoutQueuedID(next.QueuedMessageIDs, stringValue(data["message_id"]))
+			break
+		}
 		next.QueuedMessages++
 		// rel-1.23.0 card 5: the id, so a restart can rebuild the queue and not just
 		// its length.

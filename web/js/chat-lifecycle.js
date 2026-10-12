@@ -1,4 +1,4 @@
-const activeStates = new Set(["running", "queued", "paused", "stopping", "held"]);
+const activeStates = new Set(["running", "queued", "paused", "stopping"]);
 
 export function openSessions(sessions = {}) {
   return Object.values(sessions).filter((session) => !session.closed);
@@ -60,7 +60,6 @@ export function stateGlyph(session) {
   if (state === "queued") return "◌";
   if (state === "paused") return "Ⅱ";
   if (state === "stopping") return "■";
-  if (state === "held") return "◇";
   return "○";
 }
 

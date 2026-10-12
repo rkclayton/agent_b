@@ -63,6 +63,7 @@ type Runner struct {
 	trustFolders       func([]string) error
 	skills             SkillHost
 	compactions        sync.Map
+	takeQueued         func(*session.Session, string)
 }
 
 var resolveNamedPath = tools.ResolveNamedPath
@@ -146,11 +147,12 @@ func (r *Runner) SetSessionRenamer(fn func(string, string, string) error) { r.re
 func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) BoundaryAction) {
 	r.mailboxBoundary = fn
 }
-func (r *Runner) SetModelUnreachable(fn func(string, string))    { r.modelUnreachable = fn }
-func (r *Runner) SetModelAnswered(fn func(string))               { r.modelAnswered = fn }
-func (r *Runner) SetTrustedFolderWriter(fn func([]string) error) { r.trustFolders = fn }
-func (r *Runner) SetSkillHost(host SkillHost)                    { r.skills = host }
-func (r *Runner) BindDelegate(tool *tools.Delegate)              { tool.SetRunner(r.runDelegate) }
+func (r *Runner) SetModelUnreachable(fn func(string, string))         { r.modelUnreachable = fn }
+func (r *Runner) SetModelAnswered(fn func(string))                    { r.modelAnswered = fn }
+func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)      { r.trustFolders = fn }
+func (r *Runner) SetSkillHost(host SkillHost)                         { r.skills = host }
+func (r *Runner) SetQueuedBoundary(fn func(*session.Session, string)) { r.takeQueued = fn }
+func (r *Runner) BindDelegate(tool *tools.Delegate)                   { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
 		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
@@ -464,6 +466,10 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				return contextStop(turn, detail)
 			}
 			return "mailbox_stop", detail, turn
+		}
+		if r.takeQueued != nil {
+			r.takeQueued(s, runID)
+			s.SetRunPin(session.RunPinFromTail(s.MessagesCopy()))
 		}
 		turn++
 		connection, ok = r.currentConnection(s)

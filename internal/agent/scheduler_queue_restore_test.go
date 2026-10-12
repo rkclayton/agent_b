@@ -21,7 +21,7 @@ func TestAQueuedMessageKeepsItsPlaceAcrossARestart(t *testing.T) {
 	// What the journal said when the process ended: two of the three were queued.
 	item.SetQueuedMessageIDs([]string{"m-2", "m-3"})
 
-	scheduler := &Scheduler{pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}, active: map[string]*activeRun{}}
+	scheduler := &Scheduler{pending: map[string][]queuedRun{}, unreachable: map[string]bool{}, active: map[string]*activeRun{}}
 	if count := scheduler.RestoreQueue(item); count != 2 {
 		t.Fatalf("restored %d queued message(s), want 2", count)
 	}
@@ -32,13 +32,9 @@ func TestAQueuedMessageKeepsItsPlaceAcrossARestart(t *testing.T) {
 	if queue[0].userMessage.Content != "second" {
 		t.Fatalf("the queued entry lost its message: %+v", queue[0].userMessage)
 	}
-	// Held, not running: the queue existed because something was in the way, and a
-	// restart is not evidence that it cleared.
-	if !scheduler.held["s1"] {
-		t.Fatal("the restored queue was not held")
-	}
-	if run := item.Snapshot().Run; run.Status != "held" || run.QueuePosition != 2 {
-		t.Fatalf("run state=%+v, want held at position 2", run)
+	// Unsent, not running: opening the chat returns these turns to the composer.
+	if run := item.Snapshot().Run; run.Status != "idle" || run.QueuePosition != 2 {
+		t.Fatalf("run state=%+v, want idle with two unsent turns", run)
 	}
 
 	// A queue entry whose message is no longer in the conversation is dropped rather
@@ -51,7 +47,7 @@ func TestAQueuedMessageKeepsItsPlaceAcrossARestart(t *testing.T) {
 	}
 	// And a chat with nothing queued is untouched.
 	empty := &session.Session{ID: "s3", Workspace: t.TempDir()}
-	if count := scheduler.RestoreQueue(empty); count != 0 || scheduler.held["s3"] {
-		t.Fatalf("a chat with no queue was changed: count=%d held=%v", count, scheduler.held["s3"])
+	if count := scheduler.RestoreQueue(empty); count != 0 {
+		t.Fatalf("a chat with no queue was changed: count=%d", count)
 	}
 }

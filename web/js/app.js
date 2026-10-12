@@ -393,7 +393,7 @@ async function refreshState() { reduce({ type: "snapshot", data: await api("/api
 function placeDropLastMessage() { const heads = document.querySelectorAll(".timeline-model > .timeline-head"); const target = heads[heads.length - 1]; dropLastMessage.hidden = !target; if (target) target.append(dropLastMessage); }
 function renderPendingApproval(session) { const root = document.getElementById("panel-pending-approval"); root.hidden = !session?.pending_approval; root.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, { replay: store.replay, decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) })] : [])); }
 function percentile(values = [], fraction = .5) { if (!values.length) return 0; const copy = [...values].sort((a, b) => a - b); return copy[Math.floor((copy.length - 1) * fraction)]; }
-function patchEndedRun(patch = {}) { return (patch.operations || []).some((operation) => operation.path === "/run" && ["idle", "held"].includes(operation.value?.status)); }
+function patchEndedRun(patch = {}) { return (patch.operations || []).some((operation) => operation.path === "/run" && operation.value?.status === "idle"); }
 // Item 2ji (c): lifetime and the last twenty, side by side in ONE value cell.
 //
 // My first version gave the row a third grid column. Activity flows its lines

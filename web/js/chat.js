@@ -88,6 +88,8 @@ const composerApprovalViews = new Map();
 let composerWait = null;
 let composerRobot = null;
 let composerText = null;
+const queuedDrafts = new Map();
+const returningQueues = new Set();
 let mirrorTakeButton = null;
 let usedEntryViews = new Set();
 let usedFileViews = new Set();
@@ -202,10 +204,38 @@ function schedule() {
 function render() {
   if (!mounted) return;
   const session = store.sessions[selectedID()];
+	reconcileQueuedDraft(session);
   renderBudget(session);
   renderLog(session);
   renderComposer(session);
   navigationSurfaceReady("chat", store);
+}
+
+function reconcileQueuedDraft(session) {
+	if (!session) return;
+	const ids = Array.isArray(session.queued_message_ids) ? session.queued_message_ids : [];
+	if (ids.length) {
+		const byID = new Map((session.chat || []).filter((entry) => entry.type === "user").map((entry) => [String(entry.key || "").replace(/^message:/, ""), entry]));
+		const messages = ids.map((id) => byID.get(id)).filter(Boolean).map((entry) => ({ text: entry.text || "", attachments: entry.attachments || [] }));
+		if (messages.length) queuedDrafts.set(session.id, messages);
+		if (session.run?.status === "idle" && !session.model_unreachable && !returningQueues.has(session.id)) {
+			returningQueues.add(session.id);
+			void api("/api/stop", { session_id: session.id }).finally(() => returningQueues.delete(session.id));
+		}
+		return;
+	}
+	const messages = queuedDrafts.get(session.id);
+	if (!messages?.length) return;
+	if (session.run?.status === "stopping" || session.run?.status === "idle") {
+		const returned = messages.map((message) => message.text).filter(Boolean).join("\n");
+		if (selectedID() === session.id && returned) input.value = [returned, input.value].filter(Boolean).join("\n");
+		const attachments = messages.flatMap((message) => message.attachments || []);
+		if (selectedID() === session.id && attachments.length) {
+			queuedAttachments = [...attachments, ...queuedAttachments.filter((candidate) => !attachments.some((item) => item.path.toLowerCase() === candidate.path.toLowerCase()))];
+			attachmentQueues.set(session.id, queuedAttachments);
+		}
+		queuedDrafts.delete(session.id);
+	} else if (session.run?.status === "running") queuedDrafts.delete(session.id);
 }
 
 export function mountChat(shellController) {
@@ -505,6 +535,13 @@ function renderEntry(session, entry) {
         nodes.push(outcome);
       }
     }
+		const messageID = String(entry.key || "").replace(/^message:/, "");
+		const queued = (session.queued_message_ids || []).includes(messageID);
+		if (queued) {
+			if (!view.queued) { view.queued = document.createElement("span"); view.queued.className = "chat-queued-state"; }
+			view.queued.textContent = session.model_unreachable ? "queued · waiting for model" : "queued";
+			nodes.push(view.queued);
+		}
     reconcileChildren(content, nodes);
     view.text = entry.text;
   }
@@ -1112,7 +1149,7 @@ function noticeContent(session, entry, actionable) {
 		if (data.reason === "model_unreachable") {
 			const line=document.createElement("span"); line.textContent=`model unreachable · ${entry.text || session.model_unreachable?.host || "model"}`; if(data.detail) line.title=data.detail; content.append(line);
 		} else if (data.reason === "aborted_mid_tool") {
-			content.textContent = `stopped mid-tool${data.queue_held ? " · queued messages held" : ""}`;
+			content.textContent = "stopped mid-tool";
 			if (data.detail) content.title = data.detail;
 		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty" || data.reason === "announced_action_and_stopped") {
 			content.textContent = data.detail || reason;

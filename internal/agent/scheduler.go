@@ -47,7 +47,6 @@ type Scheduler struct {
 	active      map[string]*activeRun
 	queue       []queuedRun
 	pending     map[string][]queuedRun
-	held        map[string]bool
 	unreachable map[string]bool
 	stoppedRuns map[string]bool
 	// Item 2fs: a run paused on a card holds no model slot. paused marks it;
@@ -63,7 +62,10 @@ type Scheduler struct {
 func (s *Scheduler) ReserveIDs(floor int64) { reserveCounter(&s.ids, floor) }
 
 func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, cfg func() config.Config) *Scheduler {
-	s := &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, held: map[string]bool{}, unreachable: map[string]bool{}, stoppedRuns: map[string]bool{}, paused: map[string]bool{}}
+	s := &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, unreachable: map[string]bool{}, stoppedRuns: map[string]bool{}, paused: map[string]bool{}}
+	if runner != nil {
+		runner.SetQueuedBoundary(s.takeQueuedAtBoundary)
+	}
 	if runner != nil && runner.gate != nil {
 		runner.gate.setModelHooks(s.releaseForCard, s.reacquireAfterCard)
 	}
@@ -105,9 +107,8 @@ func (s *Scheduler) notifyAgentIdleLocked(agentID string) {
 // PLACE in the queue lived in this map, so a restart turned a queue of three into
 // three ordinary history messages that nothing would ever send.
 //
-// They come back HELD, not running. The queue existed because something was in the
-// way; a restart is not evidence that it has cleared, and the user's next
-// message releases them in order exactly as it does after a stop.
+// They come back unsent. Opening the chat hands them back to the composer; no
+// later message can release an older one.
 func (s *Scheduler) RestoreQueue(item *session.Session) int {
 	if item == nil {
 		return 0
@@ -136,11 +137,10 @@ func (s *Scheduler) RestoreQueue(item *session.Session) int {
 	}
 	s.mu.Lock()
 	s.pending[item.ID] = restored
-	s.held[item.ID] = true
 	s.mu.Unlock()
 	item.SetQueuedMessages(len(restored))
 	state := item.Snapshot().Run
-	state.Status = "held"
+	state.Status = "idle"
 	state.QueuePosition = len(restored)
 	item.SetRun(state)
 	return len(restored)
@@ -171,35 +171,15 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 		if err != nil {
 			return SubmitResult{}, err
 		}
+		s.runner.AppendUser(item, message)
 		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message})
 		position := len(s.pending[sessionID])
 		item.SetQueuedMessages(position)
 		state := item.Snapshot().Run
-		state.Status = "held"
+		state.Status = "idle"
 		state.QueuePosition = position
 		item.SetRun(state)
 		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": position, "waiting_for": "model"}))
-		return SubmitResult{Queued: true, Position: position}, nil
-	}
-	if s.held[sessionID] {
-		message, err := s.runner.QueueUserAttachments(ctx, item, text, attachments)
-		if err != nil {
-			return SubmitResult{}, err
-		}
-		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message})
-		position := len(s.pending[sessionID])
-		delete(s.held, sessionID)
-		next := s.pending[sessionID][0]
-		s.pending[sessionID] = s.pending[sessionID][1:]
-		item.SetQueuedMessages(len(s.pending[sessionID]))
-		next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
-		if s.admitLocked(item) {
-			s.startLocked(next)
-		} else {
-			s.queue = append(s.queue, next)
-			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue)})
-			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, s.queuedDataLocked(item, next.runID, len(s.queue))))
-		}
 		return SubmitResult{Queued: true, Position: position}, nil
 	}
 	if _, active := s.active[sessionID]; active || item.IsRunning() {
@@ -214,16 +194,18 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 		if err != nil {
 			return SubmitResult{}, err
 		}
+		s.runner.AppendUser(item, message)
 		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message})
 		position := len(s.pending[sessionID])
 		item.SetQueuedMessages(position)
-		// Item 2fg: Stop holds queued messages, including one sent while the run
-		// is still stopping; only the user's next message releases the hold.
-		if active := s.active[sessionID]; active != nil && active.stopReason != "" {
-			s.held[sessionID] = true
-		}
 		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": position}))
+		if active := s.active[sessionID]; active != nil && active.stopReason != "" {
+			s.returnPendingLocked(sessionID)
+		}
 		return SubmitResult{Queued: true, Position: position}, nil
+	}
+	if len(s.pending[sessionID]) > 0 {
+		s.returnPendingLocked(sessionID)
 	}
 	message, err := s.runner.AddUserAttachments(ctx, item, text, attachments)
 	if err != nil {
@@ -278,22 +260,18 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	if reason == "model_unreachable" {
 		s.unreachable[entry.s.ID] = true
 	}
-	if waiting := s.pending[entry.s.ID]; len(waiting) > 0 && !s.held[entry.s.ID] && !s.unreachable[entry.s.ID] {
-		next := waiting[0]
-		s.pending[entry.s.ID] = waiting[1:]
-		entry.s.SetQueuedMessages(len(waiting) - 1)
-		next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
-		next.s.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns})
-		s.queue = append(s.queue, next)
+	if waiting := s.pending[entry.s.ID]; len(waiting) > 0 && !s.unreachable[entry.s.ID] && active.stopReason == "" {
+		delivered := s.deliverPendingLocked(entry.s.ID)
+		if len(delivered) > 0 {
+			next := delivered[0]
+			next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
+			next.s.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns})
+			s.queue = append(s.queue, next)
+		}
 	}
 	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID}
-	queueHeld := (s.held[entry.s.ID] || s.unreachable[entry.s.ID]) && len(s.pending[entry.s.ID]) > 0
-	if queueHeld {
-		state.Status = "held"
-		state.QueuePosition = len(s.pending[entry.s.ID])
-	}
 	entry.s.SetRun(state)
-	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, queueHeld)
+	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, false)
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
@@ -407,6 +385,58 @@ func identicalPendingPosition(waiting []queuedRun, text string) int {
 	return 0
 }
 
+func (s *Scheduler) deliverPendingLocked(sessionID string) []queuedRun {
+	waiting := s.pending[sessionID]
+	if len(waiting) == 0 {
+		return nil
+	}
+	delete(s.pending, sessionID)
+	ids := make([]string, 0, len(waiting))
+	for _, entry := range waiting {
+		ids = append(ids, entry.userMessageID)
+	}
+	moved := waiting[0].s.MoveMessagesToEnd(ids)
+	waiting[0].s.SetQueuedMessages(0)
+	for _, message := range moved {
+		s.bus.Publish(events.New(events.MessageRemoved, sessionID, "", map[string]any{"id": message.ID, "reason": "queued_delivery"}))
+		s.bus.Publish(events.New(events.MessageAppended, sessionID, "", map[string]any{"message": message}))
+		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": 0}))
+	}
+	for index := range waiting {
+		waiting[index].userMessage = events.Message{}
+	}
+	return waiting
+}
+
+func (s *Scheduler) returnPendingLocked(sessionID string) []queuedRun {
+	waiting := s.pending[sessionID]
+	if len(waiting) == 0 {
+		return nil
+	}
+	delete(s.pending, sessionID)
+	ids := make([]string, 0, len(waiting))
+	for _, entry := range waiting {
+		ids = append(ids, entry.userMessageID)
+	}
+	removed := waiting[0].s.RemoveMessages(ids)
+	waiting[0].s.SetQueuedMessages(0)
+	for _, message := range removed {
+		s.bus.Publish(events.New(events.MessageRemoved, sessionID, "", map[string]any{"id": message.ID, "reason": "returned_to_composer"}))
+		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": 0}))
+	}
+	return waiting
+}
+
+func (s *Scheduler) takeQueuedAtBoundary(item *session.Session, runID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	active := s.active[item.ID]
+	if active == nil || active.runID != runID || active.stopReason != "" || s.unreachable[item.ID] {
+		return
+	}
+	s.deliverPendingLocked(item.ID)
+}
+
 // ReleaseModel releases only model-unreachable holds after a successful probe.
 // A manual Stop hold remains in force until the operator explicitly sends again.
 func (s *Scheduler) ReleaseModel(connectionID string) {
@@ -423,12 +453,11 @@ func (s *Scheduler) ReleaseModel(connectionID string) {
 		delete(s.unreachable, sessionID)
 		s.bus.Publish(events.New(events.ModelReachable, sessionID, "", map[string]any{"connection_id": connectionID}))
 		waiting := s.pending[sessionID]
-		if len(waiting) == 0 || s.held[sessionID] || s.active[sessionID] != nil {
+		if len(waiting) == 0 || s.active[sessionID] != nil {
 			continue
 		}
-		next := waiting[0]
-		s.pending[sessionID] = waiting[1:]
-		item.SetQueuedMessages(len(waiting) - 1)
+		delivered := s.deliverPendingLocked(sessionID)
+		next := delivered[0]
 		next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
 		if s.admitLocked(item) {
 			s.startLocked(next)
@@ -481,9 +510,7 @@ func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason strin
 				reason = s.runner.abortReason(id, active.runID)
 			}
 			active.stopReason = reason
-			if len(s.pending[id]) > 0 {
-				s.held[id] = true
-			}
+			s.returnPendingLocked(id)
 			item, _ := s.registry.Get(id)
 			if item != nil {
 				state := item.Snapshot().Run
@@ -500,24 +527,22 @@ func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason strin
 	for _, entry := range s.queue {
 		if all || entry.s.ID == sessionID {
 			idleAgents[entry.s.Snapshot().AgentID] = true
-			if len(s.pending[entry.s.ID]) > 0 {
-				s.held[entry.s.ID] = true
-			}
+			s.returnPendingLocked(entry.s.ID)
 			reason := requestedReason
 			if reason == "" {
 				reason = "done"
 			}
 			s.bus.Publish(events.New(events.RunStopping, entry.s.ID, entry.runID, map[string]any{"reason": reason}))
-			status := "idle"
-			if s.held[entry.s.ID] {
-				status = "held"
-			}
-			entry.s.SetRun(session.RunState{Status: status, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.pending[entry.s.ID]), LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
-			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, s.held[entry.s.ID])
+			entry.s.SetRun(session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
+			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, false)
 			stopped = append(stopped, entry.s.ID)
 		} else {
 			kept = append(kept, entry)
 		}
+	}
+	if !all && s.active[sessionID] == nil && len(s.pending[sessionID]) > 0 {
+		s.returnPendingLocked(sessionID)
+		stopped = append(stopped, sessionID)
 	}
 	s.queue = kept
 	s.repositionLocked()
@@ -557,12 +582,8 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	priorRun := item.Snapshot().Run
 	turn := priorRun.Turn
 	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID}
-	queueHeld := (s.held[sessionID] || s.unreachable[sessionID]) && len(s.pending[sessionID]) > 0
-	if queueHeld {
-		state.Status, state.QueuePosition = "held", len(s.pending[sessionID])
-	}
 	item.SetRun(state)
-	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, queueHeld)
+	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, false)
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()

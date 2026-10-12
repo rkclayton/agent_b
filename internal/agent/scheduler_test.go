@@ -94,16 +94,54 @@ func TestActiveRunMessagesQueueAtZeroDepthAndDispatchInOrderAfterRunEnd(t *testi
 	eventMu.Lock()
 	defer eventMu.Unlock()
 	queued := 0
+	started := 0
 	for _, event := range recorded {
 		if event.Type == events.MessageQueued {
-			queued++
+			data, _ := event.Data.(map[string]any)
+			if position, _ := data["position"].(int); position > 0 {
+				queued++
+			}
+		}
+		if event.Type == events.RunStarted {
+			started++
 		}
 	}
 	if queued != 2 {
 		t.Fatalf("message.queued count=%d", queued)
 	}
+	if started != 1 {
+		t.Fatalf("queued messages started %d runs, want one", started)
+	}
 }
 
+func TestQueuedMessagesJoinAfterCompletedToolResultsAtNextBoundary2tl(t *testing.T) {
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer model.Close()
+	_, _, item, scheduler := schedulerFixture(t, model.URL)
+	item.Append(events.Message{ID: "task", Role: "user", Content: "original", Category: "history"})
+	item.Append(events.Message{ID: "assistant", Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "call", Name: "read_file"}}})
+	item.Append(events.Message{ID: "result", Role: "tool", ToolCallID: "call", Name: "read_file", Content: "complete", Category: "results"})
+	item.SetRun(session.RunState{Status: "running", RunID: "r0"})
+	scheduler.active[item.ID] = &activeRun{runID: "r0"}
+	for _, text := range []string{"A", "A", "B"} {
+		if _, err := scheduler.Submit(context.Background(), item.ID, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scheduler.takeQueuedAtBoundary(item, "r0")
+	messages := item.MessagesCopy()
+	got := make([]string, 0, len(messages))
+	for _, message := range messages {
+		got = append(got, message.Role+":"+message.Content)
+	}
+	want := []string{"user:original", "assistant:", "tool:complete", "user:A", "user:B"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("boundary order=%v want %v", got, want)
+	}
+	if item.Snapshot().QueuedMessages != 0 {
+		t.Fatalf("queued=%d", item.Snapshot().QueuedMessages)
+	}
+}
 
 func TestCanonicalTerminalReasonsAreClosed(t *testing.T) {
 	want := map[string]string{
@@ -126,7 +164,7 @@ func TestCanonicalTerminalReasonsAreClosed(t *testing.T) {
 	}
 }
 
-func TestStopHoldsQueuedMessagesUntilNextExplicitSubmit(t *testing.T) {
+func TestStopReturnsQueuedMessagesAndNextSubmitSendsOnlyNewWords(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
@@ -145,8 +183,8 @@ func TestStopHoldsQueuedMessagesUntilNextExplicitSubmit(t *testing.T) {
 	}
 	scheduler.Stop(item.ID, false)
 	scheduler.finish(queuedRun{s: item, runID: "r0"}, "user_stop", "", 1)
-	if snapshot := item.Snapshot(); snapshot.Run.Status != "held" || snapshot.QueuedMessages != 2 {
-		t.Fatalf("held snapshot=%+v", snapshot)
+	if snapshot := item.Snapshot(); snapshot.Run.Status != "idle" || snapshot.QueuedMessages != 0 {
+		t.Fatalf("returned snapshot=%+v", snapshot)
 	}
 	if len(item.MessagesCopy()) != 0 {
 		t.Fatalf("held messages dispatched=%+v", item.MessagesCopy())
@@ -164,7 +202,7 @@ func TestStopHoldsQueuedMessagesUntilNextExplicitSubmit(t *testing.T) {
 			users = append(users, message.Content)
 		}
 	}
-	if len(users) != 3 || users[0] != "first queued" || users[1] != "second queued" || users[2] != "resume queue" {
+	if len(users) != 1 || users[0] != "resume queue" {
 		t.Fatalf("dispatch order=%v connection=%s", users, connection.ID)
 	}
 }
@@ -187,8 +225,8 @@ func TestModelUnreachableHoldsQueueDeduplicatesAndProbeReleases(t *testing.T) {
 		t.Fatalf("dedupe second=%+v queued=%d err=%v", second, item.Snapshot().QueuedMessages, err)
 	}
 	scheduler.finish(queuedRun{s: item, runID: "r0"}, "model_unreachable", "dial tcp timeout", 1)
-	if snapshot := item.Snapshot(); snapshot.Run.Status != "held" || snapshot.QueuedMessages != 1 {
-		t.Fatalf("held=%+v", snapshot)
+	if snapshot := item.Snapshot(); snapshot.Run.Status != "idle" || snapshot.QueuedMessages != 1 {
+		t.Fatalf("waiting for model=%+v", snapshot)
 	}
 	if scheduler.Active(item.ID) {
 		t.Fatal("unreachable queue dispatched before probe")
@@ -506,10 +544,7 @@ func TestRunPublishesWaitingLoadingAndReadingFromALlamaStandIn2rw(t *testing.T) 
 	}
 }
 
-// Item 2fg (the walk's step 3): a message sent while a stopped run is still
-// stopping is held with the queue. A reachability release does not start it;
-// only the operator's next message does.
-func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T) {
+func TestAMessageSentWhileStoppingIsReturnedAndNeverSentLater(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
@@ -525,17 +560,14 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 		t.Fatalf("submit while stopping=%+v err=%v", result, err)
 	}
 	scheduler.finish(queuedRun{s: item, runID: "r0"}, "aborted_mid_tool", "tool execution canceled", 1)
-	if snapshot := item.Snapshot(); snapshot.Run.Status != "held" || snapshot.QueuedMessages != 1 {
-		t.Fatalf("the message sent while stopping must be held: %+v", snapshot.Run)
+	if snapshot := item.Snapshot(); snapshot.Run.Status != "idle" || snapshot.QueuedMessages != 0 {
+		t.Fatalf("the message sent while stopping must be returned: %+v", snapshot.Run)
 	}
 	scheduler.ReleaseModel(connection.ID)
 	time.Sleep(50 * time.Millisecond)
 	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 {
 		t.Fatalf("a reachability release started the held message: %+v", item.MessagesCopy())
 	}
-	// v0.70.2/W5 (2fg residual): nothing but the operator's next message in this
-	// chat releases the hold — not another chat's run ending (which drains the
-	// queue), not another Stop here or a Stop of everything, not time passing.
 	scheduler.mu.Lock()
 	other := &activeRun{cancel: func() {}, runID: "r-other", done: make(chan struct{})}
 	scheduler.active["another-chat"] = other
@@ -546,8 +578,8 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 	scheduler.Stop(item.ID, false)
 	scheduler.Stop("", true)
 	time.Sleep(1500 * time.Millisecond)
-	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 || item.Snapshot().Run.Status != "held" {
-		t.Fatalf("the hold was released without the operator's message: run %+v, messages %+v", item.Snapshot().Run, item.MessagesCopy())
+	if scheduler.Active(item.ID) || len(item.MessagesCopy()) != 0 || item.Snapshot().Run.Status != "idle" {
+		t.Fatalf("returned words re-entered the run: run %+v, messages %+v", item.Snapshot().Run, item.MessagesCopy())
 	}
 	if _, err := scheduler.Submit(context.Background(), item.ID, "go on"); err != nil {
 		t.Fatal(err)
@@ -562,8 +594,8 @@ func TestAMessageSentWhileStoppingIsHeldUntilTheOperatorSendsAgain(t *testing.T)
 			users = append(users, message.Content)
 		}
 	}
-	if strings.Join(users, "|") != "sent while stopping|go on" {
-		t.Fatalf("the operator's message releases the hold, in order: %v", users)
+	if strings.Join(users, "|") != "go on" {
+		t.Fatalf("the returned message was sent later: %v", users)
 	}
 }
 
@@ -644,19 +676,43 @@ func TestDefaultAdmitsFourConnectionsAndQueuesTheFifth2sg(t *testing.T) {
 	}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(t.TempDir())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer writers.Close()
-	lookup := func(id string) (*config.Connection, bool) { for index := range cfg.Connections { if cfg.Connections[index].ID == id { return &cfg.Connections[index], true } }; return nil, false }
+	lookup := func(id string) (*config.Connection, bool) {
+		for index := range cfg.Connections {
+			if cfg.Connections[index].ID == id {
+				return &cfg.Connections[index], true
+			}
+		}
+		return nil, false
+	}
 	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
 	scheduler := NewScheduler(NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg }), registry, bus, func() config.Config { return cfg })
 	for index := 0; index < 4; index++ {
 		item, createErr := registry.Create(fmt.Sprintf("chat-%d", index), cfg.Connections[index].ID, workspace)
-		if createErr != nil { t.Fatal(createErr) }
-		scheduler.mu.Lock(); admitted := scheduler.admitLocked(item); if admitted { scheduler.active[item.ID] = &activeRun{} }; scheduler.mu.Unlock()
-		if !admitted { t.Fatalf("chat %d was not admitted", index+1) }
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		scheduler.mu.Lock()
+		admitted := scheduler.admitLocked(item)
+		if admitted {
+			scheduler.active[item.ID] = &activeRun{}
+		}
+		scheduler.mu.Unlock()
+		if !admitted {
+			t.Fatalf("chat %d was not admitted", index+1)
+		}
 	}
 	fifth, err := registry.Create("chat-4", cfg.Connections[4].ID, workspace)
-	if err != nil { t.Fatal(err) }
-	scheduler.mu.Lock(); admitted := scheduler.admitLocked(fifth); scheduler.mu.Unlock()
-	if admitted { t.Fatal("the fifth run was admitted past the global default") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.mu.Lock()
+	admitted := scheduler.admitLocked(fifth)
+	scheduler.mu.Unlock()
+	if admitted {
+		t.Fatal("the fifth run was admitted past the global default")
+	}
 }

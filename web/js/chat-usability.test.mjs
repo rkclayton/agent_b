@@ -407,6 +407,16 @@ test("user messages are right-side composer-matched bubbles without changing oth
   assert.match(css, /\.chat-user \.chat-content\s*\{\s*font-size:\s*calc\(var\(--ct\) \* 7 \/ 6\)/);
 });
 
+test("queued user turns are visible and Stop returns their words and files 2tl", () => {
+	assert.match(chat, /queuedDrafts = new Map\(\)/);
+	assert.match(chat, /session\.queued_message_ids/);
+	assert.match(chat, /"queued · waiting for model" : "queued"/);
+	assert.match(chat, /\[returned, input\.value\]\.filter\(Boolean\)\.join\("\\n"\)/);
+	assert.match(chat, /queuedAttachments = \[\.\.\.attachments, \.\.\.queuedAttachments\.filter/);
+	assert.match(chat, /api\("\/api\/stop", \{ session_id: session\.id \}\)/);
+	assert.match(css, /\.chat-queued-state[^}]*color:var\(--mute\)/);
+});
+
 test("the 2qe palette has a signal green and accessible ink and mute contrast", () => {
   const colours = Object.fromEntries([...tokens.matchAll(/--(bezel|well|ink|mute|signal):(#(?:[0-9a-f]{6}))/gi)].map((match) => [match[1], match[2]]));
   // The requested #6E7A88 is only 4.36:1 on #0D1014. #707D8B is the nearest

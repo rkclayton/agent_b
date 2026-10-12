@@ -275,6 +275,7 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-user .chat-content {
   font-size: calc(var(--ct) * 7 / 6);
 }
+.chat-queued-state { display:block; margin-top:4px; color:var(--mute); font-size:calc(var(--ct) * 11 / 12); }
 .chat-user {
   display:flex;
   justify-content:flex-end;

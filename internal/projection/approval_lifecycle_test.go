@@ -41,6 +41,25 @@ func TestQueuedMessageCountReconstructsFromDurableEvents(t *testing.T) {
 	}
 }
 
+func TestQueuedMessagePositionZeroRemovesOnlyThatQueuedTurn2tl(t *testing.T) {
+	state := Empty("session")
+	for index, event := range []events.Event{
+		events.New(events.MessageQueued, "session", "", map[string]any{"message_id": "m-1", "position": 1}),
+		events.New(events.MessageQueued, "session", "", map[string]any{"message_id": "m-2", "position": 2}),
+		events.New(events.MessageQueued, "session", "", map[string]any{"message_id": "m-1", "position": 0}),
+	} {
+		event.Seq = int64(index + 1)
+		var err error
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "queue.events", Offset: int64(index + 1)}, Event: event})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.QueuedMessages != 1 || len(state.QueuedMessageIDs) != 1 || state.QueuedMessageIDs[0] != "m-2" {
+		t.Fatalf("queued=%d ids=%v", state.QueuedMessages, state.QueuedMessageIDs)
+	}
+}
+
 func TestReplayReconstructsSupersededDecisionAndNewestPendingCard(t *testing.T) {
 	state := Empty("session")
 	inputs := []events.Event{

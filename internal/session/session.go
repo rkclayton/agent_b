@@ -861,6 +861,61 @@ func (s *Session) ReplaceMessages(messages []events.Message) {
 	s.mu.Unlock()
 }
 
+// MoveMessagesToEnd places queued user turns after the step that was in flight
+// when they arrived. It updates one bounded slice once at the step boundary;
+// submission itself remains O(1).
+func (s *Session) MoveMessagesToEnd(ids []string) []events.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wanted := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	kept := make([]events.Message, 0, len(s.Messages))
+	movedByID := make(map[string]events.Message, len(ids))
+	for _, message := range s.Messages {
+		if wanted[message.ID] {
+			movedByID[message.ID] = message
+		} else {
+			kept = append(kept, message)
+		}
+	}
+	moved := make([]events.Message, 0, len(ids))
+	for _, id := range ids {
+		if message, ok := movedByID[id]; ok {
+			moved = append(moved, message)
+		}
+	}
+	s.Messages = append(kept, moved...)
+	return append([]events.Message(nil), moved...)
+}
+
+func (s *Session) RemoveMessages(ids []string) []events.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wanted := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	kept := make([]events.Message, 0, len(s.Messages))
+	removedByID := make(map[string]events.Message, len(ids))
+	for _, message := range s.Messages {
+		if wanted[message.ID] {
+			removedByID[message.ID] = message
+		} else {
+			kept = append(kept, message)
+		}
+	}
+	removed := make([]events.Message, 0, len(ids))
+	for _, id := range ids {
+		if message, ok := removedByID[id]; ok {
+			removed = append(removed, message)
+		}
+	}
+	s.Messages = kept
+	return removed
+}
+
 // SetRunPin records the message that starts the running turn. Compaction may
 // never touch it or anything after it: that span is the task being answered.
 // An empty id means no run is in flight and nothing is pinned.

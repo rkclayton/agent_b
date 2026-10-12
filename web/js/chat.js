@@ -72,7 +72,7 @@ const thinkingRenderer = createThinkingRenderer({
   expanded,
   rerender: () => render(),
   format,
-  formatDuration: formatThoughtSeconds,
+  formatDuration,
   uncounted: () => {
     const session = store.sessions[selectedID()];
     const connection = store.connections.find((value) => value.id === (session?.connection_id || session?.b_connection));
@@ -653,21 +653,26 @@ function renderResponseBlock(session, view, block, active, state = {}) {
     root.addEventListener("pointerdown", () => { if (blockView.head?.getAttribute("aria-expanded") === "true") { touched.add(block.key); expanded.add(block.key); } }, true);
     view.blocks.set(block.key, blockView);
   }
-  const rootAlarm = block.steps.length && responseStepOutcome(block.steps, { movedPast: !!state.movedPast }).alarm;
-  setAttribute(blockView.root, "class", `chat-response-block${state.final ? " chat-response-final" : ""}${block.prose && block.steps.length ? " has-narration" : ""}${rootAlarm ? " alarm" : ""}`);
-  const nodes = [];
   const directThoughts = responseHasOnlyThoughts(block.steps);
+  const directAnswerThought = !!block.prose && directThoughts;
+  const rootAlarm = block.steps.length && responseStepOutcome(block.steps, { movedPast: !!state.movedPast }).alarm;
+  setAttribute(blockView.root, "class", `chat-response-block${state.final ? " chat-response-final" : ""}${block.prose && block.steps.length ? " has-narration" : ""}${directAnswerThought ? " direct-thought-answer" : ""}${rootAlarm ? " alarm" : ""}`);
+  const nodes = [];
   // Reasoning is emitted before prose by the model, so its visible row precedes
   // the answer. A thought-only turn has no intermediate Steps disclosure at all.
   const fold = block.steps.length ? renderResponseStepFold(session, blockView, block, active, directThoughts, state) : null;
   const prose = block.prose ? renderResponseProse(blockView, block.prose) : null;
   if (prose && fold) {
-    if (!blockView.narration) {
-      blockView.narration = document.createElement("div");
-      blockView.narration.className = "chat-narration-line";
+    if (directAnswerThought) {
+      nodes.push(fold, prose);
+    } else {
+      if (!blockView.narration) {
+        blockView.narration = document.createElement("div");
+        blockView.narration.className = "chat-narration-line";
+      }
+      reconcileChildren(blockView.narration, [prose, blockView.head]);
+      nodes.push(blockView.narration, blockView.rows);
     }
-    reconcileChildren(blockView.narration, [prose, blockView.head]);
-    nodes.push(blockView.narration, blockView.rows);
   } else {
     if (fold) nodes.push(fold);
     if (prose) nodes.push(prose);
@@ -722,7 +727,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
   // Active rows are pinned open, so drawing a disclosure for them would be an
   // inert control. Thought-only rows never need a grouping disclosure either.
   const inline = !!block.prose;
-  const headerless = !inline && (state.current || directThoughts || isHeaderlessSteps(block.steps));
+  const headerless = (inline && directThoughts) || (!inline && (state.current || directThoughts || isHeaderlessSteps(block.steps)));
   if (!touched.has(block.key) && view.head.getAttribute("aria-expanded") === "true" && (view.root.matches(":hover") || selectionWithin(view.root))) {
     touched.add(block.key); expanded.add(block.key);
   }
@@ -1107,12 +1112,6 @@ function toggleClass(node, name, enabled) {
 
 function setProperty(node, name, value) {
   if (node[name] !== value) node[name] = value;
-}
-
-function formatThoughtSeconds(milliseconds) {
-  if (!Number.isFinite(milliseconds)) return "";
-  const seconds = Math.max(0, milliseconds) / 1000;
-  return (seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)).replace(/\.0$/, "");
 }
 
 function formatBytes(value) {

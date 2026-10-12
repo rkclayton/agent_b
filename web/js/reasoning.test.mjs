@@ -47,7 +47,7 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
     expanded,
     rerender: () => {},
     format: String,
-    formatDuration: (value) => value === undefined || value === null ? "" : "1.2",
+    formatDuration: (value) => value === undefined || value === null ? "" : "1.2 s",
   });
   const active = { key: "turn:r1:1", reasoning: "", done: false, thinkingMS: null };
 
@@ -74,7 +74,7 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   const completed = renderer.render({ ...active, reasoning: "streamed thought", done: true, thinkingMS: 1200 }, 4);
   renderer.end();
   assert.equal(completed, first);
-  assert.equal(completed.children[0].children[3].textContent, "thinking · 4 tokens");
+  assert.equal(completed.children[0].children[3].textContent, "thinking · 4 tokens · 1.2 s");
 
   renderer.begin();
   const noDuration = renderer.render({ ...active, reasoning: "streamed thought", done: true, thinkingMS: null }, 4);
@@ -86,13 +86,13 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
     expanded: new Set(),
     rerender: () => {},
     format: String,
-    formatDuration: () => "1.2",
+    formatDuration: () => "1.2 s",
     uncounted: () => true,
   });
   inlineRenderer.begin();
   const inline = inlineRenderer.render({ ...active, reasoning: "fragment", done: true, thinkingMS: 1200 }, 4);
   inlineRenderer.end();
-  assert.equal(inline.children[0].children[3].textContent, "thinking · thoughts uncounted");
+  assert.equal(inline.children[0].children[3].textContent, "thinking · thoughts uncounted · 1.2 s");
 
   renderer.begin();
   const unavailable = renderer.render({ ...active, done: true, thinkingMS: 1200 }, 4);
@@ -125,7 +125,7 @@ test("a fold opened while the model is thinking stays open through every delta a
     expanded,
     rerender: () => {},
     format: String,
-    formatDuration: (value) => value === undefined || value === null ? "" : "1.2",
+    formatDuration: (value) => value === undefined || value === null ? "" : "1.2 s",
   });
 
   // The key the grouping now gives a thought, live or done alike.

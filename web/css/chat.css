@@ -470,6 +470,7 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-response-block.has-narration > .chat-step-rows {
   margin-left: clamp(4px, 1.5vw, 12px);
 }
+.chat-response-block.direct-thought-answer > .chat-step-fold { width: 100%; margin-left: 0; }
 .chat-response.single-step-response .chat-step-fold { width: 100%; margin-left: 0; }
 .chat-tool-group-calls { margin-left: 14px; padding-left: 5px; border-left: 1px solid rgba(112, 125, 139, .28); }
 .chat-response-step {

@@ -466,7 +466,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
       activity: status === "running" ? { completed_stages: [], started_at: Date.now(), stage: "execute", stage_state: "enter", active_tool: "read_file", tool_target: "result.txt" } : { completed_stages: [] }, timeline: [], chat, runnable: true, closed: false } },
     connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {},
   }); };
-  const open = async (status, host) => {
+  const open = async (status, host, initial = snapshot(status), expected = status === "running" ? "Verified the rebuilt output" : "synthetic release proof") => {
     const context = await browser.newContext({ viewport: { width: 1000, height: 760 } });
     await context.addInitScript(({ state, id }) => {
       sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
@@ -477,7 +477,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
         close() {}
       }
       globalThis.EventSource = FixtureEvents;
-    }, { state: snapshot(status), id });
+    }, { state: initial, id });
     const page = await context.newPage();
     await page.route("**/*", async (route) => {
       const url = new URL(route.request().url());
@@ -486,7 +486,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
       return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
     });
     await page.goto(`http://${host}/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("#chat-log")).toContainText(status === "running" ? "Verified the rebuilt output" : "synthetic release proof");
+    await expect(page.locator("#chat-log")).toContainText(expected);
     return { context, page };
   };
 
@@ -591,6 +591,19 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await live.page.screenshot({ path: "test-results/2ql-s56-live.png", fullPage: true });
   await live.page.screenshot({ path: "test-results/2qm-running.png", fullPage: true });
   await live.context.close();
+  const thoughtState = snapshot("running"), thought = { type: "agent", key: "plain-thought", run_id: runID, reasoning: "The complete thought stays here.", reasoningTokens: 2484, reasoningTokensEstimated: true, thinkingMS: 108300, text: "", done: false };
+  thoughtState.sessions[id].chat = [replay[0], thought]; thoughtState.sessions[id].cursor.offset = 2;
+  const thoughtPage = await open("running", "thought-2tr.test", thoughtState, "Review the synthetic build record."); await thoughtPage.page.setViewportSize({ width: 1280, height: 860 });
+  const liveThoughtLine = thoughtPage.page.locator('[data-entry-key="thought:plain-thought"] .thinking-line'), beforeTop = await liveThoughtLine.evaluate((node) => node.getBoundingClientRect().top);
+  thoughtState.sessions[id].chat = [replay[0], { ...thought, text: "Answer with thought.", done: true }, { type: "agent", key: "plain-answer", run_id: runID, text: "Answer without thought.", done: true }]; thoughtState.sessions[id].cursor.offset = 3; await thoughtPage.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), thoughtState);
+  await expect(thoughtPage.page.getByText("Answer with thought.")).toBeVisible();
+  const thoughtBlock = thoughtPage.page.locator('.chat-response-block').filter({ hasText: "Answer with thought." }), thoughtLine = thoughtBlock.locator('.thinking-line'); await expect(thoughtLine).toHaveCount(1);
+  const thoughtProof = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line'), answer = block.querySelector('.chat-response-answer'), plain = [...document.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')); const box = (node) => node.getBoundingClientRect(), style = (node) => { const seen = getComputedStyle(node); return [seen.color, seen.fontSize, seen.marginTop]; }; return { lineVisible: line.getClientRects().length > 0, lineAbove: box(line).bottom <= box(answer).top, aligned: Math.abs(box(line).left - box(answer).left) <= 1, chipVisible: [...block.querySelectorAll('.chat-step-summary')].some((node) => node.getClientRects().length), afterTop: box(line).top, styles: [style(answer), style(plain)] }; });
+  expect.soft(thoughtProof.lineVisible && thoughtProof.lineAbove && thoughtProof.aligned && !thoughtProof.chipVisible, "thought line above and no chip").toBe(true); expect.soft(thoughtProof.afterTop, "thought line did not move").toBeCloseTo(beforeTop, 1); expect.soft(thoughtProof.styles[0], "answer styling").toEqual(thoughtProof.styles[1]);
+  await expect(thoughtLine).toContainText("thinking · ~2,484 tokens · 108.3 s"); await mkdir("logs/evidence/rel-1.62.84/captures", { recursive: true }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-closed.png", fullPage: true });
+  await thoughtLine.click(); const thoughtBody = thoughtBlock.locator('.thinking-body'), opened = await thoughtBody.isVisible(), bodyBetween = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line').getBoundingClientRect(), body = block.querySelector('.thinking-body').getBoundingClientRect(), answer = block.querySelector('.chat-response-answer').getBoundingClientRect(); return line.bottom <= body.top && body.bottom <= answer.top; }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-open.png", fullPage: true }); await thoughtLine.click(); expect.soft(opened && bodyBetween && !await thoughtBody.isVisible(), "one press opens in place and a second closes").toBe(true);
+  console.log("2tr thought proof", JSON.stringify({ beforeTop, ...thoughtProof, bodyBetween }));
+  await thoughtPage.context.close();
 });
 
 // Item 2lj (f) and (g): the standing UI contract still holds at every step. At

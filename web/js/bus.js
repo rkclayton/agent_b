@@ -18,6 +18,7 @@ export const store = {
   loaded: false,
 };
 const listeners = new Set();
+const beforePatchListeners = new Set();
 const chatIndexes = new WeakMap();
 const historyLoads = new Map();
 const projectionLoads = new Map();
@@ -41,6 +42,7 @@ const operatorReconciler = createOperatorReconciler({
   applyIdentity: (identity) => reduce({ type: "shell.identity", data: identity }),
 });
 export function subscribe(fn) { listeners.add(fn); fn(store, { type: "init" }); return () => listeners.delete(fn); }
+export function subscribeBeforePatch(fn) { beforePatchListeners.add(fn); return () => beforePatchListeners.delete(fn); }
 export function subscriberCount() { return listeners.size; }
 function notify(event) { for (const fn of listeners) fn(store, event); }
 
@@ -183,6 +185,7 @@ function applyProjectionPatch(patch) {
   if (target && !sameCursor(target.cursor, previous)) { void resync(); return; }
   if (patch.transient && !target) return;
   if (!target) { target = store.sessions[patch.session_id] = { id: patch.session_id, cursor: previous }; indexChat(target); }
+	for (const fn of beforePatchListeners) fn(store, { type: "projection.patch", data: patch });
 	const boundedHistory = Number(target.history_total || 0) > 0;
 	const wasAtLatest = boundedHistory && Number(target.history_end || target.history_total) >= Number(target.history_total);
 	let appendedChat = 0;

@@ -1,5 +1,5 @@
 import { installComposerResize } from "./composer-resize.js";
-import { api, loadSessionHistory, reduce, setSelection, store, subscribe } from "./bus.js";
+import { api, loadSessionHistory, reduce, setSelection, store, subscribe, subscribeBeforePatch } from "./bus.js";
 import { renderMarkdown } from "./markdown.js";
 import { setWaitProgress, waitElement } from "./wait.js";
 import { operatorLogEntry } from "./operator-log.js";
@@ -94,6 +94,7 @@ let mirrorTakeButton = null;
 let usedEntryViews = new Set();
 let usedFileViews = new Set();
 let usedToolViews = new Set();
+subscribeBeforePatch((state, event) => cacheQueuedDraft(state.sessions[event.data?.session_id]));
 const earlierButton = document.createElement("button");
 earlierButton.type = "button";
 earlierButton.className = "chat-earlier";

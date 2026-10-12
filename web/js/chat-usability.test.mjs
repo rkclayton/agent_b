@@ -69,6 +69,11 @@ test("live-only status patches replace state without advancing the journal curso
   assert.match(bus, /if \(!patch\.transient\) target\.cursor = patch\.cursor/);
 });
 
+test("queued drafts are cached before a removal patch applies", () => {
+  assert.match(chat, /subscribeBeforePatch\(\(state, event\) => cacheQueuedDraft\(state\.sessions\[event\.data\?\.session_id\]\)\)/);
+  assert.match(bus, /for \(const fn of beforePatchListeners\) fn\(store, \{ type: "projection\.patch", data: patch \}\)/);
+});
+
 test("whole-run projection replacements redraw chat-list state", () => assert.match(shell, /run\(\?:\\\/status\)\?/));
 
 test("fenced code is one aligned panel with a header row and internal overflow", () => {

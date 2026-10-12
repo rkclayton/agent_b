@@ -6,7 +6,7 @@ globalThis.window = { addEventListener: () => {} };
 const stored = new Map();
 globalThis.sessionStorage = { getItem: (key) => stored.get(key) || null, setItem: (key, value) => stored.set(key, value) };
 globalThis.EventSource = class { addEventListener() {} };
-const { loadSessionHistory, reduce, setSelection, store, subscribe } = await import("./bus.js");
+const { loadSessionHistory, reduce, setSelection, store, subscribe, subscribeBeforePatch } = await import("./bus.js");
 
 test("selecting metadata-only history hydrates the bounded session projection 2qc", async () => {
 	const proposal = { id: "proposal-1", plan_proposals: [{ id: "draft" }] };
@@ -163,6 +163,23 @@ test("queued count reconstructs from projected state", () => {
 	snapshot({ queued_messages: 0 });
 	patch(11, [{ op: "replace", path: "/queued_messages", value: 2 }], 10);
 	assert.equal(store.sessions.main.queued_messages, 2);
+});
+
+test("before-patch subscribers can preserve a queued message before removal", () => {
+	snapshot({ queued_message_ids: ["m2"], chat: [{ type: "user", key: "message:m2", text: "send later" }] });
+	let preserved = "";
+	const unsubscribe = subscribeBeforePatch((state, event) => {
+		if (event.data.session_id !== "main") return;
+		const session = state.sessions.main;
+		const id = session.queued_message_ids?.[0];
+		preserved = session.chat?.find((entry) => entry.key === `message:${id}`)?.text || preserved;
+	});
+	patch(11, [
+		{ op: "replace", path: "/chat", value: [] },
+		{ op: "replace", path: "/queued_message_ids", value: [] },
+	], 10);
+	unsubscribe();
+	assert.equal(preserved, "send later");
 });
 
 test("projection-neutral tape events advance the cursor without rerendering views", () => {

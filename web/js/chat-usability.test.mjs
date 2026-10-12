@@ -393,7 +393,7 @@ test("Chats is the minimal ordered profile reading approval context delete surfa
   ];
   assert.ok(order.every((at) => at >= 0) && order.every((at, index) => index === 0 || at > order[index - 1]), `Chats order ${order}`);
   assert.match(settings, /menuSetting\("approval\.mode", "approval mode"/);
-  assert.match(settings, /<strong>\$\{html\(option\.label\)\}<\/strong>\$\{option\.detail/);
+  assert.match(settings, /<strong\$\{appearance\(option\)\}>\$\{html\(option\.label\)\}<\/strong>\$\{option\.detail/);
 });
 
 test("user messages are right-side composer-matched bubbles without changing other rows 2sl", () => {

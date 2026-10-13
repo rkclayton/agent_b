@@ -62,6 +62,18 @@ func writes(source string) bool {
 	return laterWrite.MatchString(discardedOutput.ReplaceAllString(source, " "))
 }
 
+func skillWriteRefusal(source string, s *session.Session) string {
+	if !writes(source) {
+		return ""
+	}
+	for _, path := range literalPaths(source) {
+		if s.IsSkillPath(path) {
+			return "skills folder is read-only: " + s.SkillsRoot + "; end the reply with Add <path> as a skill"
+		}
+	}
+	return ""
+}
+
 func pathListReason(prefix string, paths []string) string {
 	if len(paths) == 0 {
 		return ""

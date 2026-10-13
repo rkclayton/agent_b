@@ -70,6 +70,9 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	if len(source) > 512*1024 {
 		return CallDetail{Err: fmt.Errorf("source exceeds the 512 KB limit")}
 	}
+	if reason := skillWriteRefusal(source, item); reason != "" {
+		return CallDetail{Content: reason}
+	}
 	if denied := deniedCommand(source, cfg.Deny); denied != "" {
 		return CallDetail{Err: fmt.Errorf("source blocked by deny list entry %q", denied)}
 	}

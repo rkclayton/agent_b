@@ -96,6 +96,50 @@ func TestSkillFolderWritesAreNeverSilent2pe(t *testing.T) {
 	}
 }
 
+func TestShellAndRunScriptRefuseEveryVisibleSkillWrite2ua(t *testing.T) {
+	requireWindowsPathFixture(t)
+	workspace, profile := t.TempDir(), t.TempDir()
+	skillsRoot := filepath.Join(profile, "skills")
+	if err := os.MkdirAll(filepath.Join(skillsRoot, "fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "fixture", "SKILL.md"), []byte("readable skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item := &session.Session{ID: "skill-write", Role: "b", Workspace: workspace, SkillsRoot: skillsRoot}
+	want := "skills folder is read-only: " + skillsRoot + "; end the reply with Add <path> as a skill"
+	for _, service := range []bool{false, true} {
+		cfg := config.Defaults(workspace)
+		cfg.Shell.ServiceAccount.Enabled = service
+		cfg.Shell.TrustedFolders = []config.TrustedFolder{{Path: profile}}
+		shell := NewShell(cfg.Shell)
+		shell.Configure(cfg)
+		for _, command := range []string{
+			`Copy-Item "` + workspace + `\source" "` + skillsRoot + `\copied" -Recurse`,
+			`$target = "` + skillsRoot + `\fixture\new.txt"; Set-Content $target changed`,
+			`Set-Location "` + skillsRoot + `"; Set-Content .\new.txt changed`,
+		} {
+			if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Content != want {
+				t.Errorf("service=%t command=%q: %+v", service, command, got)
+			}
+			if got, _ := shell.CallAsOperator(context.Background(), item, map[string]any{"command": command}); got != want {
+				t.Errorf("operator command=%q: %q", command, got)
+			}
+		}
+		source := `Set-Content -LiteralPath "` + filepath.Join(skillsRoot, "fixture", "new.txt") + `" -Value changed`
+		if got := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": source}); got.Content != want {
+			t.Errorf("script: %+v", got)
+		}
+		if !service {
+			for _, command := range []string{`Get-ChildItem "` + skillsRoot + `"`, `Get-Content "` + filepath.Join(skillsRoot, "fixture", "SKILL.md") + `"`} {
+				if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Err != nil {
+					t.Errorf("read command=%q: %+v", command, got)
+				}
+			}
+		}
+	}
+}
+
 // With the service identity on, the OS decides; the literal-path card is not
 // raised (behaviour unchanged).
 func TestOutsidePathCardIsNotRaisedWithTheServiceIdentityOn(t *testing.T) {

@@ -27,7 +27,6 @@ import (
 	"harness/internal/hardening"
 	"harness/internal/memory"
 	"harness/internal/modelinstall"
-	"harness/internal/ocr"
 	"harness/internal/operatorfiles"
 	"harness/internal/profiles"
 	"harness/internal/projection"
@@ -99,11 +98,7 @@ type Server struct {
 	browserSession   string
 	openFolder       func(string) error
 	openFile         func(string) error
-	extractClient    *http.Client
-	ocrExtract       func(string) (string, error)
-	ocrPDF           func(context.Context, string, func(int, int)) (string, int, int, bool, error)
-	attachmentMu     sync.Mutex
-	attachmentStops  map[string]context.CancelFunc
+	attachmentState  attachmentState
 	detectLocal      func(context.Context, string) (any, error)
 	workspaceState   *workspaceinfo.Manager
 	memoryState      *memory.Manager
@@ -192,10 +187,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		pendingSessionConnections: map[string]string{},
 		measurements:              map[string]measureState{},
 		measureCancels:            map[string]context.CancelFunc{},
-		extractClient:             &http.Client{},
-		attachmentStops:           map[string]context.CancelFunc{},
-		ocrExtract:                ocr.Extract,
-		ocrPDF:                    ocr.ExtractPDF,
+		attachmentState:           newAttachmentState(),
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
 		},

@@ -137,7 +137,7 @@ func TestAttachmentsPDFExtractionEndpointStoresUntrustedSidecar(t *testing.T) {
 
 func TestAttachmentsImageOCRCreatesLabeledSidecar(t *testing.T) {
 	server, workspace := attachmentTestServer(t, nil)
-	server.ocrExtract = func(string) (string, error) { return "AgentB OCR words", nil }
+	server.attachmentState.ocrExtract = func(string) (string, error) { return "AgentB OCR words", nil }
 	result := postAttachment(t, server, "screen.png", []byte("image bytes"))
 	if result.Tier != "ocr" || result.Sidecar != "attachments/screen.png.txt" || !strings.Contains(result.Note, "layout not preserved") {
 		t.Fatalf("result=%+v", result)
@@ -150,7 +150,7 @@ func TestAttachmentsImageOCRCreatesLabeledSidecar(t *testing.T) {
 
 func TestAttachmentsImageOCRNoTextIsNotSuccessfulExtraction(t *testing.T) {
 	server, workspace := attachmentTestServer(t, nil)
-	server.ocrExtract = func(string) (string, error) { return "", ocr.ErrNoText }
+	server.attachmentState.ocrExtract = func(string) (string, error) { return "", ocr.ErrNoText }
 	result := postAttachment(t, server, "scene.png", []byte("image bytes"))
 	if result.Tier != "binary" || result.Sidecar != "" || !strings.Contains(result.Note, "OCR found no text") {
 		t.Fatalf("result=%+v", result)
@@ -182,7 +182,7 @@ func TestAttachmentHandlingRoutesImageAgainstProbe(t *testing.T) {
 				cfg.Connections[0].Capabilities.Vision = test.vision
 				cfg.Connections[0].ReadsImages = test.reads
 			})
-			server.ocrExtract = func(string) (string, error) { return "words", nil }
+			server.attachmentState.ocrExtract = func(string) (string, error) { return "words", nil }
 			result := postAttachment(t, server, "screen.png", []byte("image bytes"))
 			if result.Tier != test.wantTier {
 				t.Fatalf("tier=%q, want %q; result=%+v", result.Tier, test.wantTier, result)
@@ -306,7 +306,7 @@ func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
 		t.Fatalf("text-layer sidecar=%q, %v", text, err)
 	}
 
-	server.ocrPDF = func(_ context.Context, _ string, progress func(int, int)) (string, int, int, bool, error) {
+	server.attachmentState.ocrPDF = func(_ context.Context, _ string, progress func(int, int)) (string, int, int, bool, error) {
 		for page := 1; page <= 60; page++ {
 			progress(page, 60)
 		}
@@ -321,7 +321,7 @@ func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
 	if err != nil || !strings.Contains(string(text), "scanned words") || !strings.Contains(string(text), "by OCR") {
 		t.Fatalf("scan sidecar=%q, %v", text, err)
 	}
-	server.ocrPDF = func(context.Context, string, func(int, int)) (string, int, int, bool, error) {
+	server.attachmentState.ocrPDF = func(context.Context, string, func(int, int)) (string, int, int, bool, error) {
 		return strings.Repeat("## Page 1\n\nwords\n", 10), 10, 60, true, nil
 	}
 	stopped := postAttachment(t, server, "stopped.pdf", scan)
@@ -330,7 +330,7 @@ func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
 		t.Fatalf("stopped sidecar=%q err=%v", text, err)
 	}
 
-	server.ocrPDF = func(context.Context, string, func(int, int)) (string, int, int, bool, error) {
+	server.attachmentState.ocrPDF = func(context.Context, string, func(int, int)) (string, int, int, bool, error) {
 		return "", 0, 1, false, ocr.ErrNoText
 	}
 	result = postAttachment(t, server, "blank.pdf", scan)

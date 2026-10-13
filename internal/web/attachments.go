@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	attachmentfile "harness/internal/attachment"
@@ -25,6 +26,23 @@ import (
 	"harness/internal/ocr"
 	"harness/internal/tools"
 )
+
+type attachmentState struct {
+	mu            sync.Mutex
+	stops         map[string]context.CancelFunc
+	extractClient *http.Client
+	ocrExtract    func(string) (string, error)
+	ocrPDF        func(context.Context, string, func(int, int)) (string, int, int, bool, error)
+}
+
+func newAttachmentState() attachmentState {
+	return attachmentState{
+		stops:         map[string]context.CancelFunc{},
+		extractClient: &http.Client{},
+		ocrExtract:    ocr.Extract,
+		ocrPDF:        ocr.ExtractPDF,
+	}
+}
 
 type attachmentResponse struct {
 	events.Attachment
@@ -132,10 +150,15 @@ func (s *Server) attachments(w http.ResponseWriter, r *http.Request) {
 	if uploadID != "" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
-		s.attachmentMu.Lock()
-		s.attachmentStops[uploadID] = cancel
-		s.attachmentMu.Unlock()
-		defer func() { s.attachmentMu.Lock(); delete(s.attachmentStops, uploadID); s.attachmentMu.Unlock(); cancel() }()
+		s.attachmentState.mu.Lock()
+		s.attachmentState.stops[uploadID] = cancel
+		s.attachmentState.mu.Unlock()
+		defer func() {
+			s.attachmentState.mu.Lock()
+			delete(s.attachmentState.stops, uploadID)
+			s.attachmentState.mu.Unlock()
+			cancel()
+		}()
 	}
 	progress := func(page, total int) {
 		result.Pages, result.TotalPages = page, total
@@ -164,9 +187,9 @@ func (s *Server) stopAttachment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "upload_id is required", "upload_id")
 		return
 	}
-	s.attachmentMu.Lock()
-	cancel := s.attachmentStops[body.UploadID]
-	s.attachmentMu.Unlock()
+	s.attachmentState.mu.Lock()
+	cancel := s.attachmentState.stops[body.UploadID]
+	s.attachmentState.mu.Unlock()
 	if cancel == nil {
 		writeError(w, http.StatusNotFound, "attachment OCR is not running", "upload_id")
 		return
@@ -359,7 +382,7 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 		tier, note := "extracted", "text layer read locally; extraction output is untrusted"
 		text, extractErr := attachmentfile.ExtractPDFText(resolved, extractionLimit)
 		if errors.Is(extractErr, attachmentfile.ErrNoTextLayer) {
-			ocrText, pages, total, stopped, ocrErr := s.ocrPDF(ctx, resolved, progress)
+			ocrText, pages, total, stopped, ocrErr := s.attachmentState.ocrPDF(ctx, resolved, progress)
 			if ocrErr != nil {
 				return "binary", "no text layer, and OCR could not read the pages — this connection cannot read it", "", nil
 			}
@@ -393,7 +416,7 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 		if connection.Capabilities.Vision == config.VisionAcceptsUnreadable {
 			visionReason = "; connection accepts images but does not read them"
 		}
-		text, extractErr := s.ocrExtract(resolved)
+		text, extractErr := s.attachmentState.ocrExtract(resolved)
 		if errors.Is(extractErr, ocr.ErrNoText) {
 			return "binary", "OCR found no text — this connection cannot read the image" + visionReason, "", nil
 		}
@@ -441,7 +464,7 @@ func (s *Server) postExtraction(ctx context.Context, connection config.Connectio
 		return nil, err
 	}
 	request.Header.Set("Content-Type", writer.FormDataContentType())
-	response, err := s.extractClient.Do(request)
+	response, err := s.attachmentState.extractClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("extract attachment: %w", err)
 	}

@@ -53,8 +53,9 @@ export function renderState() {
 }
 
 function messageRow(session, message, state) {
+	const stubbed = message.elided || message.tool_calls?.some((call) => call.arguments?.includes("[elided:"));
   const row = document.createElement("div");
-  row.className = `state-row ${message.elided ? "elided" : ""} ${state.expanded.has(message.id) ? "expanded" : ""}`;
+	row.className = `state-row ${stubbed ? "elided" : ""} ${state.expanded.has(message.id) ? "expanded" : ""}`;
   const head = document.createElement("button");
   head.type = "button";
   head.className = "state-head";

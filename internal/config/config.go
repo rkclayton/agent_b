@@ -1475,8 +1475,8 @@ func (c Config) Validate() error {
 	if !oneOf(c.Approval.Mode, ApprovalModeBoundaryOnly, ApprovalModeMutating, ApprovalModeAll, ApprovalModeOff) {
 		return fmt.Errorf("approval.mode: invalid")
 	}
-	if !(c.Context.SoftPct > 0 && c.Context.SoftPct < c.Context.SummaryPct && c.Context.SummaryPct <= 1) {
-		return fmt.Errorf("context: require soft_pct < summary_pct <= 1")
+	if !(c.Context.SoftPct > 0 && c.Context.SoftPct <= 1 && c.Context.SummaryPct > 0 && c.Context.SummaryPct <= 1) {
+		return fmt.Errorf("context: require soft_pct and summary_pct in (0, 1]")
 	}
 	if !oneOf(c.Context.Accounting, "auto", "exact", "estimated") {
 		return fmt.Errorf("context.accounting: invalid")

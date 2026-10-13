@@ -1510,6 +1510,15 @@ func TestOldCompactionDefaultsMoveToTheNewOnes2q5(t *testing.T) {
 	}
 }
 
+func TestRetiredSoftLineDoesNotConstrainTheSummaryLine2tv(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Context.SoftPct = .95
+	cfg.Context.SummaryPct = .90
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("retired soft line constrained summary line: %v", err)
+	}
+}
+
 func TestFourRunsAreTheDefaultWithoutOverwritingAnExplicitOldValue2sg(t *testing.T) {
 	if got := Defaults(t.TempDir()).Run.MaxConcurrent; got != 4 {
 		t.Fatalf("new default max concurrent=%d, want 4", got)

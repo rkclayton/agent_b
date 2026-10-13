@@ -62,10 +62,9 @@ func loadS7Shape(t *testing.T) []events.Message {
 	return messages
 }
 
-// It proves the soft-line trigger and its order only. It does not prove the
-// request starts under the line or that "test" runs: the three large results sit
-// in the newest-4 elide window, and this fake server does not stream.
-func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
+// Item 2tv: the retained s7 segment waits for summary_pct, then its one pass
+// lands at or under half before the next request.
+func TestS7SegmentCompactsOnceAtSummaryLineBeforeTheRequest2tv(t *testing.T) {
 	server := newSummaryServer(t, "INTENT: continue the rpg\nNEXT STEP: answer the operator")
 	cfg := config.Defaults(t.TempDir())
 	cfg.Context.Accounting = "auto"
@@ -98,12 +97,14 @@ func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
 	}
 	reason, detail, _ := runner.Run(context.Background(), s, "r-test")
 
-	firstCompaction, firstRequest := -1, -1
+	firstCompaction, firstRequest, compactions, compactedTo := -1, -1, 0, 0
 	var trigger any
 	for index, event := range bus.Recent(s.ID) {
 		switch event.Type {
 		case events.Compaction:
+			compactions++
 			data := event.Data.(map[string]any)
+			compactedTo = asInt(data["after"])
 			t.Logf("compaction #%d kind=%v trigger=%v %v→%v affected=%v", index, data["kind"], data["trigger"], data["before"], data["after"], data["affected_ids"])
 			if firstCompaction < 0 {
 				firstCompaction = index
@@ -120,8 +121,11 @@ func TestS7SegmentCompactsAtTheSoftLineBeforeTheRequest(t *testing.T) {
 		}
 	}
 	t.Logf("s7 20:01 replay: reason=%s detail=%q first compaction #%d trigger=%v, first request #%d", reason, detail, firstCompaction, trigger, firstRequest)
-	if firstCompaction < 0 || trigger != "soft_pct" {
-		t.Fatalf("first compaction #%d trigger %v, want soft_pct", firstCompaction, trigger)
+	if firstCompaction < 0 || trigger != "summary_pct" {
+		t.Fatalf("first compaction #%d trigger %v, want summary_pct", firstCompaction, trigger)
+	}
+	if compactions != 1 || compactedTo > 24576/2 {
+		t.Fatalf("compactions=%d after=%d, want one at or under %d", compactions, compactedTo, 24576/2)
 	}
 	if pin := s.RunPin(); pin != "" {
 		t.Fatalf("run pin left set: %s", pin)

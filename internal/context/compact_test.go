@@ -1,12 +1,55 @@
 package contextmgr
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"harness/internal/events"
 	"harness/internal/session"
 )
+
+func TestOldFileWriteBodiesAreStubbedBeforeTheNewestWrites2tv(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "kept.txt")
+	if err := os.WriteFile(path, []byte("disk stays whole"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item := &session.Session{ID: "writes"}
+	item.Append(events.Message{ID: "task", Role: "user", Category: "history", Content: "write the files", Tokens: 10})
+	item.SetRunPin("task")
+	for index := 0; index < 6; index++ {
+		callID := fmt.Sprintf("write-%d", index)
+		args, _ := json.Marshal(map[string]any{"path": path, "content": strings.Repeat(fmt.Sprint(index), 2000)})
+		item.Append(events.Message{ID: "call-" + callID, Role: "assistant", Category: "history", Tokens: 600, ToolCalls: []events.ToolCall{{ID: callID, Name: "write_file", Arguments: string(args)}}})
+		item.Append(events.Message{ID: "result-" + callID, Role: "tool", Name: "write_file", Category: "results", ToolCallID: callID, Tokens: 100, OK: boolValue(true), Content: "wrote 2000 bytes"})
+	}
+	used := tokenSum(item.MessagesCopy())
+	changed, _ := New(events.NewBus()).ElideOldWindow(item, "run", "summary_pct", used, used-100, 10000, 0, 16384, func(text string) (int, bool) { return len(text) / 4, true })
+	if !changed {
+		t.Fatal("old write was not compacted")
+	}
+	messages := item.MessagesCopy()
+	var oldArgs, newestArgs map[string]any
+	if err := json.Unmarshal([]byte(messages[1].ToolCalls[0].Arguments), &oldArgs); err != nil {
+		t.Fatalf("stubbed call no longer parses: %v", err)
+	}
+	if err := json.Unmarshal([]byte(messages[len(messages)-2].ToolCalls[0].Arguments), &newestArgs); err != nil {
+		t.Fatal(err)
+	}
+	if oldArgs["path"] != path || !strings.Contains(fmt.Sprint(oldArgs["content"]), "elided: 2000 bytes") {
+		t.Fatalf("old write args=%v", oldArgs)
+	}
+	if len(fmt.Sprint(newestArgs["content"])) != 2000 {
+		t.Fatalf("newest write body changed: %v", newestArgs)
+	}
+	if disk, _ := os.ReadFile(path); string(disk) != "disk stays whole" {
+		t.Fatalf("disk changed: %q", disk)
+	}
+}
 
 func TestReadFileRangesUseByteUnitsAndConfiguredDefault(t *testing.T) {
 	const defaultLimit = 16 << 10

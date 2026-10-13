@@ -845,6 +845,14 @@ func (s *Session) RecordCompaction(delta int) {
 	s.compactionTokenDelta += delta
 	s.mu.Unlock()
 }
+
+// RecordCompactionDelta adds an earlier mutation from the same compaction pass
+// without turning that one pass into a second counted compaction.
+func (s *Session) RecordCompactionDelta(delta int) {
+	s.mu.Lock()
+	s.compactionTokenDelta += delta
+	s.mu.Unlock()
+}
 func (s *Session) RecordCompactionModel(prompt, completion int) {
 	s.mu.Lock()
 	s.compactionModelCalls++

@@ -8,6 +8,7 @@ const css = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const shell = await readFile(new URL("./shell.js", import.meta.url), "utf8");
 const bus = await readFile(new URL("./bus.js", import.meta.url), "utf8");
+const state = await readFile(new URL("./state.js", import.meta.url), "utf8");
 const tokens = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
 const settings = (await Promise.all([
   "settings.js", "settings-chats.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
@@ -54,6 +55,12 @@ test("every page request body stays inside its route contract", () => {
 test("Chat has fence-only copy and documents composer keys", () => {
   assert.doesNotMatch(chat, /Copy message|messageCopy|assistantCopyText/);
   assert.match(html, /title="Send · Enter sends · Shift\+Enter newline"/);
+});
+
+test("compaction states what was stubbed and marks file-write calls 2tv", () => {
+	assert.match(chat, /older tool output and file-write bodies stubbed/);
+	assert.match(state, /tool_calls\?\.some\(\(call\) => call\.arguments\?\.includes\("\[elided:"\)\)/);
+	assert.match(state, /stubbed \? "elided"/);
 });
 
 test("Jump to latest is one accessible down-arrow at the transcript edge", () => {

@@ -2162,9 +2162,9 @@ func (r *Runner) withoutToolSystems(p *config.Connection, s *session.Session, en
 	return out
 }
 
-// compactAfterTurn projects the next request at the end of a turn (item 2ey):
-// at soft_pct it elides one batch toward 60%, at summary_pct it summarizes, so
-// the next request starts under the line. It reports whether anything changed.
+// compactAfterTurn projects the next request at the end of a turn. Item 2tv:
+// nothing already sent changes before summary_pct; at that line one pass first
+// stubs cheap old bodies and then summarizes only if needed to land at half.
 func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Connection, current map[string]bool) bool {
 	return r.compactAfterTurnForcing(ctx, s, runID, turn, p, current, false)
 }
@@ -2175,34 +2175,40 @@ func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID
 func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session, runID string, turn int, p *config.Connection, current map[string]bool, force bool) bool {
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
-	changed := r.compact.Supersede(s, runID, turn, readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	budget, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)
-		return changed
+		return false
 	}
 	runTurn := s.Snapshot().Run.Turn
 	if r.compactionBlocked(s.ID, runID, runTurn) {
-		return changed
+		return false
 	}
 	before, target := budget.UsedEst, int(float64(budget.Ceiling)*elideTargetPct)
-	elided := shouldBatchElide(budget.UsedEst, budget.Ceiling, cfg.Context, r.budget.ColdPrefill(s.ID) && !force)
+	line := int(float64(budget.Ceiling) * cfg.Context.SummaryPct)
+	if budget.Ceiling <= 0 || budget.UsedEst < line {
+		return false
+	}
+	prior := s.MessagesCopy()
+	elided, _ := r.compact.ElideOldWindow(s, runID, "summary_pct_prepare", budget.UsedEst, target, contextWindow(budget), maskKeep(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
 	if elided {
-		did, _ := r.compact.ElideOldWindow(s, runID, "soft_pct", budget.UsedEst, target, contextWindow(budget), maskKeep(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
-		changed = changed || did
-		if did {
-			budget, err = r.measureSession(ctx, p, s, current, false)
-			if err != nil {
-				r.operationalError(s, runID, "compaction_budget", err)
-				return changed
-			}
+		budget, err = r.measureSession(ctx, p, s, current, false)
+		if err != nil {
+			r.operationalError(s, runID, "compaction_budget", err)
+			return true
 		}
 	}
-	// Item 2q5 (c): THE SUMMARY IS THE LAST RESORT, only when masking cannot get the
-	// request under summary_pct; it may then fold the run's own older steps (2q1).
-	if budget.Ceiling > 0 && budget.UsedEst >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) {
-		changed = r.summarize(withCompactionTrigger(ctx, "summary_pct"), s, runID, p) || changed
+	summarized := budget.UsedEst > target && r.summarize(withCompactionTrigger(ctx, "summary_pct"), s, runID, p)
+	if elided {
+		delta := budget.UsedEst - before
+		if summarized {
+			s.RecordCompactionDelta(delta)
+		} else {
+			s.RecordCompaction(delta)
+			r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "trigger": "summary_pct", "before": before, "after": budget.UsedEst, "affected_ids": compactionChanges(prior, s.MessagesCopy())}))
+		}
 	}
+	changed := elided || summarized
 	if changed {
 		next, err := r.measureSession(ctx, p, s, current, false)
 		if err != nil {
@@ -2210,19 +2216,27 @@ func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session
 			return changed
 		}
 		r.bus.Publish(events.New(events.BudgetEvent, s.ID, runID, next))
-		if elided || before >= int(float64(budget.Ceiling)*cfg.Context.SummaryPct) {
-			r.judgeCompaction(s.ID, runID, runTurn, before, next.UsedEst, target)
-		}
+		r.judgeCompaction(s.ID, runID, runTurn, before, next.UsedEst, target)
 	}
 	return changed
 }
 func shouldBatchElide(used, ceiling int, cfg config.GlobalContext, coldPrefill bool) bool {
-	if ceiling <= 0 || coldPrefill {
-		return false
+	return false
+}
+
+func compactionChanges(before, after []events.Message) []string {
+	prior := map[string]events.Message{}
+	for _, message := range before {
+		prior[message.ID] = message
 	}
-	// Item 2ey: the batch elide fires at the soft line (it waited for
-	// summary_pct before, so the first compaction came only near overflow).
-	return used >= int(float64(ceiling)*cfg.SoftPct)
+	changed := []string{}
+	for _, message := range after {
+		old, ok := prior[message.ID]
+		if !ok || old.Content != message.Content || old.Elided != message.Elided || fmt.Sprint(old.ToolCalls) != fmt.Sprint(message.ToolCalls) {
+			changed = append(changed, message.ID)
+		}
+	}
+	return changed
 }
 
 type compactionTriggerKey struct{}
@@ -2251,17 +2265,24 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 		return false, true
 	}
 	target := int(float64(budget.Ceiling) * elideTargetPct)
-	changed, _ := r.compact.ElideOldWindow(s, runID, "overflow", budget.UsedEst, target, contextWindow(budget), maskKeep(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	prior := s.MessagesCopy()
+	before := budget.UsedEst
+	elided, _ := r.compact.ElideOldWindow(s, runID, "overflow_prepare", budget.UsedEst, target, contextWindow(budget), maskKeep(budget), readDefaultLimit, func(text string) (int, bool) { return r.count(ctx, p, text) })
+	changed := elided
 	next, err := r.measureSession(ctx, p, s, current, false)
 	if err != nil {
 		r.operationalError(s, runID, "compaction_budget", err)
 	} else {
-		guard := next.UsedEst
-		if next.Mode == "estimated" {
-			guard = int(math.Ceil(float64(guard) * 1.10))
-		}
-		if guard+next.Reserve > next.NCtx {
-			changed = r.summarize(ctx, s, runID, p) || changed
+		summarized := next.UsedEst > target && r.summarize(ctx, s, runID, p)
+		changed = changed || summarized
+		if elided {
+			delta := next.UsedEst - before
+			if summarized {
+				s.RecordCompactionDelta(delta)
+			} else {
+				s.RecordCompaction(delta)
+				r.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "trigger": "overflow", "before": before, "after": next.UsedEst, "affected_ids": compactionChanges(prior, s.MessagesCopy())}))
+			}
 		}
 	}
 	if changed {

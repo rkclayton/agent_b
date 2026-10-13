@@ -616,6 +616,13 @@ test("Context reports the server value without replacing the saved value and hid
   const empty = renderConnectionsPage(context);
   assert.match(empty, /server context: 32768 tokens/);
 });
+
+test("Context exposes the one live compaction line 2tv", () => {
+  const rendered = renderContextPage(null, pageContext());
+  assert.match(rendered, /summary threshold \(%\)/);
+  assert.doesNotMatch(rendered, /soft threshold/);
+});
+
 test("connection editor keeps server controls and leaves thinking to agent profiles", () => {
   const context = pageContext();
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", reads_images: false, context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { enabled: true, effort: "medium", valid_efforts: ["low", "medium", "high"], control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };

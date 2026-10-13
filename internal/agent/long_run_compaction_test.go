@@ -307,7 +307,7 @@ func TestAnOverWindowRefusalCompactsAndAnswers2px(t *testing.T) {
 		}
 		inner.ServeHTTP(w, r)
 	})
-	runner, item, _ := templateRunnerReserve(t, server, 8192)
+	runner, item, bus := templateRunnerReserve(t, server, 8192)
 	history := []events.Message{}
 	ok := true
 	for turn := 1; turn <= 8; turn++ {
@@ -327,5 +327,10 @@ func TestAnOverWindowRefusalCompactsAndAnswers2px(t *testing.T) {
 	t.Logf("2px s48: reason=%s refusals=%d detail=%q", reason, refusals, detail)
 	if reason != "done" || refusals != 1 {
 		t.Fatalf("the over-window refusal must compact and answer once: %s %q refusals=%d", reason, detail, refusals)
+	}
+	for _, event := range bus.Recent(item.ID) {
+		if event.Type == events.Compaction && asInt(event.Data.(map[string]any)["after"]) > 24576/2 {
+			t.Fatalf("overflow compaction landed above half: %v", event.Data)
+		}
 	}
 }

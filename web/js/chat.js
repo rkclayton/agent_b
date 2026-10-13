@@ -1219,7 +1219,7 @@ function noticeContent(session, entry, actionable) {
     ? `trimmed ${data.trimmed_results || 0} old result(s) · removed ${formatBytes(data.bytes_removed || 0)} · server size limit`
     : data.kind === "fresh"
       ? `fresh context · ${data.before || 0} → ${data.after || 0} tokens · ${{ byte_limit: "server size limit", message_limit: "server message limit", server_window_refusal: "server refused the window" }[data.trigger] || "window full"} · earlier turns searchable`
-      : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens${data.connection_id ? ` via ${data.connection_id}` : ""}`;
+	      : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens · window full · older tool output and file-write bodies stubbed${data.connection_id ? ` via ${data.connection_id}` : ""}`;
   if (event.type === "compaction" && data.trigger !== "byte_limit_trim" && data.before === data.after) content.hidden = true;
   else if (event.type === "workspace.conflict") {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;

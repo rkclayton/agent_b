@@ -283,11 +283,16 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 	affected := []string{}
 	before := used
 	order := make([]int, 0, len(messages))
+	cost := map[int]int{}
 	for index, item := range messages {
 		if skip[index] || item.Elided || !eligibleOldElision(item) || (item.Category != "files" && item.Category != "results" && item.Category != "fetched") {
 			continue
 		}
 		order = append(order, index)
+		cost[index] = item.Tokens
+		if _, _, freed, ok := stubWriteCall(messages, item.ToolCallID, count); ok {
+			cost[index] += freed
+		}
 	}
 	// Results older than the running turn go first, largest first; the running
 	// turn's own results only after them, so the file the model is working
@@ -298,7 +303,7 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		if olderA != olderB {
 			return olderA
 		}
-		return messages[order[a]].Tokens > messages[order[b]].Tokens
+		return cost[order[a]] > cost[order[b]]
 	})
 	for _, index := range order {
 		if used <= target {
@@ -307,24 +312,33 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		item := messages[index]
 		call, _ := callFor(messages, item.ToolCallID)
 		updated := elide(item, call.Arguments, readDefaultLimit, count)
-		clearReasoningForCall(messages, item.ToolCallID)
+		callIndex, updatedCall, callFreed, callChanged := stubWriteCall(messages, item.ToolCallID, count)
 		// v0.65.0/W11: a result whose stub is no smaller (a fresh in-turn result
 		// not yet weighed) frees nothing; eliding it would only hide its bytes
 		// and publish a compaction with before == after.
-		if updated.Tokens >= item.Tokens {
+		freed := item.Tokens - updated.Tokens + callFreed
+		if freed <= 0 {
 			continue
 		}
-		used -= item.Tokens - updated.Tokens
+		clearReasoningForCall(messages, item.ToolCallID)
+		used -= freed
 		messages[index] = updated
 		affected = append(affected, item.ID)
 		c.updated(s, runID, updated)
+		if callChanged {
+			messages[callIndex] = updatedCall
+			affected = append(affected, updatedCall.ID)
+			c.updatedCall(s, runID, updatedCall)
+		}
 	}
 	if len(affected) == 0 || used >= before {
 		return false, before
 	}
 	s.ReplaceMessages(messages)
-	s.RecordCompaction(used - before)
-	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "trigger": trigger, "before": before, "after": used, "affected_ids": affected}))
+	if !strings.HasSuffix(trigger, "_prepare") {
+		s.RecordCompaction(used - before)
+		c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "elide", "trigger": trigger, "before": before, "after": used, "affected_ids": affected}))
+	}
 	return true, used
 }
 
@@ -555,6 +569,51 @@ func (c *Compactor) Settle(s *session.Session, runID, pointer string, ids []stri
 
 func (c *Compactor) updated(s *session.Session, runID string, message events.Message) {
 	c.bus.Publish(events.New(events.MessageUpdated, s.ID, runID, map[string]any{"id": message.ID, "patch": map[string]any{"content": message.Content, "tokens": message.Tokens, "elided": true}}))
+}
+
+func (c *Compactor) updatedCall(s *session.Session, runID string, message events.Message) {
+	c.bus.Publish(events.New(events.MessageUpdated, s.ID, runID, map[string]any{"id": message.ID, "patch": map[string]any{"tool_calls": message.ToolCalls, "tokens": message.Tokens}}))
+}
+
+func stubWriteCall(messages []events.Message, callID string, count Counter) (int, events.Message, int, bool) {
+	for messageIndex, message := range messages {
+		for callIndex, call := range message.ToolCalls {
+			if call.ID != callID || (call.Name != "write_file" && call.Name != "edit_file") {
+				continue
+			}
+			var args map[string]any
+			if json.Unmarshal([]byte(call.Arguments), &args) != nil {
+				return 0, events.Message{}, 0, false
+			}
+			changed := false
+			for _, field := range []string{"content", "old_text", "new_text"} {
+				body, ok := args[field].(string)
+				if !ok || body == "" {
+					continue
+				}
+				args[field] = fmt.Sprintf("[elided: %d bytes]", len([]byte(body)))
+				changed = true
+			}
+			if !changed {
+				return 0, events.Message{}, 0, false
+			}
+			encoded, _ := json.Marshal(args)
+			before, _ := count(call.Arguments)
+			after, estimated := count(string(encoded))
+			freed := max(0, before-after)
+			if freed == 0 {
+				return 0, events.Message{}, 0, false
+			}
+			updated := message
+			updated.ToolCalls = append([]events.ToolCall(nil), message.ToolCalls...)
+			updated.ToolCalls[callIndex].Arguments = string(encoded)
+			updated.Reasoning = ""
+			updated.Tokens = max(1, message.Tokens-freed)
+			updated.Estimated = estimated
+			return messageIndex, updated, message.Tokens - updated.Tokens, true
+		}
+	}
+	return 0, events.Message{}, 0, false
 }
 func elide(message events.Message, rawArgs string, readDefaultLimit int, count Counter) events.Message {
 	label := keyArgs(message.Name, rawArgs, readDefaultLimit)

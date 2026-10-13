@@ -35,6 +35,7 @@ type templateServer struct {
 	requests    []string
 	respond     func(body map[string]any, messages []map[string]any) map[string]any
 	countPrompt bool
+	tokenScale  int
 }
 
 const templateRefusal = `{"error":{"code":400,"message":"Cannot have 2 or more assistant messages at the end of the list.","type":"invalid_request_error"}}`
@@ -83,7 +84,8 @@ func newTemplateServer(t *testing.T, respond func(body map[string]any, messages 
 				Content string `json:"content"`
 			}
 			_ = json.NewDecoder(request.Body).Decode(&body)
-			_ = json.NewEncoder(w).Encode(map[string]any{"tokens": make([]int, max(1, len([]rune(body.Content))/4))})
+			scale := max(1, result.tokenScale)
+			_ = json.NewEncoder(w).Encode(map[string]any{"tokens": make([]int, max(1, len([]rune(body.Content))/4*scale))})
 		case "/v1/chat/completions":
 			var body map[string]any
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {

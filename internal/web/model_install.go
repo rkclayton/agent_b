@@ -159,7 +159,3 @@ func (s *Server) modelInstallMemory(parent context.Context, backend string) (uin
 	}
 	return 0, fmt.Errorf("VRAM for selected %s backend is unavailable", backend)
 }
-
-// Marshal compile-time catalog values in one test-friendly form without
-// exposing mutable URLs to the browser request body.
-func pinnedModelCatalogJSON() []byte { value, _ := json.Marshal(pinnedModels); return value }

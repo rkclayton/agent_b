@@ -254,26 +254,6 @@ func percentile95(values []int64) int64 {
 	return sorted[index]
 }
 
-// writeReasoningDecision is (c)'s write: the switch the harness measured, onto
-// the connection it measured, through the scope boundary item 2m0 built.
-func (s *Server) writeReasoningDecision(connectionID string, decision config.ReasoningDecision) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for index := range s.cfg.Connections {
-		if s.cfg.Connections[index].ID != connectionID {
-			continue
-		}
-		s.cfg.Connections[index].Reasoning.Enabled = decision.Enabled
-		// (c) and @keep: the cap is written only when one was OBSERVED, so an
-		// operator's own value survives a measurement that could not report one.
-		if decision.ReasoningCap > 0 {
-			s.cfg.Connections[index].Reasoning.MaxTokens = decision.ReasoningCap
-		}
-		return s.saveMachineConfig(*s.cfg)
-	}
-	return nil
-}
-
 func measurementErrorRate(toolErrors, briefsRun int) float64 {
 	if briefsRun == 0 {
 		return 0
@@ -312,17 +292,4 @@ func (s *Server) storeMeasurement(connectionID string, result *config.Measuremen
 		return nil
 	}
 	return fmt.Errorf("connection %q disappeared during measurement", connectionID)
-}
-
-// reasoningControlOf resolves how this connection expresses the thinking switch:
-// what the operator configured, or what the probe found, or nothing at all.
-func reasoningControlOf(connection config.Connection) string {
-	control := connection.Reasoning.Control
-	if control == "auto" {
-		control = connection.Capabilities.ReasoningControl
-	}
-	if control == "none" {
-		return ""
-	}
-	return control
 }

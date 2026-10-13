@@ -740,9 +740,6 @@ func mergeConfig(dst, src map[string]any) {
 		}
 	}
 }
-func notBuilt(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 501, map[string]string{"error": "not built yet (prompt 4)"})
-}
 func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20))
 	decoder.DisallowUnknownFields()

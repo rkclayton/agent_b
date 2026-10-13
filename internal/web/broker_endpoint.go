@@ -135,26 +135,6 @@ func (s *Server) brokerAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// brokerDiagnostics is item 2kq (e)'s redacted section for the diagnostics export: what
-// state the connection is in and which build answered, and no identifier that would let
-// a reader of the export reach the pairing.
-func (s *Server) brokerDiagnostics() map[string]any {
-	url := strings.TrimSpace(s.ConfigSnapshot().Broker.URL)
-	section := map[string]any{"configured": url != ""}
-	host := s.brokerHost()
-	if host == nil || url == "" {
-		section["state"] = "off"
-		return section
-	}
-	status := host.Status()
-	section["state"] = status.State
-	section["broker_build"] = status.BrokerBuild
-	section["reconnects"] = status.Reconnects
-	section["paired"] = status.PairedDevice != ""
-	// Deliberately absent: the URL, the session id, the pairing id, the device name.
-	return section
-}
-
 // pairingQR renders the link as a PNG data URI. The encoder is rsc.io/qr: pure Go,
 // BSD-3-Clause from the Go Authors, no network and no cgo in the package imported here.
 // Medium correction, because this is read off a screen at arm's length rather than

@@ -104,11 +104,3 @@ func keepFindingsUnverified(previous []string, at time.Time, reason string) []st
 	}
 	return append(kept, unverifiedFinding(at, reason))
 }
-
-// resetProbeRetries is called when a probe reaches a conclusion, so the next
-// inconclusive run starts at the top of the ladder again.
-func (s *Server) resetProbeRetries(connectionID string) {
-	s.probeMu.Lock()
-	delete(s.probeRetries, connectionID)
-	s.probeMu.Unlock()
-}

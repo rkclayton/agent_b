@@ -5,8 +5,6 @@ import (
 	"log"
 	"net/http"
 	"time"
-
-	"harness/internal/events"
 )
 
 func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -64,11 +62,5 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		method(w)
-	}
-}
-
-func (s *Server) publishUpdateChanged(state any) {
-	if s.bus != nil {
-		s.bus.Publish(events.New(events.UpdateChanged, "", "", state))
 	}
 }

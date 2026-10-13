@@ -1853,7 +1853,6 @@ func (c Config) ResolvedExchangeFolder() (string, error) {
 	return filepath.Clean(value), nil
 }
 
-func boolPointer(value bool) *bool { return &value }
 func validFetchHost(value string) bool {
 	value = strings.TrimSpace(value)
 	if net.ParseIP(value) != nil {

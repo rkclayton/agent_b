@@ -575,14 +575,7 @@ func modelListed(configured string, listed []string) bool {
 	return false
 }
 func (s *Server) clearProbe(connectionID string, current *probeRun) bool {
-	s.probeMu.Lock()
-	cleared := false
-	if s.probeCancels[connectionID] == current {
-		delete(s.probeCancels, connectionID)
-		cleared = true
-	}
-	s.probeMu.Unlock()
-	return cleared
+	return s.connectionChecks.clearProbe(connectionID, current)
 }
 
 func failedProbeCapabilities(connection *config.Connection, err error) (config.Capabilities, []string) {

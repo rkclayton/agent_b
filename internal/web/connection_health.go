@@ -31,7 +31,7 @@ const connectionHealthEvery = time.Minute
 // StartConnectionHealth checks every connection now and then every minute until
 // ctx ends.
 func (s *Server) StartConnectionHealth(ctx context.Context) {
-	every := s.healthEvery
+	every := s.connectionChecks.interval()
 	if every <= 0 {
 		every = connectionHealthEvery
 	}
@@ -110,24 +110,12 @@ func healthFailureWord(err error) string {
 
 // setConnectionHealth stores a state and publishes it when it changed.
 func (s *Server) setConnectionHealth(connectionID string, health connectionHealth) {
-	s.healthMu.Lock()
-	if s.health == nil {
-		s.health = map[string]connectionHealth{}
-	}
-	changed := s.health[connectionID] != health
-	s.health[connectionID] = health
-	s.healthMu.Unlock()
+	changed := s.connectionChecks.setHealth(connectionID, health)
 	if changed && s.bus != nil {
 		s.bus.Publish(events.New(events.ConnectionHealth, "", "", map[string]any{"connection_id": connectionID, "health": health}))
 	}
 }
 
 func (s *Server) connectionHealthState() map[string]connectionHealth {
-	s.healthMu.Lock()
-	defer s.healthMu.Unlock()
-	out := make(map[string]connectionHealth, len(s.health))
-	for id, health := range s.health {
-		out[id] = health
-	}
-	return out
+	return s.connectionChecks.healthSnapshot()
 }

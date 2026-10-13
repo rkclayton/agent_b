@@ -13,8 +13,8 @@ func TestStopAllCancelsEveryInFlightProbe(t *testing.T) {
 	server := New(&cfg, "", "", RuntimeRoots{}, events.NewBus())
 	firstContext, firstCancel := context.WithCancel(context.Background())
 	secondContext, secondCancel := context.WithCancel(context.Background())
-	server.probeCancels["first"] = &probeRun{cancel: firstCancel}
-	server.probeCancels["second"] = &probeRun{cancel: secondCancel}
+	server.connectionChecks.probeCancels["first"] = &probeRun{cancel: firstCancel}
+	server.connectionChecks.probeCancels["second"] = &probeRun{cancel: secondCancel}
 	server.cancelProbes("", true)
 	for name, ctx := range map[string]context.Context{"first": firstContext, "second": secondContext} {
 		select {
@@ -30,9 +30,9 @@ func TestFinishingOldProbeCannotDropNewProbeCancellation(t *testing.T) {
 	server := New(&cfg, "", "", RuntimeRoots{}, events.NewBus())
 	old := &probeRun{cancel: func() {}}
 	current := &probeRun{cancel: func() {}}
-	server.probeCancels["local"] = current
+	server.connectionChecks.probeCancels["local"] = current
 	server.clearProbe("local", old)
-	if server.probeCancels["local"] != current {
+	if server.connectionChecks.probeCancels["local"] != current {
 		t.Fatal("old probe completion removed the current probe")
 	}
 }

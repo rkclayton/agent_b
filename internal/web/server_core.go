@@ -79,37 +79,27 @@ type Server struct {
 	mutationToken      string
 	// Item 2mx: submissions already answered, so a phone's retry does not start a
 	// second run.
-	submissions      *idempotentSubmissions
-	operatorState    operatorState
-	browserSession   string
-	openFolder       func(string) error
-	openFile         func(string) error
-	attachmentState  attachmentState
-	detectLocal      func(context.Context, string) (any, error)
-	workspaceState   *workspaceinfo.Manager
-	memoryState      *memory.Manager
-	reflection       *reflectionState
-	proposals        *proposalOffers
-	speech           speechProbe
-	speechCommand    func(context.Context, string, ...string) *exec.Cmd
-	modelInstaller   *modelinstall.Manager
-	pageMeasurements pageMeasurementState
-	statsState       *stats.Manager
-	operatorFiles    *operatorfiles.Manager
-	profiles         *profiles.Manager
-	profileChanged   func(string) error
-	fontState        fontState
-	probeMu          sync.Mutex
-	probeCancels     map[string]*probeRun
-	// Item 2gy: how many inconclusive probes a connection has had in a row, which
-	// is where it stands on the backoff ladder.
-	probeRetries              map[string]int
-	reachabilityMu            sync.Mutex
-	reachability              map[string]*reachabilityRetry
-	reachabilityAfter         func(time.Duration, func()) operatorTimer
-	healthMu                  sync.Mutex
-	health                    map[string]connectionHealth
-	healthEvery               time.Duration
+	submissions               *idempotentSubmissions
+	operatorState             operatorState
+	browserSession            string
+	openFolder                func(string) error
+	openFile                  func(string) error
+	attachmentState           attachmentState
+	detectLocal               func(context.Context, string) (any, error)
+	workspaceState            *workspaceinfo.Manager
+	memoryState               *memory.Manager
+	reflection                *reflectionState
+	proposals                 *proposalOffers
+	speech                    speechProbe
+	speechCommand             func(context.Context, string, ...string) *exec.Cmd
+	modelInstaller            *modelinstall.Manager
+	pageMeasurements          pageMeasurementState
+	statsState                *stats.Manager
+	operatorFiles             *operatorfiles.Manager
+	profiles                  *profiles.Manager
+	profileChanged            func(string) error
+	fontState                 fontState
+	connectionChecks          connectionCheckState
 	agentConnectionMu         sync.Mutex
 	agentConnections          map[string]pendingAgentConnection
 	pendingSessionAgents      map[string]string
@@ -119,8 +109,6 @@ type Server struct {
 	startedAt                 string
 	chatState                 chatState
 }
-
-type probeRun struct{ cancel context.CancelFunc }
 
 const appRequestWatchdogDelay = 30 * time.Second
 
@@ -140,16 +128,12 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	cfg.Shell.OperatorContextExpiresAt = ""
 	server := &Server{
 		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), submissions: newIdempotentSubmissions(),
-		startedAt:     time.Now().UTC().Format(time.RFC3339),
-		operatorState: newOperatorState(),
-		openFolder:    openContainingFolder,
-		openFile:      openWithDefaultApplication,
-		proposals:     newProposalOffers(),
-		probeCancels:  map[string]*probeRun{},
-		reachability:  map[string]*reachabilityRetry{},
-		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
-			return time.AfterFunc(duration, fn)
-		},
+		startedAt:                 time.Now().UTC().Format(time.RFC3339),
+		operatorState:             newOperatorState(),
+		openFolder:                openContainingFolder,
+		openFile:                  openWithDefaultApplication,
+		proposals:                 newProposalOffers(),
+		connectionChecks:          newConnectionCheckState(),
 		pageMeasurements:          newPageMeasurementState(),
 		agentConnections:          map[string]pendingAgentConnection{},
 		pendingSessionAgents:      map[string]string{},

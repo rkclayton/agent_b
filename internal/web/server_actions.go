@@ -120,18 +120,12 @@ func (s *Server) hostWindow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cancelProbes(sessionID string, all bool) {
-	s.probeMu.Lock()
-	defer s.probeMu.Unlock()
 	if all {
-		for _, probe := range s.probeCancels {
-			probe.cancel()
-		}
+		s.connectionChecks.cancelAllProbes()
 		return
 	}
 	if item, ok := s.registry.Get(sessionID); ok {
-		if probe := s.probeCancels[item.ConnectionID]; probe != nil {
-			probe.cancel()
-		}
+		s.connectionChecks.cancelProbe(item.ConnectionID)
 	}
 }
 func (s *Server) approve(w http.ResponseWriter, r *http.Request) {

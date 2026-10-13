@@ -24,10 +24,10 @@ func (timer *reachabilityTestTimer) Stop() bool {
 }
 
 func TestReachabilityProbeBackoffIsBoundedAndStopsOnSuccess(t *testing.T) {
-	server := &Server{reachability: map[string]*reachabilityRetry{}}
+	server := &Server{connectionChecks: newConnectionCheckState()}
 	var delays []time.Duration
 	var timers []*reachabilityTestTimer
-	server.reachabilityAfter = func(delay time.Duration, _ func()) operatorTimer {
+	server.connectionChecks.reachabilityAfter = func(delay time.Duration, _ func()) operatorTimer {
 		timer := &reachabilityTestTimer{}
 		delays = append(delays, delay)
 		timers = append(timers, timer)
@@ -47,7 +47,7 @@ func TestReachabilityProbeBackoffIsBoundedAndStopsOnSuccess(t *testing.T) {
 		t.Fatalf("backoff did not cap at 30s: %v", delays)
 	}
 	server.completeReachabilityProbe("local", true)
-	if _, ok := server.reachability["local"]; ok {
+	if _, ok := server.connectionChecks.reachability["local"]; ok {
 		t.Fatal("successful probe left retry state active")
 	}
 	if !timers[len(timers)-1].stopped {
@@ -62,7 +62,7 @@ func TestReachabilityRetryUsesOnlyTheCompletionFreeHealthCheck2qw(t *testing.T) 
 	connection.BaseURL, connection.Model = fixture.server.URL, "beta"
 	server.cfg.Connections = []config.Connection{connection}
 	var callback func()
-	server.reachabilityAfter = func(_ time.Duration, fn func()) operatorTimer {
+	server.connectionChecks.reachabilityAfter = func(_ time.Duration, fn func()) operatorTimer {
 		callback = fn
 		return &reachabilityTestTimer{}
 	}
@@ -78,9 +78,9 @@ func TestReachabilityRetryUsesOnlyTheCompletionFreeHealthCheck2qw(t *testing.T) 
 	if server.connectionHealthState()["local"].Lamp != "ready" {
 		t.Fatalf("successful health retry did not recover: health=%+v", server.connectionHealthState()["local"])
 	}
-	server.reachabilityMu.Lock()
-	_, scheduled := server.reachability["local"]
-	server.reachabilityMu.Unlock()
+	server.connectionChecks.reachabilityMu.Lock()
+	_, scheduled := server.connectionChecks.reachability["local"]
+	server.connectionChecks.reachabilityMu.Unlock()
 	if scheduled {
 		t.Fatal("successful health retry left a retry scheduled")
 	}
@@ -158,7 +158,7 @@ func TestConnectionHealthIsTheServersStateNow2px(t *testing.T) {
 	// CHECK 6 with a fast clock: a check every 20 ms stands in for every minute.
 	fixture.mode.Store("up")
 	server.cfg.Connections = []config.Connection{connection}
-	server.healthEvery = 20 * time.Millisecond
+	server.connectionChecks.healthEvery = 20 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	server.StartConnectionHealth(ctx)
@@ -228,7 +228,7 @@ func TestBackgroundHealthNeverWritesRecognizedServerConnections2sx(t *testing.T)
 		server.cfg.Connections = append(server.cfg.Connections, connection)
 	}
 	before, _ := json.Marshal(server.ConfigSnapshot())
-	server.healthEvery = 5 * time.Millisecond
+	server.connectionChecks.healthEvery = 5 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	server.StartConnectionHealth(ctx)
 	time.Sleep(30 * time.Millisecond)

@@ -538,16 +538,6 @@ func appendLine(path, line string) error {
 	return writeErr
 }
 
-var unsafeName = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func safeName(value string) string {
-	value = strings.Trim(unsafeName.ReplaceAllString(strings.TrimSpace(value), "-"), ".-_ ")
-	if len(value) > 80 {
-		value = value[:80]
-	}
-	return strings.ToLower(value)
-}
-
 func oneLine(value string) string { return strings.Join(strings.Fields(value), " ") }
 func valueOr(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {

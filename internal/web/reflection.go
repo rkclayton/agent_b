@@ -247,7 +247,7 @@ func (s *Server) reflectionPass(manual bool) (reflection.PassResult, error) {
 		log.Printf("reflection: skipped %s", skipped)
 	}
 	// A pass may have proposed a plan; the operator meets it as an ordinary
-	// card when they are next here ().
+	// card when they are next here.
 	s.OfferReflectionProposals()
 	return result, err
 }

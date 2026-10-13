@@ -13,7 +13,7 @@ import (
 
 // lifetime records how the serving process ends in the launcher log, the same
 // file the launcher appends to. A detached launcher has already exited, so
-// before nothing recorded an exit at all: production vanished at two
+// Before exit recording existed, production vanished at two
 // Fast Startup shutdowns (a logoff) with no line anywhere. An exit
 // the process observes is recorded as it happens; one it cannot observe (a
 // forced termination, power loss) is recorded at the next start from the run
@@ -178,7 +178,7 @@ func appendLauncherMessage(dataRoot, message string) {
 }
 
 // readMarker reads at most 4 KiB of the run marker: it is a few fields, and a
-// larger file is not one this process wrote ().
+// larger file is not one this process wrote.
 func readMarker(path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {

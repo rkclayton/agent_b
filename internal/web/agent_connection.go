@@ -61,17 +61,12 @@ func (s *pendingAgentConnectionState) takeSessionConnections() map[string]string
 	return pending
 }
 
-// the route takes a ROLE. [[2iq]] built the Agents table in
-// and found two of its three rows had to be read-only, because this route wrote
-// agent.B and nothing else. The operator asked to "assign a model to an agent";
-// two thirds read-only is not that.
-//
-// (b), and measured why the wording matters: a run resolves its
+// The route takes a role and updates that role's connection. A run resolves its
 // connection from the SESSION (run.go:119,222,334,396), so a session already
 // bound is never moved by a role change -- but r.cfg is a live accessor and the
 // aux and compaction paths read agent.C at the point of use, so a compaction
 // taken after a change uses the new c. b alone is deferred to idle, which is
-// [[2ia]]'s machinery and is kept.
+// the existing idle-transition machinery.
 const (
 	roleB = "b"
 	roleC = "c"

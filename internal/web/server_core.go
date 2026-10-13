@@ -683,7 +683,7 @@ func (s *Server) saveMachineConfig(cfg config.Config) error {
 }
 
 // saveProfileConfig persists a change to a PER-PROFILE section, and writes the
-// machine file too because a route may have changed both..
+// machine file too because a route may have changed both.
 //
 // The order matters: the profile's own file is written first, so that if the
 // machine write fails the profile's value is already durable rather than lost.

@@ -536,7 +536,7 @@ func hostMinimumTrack(hwnd uintptr) (int32, int32) {
 }
 
 // placementPath is beside the marker file the launcher writes, in the data root:
-// the WebView2 folder is WebView2's, and this is ours..
+// the WebView2 folder is WebView2's, and this is ours.
 func (w *hostWindow) placementPath() string {
 	if strings.TrimSpace(w.userDataDir) == "" {
 		return ""

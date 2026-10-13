@@ -79,7 +79,7 @@ export function surfaceForPage(page, sessionID = "") {
 // its URL and its page are untouched, so re-enabling restores it where it was —
 // pinned at the far right, because that is where the list puts it.
 //
-// Only a static surface may be hidden. A chat is closed, which is [[2hq]]'s
+// Only a static surface may be hidden. A chat is closed, which follows
 // close-is-not-delete and a different thing entirely.
 //
 // hiding the Plan now hides its SETTINGS SECTION rather than a tab that

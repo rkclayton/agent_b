@@ -151,7 +151,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	}
 	// the registration decision: the operator is here, so a plan
 	// reflection proposed can be put to them as an ordinary card. This returns
-	// at once unless something is pending ().
+	// at once unless something is pending.
 	started := time.Now()
 	s.OfferReflectionProposals()
 	selected := r.URL.Query().Get("session")

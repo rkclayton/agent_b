@@ -279,7 +279,7 @@ func crashLauncherLine(line string) {
 var liveRunStatuses = map[string]bool{"running": true, "queued": true, "stopping": true, "paused": true}
 
 // closeRunCutByProcessDeath turns an open run into a stopped one at restore, with
-// the reason INTERFACES.md already defines for it..
+// the reason INTERFACES.md already defines for it.
 //
 // The reason distinguishes where it was cut, because the transcript should say:
 // mid-model if the last thing the journal recorded was the model streaming, and

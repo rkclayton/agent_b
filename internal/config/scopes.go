@@ -357,7 +357,7 @@ func SaveMachine(cfg Config, baseline Overlay, opinion Overlay, path string) err
 }
 
 // DriftedSections names the per-profile sections of a machine configuration that
-// a profile's own values have leaked into..
+// a profile's own values have leaked into.
 //
 // The tell is exact rather than heuristic. ExtractOverlay writes a key into a
 // profile's overlay ONLY when it disagrees with the machine baseline, so an

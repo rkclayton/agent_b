@@ -236,7 +236,7 @@ const roleNames = { b: "the one you talk to", c: "the worker", d: "the planner" 
 //   - but r.cfg is a live accessor, and the aux and compaction paths read
 //     agent.C at the point of use, so a compaction taken after the change uses
 //     the new one;
-//   - b alone is deferred until the agent is idle, which is [[2ia]]'s machinery.
+//   - b alone is deferred until the agent is idle.
 //
 // So b says "pending" when it is, and c and d say what is true of them: the next
 // run that reads them.

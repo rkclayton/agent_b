@@ -189,7 +189,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 const (
 	CurrentConfigVersion = 15
 	DefaultReserveOutput = 10240
-	// MaxProposedReserveOutput caps what a probe proposes..
+	// MaxProposedReserveOutput caps what a probe proposes.
 	MaxProposedReserveOutput = 32768
 	ApprovalModeBoundaryOnly = "boundary-only"
 	ApprovalModeMutating     = "mutating"

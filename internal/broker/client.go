@@ -62,7 +62,7 @@ type Delivery struct {
 	Queued    bool
 }
 
-// Status is what Settings shows..
+// Status is what Settings shows.
 type Status struct {
 	State         string `json:"state"`
 	BrokerBuild   string `json:"broker_build,omitempty"`

@@ -764,7 +764,7 @@ func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
 // the settings journey found this by walking it: a CLOSED chat held the
 // connection too, so "in use by the chat main — close that chat first" was returned
 // for a chat that was already closed, and the connection could never be removed. The
-// operator has 33 closed chats. [[2hq]]'s close-is-not-delete keeps a closed chat's
+// operator has 33 closed chats. Close-is-not-delete keeps a closed chat's
 // binding as a RECORD of what it used, not as a claim on it; a closed chat that is
 // reopened onto a connection that is gone already says so and offers to rebind.
 func (r *Registry) ConnectionHolder(connectionID string) (string, string, bool) {

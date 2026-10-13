@@ -280,7 +280,7 @@ export function unmountChat() {
 //
 // One rule, in one place: open, and something the strip would draw. In replay there
 // is no such distinction to preserve — there is only what was replayed — which is
-// [[2lu]]'s rule and is kept.
+// the established rule and is kept.
 function newestOpenSessions() {
   return openSessions(store.sessions)
     .filter((session) => store.replay || session.role !== "c")
@@ -502,7 +502,7 @@ function renderEntrySafely(session, entry, index) {
 // Dropping a repeat would hide part of the record, and renaming keys would
 // change what every gate and the audit compare. So a repeat is drawn as its
 // own row: the transcript shows what the journal holds, in the journal
-// order. The duplicate ids themselves are a separate defect ([[2fm]]).
+// order. The duplicate ids themselves are a separate defect.
 function viewKeyFor(entry) {
   if (!usedEntryViews.has(entry.key)) return entry.key;
   let suffix = 2;

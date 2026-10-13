@@ -22,6 +22,27 @@ func encodeEvents(values ...events.Event) (body []byte) {
 	return
 }
 
+func TestProjectionPruneBoundsNormalizationMarkers2tm(t *testing.T) {
+	dir := t.TempDir()
+	keptJournal := filepath.Join(t.TempDir(), "kept.jsonl")
+	for _, name := range []string{"kept.json", "kept.json.slim", "gone.json", "gone.json.slim"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	PruneCachedSnapshots(dir, []string{keptJournal})
+	for _, name := range []string{"kept.json", "kept.json.slim"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("pruned %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"gone.json", "gone.json.slim"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("kept stale %s: %v", name, err)
+		}
+	}
+}
+
 func TestLoadReplayUsesProjectionAndKeepsHistoricalStatus(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "main.jsonl")
 	values := []events.Event{

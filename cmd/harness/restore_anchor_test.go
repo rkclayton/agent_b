@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -14,38 +17,68 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/projection"
+	"harness/internal/quietproc"
 	"harness/internal/session"
 )
 
 func TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc(t *testing.T) {
+	emptyRoot, _ := startupStore2tm(t, false)
+	fullRoot, journals := startupStore2tm(t, true)
+	ratios, empties, fulls := []float64{}, []time.Duration{}, []time.Duration{}
+	for len(ratios) < 9 {
+		empty := timedProcessStartup2tm(t, emptyRoot, nil, false)
+		full := timedProcessStartup2tm(t, fullRoot, journals, false)
+		if empty == 0 || full == 0 {
+			continue
+		}
+		empties, fulls = append(empties, empty), append(fulls, full)
+		ratios = append(ratios, float64(full)/float64(empty))
+	}
+	sort.Float64s(ratios)
+	sort.Slice(empties, func(i, j int) bool { return empties[i] < empties[j] })
+	sort.Slice(fulls, func(i, j int) bool { return fulls[i] < fulls[j] })
+	middleRatio, emptyMiddle, fullMiddle := ratios[4], empties[4], fulls[4]
+	t.Logf("2tm startup middle_ratio=%.2fx empty_middle=%s full_middle=%s", middleRatio, emptyMiddle, fullMiddle)
+	if middleRatio > 2 || (emptyMiddle < time.Second && fullMiddle > 2*time.Second) {
+		t.Fatalf("slow 64-chat startup: %.2fx, empty %s, full %s", middleRatio, emptyMiddle, fullMiddle)
+	}
+	slow := timedProcessStartup2tm(t, fullRoot, journals, true)
+	if ratio := float64(slow) / float64(emptyMiddle); ratio <= 2 {
+		t.Fatalf("whole-journal stand-in escaped startup bound: %.2fx", ratio)
+	} else {
+		t.Logf("2tm whole-journal stand-in ratio=%.2fx", ratio)
+	}
+}
+
+func startupStore2tm(t *testing.T, full bool) (string, []string) {
+	t.Helper()
 	root := t.TempDir()
-	chats := filepath.Join(root, "chats")
-	if err := os.MkdirAll(chats, 0o700); err != nil {
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	paths := make([]string, 0, 64)
+	defer writers.Close()
+	paths := []string{}
+	if !full {
+		return root, paths
+	}
 	for index := 0; index < 64; index++ {
 		id := fmt.Sprintf("s%d", index+1)
-		path := filepath.Join(chats, id+".jsonl")
+		path := filepath.Join(writers.ChatDir(), id+".jsonl")
 		file, err := os.Create(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		writer := bufio.NewWriterSize(file, 1<<20)
-		seed, _ := json.Marshal(events.New(events.SessionCreated, id, "", map[string]any{"session": map[string]any{
-			"id": id, "label": id, "created_at": time.Unix(int64(index+1), 0).UTC().Format(time.RFC3339Nano),
-			"run": map[string]any{"status": "idle"}, "tools": []any{}, "messages": []any{},
-		}}))
-		if _, err := writer.Write(append(seed, '\n')); err != nil {
-			t.Fatal(err)
-		}
+		seed, _ := json.Marshal(events.New(events.SessionCreated, id, "", map[string]any{"session": map[string]any{"id": id, "label": id, "created_at": time.Unix(int64(index+1), 0).UTC().Format(time.RFC3339Nano), "run": map[string]any{"status": "idle"}, "tools": []any{}, "messages": []any{}}}))
+		_, _ = writer.Write(append(seed, '\n'))
 		if index == 0 {
-			large, _ := json.Marshal(events.New(events.Stage, id, "r1", map[string]any{"stage": "assemble", "state": "exit", "turn": 1, "padding": strings.Repeat("x", 8192)}))
-			line := append(large, '\n')
-			for written := int64(len(seed) + 1); written < 100<<20; written += int64(len(line)) {
-				if _, err := writer.Write(line); err != nil {
-					t.Fatal(err)
-				}
+			for part := 0; part < 2; part++ {
+				large := events.New(events.Stage, id, "r1", map[string]any{"stage": "assemble", "state": "exit", "turn": 1})
+				large.Raw = strings.Repeat("x", 50<<20)
+				line, _ := json.Marshal(large)
+				line = append(line, '\n')
+				_, _ = writer.Write(line)
 			}
 		}
 		if err := writer.Flush(); err != nil {
@@ -56,28 +89,88 @@ func TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc(t *testing.T) {
 		}
 		paths = append(paths, path)
 	}
+	if _, _, _, err := restoreProjections(writers, paths); err != nil {
+		t.Fatal(err)
+	}
+	return root, paths
+}
+
+func timedProcessStartup2tm(t *testing.T, root string, paths []string, whole bool) time.Duration {
+	t.Helper()
+	command := quietproc.Quiet(exec.Command(os.Args[0], "-test.run=^TestStartupProcess2tm$", "-test.count=1"))
+	command.Env = append(os.Environ(), "AGENTB_2TM_ROOT="+root, "AGENTB_2TM_PATHS="+strings.Join(paths, string(os.PathListSeparator)), fmt.Sprintf("AGENTB_2TM_WHOLE=%t", whole))
+	command.Stdout, command.Stderr = io.Discard, io.Discard
+	started := time.Now()
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return time.Since(started)
+}
+
+func TestStartupProcess2tm(t *testing.T) {
+	root := os.Getenv("AGENTB_2TM_ROOT")
+	if root == "" {
+		t.Skip("startup subprocess")
+	}
+	paths := filepath.SplitList(os.Getenv("AGENTB_2TM_PATHS"))
+	if os.Getenv("AGENTB_2TM_WHOLE") == "true" {
+		for _, path := range paths {
+			if _, _, err := projection.ReadFile(path, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	if _, _, _, err := restoreProjections(writers, paths); err != nil {
+	sessions, _, hits, err := restoreProjections(writers, paths)
+	if err != nil {
 		t.Fatal(err)
 	}
-	for run := 1; run <= 3; run++ {
-		started := time.Now()
-		sessions, _, hits, err := restoreProjections(writers, paths)
-		elapsed := time.Since(started)
-		t.Logf("2qc startup run %d: chats=%d cache_hits=%d listen_ready_ms=%d", run, len(sessions), hits, elapsed.Milliseconds())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(sessions) != 64 || hits != 64 {
-			t.Fatalf("run %d: chats=%d hits=%d", run, len(sessions), hits)
-		}
-		if elapsed > 2*time.Second {
-			t.Fatalf("run %d took %v, want <= 2s", run, elapsed)
-		}
+	if len(sessions) != len(paths) || hits != len(paths) {
+		t.Fatalf("chats=%d hits=%d want=%d", len(sessions), hits, len(paths))
+	}
+}
+
+func TestCompletedJournalNormalizationIsNotRepeated2tm(t *testing.T) {
+	writers, err := events.NewWriters(filepath.Join(t.TempDir(), "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	path := filepath.Join(writers.ChatDir(), "s1.jsonl")
+	created := events.New(events.SessionCreated, "s1", "", map[string]any{"session": map[string]any{"id": "s1", "label": "one", "run": map[string]any{"status": "idle"}}})
+	created.Raw = strings.Repeat("x", 1<<20)
+	line, _ := json.Marshal(created)
+	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := slimRetainedChats(writers, []string{path}); got != 1 {
+		t.Fatalf("first pass processed %d journals", got)
+	}
+	marker := projection.CacheEntryPath(writers.ProjectionCacheDir(), path) + ".slim"
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("normalization marker: %v", err)
+	}
+	info, _ := os.Stat(path)
+	if info.Size() >= 1<<20 {
+		t.Fatalf("diagnostic body was not slimmed: %d bytes", info.Size())
+	}
+	if got := slimRetainedChats(writers, []string{path}); got != 0 {
+		t.Fatalf("completed pass repeated for %d journals", got)
+	}
+	pending := events.PendingChatPath(writers.ChatDir(), "s1")
+	renamed, _ := json.Marshal(events.New(events.SessionRenamed, "s1", "", map[string]any{"label": "recovered"}))
+	if err := os.WriteFile(pending, append(renamed, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := slimRetainedChats(writers, []string{path}); got != 1 {
+		t.Fatalf("pending recovery processed %d journals", got)
+	}
+	if _, err := os.Stat(pending); !os.IsNotExist(err) {
+		t.Fatalf("pending recovery was skipped: %v", err)
 	}
 }
 

@@ -943,18 +943,41 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	return result, floor, nil
 }
 
-func slimRetainedChats(writers *events.Writers, paths []string) {
+func slimRetainedChats(writers *events.Writers, paths []string) int {
+	processed := 0
 	for _, path := range paths {
 		id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		changed, err := projection.SlimJournal(path, events.PendingChatPath(writers.ChatDir(), id))
+		pending := events.PendingChatPath(writers.ChatDir(), id)
+		marker := projection.CacheEntryPath(writers.ProjectionCacheDir(), path) + ".slim"
+		if _, markerErr := os.Stat(marker); markerErr == nil {
+			if _, pendingErr := os.Stat(pending); os.IsNotExist(pendingErr) {
+				continue
+			}
+		}
+		processed++
+		changed, err := projection.SlimJournal(path, pending)
 		if err != nil {
 			log.Printf("startup journal kept %s byte for byte: %v", filepath.Base(path), err)
 			continue
+		}
+		markerErr := os.MkdirAll(filepath.Dir(marker), 0o700)
+		if markerErr == nil {
+			temporary := marker + ".part"
+			if markerErr = os.WriteFile(temporary, []byte("retained-v1\n"), 0o600); markerErr == nil {
+				markerErr = tools.AtomicReplace(temporary, marker)
+			}
+			if markerErr != nil {
+				_ = os.Remove(temporary)
+			}
+		}
+		if markerErr != nil {
+			log.Printf("startup journal normalization marker not written for %s: %v", filepath.Base(path), markerErr)
 		}
 		if changed {
 			log.Printf("startup journal slimmed %s", filepath.Base(path))
 		}
 	}
+	return processed
 }
 
 func retainedSink(writers *events.Writers) func(events.Event) (events.LogCursor, error) {

@@ -217,10 +217,11 @@ func PruneCachedSnapshots(dir string, journals []string) {
 		return
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() {
 			continue
 		}
-		if !keep[strings.ToLower(entry.Name())] {
+		name := strings.ToLower(strings.TrimSuffix(entry.Name(), ".slim"))
+		if strings.HasSuffix(name, ".json") && !keep[name] {
 			_ = os.Remove(filepath.Join(dir, entry.Name()))
 		}
 	}

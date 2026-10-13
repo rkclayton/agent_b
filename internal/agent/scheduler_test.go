@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -342,7 +343,7 @@ stopped:
 	}
 }
 
-func TestAccountingDialFailureFastStopsAsModelUnreachable(t *testing.T) {
+func TestAccountingDialFailureRetriesThenStopsAsModelUnreachable(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -359,6 +360,7 @@ func TestAccountingDialFailureFastStopsAsModelUnreachable(t *testing.T) {
 		cfg.Connections[0] = *connection
 		return cfg
 	}
+	scheduler.runner.modelRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
 	start := time.Now()
 	if _, err := scheduler.Submit(context.Background(), item.ID, "unreachable"); err != nil {
 		t.Fatal(err)
@@ -495,6 +497,195 @@ func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (conf
 	}
 	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system {{tools}} {{memory}}"}, lookup, func() config.Config { return cfg })
 	return cfg, &connection, item, NewScheduler(runner, registry, bus, func() config.Config { return cfg })
+}
+
+func TestTransientModelFailureRetriesAndStopCancelsTheWait2ub(t *testing.T) {
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) < 4 {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer model.Close()
+	_, _, item, scheduler := schedulerFixture(t, model.URL)
+	scheduler.runner.modelRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	stream, unsubscribe := scheduler.bus.Subscribe()
+	defer unsubscribe()
+	if _, err := scheduler.Submit(context.Background(), item.ID, "ride it out"); err != nil {
+		t.Fatal(err)
+	}
+	retries := 0
+	for scheduler.Active(item.ID) {
+		select {
+		case event := <-stream:
+			if event.Type == events.ModelBusy && strings.Contains(fmt.Sprint(event.Data), "trying again") {
+				retries++
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("retrying run timed out")
+		}
+	}
+	if requests.Load() != 4 || retries != 3 || item.Snapshot().Run.LastStopReason != "done" {
+		t.Fatalf("requests=%d retries=%d run=%+v", requests.Load(), retries, item.Snapshot().Run)
+	}
+
+	requests.Store(0)
+	scheduler.runner.modelRetryDelays = []time.Duration{time.Second, time.Second, time.Second}
+	if _, err := scheduler.Submit(context.Background(), item.ID, "stop the wait"); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		event := <-stream
+		if event.Type == events.ModelBusy && strings.Contains(fmt.Sprint(event.Data), "trying again") {
+			break
+		}
+	}
+	started := time.Now()
+	scheduler.Stop(item.ID, false)
+	if time.Since(started) >= time.Second || scheduler.Active(item.ID) {
+		t.Fatalf("stop took %s active=%t", time.Since(started), scheduler.Active(item.ID))
+	}
+}
+
+func TestConnectionRefusedForSixSecondsThenAnswers2ub(t *testing.T) {
+	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := reserved.Addr().String()
+	_ = reserved.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	})}
+	ready := make(chan struct{})
+	go func() {
+		time.Sleep(6 * time.Second)
+		listener, listenErr := net.Listen("tcp", address)
+		if listenErr != nil {
+			close(ready)
+			return
+		}
+		close(ready)
+		_ = server.Serve(listener)
+	}()
+	t.Cleanup(func() { _ = server.Close() })
+	_, _, item, scheduler := schedulerFixture(t, "http://"+address)
+	started := time.Now()
+	if _, err := scheduler.Submit(context.Background(), item.ID, "wait for recovery"); err != nil {
+		t.Fatal(err)
+	}
+	waitSchedulerIdle(t, scheduler, item.ID)
+	<-ready
+	if item.Snapshot().Run.LastStopReason != "done" || time.Since(started) < 6*time.Second {
+		t.Fatalf("elapsed=%s run=%+v", time.Since(started), item.Snapshot().Run)
+	}
+}
+
+func TestConnectionLostAfterFirstAnswerKeepsTheUserMessage2ub(t *testing.T) {
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call\",\"type\":\"function\",\"function\":{\"name\":\"not_offered\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("stand-in cannot close connection")
+			return
+		}
+		connection, _, err := hijacker.Hijack()
+		if err == nil {
+			_ = connection.Close()
+		}
+	}))
+	defer model.Close()
+	_, _, item, scheduler := schedulerFixture(t, model.URL)
+	scheduler.runner.modelRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	if _, err := scheduler.Submit(context.Background(), item.ID, "keep after answer"); err != nil {
+		t.Fatal(err)
+	}
+	waitSchedulerIdle(t, scheduler, item.ID)
+	if requests.Load() != 5 || !containsUser(item.MessagesCopy(), "keep after answer") || item.Snapshot().Run.LastStopReason != "model_error" {
+		t.Fatalf("requests=%d messages=%#v run=%+v", requests.Load(), item.MessagesCopy(), item.Snapshot().Run)
+	}
+}
+
+func TestFirstRefusalReturnsDesktopMessageButNeverPhoneWorkerOrHelper2ub(t *testing.T) {
+	var healthy atomic.Bool
+	var bodiesMu sync.Mutex
+	var bodies []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodiesMu.Lock()
+		bodies = append(bodies, string(raw))
+		bodiesMu.Unlock()
+		if !healthy.Load() {
+			http.Error(w, "wrong endpoint", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer model.Close()
+	_, _, item, scheduler := schedulerFixture(t, model.URL)
+	scheduler.runner.modelRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	if _, err := scheduler.Submit(context.Background(), item.ID, "desktop original"); err != nil {
+		t.Fatal(err)
+	}
+	waitSchedulerIdle(t, scheduler, item.ID)
+	if requests := len(bodies); requests != 1 {
+		t.Fatalf("404 requests=%d", requests)
+	}
+	if containsUser(item.MessagesCopy(), "desktop original") || !strings.Contains(item.Snapshot().Run.LastStopDetail, "your message is back in the box") {
+		t.Fatalf("messages=%#v run=%+v", item.MessagesCopy(), item.Snapshot().Run)
+	}
+	healthy.Store(true)
+	if _, err := scheduler.Submit(context.Background(), item.ID, "desktop original"); err != nil {
+		t.Fatal(err)
+	}
+	waitSchedulerIdle(t, scheduler, item.ID)
+	bodiesMu.Lock()
+	joined := strings.Join(bodies, "\n")
+	bodiesMu.Unlock()
+	if strings.Count(joined, "desktop original") != 2 || !strings.Contains(joined, "prior run ended with model error") {
+		t.Fatalf("requests=%s", joined)
+	}
+
+	for _, tc := range []struct{ name, role, source, origin string }{{"phone", "b", "phone", ""}, {"worker", "d", "", ""}, {"helper", "e", "", ""}, {"scheduled", "b", "", "scheduled"}} {
+		_, _, protected, protectedScheduler := schedulerFixture(t, model.URL)
+		protected.Role, protected.Origin = tc.role, tc.origin
+		message := events.Message{ID: "protected-message", Role: "user", Category: "history", Content: tc.name + " original"}
+		protected.Append(message)
+		protectedScheduler.active[protected.ID] = &activeRun{runID: "protected", userMessageID: message.ID, source: tc.source}
+		if protectedScheduler.returnActiveMessage(protected, "protected") || !containsUser(protected.MessagesCopy(), tc.name+" original") {
+			t.Errorf("%s message moved: %#v", tc.name, protected.MessagesCopy())
+		}
+	}
+}
+
+func waitSchedulerIdle(t *testing.T, scheduler *Scheduler, sessionID string) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for scheduler.Active(sessionID) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if scheduler.Active(sessionID) {
+		t.Fatal("scheduler did not become idle")
+	}
+}
+
+func containsUser(messages []events.Message, text string) bool {
+	for _, message := range messages {
+		if message.Role == "user" && message.Content == text {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRunPublishesWaitingLoadingAndReadingFromALlamaStandIn2rw(t *testing.T) {

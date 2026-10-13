@@ -14,6 +14,7 @@ test("live activity gives each model phase a measured status", () => {
   assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 605 } }), "thinking · 169 tokens");
   assert.equal(modelRequestText({ stream: { reasoning_chars: 605, total_chars: 750 } }), "writing · 41 tokens");
   assert.equal(modelRequestText({ stream: { tool_calls: [{ name: "run_script", argument_bytes: 12400, started_at: 1000, last_chunk_at: 131000 }] } }), "calling run_script · 12 kB · 2m10s");
+  assert.equal(modelRequestText({}, { detail: "model unreachable · trying again · try 2 of 4" }), "model unreachable · trying again · try 2 of 4");
   assert.equal(liveActivityText(running({ stage: "execute", stage_state: "enter", active_tool: "read_file" })), "running read_file · 0s");
   assert.equal(liveActivityText(running({ stage: "execute", stage_state: "enter" })), "running tool — target unknown · 0s");
 });

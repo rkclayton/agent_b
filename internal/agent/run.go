@@ -64,6 +64,8 @@ type Runner struct {
 	skills             SkillHost
 	compactions        sync.Map
 	takeQueued         func(*session.Session, string)
+	returnMessage      func(*session.Session, string) bool
+	modelRetryDelays   []time.Duration
 }
 
 var resolveNamedPath = tools.ResolveNamedPath
@@ -87,7 +89,7 @@ func NewRunner(bus *events.Bus, registry *tools.Registry, prompt *PromptRenderer
 	if prompt != nil {
 		prompt.SetTrustedFolders(func() []config.TrustedFolder { return cfg().Shell.TrustedFolders })
 	}
-	return &Runner{bus: bus, tools: registry, prompt: prompt, connection: connection, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook()}
+	return &Runner{bus: bus, tools: registry, prompt: prompt, connection: connection, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook(), modelRetryDelays: []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}}
 }
 func (r *Runner) Configure(cfg config.Config) {
 	r.tools.Configure(cfg)
@@ -156,12 +158,13 @@ func (r *Runner) SetSessionRenamer(fn func(string, string, string) error) { r.re
 func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) BoundaryAction) {
 	r.mailboxBoundary = fn
 }
-func (r *Runner) SetModelUnreachable(fn func(string, string))         { r.modelUnreachable = fn }
-func (r *Runner) SetModelAnswered(fn func(string))                    { r.modelAnswered = fn }
-func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)      { r.trustFolders = fn }
-func (r *Runner) SetSkillHost(host SkillHost)                         { r.skills = host }
-func (r *Runner) SetQueuedBoundary(fn func(*session.Session, string)) { r.takeQueued = fn }
-func (r *Runner) BindDelegate(tool *tools.Delegate)                   { tool.SetRunner(r.runDelegate) }
+func (r *Runner) SetModelUnreachable(fn func(string, string))             { r.modelUnreachable = fn }
+func (r *Runner) SetModelAnswered(fn func(string))                        { r.modelAnswered = fn }
+func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)          { r.trustFolders = fn }
+func (r *Runner) SetSkillHost(host SkillHost)                             { r.skills = host }
+func (r *Runner) SetQueuedBoundary(fn func(*session.Session, string))     { r.takeQueued = fn }
+func (r *Runner) SetMessageReturn(fn func(*session.Session, string) bool) { r.returnMessage = fn }
+func (r *Runner) BindDelegate(tool *tools.Delegate)                       { tool.SetRunner(r.runDelegate) }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
 		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
@@ -469,6 +472,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 	truncatedToolRetry := ""
 	retryInstruction := ""
 	malformedToolRetried := false
+	answeredThisRun := false
 	// Item 2fv: a read_file window refused on two consecutive turns ends the
 	// read; from then on the model answers from what it has read, without
 	// tools. refusedTurn is the turn of the latest refusal (-1: none since the
@@ -732,6 +736,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		var response llm.Response
 		var callErr error
 		partial := ""
+		answerBegan := false
 		toolArgumentBytes := map[int]int{}
 		toolArgumentRunes := map[int]int{}
 		var streamBusy atomic.Bool
@@ -746,37 +751,57 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		statusCtx, stopStatus := context.WithCancel(callCtx)
 		r.stage(s, runID, turn, "call_model", func() {
-			response, callErr = client.ChatStreamStatus(callCtx, request, func(delta llm.Delta) {
-				stopStatus()
-				r.addFlightDelta(s.ID, runID, delta)
-				if delta.Kind == "progress" {
-					r.bus.Publish(events.New(events.ModelProgress, s.ID, runID, map[string]any{"turn": turn, "total": delta.Total, "cache": delta.Cache, "processed": delta.Processed}))
-					return
-				}
-				if delta.Kind == "content" {
-					partial += delta.Text
-					s.UpdatePartial(partial)
-				}
-				data := map[string]any{"turn": turn, "kind": delta.Kind, "index": delta.Index, "text": durableModelDeltaText(delta.Kind, delta.Text)}
-				if delta.Kind == "tool_call" {
-					toolArgumentBytes[delta.Index] += len([]byte(delta.Text))
-					toolArgumentRunes[delta.Index] += len([]rune(delta.Text))
-					data["call_id"], data["name"] = delta.CallID, delta.Name
-					data["argument_bytes"] = toolArgumentBytes[delta.Index]
-					data["argument_tokens"] = int(math.Ceil(float64(toolArgumentRunes[delta.Index]) / 3.6))
-				}
-				r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, data))
-			}, func() {
-				streamBusy.Store(true)
-				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": "connected; waiting for model response"}))
-				go watchConnectionModelLoading(statusCtx, client, connection, 5*time.Second, func(loading bool) {
-					detail := "connected; waiting for model response"
-					if loading {
-						detail = "loading model"
+			for attempt := 0; ; attempt++ {
+				response, callErr = client.ChatStreamStatus(callCtx, request, func(delta llm.Delta) {
+					stopStatus()
+					if delta.Kind != "progress" {
+						answerBegan = true
 					}
-					r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": detail}))
+					r.addFlightDelta(s.ID, runID, delta)
+					if delta.Kind == "progress" {
+						r.bus.Publish(events.New(events.ModelProgress, s.ID, runID, map[string]any{"turn": turn, "total": delta.Total, "cache": delta.Cache, "processed": delta.Processed}))
+						return
+					}
+					if delta.Kind == "content" {
+						partial += delta.Text
+						s.UpdatePartial(partial)
+					}
+					data := map[string]any{"turn": turn, "kind": delta.Kind, "index": delta.Index, "text": durableModelDeltaText(delta.Kind, delta.Text)}
+					if delta.Kind == "tool_call" {
+						toolArgumentBytes[delta.Index] += len([]byte(delta.Text))
+						toolArgumentRunes[delta.Index] += len([]rune(delta.Text))
+						data["call_id"], data["name"] = delta.CallID, delta.Name
+						data["argument_bytes"] = toolArgumentBytes[delta.Index]
+						data["argument_tokens"] = int(math.Ceil(float64(toolArgumentRunes[delta.Index]) / 3.6))
+					}
+					r.bus.Publish(events.New(events.ModelDelta, s.ID, runID, data))
+				}, func() {
+					streamBusy.Store(true)
+					r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": "connected; waiting for model response"}))
+					go watchConnectionModelLoading(statusCtx, client, connection, 5*time.Second, func(loading bool) {
+						detail := "connected; waiting for model response"
+						if loading {
+							detail = "loading model"
+						}
+						r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": detail}))
+					})
 				})
-			})
+				if callErr == nil || answerBegan || attempt >= len(r.modelRetryDelays) || !retryableModelCall(callErr) {
+					break
+				}
+				next := attempt + 2
+				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": fmt.Sprintf("model unreachable · trying again · try %d of %d", next, len(r.modelRetryDelays)+1)}))
+				timer := time.NewTimer(r.modelRetryDelays[attempt])
+				select {
+				case <-callCtx.Done():
+					if !timer.Stop() {
+						<-timer.C
+					}
+					callErr = callCtx.Err()
+					return
+				case <-timer.C:
+				}
+			}
 			stopStatus()
 			s.UpdatePartial("")
 		})
@@ -853,8 +878,14 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 				}
 			}
 			if r.publishModelUnreachable(s, runID, connection, callErr) {
+				if !answerBegan && !answeredThisRun && r.returnMessage != nil && r.returnMessage(s, runID) {
+					callErr = fmt.Errorf("%w\nyour message is back in the box", callErr)
+				}
 				publishFinalBudget = false
 				return "model_unreachable", callErr.Error(), turn
+			}
+			if !answerBegan && !answeredThisRun && r.returnMessage != nil && r.returnMessage(s, runID) {
+				callErr = fmt.Errorf("%w\nyour message is back in the box", callErr)
 			}
 			return "model_error", callErr.Error(), turn
 		}
@@ -868,6 +899,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		rawToolCalls := append([]events.ToolCall(nil), toolCalls...)
 		s.RecordModelTurn()
+		answeredThisRun = true
 		if retry, stop := malformedToolTurnAction(response.FinishReason, len(toolCalls), malformedToolRetried); retry {
 			malformedToolRetried = true
 			retryInstruction = "The previous response ended as tool_calls but contained no calls. Return one complete offered tool call or a final answer."
@@ -2328,6 +2360,14 @@ func serverRefusal(err error) (int, string) {
 		kind = typed[1]
 	}
 	return status, kind
+}
+
+func retryableModelCall(err error) bool {
+	if llm.TransportKindOf(err) != "" {
+		return true
+	}
+	status, _ := serverRefusal(err)
+	return status == 502 || status == 503 || status == 504
 }
 
 // shortHash names a text without carrying it: eight hex characters.

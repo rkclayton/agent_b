@@ -2400,24 +2400,24 @@ if (realModel) {
 
   await stopFake();
   await setTask("acceptance: unreachable");
+  await browser.wait(`document.querySelector('#chat-status-line')?.innerText.toLowerCase().includes('model unreachable · trying again')`, "model retry status", 12000);
+  await captureWithMasks(page, join(args.evidence, "captures", "model-retry-status.png"));
+	await page.locator("#chat-task").fill("typed meanwhile");
   await browser.wait(`document.querySelector('#chat-status-line')?.innerText.toLowerCase().includes('model unreachable')`, "unreachable status");
-  await waitEvent(sessionID, (event) => event.type === "model.unreachable", "model.unreachable");
-  await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data?.reason === "model_unreachable", "unreachable run stopped");
+  await waitEvent(sessionID, (event) => event.type === "model.unreachable", "model.unreachable", 30000);
+  await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data?.reason === "model_unreachable", "unreachable run stopped", 30000);
+	await browser.wait(`document.querySelector('#chat-task')?.value === 'acceptance: unreachable\\ntyped meanwhile'`, "unreceived message returned ahead of newer composer text");
+  await captureWithMasks(page, join(args.evidence, "captures", "model-message-returned.png"));
   await browser.wait(`[...document.querySelectorAll('#chat-log > .chat-notice-row')].some((row) => row.innerText.includes('model unreachable ·'))`, "flat unreachable notice");
   const unreachableRows = await page.evaluate(() => {
     const rows = [...document.querySelectorAll("#chat-log > .chat-entry")];
     const user = rows.findLastIndex((row) => row.classList.contains("chat-user") && row.innerText.includes("acceptance: unreachable"));
-    const after = user < 0 ? [] : rows.slice(user + 1);
     return {
       user,
-      responses: after.filter((row) => row.classList.contains("chat-response")).length,
-      step_folds: after.reduce((total, row) => total + row.querySelectorAll(".chat-step-fold").length, 0),
-      flat_notices: after.filter((row) => row.classList.contains("chat-notice-row") && row.innerText.includes("model unreachable ·")).length,
+      flat_notices: rows.filter((row) => row.classList.contains("chat-notice-row") && row.innerText.includes("model unreachable · your message is back in the box")).length,
     };
   });
-  assert.ok(unreachableRows.user >= 0, JSON.stringify(unreachableRows));
-  assert.equal(unreachableRows.responses, 0, JSON.stringify(unreachableRows));
-  assert.equal(unreachableRows.step_folds, 0, JSON.stringify(unreachableRows));
+	assert.equal(unreachableRows.user, -1, JSON.stringify(unreachableRows));
   assert.equal(unreachableRows.flat_notices, 1, JSON.stringify(unreachableRows));
   // Item 2gz (v1.2.4): the whole-page transcript photograph is retired. What
   // it proved is asserted above and below this line; what it ADDED was a

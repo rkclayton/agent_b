@@ -61,6 +61,7 @@ export function modelRequestText(activity = {}, busy = null) {
   const cached = Number(activity.progress?.cache || 0);
   if (processed > 0) return `reading ${formatK(processed)}${total > 0 ? ` of ${formatK(total)}` : ""}${cached > 0 ? `, ${formatK(cached)} cached` : ""}`;
 	if (busy?.detail === "loading model") return "loading model";
+	if (busy?.detail?.startsWith("model unreachable · trying again")) return busy.detail;
 	return busy ? "waiting for model" : "connecting";
 }
 

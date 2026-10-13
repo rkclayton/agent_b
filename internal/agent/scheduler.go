@@ -19,12 +19,15 @@ type queuedRun struct {
 	s                    *session.Session
 	runID, userMessageID string
 	userMessage          events.Message
+	source               string
 }
 type activeRun struct {
-	cancel     context.CancelFunc
-	stopReason string
-	runID      string
-	done       chan struct{}
+	cancel                context.CancelFunc
+	stopReason            string
+	runID                 string
+	done                  chan struct{}
+	userMessageID, source string
+	returned              bool
 }
 
 // resumeWaiter is an answered run waiting to take back the model slot it
@@ -65,6 +68,7 @@ func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, c
 	s := &Scheduler{runner: runner, registry: registry, bus: bus, cfg: cfg, active: map[string]*activeRun{}, pending: map[string][]queuedRun{}, unreachable: map[string]bool{}, stoppedRuns: map[string]bool{}, paused: map[string]bool{}}
 	if runner != nil {
 		runner.SetQueuedBoundary(s.takeQueuedAtBoundary)
+		runner.SetMessageReturn(s.returnActiveMessage)
 	}
 	if runner != nil && runner.gate != nil {
 		runner.gate.setModelHooks(s.releaseForCard, s.reacquireAfterCard)
@@ -150,6 +154,9 @@ func (s *Scheduler) Submit(ctx context.Context, sessionID, text string) (SubmitR
 	return s.SubmitAttachments(ctx, sessionID, text, nil)
 }
 func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text string, attachments []events.Attachment) (SubmitResult, error) {
+	return s.SubmitAttachmentsFrom(ctx, sessionID, text, attachments, "")
+}
+func (s *Scheduler) SubmitAttachmentsFrom(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string) (SubmitResult, error) {
 	item, ok := s.registry.Get(sessionID)
 	if !ok {
 		return SubmitResult{}, fmt.Errorf("session not found")
@@ -172,7 +179,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 			return SubmitResult{}, err
 		}
 		s.runner.AppendUser(item, message)
-		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message})
+		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message, source: source})
 		position := len(s.pending[sessionID])
 		item.SetQueuedMessages(position)
 		state := item.Snapshot().Run
@@ -195,7 +202,7 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 			return SubmitResult{}, err
 		}
 		s.runner.AppendUser(item, message)
-		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message})
+		s.pending[sessionID] = append(s.pending[sessionID], queuedRun{s: item, userMessageID: message.ID, userMessage: message, source: source})
 		position := len(s.pending[sessionID])
 		item.SetQueuedMessages(position)
 		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": position}))
@@ -213,10 +220,10 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 	}
 	runID := fmt.Sprintf("r%d", s.ids.Add(1))
 	if s.admitLocked(item) {
-		s.startLocked(queuedRun{s: item, runID: runID, userMessageID: message.ID})
+		s.startLocked(queuedRun{s: item, runID: runID, userMessageID: message.ID, source: source})
 		return SubmitResult{RunID: runID}, nil
 	}
-	entry := queuedRun{s: item, runID: runID, userMessageID: message.ID}
+	entry := queuedRun{s: item, runID: runID, userMessageID: message.ID, source: source}
 	s.queue = append(s.queue, entry)
 	position := len(s.queue)
 	item.SetRun(session.RunState{Status: "queued", RunID: runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: position})
@@ -228,8 +235,19 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 		s.runner.AppendUser(entry.s, entry.userMessage)
 		entry.userMessage = events.Message{}
 	}
+	previous := entry.s.Snapshot().Run
+	if previous.LastStopReason != "" && previous.LastStopReason != "done" {
+		host := ""
+		if connection, ok := s.cfg().Connection(entry.s.ConnectionID); ok {
+			host = modelHost(connection)
+		}
+		content := priorRunLine(previous.LastStopReason, previous.LastStopDetail, host)
+		message := events.Message{ID: s.runner.id("m"), Role: "harness", Category: "history", Content: content, Tokens: estimatedTokenCount(content), Estimated: true}
+		entry.s.Append(message)
+		s.bus.Publish(events.New(events.MessageAppended, entry.s.ID, entry.runID, map[string]any{"message": message}))
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	active := &activeRun{cancel: cancel, runID: entry.runID, done: make(chan struct{})}
+	active := &activeRun{cancel: cancel, runID: entry.runID, done: make(chan struct{}), userMessageID: entry.userMessageID, source: entry.source}
 	s.active[entry.s.ID] = active
 	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID, MaxTurns: s.cfg().Run.MaxTurns})
 	runCfg := s.cfg().Run
@@ -244,6 +262,16 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 		s.finish(entry, reason, detail, turns)
 		close(active.done)
 	}()
+}
+
+func priorRunLine(reason, detail, host string) string {
+	if strings.HasPrefix(reason, "aborted_") {
+		return "The prior run ended because you stopped it."
+	}
+	if reason == "model_unreachable" {
+		return "The prior run ended because the model server " + host + " could not be reached: " + strings.TrimSpace(detail)
+	}
+	return "The prior run ended with " + strings.ReplaceAll(reason, "_", " ") + ": " + strings.TrimSpace(detail)
 }
 func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	s.mu.Lock()
@@ -425,6 +453,33 @@ func (s *Scheduler) returnPendingLocked(sessionID string) []queuedRun {
 		s.bus.Publish(events.New(events.MessageQueued, sessionID, "", map[string]any{"message_id": message.ID, "position": 0}))
 	}
 	return waiting
+}
+
+func (s *Scheduler) returnActiveMessage(item *session.Session, runID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	active := s.active[item.ID]
+	snapshot := item.Snapshot()
+	if active == nil || active.runID != runID || active.returned || active.source == "phone" || snapshot.Origin == "scheduled" || (snapshot.Role != "" && snapshot.Role != "b") {
+		return false
+	}
+	state := snapshot.Run
+	state.Status = "stopping"
+	item.SetRun(state)
+	s.bus.Publish(events.New(events.RunStopping, item.ID, runID, map[string]any{"reason": "model failure"}))
+	item.SetQueuedMessages(1)
+	item.SetQueuedMessageIDs([]string{active.userMessageID})
+	s.bus.Publish(events.New(events.MessageQueued, item.ID, runID, map[string]any{"message_id": active.userMessageID, "position": 1}))
+	removed := item.RemoveMessages([]string{active.userMessageID})
+	item.SetQueuedMessages(0)
+	item.SetQueuedMessageIDs(nil)
+	if len(removed) == 0 {
+		return false
+	}
+	s.bus.Publish(events.New(events.MessageRemoved, item.ID, runID, map[string]any{"id": active.userMessageID, "reason": "returned_to_composer"}))
+	s.bus.Publish(events.New(events.MessageQueued, item.ID, runID, map[string]any{"message_id": active.userMessageID, "position": 0}))
+	active.returned = true
+	return true
 }
 
 func (s *Scheduler) takeQueuedAtBoundary(item *session.Session, runID string) {

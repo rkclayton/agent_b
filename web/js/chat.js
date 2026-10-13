@@ -218,7 +218,7 @@ function reconcileQueuedDraft(session) {
 	cacheQueuedDraft(session);
 	const ids = Array.isArray(session.queued_message_ids) ? session.queued_message_ids : [];
 	if (ids.length) {
-		if (session.run?.status === "idle" && !session.model_unreachable && !returningQueues.has(session.id)) {
+		if (session.run?.status === "idle" && session.run?.last_stop_reason !== "model_unreachable" && !session.model_unreachable && !returningQueues.has(session.id)) {
 			returningQueues.add(session.id);
 			void api("/api/stop", { session_id: session.id }).finally(() => returningQueues.delete(session.id));
 		}
@@ -1155,7 +1155,9 @@ function noticeContent(session, entry, actionable) {
   if (event.type === "run.stopped") {
     const reason = (data.reason || "").replaceAll("_", " ");
 		if (data.reason === "model_unreachable") {
-			const line=document.createElement("span"); line.textContent=`model unreachable · ${entry.text || session.model_unreachable?.host || "model"}`; if(data.detail) line.title=data.detail; content.append(line);
+			const returned=String(data.detail || "").includes("your message is back in the box"); const line=document.createElement("span"); line.textContent=returned ? "model unreachable · your message is back in the box" : `model unreachable · ${entry.text || session.model_unreachable?.host || "model"}`; if(data.detail) line.title=data.detail; content.append(line);
+		} else if (String(data.detail || "").includes("your message is back in the box")) {
+			content.textContent = `${reason} · your message is back in the box`;
 		} else if (data.reason === "aborted_mid_tool") {
 			content.textContent = "stopped mid-tool";
 			if (data.detail) content.title = data.detail;

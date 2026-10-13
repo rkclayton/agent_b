@@ -426,6 +426,7 @@ test("queued user turns are visible and Stop returns their words and files 2tl",
 	assert.match(chat, /\[returned, input\.value\]\.filter\(Boolean\)\.join\("\\n"\)/);
 	assert.match(chat, /queuedAttachments = \[\.\.\.attachments, \.\.\.queuedAttachments\.filter/);
 	assert.match(chat, /api\("\/api\/stop", \{ session_id: session\.id \}\)/);
+	assert.match(chat, /session\.run\?\.last_stop_reason !== "model_unreachable"/);
 	assert.match(css, /\.chat-queued-state[^}]*color:var\(--mute\)/);
 });
 

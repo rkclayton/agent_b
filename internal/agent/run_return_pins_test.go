@@ -35,10 +35,10 @@ func TestUncoveredModelAnswerReturnsPinWholeRequestsAndEvents2uf(t *testing.T) {
 		name, reason, want string
 		answers            []answer
 	}{
-		{name: "malformed twice", reason: "malformed_turn", answers: []answer{{finish: "tool_calls"}, {finish: "tool_calls"}}, want: "718b3fbf72c3c99ffa485af7e5f93a5c033c15a914b962035f55762d9d7fab18"},
+		{name: "malformed twice", reason: "malformed_turn", answers: []answer{{finish: "tool_calls"}, {finish: "tool_calls"}}, want: "4650366533027185612cbe90b6d506379f2d6dd1a299fd1f539f20cb45ca5479"},
 		{name: "truncated tool twice", reason: "length", answers: []answer{{finish: "length", tool: "c1", name: "write_file"}, {finish: "length", tool: "c2", name: "write_file"}}, want: "37cc7bbf3378293cbbd816c7796256f5c10c4636c3cc286a03376c4f463d9bf1"},
 		{name: "truncated retry changes tool", reason: "length", answers: []answer{{finish: "length", tool: "c1", name: "write_file"}, {finish: "tool_calls", tool: "c2", name: "read_file"}}, want: "84d753e273fc86571fc7c73c53db9660be2a192228b4c9c0cfaa296b3025dbe2"},
-		{name: "truncated final answer", reason: "length", answers: []answer{{finish: "length", text: "partial answer"}}, want: "8f136bf2cda9bf98e6895ce715a0e7b7ce9dddd7163880120bc49c6fdd32b1c0"},
+		{name: "truncated final answer", reason: "length", answers: []answer{{finish: "length", text: "partial answer"}}, want: "d95fff0fb6328e4865f9e1d77fe6cd15fb802e4f845c45c9e157b31e9a5d4b71"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

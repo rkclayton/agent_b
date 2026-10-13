@@ -336,6 +336,11 @@ func main() {
 		log.Fatal(err)
 	}
 	notificationManager := notifications.New(bus, registry.Label, "http://"+cfg.Listen)
+	if states, stateErr := web.ChatNoticeStates(); stateErr != nil {
+		log.Printf("load chat notification state: %v", stateErr)
+	} else {
+		notificationManager.SetChatPolicy(states, web.SetChatNotice)
+	}
 	notificationManager.SetChannels(desktopNotifier{}, notificationPhone, func(group string) bool {
 		settings := web.ConfigSnapshot().Notifications
 		if !settings.Desktop {

@@ -17,18 +17,25 @@ import (
 const MetadataFile = "chat.json"
 
 type Metadata struct {
-	ID           string    `json:"id"`
-	Created      time.Time `json:"created"`
-	Label        string    `json:"label"`
-	Origin       string    `json:"origin,omitempty"`
-	Owner        string    `json:"owner,omitempty"`
-	MirrorSeq    int       `json:"mirror_seq,omitempty"`
-	MirrorHashes []string  `json:"mirror_hashes,omitempty"`
-	LastActivity time.Time `json:"last_activity,omitempty"`
-	Pinned       bool      `json:"pinned,omitempty"`
-	ArchivedAt   time.Time `json:"archived_at,omitempty"`
-	Live         bool      `json:"live,omitempty"`
-	Pending      bool      `json:"pending,omitempty"`
+	ID              string    `json:"id"`
+	Created         time.Time `json:"created"`
+	Label           string    `json:"label"`
+	Origin          string    `json:"origin,omitempty"`
+	Owner           string    `json:"owner,omitempty"`
+	MirrorSeq       int       `json:"mirror_seq,omitempty"`
+	MirrorHashes    []string  `json:"mirror_hashes,omitempty"`
+	LastActivity    time.Time `json:"last_activity,omitempty"`
+	Notify          string    `json:"notify,omitempty"`
+	LastUserMessage time.Time `json:"last_user_message,omitempty"`
+	Pinned          bool      `json:"pinned,omitempty"`
+	ArchivedAt      time.Time `json:"archived_at,omitempty"`
+	Live            bool      `json:"live,omitempty"`
+	Pending         bool      `json:"pending,omitempty"`
+}
+
+type NoticeState struct {
+	Notify          string
+	LastUserMessage time.Time
 }
 
 type Entry struct {
@@ -251,6 +258,8 @@ func (s *Store) DeleteFolder(relative string) error {
 }
 
 func (s *Store) Move(id, folder string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	entry, found, err := s.Find(id)
 	if err != nil || !found {
 		return "", errors.Join(err, fmt.Errorf("chat not found"))
@@ -268,6 +277,35 @@ func (s *Store) Move(id, folder string) (string, error) {
 	}
 	destination := filepath.Join(parent, name)
 	return destination, os.Rename(entry.Path, destination)
+}
+
+func (s *Store) NoticeStates() (map[string]NoticeState, error) {
+	entries, err := s.Scan()
+	states := make(map[string]NoticeState, len(entries))
+	for _, entry := range entries {
+		mode := entry.Metadata.Notify
+		if mode == "" {
+			mode = "auto"
+		}
+		states[entry.Metadata.ID] = NoticeState{Notify: mode, LastUserMessage: entry.Metadata.LastUserMessage}
+	}
+	return states, err
+}
+
+func (s *Store) SetNotice(id, mode string, when time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	if mode != "" {
+		entry.Metadata.Notify = mode
+	}
+	if !when.IsZero() {
+		entry.Metadata.LastUserMessage = when.UTC()
+	}
+	return WriteMetadata(entry.Path, entry.Metadata)
 }
 
 func (s *Store) SetPinned(id string, pinned bool) error {

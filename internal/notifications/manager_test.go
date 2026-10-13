@@ -330,3 +330,46 @@ func TestDesktopEventGroupsCanBeSwitchedIndependently2tx(t *testing.T) {
 		t.Fatalf("notices=%+v", desktop.notices)
 	}
 }
+
+func TestOnlyLatestChatNotifiesAndModesOverrideIt2re(t *testing.T) {
+	desktop := &desktopStandIn{}
+	phone := &phoneStandIn{}
+	posts := 0
+	receiver := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { posts++ }))
+	defer receiver.Close()
+	manager := New(events.NewBus(), nil, "http://127.0.0.1:8790")
+	manager.allowLocal = true
+	if err := manager.Configure(receiver.URL); err != nil {
+		t.Fatal(err)
+	}
+	manager.SetChannels(desktop, phone, func(string) bool { return true })
+	persisted := 0
+	manager.SetChatPolicy(map[string]ChatNoticeState{
+		"first": {Notify: "auto"}, "second": {Notify: "auto"}, "third": {Notify: "auto"},
+	}, func(string, string, time.Time) error { persisted++; return nil })
+	for index, id := range []string{"first", "third", "second"} {
+		manager.observe(events.Event{TS: time.Date(2026, 10, 13, 12, index, 0, 0, time.UTC).Format(time.RFC3339Nano), SessionID: id, Type: events.MessageAppended, Data: map[string]any{"message": events.Message{Role: "user"}}})
+	}
+	manager.observe(events.Event{TS: time.Date(2026, 10, 13, 11, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), SessionID: "first", Type: events.MessageAppended, Data: map[string]any{"message": events.Message{Role: "user"}}})
+	if persisted != 3 {
+		t.Fatalf("persisted=%d", persisted)
+	}
+	for _, id := range []string{"first", "second", "third"} {
+		manager.deliverEvent(context.Background(), events.New(events.RunStopped, id, "run", map[string]any{"reason": "done"}))
+	}
+	if len(desktop.notices) != 1 || desktop.notices[0].ChatID != "second" || phone.sent != 1 || posts != 1 {
+		t.Fatalf("desktop=%+v phone=%d posts=%d", desktop.notices, phone.sent, posts)
+	}
+	if err := manager.SetChatMode("second", "off"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetChatMode("third", "on"); err != nil {
+		t.Fatal(err)
+	}
+	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "second", "run", map[string]any{"reason": "done"}))
+	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "third", "run", map[string]any{"reason": "done"}))
+	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "second", "run", map[string]any{"reason": "done", "scheduled_job": "watch"}))
+	if len(desktop.notices) != 3 || phone.sent != 3 || posts != 3 {
+		t.Fatalf("overrides desktop=%+v phone=%d posts=%d", desktop.notices, phone.sent, posts)
+	}
+}

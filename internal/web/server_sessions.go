@@ -524,13 +524,25 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			Label        *string `json:"label"`
 			AgentID      *string `json:"agent_id"`
 			ConnectionID *string `json:"connection_id"`
+			Notify       *string `json:"notify"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
-		if body.Label == nil && body.AgentID == nil && body.ConnectionID == nil {
-			writeError(w, 400, "label or agent_id is required", "session")
+		if body.Label == nil && body.AgentID == nil && body.ConnectionID == nil && body.Notify == nil {
+			writeError(w, 400, "label, agent_id, connection_id, or notify is required", "session")
 			return
+		}
+		if body.Notify != nil {
+			manager, ok := s.notifications.(chatNotificationManager)
+			if !ok {
+				writeError(w, http.StatusConflict, "notification runtime is unavailable", "notify")
+				return
+			}
+			if err := manager.SetChatMode(id, *body.Notify); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error(), "notify")
+				return
+			}
 		}
 		if body.AgentID != nil {
 			if item, ok := s.registry.Get(id); ok && item.IsRunning() {

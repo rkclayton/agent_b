@@ -18,6 +18,21 @@ type notificationManager interface {
 	SetViewing(string)
 }
 
+type chatNotificationManager interface{ SetChatMode(string, string) error }
+
+func (s *Server) ChatNoticeStates() (map[string]notifications.ChatNoticeState, error) {
+	stored, err := s.chatState.storeSnapshot().NoticeStates()
+	states := make(map[string]notifications.ChatNoticeState, len(stored))
+	for id, state := range stored {
+		states[id] = notifications.ChatNoticeState{Notify: state.Notify, LastUserMessage: state.LastUserMessage}
+	}
+	return states, err
+}
+
+func (s *Server) SetChatNotice(id, mode string, when time.Time) error {
+	return s.chatState.storeSnapshot().SetNotice(id, mode, when)
+}
+
 func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
 	if s.notifications == nil || s.notificationStore == nil {
 		writeError(w, http.StatusConflict, "notification runtime is unavailable", "notifications")

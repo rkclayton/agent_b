@@ -41,6 +41,11 @@ type Phone interface {
 	Notify(context.Context, string, string, string) (string, error)
 }
 
+type ChatNoticeState struct {
+	Notify          string
+	LastUserMessage time.Time
+}
+
 type Manager struct {
 	bus            *events.Bus
 	client         doer
@@ -59,12 +64,49 @@ type Manager struct {
 	cancel         context.CancelFunc
 	unsub          func()
 	started        bool
+	chatPolicy     bool
+	chatStates     map[string]ChatNoticeState
+	latestChat     string
+	latestChatTime time.Time
+	persistChat    func(string, string, time.Time) error
 }
 
 func (m *Manager) SetChannels(desktop Desktop, phone Phone, enabled func(string) bool) {
 	m.mu.Lock()
 	m.desktop, m.phone, m.desktopEnabled = desktop, phone, enabled
 	m.mu.Unlock()
+}
+func (m *Manager) SetChatPolicy(states map[string]ChatNoticeState, persist func(string, string, time.Time) error) {
+	m.mu.Lock()
+	m.chatPolicy, m.chatStates, m.persistChat, m.latestChat, m.latestChatTime = true, states, persist, "", time.Time{}
+	var latest time.Time
+	for id, state := range states {
+		if state.LastUserMessage.After(latest) {
+			latest, m.latestChat = state.LastUserMessage, id
+		}
+	}
+	m.latestChatTime = latest
+	m.mu.Unlock()
+}
+func (m *Manager) SetChatMode(id, mode string) error {
+	if mode != "auto" && mode != "on" && mode != "off" {
+		return errors.New("notify must be auto, on, or off")
+	}
+	m.mu.RLock()
+	persist := m.persistChat
+	m.mu.RUnlock()
+	if persist == nil {
+		return errors.New("chat notification storage is unavailable")
+	}
+	if err := persist(id, mode, time.Time{}); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	state := m.chatStates[id]
+	state.Notify = mode
+	m.chatStates[id] = state
+	m.mu.Unlock()
+	return nil
 }
 func (m *Manager) SetViewing(session string) {
 	m.mu.RLock()
@@ -184,6 +226,7 @@ func (m *Manager) Start(ctx context.Context) {
 				if !ok {
 					return
 				}
+				m.observe(event)
 				data, _ := event.Data.(map[string]any)
 				if data["notification_suppressed"] == true || !notifiable(event.Type) {
 					continue
@@ -249,6 +292,9 @@ func (m *Manager) SendTest(ctx context.Context, way string) (map[string]string, 
 }
 
 func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
+	if !m.shouldNotify(event) {
+		return
+	}
 	m.mu.RLock()
 	desktop, phone, enabled, webhook := m.desktop, m.phone, m.desktopEnabled, m.webhook != nil
 	m.mu.RUnlock()
@@ -282,6 +328,64 @@ func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
 	}
 	if phone != nil {
 		_, _ = phone.Notify(ctx, pushKind(event.Type), event.SessionID, strings.ReplaceAll(body, "\n", " "))
+	}
+}
+
+func (m *Manager) observe(event events.Event) {
+	if event.Type != events.MessageAppended || event.SessionID == "" {
+		return
+	}
+	data, _ := event.Data.(map[string]any)
+	encoded, _ := json.Marshal(data["message"])
+	var message events.Message
+	if json.Unmarshal(encoded, &message) != nil || message.Role != "user" {
+		return
+	}
+	when, err := time.Parse(time.RFC3339Nano, event.TS)
+	if err != nil {
+		return
+	}
+	m.mu.RLock()
+	persist := m.persistChat
+	current := m.chatStates[event.SessionID].LastUserMessage
+	m.mu.RUnlock()
+	if when.Before(current) {
+		return
+	}
+	if persist != nil && persist(event.SessionID, "", when) != nil {
+		return
+	}
+	m.mu.Lock()
+	state := m.chatStates[event.SessionID]
+	if state.Notify == "" {
+		state.Notify = "auto"
+	}
+	state.LastUserMessage = when
+	m.chatStates[event.SessionID] = state
+	if !when.Before(m.latestChatTime) {
+		m.latestChat, m.latestChatTime = event.SessionID, when
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) shouldNotify(event events.Event) bool {
+	data, _ := event.Data.(map[string]any)
+	job, _ := data["scheduled_job"].(string)
+	if event.SessionID == "" || data["role"] == "c" || strings.TrimSpace(job) != "" || event.Type == events.WorkerJob {
+		return true
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.chatPolicy {
+		return true
+	}
+	switch m.chatStates[event.SessionID].Notify {
+	case "on":
+		return true
+	case "off":
+		return false
+	default:
+		return event.SessionID == m.latestChat
 	}
 }
 

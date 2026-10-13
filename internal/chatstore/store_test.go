@@ -323,3 +323,25 @@ func mustScan(t *testing.T, store *Store) []Entry {
 	}
 	return entries
 }
+
+func TestNoticeModeAndLastUserMessageSurviveMoveAndRestart2re(t *testing.T) {
+	root := t.TempDir()
+	store := New(root)
+	if _, err := store.Create("chat", "one", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddFolder("", "Work"); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	if err := store.SetNotice("chat", "off", when); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Move("chat", "Work"); err != nil {
+		t.Fatal(err)
+	}
+	states, err := New(root).NoticeStates()
+	if err != nil || states["chat"].Notify != "off" || !states["chat"].LastUserMessage.Equal(when) {
+		t.Fatalf("states=%+v err=%v", states, err)
+	}
+}

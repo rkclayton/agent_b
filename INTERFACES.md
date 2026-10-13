@@ -508,8 +508,11 @@ approval registers exactly as the operator's sentence does, a decline registers 
   the install happened and this window did not become it, which is reported in those words rather than as a success or a failure.
   A finish older than the running version is a stale progress file and is not reported at all. An updater switched off says so instead of checking silently.
 - `GET /api/sessions`; `POST /api/sessions {label?,agent_id?,connection_id?,role?}` → 201 `{session}`. A chat stores its agent, not a model;
-  each message resolves that agent's current connection, model, opening prompt and tools. `POST /api/sessions/{id} {label?,agent_id?}` changes only that chat,
-  preserving its complete history and adding one visible change line; during a run it returns 202 and applies at idle.
+  each message resolves that agent's current connection, model, opening prompt and tools. `POST /api/sessions/{id} {label?,agent_id?,connection_id?,notify?}` changes only that chat,
+  preserving its complete history and adding one visible change line; during a run it returns 202 and applies binding changes at idle.
+  `notify` is `auto|on|off` in durable `chat.json`. Auto notices come only from the chat with the newest user message, whether sent by PC or phone;
+  on/off override that choice for every chat notice channel, while scheduled-job notices remain outside the chat policy. The setting and newest-user time
+  are not part of the paired-phone snapshot or patch protocol.
   The legacy `connection_id` create field maps to an agent for released clients. The source-session, close, reopen, delete, drop-last,
   reset and run-label forms retain their prior contracts.
 - Update-source extension (items 2ot, 2ox): the default remains Agent_b's GitHub latest-release endpoint.

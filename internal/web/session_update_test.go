@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/notifications"
 	"harness/internal/session"
 )
 
@@ -84,6 +86,34 @@ func TestSessionAgentReassignment(t *testing.T) {
 	response = postSessionUpdate(t, server, `{"agent_id":"incomplete"}`)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "base_url is empty") {
 		t.Fatalf("incomplete status=%d body=%s", response.Code, response.Body)
+	}
+}
+
+func TestSessionRouteStoresChatNoticeMode2re(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Connections[0] = runnableTestConnection("main")
+	bus := events.NewBus()
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writers.Close() })
+	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	server.SetRegistry(registry)
+	if _, err := registry.Create("main", "agent-b", root); err != nil {
+		t.Fatal(err)
+	}
+	manager := notifications.New(bus, nil, "http://127.0.0.1:8790")
+	stored := ""
+	manager.SetChatPolicy(map[string]notifications.ChatNoticeState{"main": {Notify: "auto"}}, func(_ string, mode string, _ time.Time) error { stored = mode; return nil })
+	server.SetNotifications(manager, nil)
+	if response := postSessionUpdate(t, server, `{"notify":"off"}`); response.Code != http.StatusOK || stored != "off" {
+		t.Fatalf("off status=%d stored=%q body=%s", response.Code, stored, response.Body)
+	}
+	if response := postSessionUpdate(t, server, `{"notify":"sometimes"}`); response.Code != http.StatusBadRequest || stored != "off" {
+		t.Fatalf("invalid status=%d stored=%q body=%s", response.Code, stored, response.Body)
 	}
 }
 

@@ -107,8 +107,6 @@ func WriteGoldens(root string) error {
 
 func Verify(root string) error { return verify(root, false) }
 
-func VerifySlow(root string) error { return verify(root, true) }
-
 func verify(root string, slowOnly bool) error {
 	manifest, dir, err := LoadManifest(root)
 	if err != nil {

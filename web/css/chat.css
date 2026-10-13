@@ -49,8 +49,8 @@ html[data-chat-list-wrap="true"] .chat-list-group-name,
 html[data-chat-list-wrap="true"] .chat-list-folder > summary { height:calc(var(--lead-tight) * 2 + 4px); }
 html[data-chat-list-wrap="true"] .chat-list-row .chat-list-name { height:100%; overflow-wrap:anywhere; text-overflow:clip; white-space:normal; }
 html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
-.chat-list-row .chat-list-name.working { color:transparent; background-image:linear-gradient(90deg,var(--ink) 0 38%,var(--signal) 47%,var(--signal) 53%,var(--ink) 62% 100%); background-position:100% 0; background-size:300% 100%; background-clip:text; -webkit-background-clip:text; animation:chat-name-pulse 1s linear infinite; animation-delay:var(--chat-pulse-delay,0ms); }
-@keyframes chat-name-pulse { from { background-position:100% 0; } to { background-position:-100% 0; } }
+.chat-list-row .chat-list-name.working { color:transparent; background-image:linear-gradient(90deg,var(--ink) 0 38%,var(--signal) 47%,var(--signal) 53%,var(--ink) 62% 100%),linear-gradient(90deg,transparent 38%,rgba(60,240,138,0) 40%,rgba(60,240,138,.18) 50%,rgba(60,240,138,0) 60%,transparent 62%); background-position:75% 0,75% 0; background-size:300% 100%,300% 100%; background-clip:text,border-box; -webkit-background-clip:text,border-box; animation:chat-name-pulse 2.4s ease-in-out infinite alternate; animation-delay:var(--chat-pulse-delay,0ms); }
+@keyframes chat-name-pulse { from { background-position:75% 0,75% 0; } to { background-position:25% 0,25% 0; } }
 .agent-chat-rename-form { min-width:0; height:calc(var(--lead-tight) + 4px); }
 .agent-chat-rename-input { display:block; width:100%; height:100%; min-width:0; padding:2px 4px 1px; color:var(--ink); background:transparent; border:0; border-bottom:1px solid var(--signal); border-radius:0; outline:0; font:400 var(--ct)/var(--lead-tight) var(--sans); }
 .chat-list-row .chat-list-more { position:absolute;top:0;right:0;width:24px;visibility:hidden;padding:0;text-align:center;background:var(--bezel)}.chat-list-row.selected .chat-list-more{background:var(--well)}.chat-list-row:hover .chat-list-more,.chat-list-row:focus-within .chat-list-more,.chat-list-row.menu-open .chat-list-more{visibility:visible}
@@ -252,25 +252,9 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 }
 .chat-entry {
   display: grid;
-  grid-template-columns: max(20px, calc(var(--ct) * 5 / 2)) minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
   padding: 6px 4px;
   border-bottom: 1px solid rgba(112, 125, 139, 0.28);
-}
-.chat-speaker {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  color: var(--mute);
-  min-width: 0;
-  font-size: calc(var(--ct) * 2 / 3);
-  text-align: center;
-  user-select: none;
-}
-.chat-speaker span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-speaker img {
-  width: 20px;
-  height: 20px;
 }
 .chat-user .chat-content {
   font-size: calc(var(--ct) * 7 / 6);
@@ -281,7 +265,6 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   justify-content:flex-end;
   padding-right:12px;
 }
-.chat-user .chat-speaker { display:none; }
 .chat-user .chat-content {
   width:max-content;
   max-width:80%;
@@ -301,9 +284,6 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-content code,.chat-content pre { color:var(--ink); }
 .chat-content a { color:var(--signal); }
 .chat-content .alarm,.chat-attachment-warning { color:var(--alarm); }
-.chat-summary .chat-speaker {
-  color: var(--trace);
-}
 .chat-summary .chat-content {
   color: var(--mute);
   font-size: calc(var(--ct) * 13 / 12);
@@ -681,9 +661,6 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-notice-row.alarm {
   color: var(--alarm);
 }
-.chat-notice-row .chat-content {
-  grid-column: 2;
-}
 /* Item 2ji (b): where the run time went, one line, in the muted colour every
    other notice already uses. No bar, no pane, no chart — the item says text
    only, and this adds no colour to the six. */
@@ -699,6 +676,7 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 }
 .chat-empty.chat-render-failure { color: var(--mute); }
 .chat-notice-author { color: var(--mute); font: var(--ct)/var(--lead) var(--mono); margin-right: 8px; }
+.chat-response-author { display:block; margin:0; }
 .worker-approval .chat-notice-author { margin: 0 0 0 8px; text-transform: none; }
 .chat-approval button {
   min-height: 20px;
@@ -1031,8 +1009,6 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   .chat-list-visible > #chat-budget,
   .chat-list-visible > #chat-log,
   .chat-list-visible > #chat-composer { width: 100%; margin-left: 0; visibility: hidden; }
-  .chat-entry { grid-template-columns:20px minmax(0, 1fr); }
-  .chat-speaker span { display:none; }
   .tool-tick { height:auto; min-height:calc(var(--lead-tight) + 4px); grid-template-columns:minmax(0, 1fr) auto; align-items:start; }
   .tool-tick > span { min-width:0; white-space:normal; overflow-wrap:anywhere; }
 }

@@ -35,6 +35,9 @@ func TestTheSetupIsToldWhereTheAskingInstanceLives2lh(t *testing.T) {
 	if strings.Contains(joined, "-WorkspaceDirectory") {
 		t.Fatalf("the updater still sends a workspace the installer will refuse: %s", joined)
 	}
+	if !strings.Contains(joined, "--reopen-window") || strings.Contains(joined, "--reopen-session") {
+		t.Fatalf("a window-origin update without a chat did not request the first view: %s", joined)
+	}
 
 	// The reopen-session argument the operator's own update relies on is still passed.
 	withSession, err := installArguments(`C:\a`, `C:\d`, "", "s29")

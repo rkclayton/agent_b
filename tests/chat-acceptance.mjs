@@ -2136,11 +2136,9 @@ if (realModel) {
   events = await sessionEvents(sessionID);
   assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command"), false);
   assert.ok(events.some((event) => event.type === "tool.result" && event.data.name === "shell" && event.data.ok === true), JSON.stringify(events.filter((event) => event.seq > beforeInspectionApproval && (event.type.startsWith("tool.") || event.type.startsWith("approval.") || event.type === "shell.grant")).map((event) => ({ seq: event.seq, type: event.type, data: event.data }))));
-  const gutter = await browser.evaluate(`getComputedStyle(document.querySelector('.chat-entry')).gridTemplateColumns.split(' ')[0]`);
-  assert.match(gutter, /^30px$/);
-  const speakerHeads = await browser.evaluate(`({agent:document.querySelectorAll('.chat-agent .chat-speaker img').length,user:document.querySelectorAll('.chat-user .chat-speaker img').length})`);
-  assert.ok(speakerHeads.agent > 0 && speakerHeads.user === 0, JSON.stringify(speakerHeads));
-  record("plan-registration-tool-answer-trim-robot-rail");
+  const fullWidthRows = await browser.evaluate(`({columns:getComputedStyle(document.querySelector('.chat-entry')).gridTemplateColumns,speakers:document.querySelectorAll('#chat-log .chat-speaker').length,names:[...document.querySelectorAll('#chat-log > .chat-entry')].map(row=>row.getAttribute('aria-label'))})`);
+  assert.equal(fullWidthRows.columns.split(" ").length, 1); assert.equal(fullWidthRows.speakers, 0); assert.ok(fullWidthRows.names.includes("you") && fullWidthRows.names.includes("agent_b"), JSON.stringify(fullWidthRows));
+  record("plan-registration-tool-answer-full-width-spoken-author");
 
   const beforeLiveTool = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
   await setTask("acceptance: live tool");

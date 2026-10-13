@@ -109,19 +109,21 @@ test("chat list rows, actions, independent state, resize persistence and capture
 	await expect(page.locator('.chat-list-row[data-session="p1"] .chat-list-name')).toHaveClass(/working/);
 	await expect(page.locator('.chat-list-row[data-session="f1"] .chat-list-name')).toHaveClass(/working/);
 	for (const id of ["p2", "f2", "root"]) await expect(page.locator(`.chat-list-row[data-session="${id}"] .chat-list-name`)).not.toHaveClass(/working/);
-	const pulse = async (id) => page.locator(`.chat-list-row[data-session="${id}"] .chat-list-name`).evaluate((node) => ({ progress: node.getAnimations()[0]?.effect.getComputedTiming().progress ?? -1, time: document.timeline.currentTime }));
+	const pulse = async (id) => page.locator(`.chat-list-row[data-session="${id}"] .chat-list-name`).evaluate((node) => ({ progress: node.getAnimations()[0]?.effect.getComputedTiming().progress ?? -1, current: node.getAnimations()[0]?.currentTime ?? -1, time: document.timeline.currentTime }));
 	const beforePulse = await pulse("p1");
 	await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); for (let index = 0; index < 50; index++) bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
 	const afterPulse = await pulse("p1"), together = await pulse("f1"), phaseDistance = (a, b) => Math.min(Math.abs(a - b), 1 - Math.abs(a - b));
-	const expectedPulse = (beforePulse.progress + (afterPulse.time - beforePulse.time) / 1000) % 1;
-	expect(phaseDistance(expectedPulse, afterPulse.progress)).toBeLessThan(.1); expect(phaseDistance(afterPulse.progress, together.progress)).toBeLessThan(.05);
+	expect(Math.abs(beforePulse.current + afterPulse.time - beforePulse.time - afterPulse.current)).toBeLessThan(100); expect(phaseDistance(afterPulse.progress, together.progress)).toBeLessThan(.05);
+	const crossing = await page.locator('.chat-list-row[data-session="p1"] .chat-list-name').evaluate(async (node) => { node.style.setProperty("--chat-pulse-delay", "0ms"); const animation = node.getAnimations()[0]; animation.pause(); const positions = []; for (const time of [0, 1200, 2399, 2400, 2401, 3600, 4799]) { animation.currentTime = time; await new Promise(requestAnimationFrame); positions.push(parseFloat(getComputedStyle(node).backgroundPositionX)); } const style = getComputedStyle(node); return { duration: style.animationDuration, direction: style.animationDirection, easing: style.animationTimingFunction, images: style.backgroundImage.split("gradient").length - 1, positions }; });
+	expect(crossing).toMatchObject({ duration: "2.4s", direction: "alternate", easing: "ease-in-out", images: 2 }); expect(crossing.positions[0]).toBeGreaterThan(crossing.positions[1]); expect(crossing.positions[1]).toBeGreaterThan(crossing.positions[2]); expect(Math.abs(crossing.positions[2] - crossing.positions[4])).toBeLessThan(1); expect(crossing.positions[4]).toBeLessThan(crossing.positions[5]); expect(crossing.positions[5]).toBeLessThan(crossing.positions[6]);
+	const fiftyRowFrameTime = await page.locator(".chat-list").evaluate(async (list) => { const source = list.querySelector('.chat-list-row[data-session="p1"]'); const copies = []; for (let index = 0; index < 47; index++) { const copy = source.cloneNode(true); copy.dataset.session = `measure-${index}`; copies.push(copy); list.append(copy); } const stamps = []; await new Promise((resolve) => { const tick = (stamp) => { stamps.push(stamp); if (stamps.length < 121) requestAnimationFrame(tick); else resolve(); }; requestAnimationFrame(tick); }); for (const copy of copies) copy.remove(); return (stamps.at(-1) - stamps[0]) / (stamps.length - 1); }); console.log(`fifty working rows frame time: ${fiftyRowFrameTime.toFixed(3)} ms`); expect(fiftyRowFrameTime).toBeLessThan(25);
 	expect(await page.locator('.chat-list-row[data-session="p1"]').evaluate((row) => row.getBoundingClientRect().height)).toBe(await page.locator('.chat-list-row[data-session="root"]').evaluate((row) => row.getBoundingClientRect().height));
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	expect(await page.locator('.chat-list-row[data-session="p1"] .chat-list-name').evaluate((node) => ({ duration: getComputedStyle(node).animationDuration, color: getComputedStyle(node).color, image: getComputedStyle(node).backgroundImage }))).toEqual({ duration: "0s", color: "rgb(60, 240, 138)", image: "none" });
 	await page.emulateMedia({ reducedMotion: "no-preference" }); await mkdir(pulseEvidence, { recursive: true });
-	for (const width of [1280, 304]) {
-		await page.setViewportSize({ width, height: 800 });
-		for (const [label, time] of [["start", 0], ["middle", 500], ["end", 999]]) {
+	for (const width of [1280]) {
+		await page.setViewportSize({ width, height: 860 });
+		for (const [label, time] of [["out-start", 0], ["out-middle", 1200], ["out-end", 2399], ["back-start", 2400], ["back-middle", 3600], ["back-end", 4799]]) {
 			await page.locator('.chat-list-name.working').evaluateAll((nodes, currentTime) => { for (const node of nodes) { node.style.setProperty("--chat-pulse-delay", "0ms"); const animation = node.getAnimations()[0]; animation.pause(); animation.currentTime = currentTime; } }, time);
 			await page.screenshot({ path: join(pulseEvidence, `${width}-${label}.png`) });
 		}

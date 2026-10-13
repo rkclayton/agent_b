@@ -307,9 +307,9 @@ func runInstall(options installOptions, args []string) int {
 			return 0
 		}
 		if relaunch {
-			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
+			appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Starting Agent_b " + marker.Version})
 			if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, options.reopenWindow, nativeInstall, log); err != nil {
-				appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
+				appendProgress(dataRoot, installProgress{Phase: "starting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
 				return log.fail("Agent_b was installed but failed to start: %v", err)
 			}
 		}
@@ -514,15 +514,55 @@ func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, reopenWin
 	command.Dir = dataRoot
 	command.Stdout = log.writer()
 	command.Stderr = log.writer()
-	return command.Run()
+	launcherErrors := filepath.Join(dataRoot, "logs", "launcher-errors.log")
+	_, beforeSize := lastNonemptyLine(launcherErrors, 16<<10)
+	if err := command.Run(); err != nil {
+		if line, size := lastNonemptyLine(launcherErrors, 16<<10); size > beforeSize && line != "" {
+			return fmt.Errorf("launcher exited: %w; startup log: %s", err, line)
+		}
+		return fmt.Errorf("launcher exited: %w", err)
+	}
+	return nil
 }
 
 func installedLaunchArguments(applicationRoot, dataRoot, sessionID string, reopenWindow bool) []string {
-	arguments := []string{"-NoLogo", "-NoProfile", "-File", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause", "-StartupTimeoutSeconds", "30"}
-	if !reopenWindow || sessionID == "" {
+	arguments := []string{"-NoLogo", "-NoProfile", "-File", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause", "-StartupTimeoutSeconds", "300"}
+	if !reopenWindow {
 		return append(arguments, "-NoBrowser")
 	}
+	if sessionID == "" {
+		return arguments
+	}
 	return append(arguments, "-SessionID", sessionID)
+}
+
+// lastNonemptyLine reads only a bounded tail: launcher-errors.log is append-only
+// and may span many starts over the life of an installation.
+func lastNonemptyLine(path string, limit int64) (string, int64) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", -1
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", -1
+	}
+	start := info.Size() - limit
+	if start < 0 {
+		start = 0
+	}
+	tail := make([]byte, info.Size()-start)
+	if _, err := file.ReadAt(tail, start); err != nil && err != io.EOF {
+		return "", info.Size()
+	}
+	lines := strings.Split(string(tail), "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		if line := strings.TrimSpace(lines[index]); line != "" {
+			return line, info.Size()
+		}
+	}
+	return "", info.Size()
 }
 
 func extractInstallBundle(executable string) (string, func(), bool, error) {

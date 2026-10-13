@@ -96,7 +96,7 @@ test("fenced code is one aligned panel with a header row and internal overflow",
 });
 
 test("Chat selection excludes chrome while preserving message content", () => {
-  for (const selector of [".chat-speaker", ".thinking-line", ".tool-tick", ".chat-notice-row", ".chat-jump"]) {
+  for (const selector of [".thinking-line", ".tool-tick", ".chat-notice-row", ".chat-jump"]) {
     const at = css.indexOf(selector);
     assert.notEqual(at, -1, `${selector} missing`);
     assert.match(css.slice(at, at + 500), /user-select:\s*none/);
@@ -255,11 +255,11 @@ test("Composer is five lines with no placeholder and expands upward", () => {
   assert.doesNotMatch(html, />Send<\/button>/);
 });
 
-test("Chat uses the narrow monospace label gutter", () => {
-	assert.match(css, /\.chat-entry\s*\{[\s\S]*grid-template-columns:\s*max\(20px, calc\(var\(--ct\) \* 5 \/ 2\)\) minmax\(0, 1fr\)/);
-	assert.match(chat, /speaker\(agentAuthor\(session\), true\)/);
-	assert.match(chat, /function speaker\(name, agent = false\)[\s\S]*if \(agent\)[\s\S]*assets\/agent\.svg/);
-	assert.match(chat, /name === "you" \|\| name === "summary" \? "" : name/);
+test("Chat rows use the full width and preserve spoken authors", () => {
+	assert.match(css, /\.chat-entry\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+	assert.doesNotMatch(chat, /chat-speaker/);
+	assert.match(chat, /setAttribute\(view\.row, "aria-label"/);
+	assert.match(chat, /chat-notice-author chat-response-author/);
 	assert.match(css, /\.chat-render-failure \.chat-content\s*\{[\s\S]*white-space:\s*nowrap/);
 });
 
@@ -415,7 +415,7 @@ test("Chats is the minimal ordered profile reading approval context delete surfa
 
 test("user messages are right-side composer-matched bubbles without changing other rows 2sl", () => {
   assert.match(css, /\.chat-user\s*\{[^}]*display:flex[^}]*justify-content:flex-end[^}]*padding-right:12px/s);
-  assert.match(css, /\.chat-user \.chat-speaker\s*\{\s*display:none/);
+  assert.doesNotMatch(chat, /chat-speaker/);
   assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*background:#15181C[^}]*border-radius:8px[^}]*box-shadow:inset 0 0 0 1px rgba\(112,125,139,\.28\)/s);
   assert.match(chat, /view\.userText\.className = "chat-user-text"/);
   assert.match(css, /\.chat-user-text,\.chat-response-answer,\.chat-composer textarea\s*\{\s*color:var\(--chat-ink,var\(--ink\)\)/);

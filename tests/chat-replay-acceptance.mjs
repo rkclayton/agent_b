@@ -193,8 +193,8 @@ try {
       replayComposerDisabled: document.querySelector("#chat-task")?.disabled && document.querySelector("#chat-send")?.disabled,
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       logOverflow: document.querySelector("#chat-log")?.scrollWidth - document.querySelector("#chat-log")?.clientWidth,
-      agentSpeakerImages: document.querySelectorAll(".chat-agent .chat-speaker img").length,
-      userSpeakerImages: document.querySelectorAll(".chat-user .chat-speaker img").length,
+			speakerNodes: document.querySelectorAll("#chat-log .chat-speaker").length,
+			spokenNames: [...document.querySelectorAll("#chat-log > .chat-entry")].map((row) => row.getAttribute("aria-label")),
       connectionRows: connectionRows.length,
       nestedConnectionRows: [...document.querySelectorAll(".chat-response-notice")].filter((node) => node.innerText.startsWith("model unreachable ·")).length,
       composerLeftInset: Math.round(inputWrap.getBoundingClientRect().left - composer.getBoundingClientRect().left),
@@ -217,8 +217,8 @@ try {
   assert.equal(ui.offline, Boolean(finalSession.model_unreachable), JSON.stringify(ui));
   assert.equal(ui.replayComposerDisabled, true, JSON.stringify(ui));
   assert.ok(ui.pageOverflow <= 0 && ui.logOverflow <= 0, JSON.stringify(ui));
-  assert.ok(ui.agentSpeakerImages > 0, JSON.stringify(ui));
-  assert.equal(ui.userSpeakerImages, 0, JSON.stringify(ui));
+	assert.equal(ui.speakerNodes, 0, JSON.stringify(ui));
+	assert.ok(ui.spokenNames.includes("you") && ui.spokenNames.includes("agent_b"), JSON.stringify(ui));
   assert.equal(ui.connectionRows > 0, Boolean(finalSession.model_unreachable), JSON.stringify(ui));
   assert.equal(ui.nestedConnectionRows, 0, JSON.stringify(ui));
   // Attach and Send remain the same 24 px control family in replay.

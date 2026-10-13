@@ -817,7 +817,8 @@ func installArguments(application, data, workspace, sessionID string) ([]string,
 	// instance's update would install over the operator's own copy.
 	_ = workspace
 	if sessionID != "" {
-		arguments = append(arguments, "--reopen-session", sessionID, "--reopen-window")
+		arguments = append(arguments, "--reopen-session", sessionID)
 	}
+	arguments = append(arguments, "--reopen-window")
 	return arguments, nil
 }

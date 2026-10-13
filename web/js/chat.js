@@ -465,8 +465,10 @@ function groupResponses(entries) {
       response = null;
       continue;
     }
+		const role = entryRole(entry);
+		if (response && entryRole(response) !== role) { boundary = entry.key || `${role}:${grouped.length}`; response = null; }
     if (!response) {
-      response = { type: "response", key: `response:${boundary}`, items: [] };
+			response = { type: "response", key: `response:${boundary}`, agent_role: role, items: [] };
       grouped.push(response);
     }
     response.items.push(entry);
@@ -518,14 +520,13 @@ function renderEntry(session, entry) {
     row.tabIndex = 0;
     const content = document.createElement("div");
     content.className = "chat-content";
-    const author = speaker(entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)), entry.type !== "user" && entry.type !== "summary");
-    row.append(author, content);
-    view = { row, author, content, text: "" };
+		row.append(content);
+		view = { row, content, text: "" };
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
   setAttribute(view.row, "data-entry-key", entry.key);
-  setSpeaker(view.author, entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)));
+	setAttribute(view.row, "aria-label", entry.type === "user" ? "you" : entry.type === "summary" ? "summary" : agentAuthor(session, entryRole(entry)));
   setAttribute(view.row, "class", `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`);
   const content = view.content;
   if (entry.type === "user") {
@@ -577,13 +578,17 @@ function renderResponse(session, entry) {
     const rows = document.createElement("div");
     rows.className = "chat-response-rows";
     content.append(rows);
-    const author = speaker(agentAuthor(session), true);
-    row.append(author, content);
-    view = { row, author, content, rows, blocks: new Map(), work: null };
+		row.append(content);
+		view = { row, content, rows, blocks: new Map(), work: null };
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
-  setSpeaker(view.author, agentAuthor(session));
+	const author = agentAuthor(session, entryRole(entry));
+	setAttribute(view.row, "aria-label", author);
+	if (author !== "agent_b") {
+		if (!view.label) { view.label = document.createElement("span"); view.label.className = "chat-notice-author chat-response-author"; }
+		setText(view.label, author); reconcileChildren(view.content, [view.label, view.rows]);
+	} else reconcileChildren(view.content, [view.rows]);
   const totals = responseSummary(entry.items);
   const active = isRunning(session) && entry.items.some((item) => item?.run_id && item.run_id === session.run?.run_id);
   const blocks = responseBlocks(entry.items);
@@ -921,6 +926,7 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false, rec
 function renderFailure(entry, error, index, nested) {
   const row = document.createElement(nested ? "div" : "section");
   row.className = nested ? "chat-response-step chat-response-notice chat-render-failure" : "chat-entry chat-notice-row chat-render-failure";
+	if (!nested) row.setAttribute("aria-label", agentAuthor(null, entryRole(entry)));
   const key = safeEntryValue(entry, "key");
   if (key) row.dataset.entryKey = key;
   const content = document.createElement("div");
@@ -1002,33 +1008,11 @@ function renderFileChip(session, file) {
   return node;
 }
 
-function speaker(name, agent = false) {
-  const node = document.createElement("div");
-  node.className = "chat-speaker";
-  if (agent) {
-    const image = document.createElement("img");
-    image.src = "/static/assets/agent.svg";
-    image.alt = "";
-    node.append(image);
-  }
-  const label = document.createElement("span");
-  label.setAttribute("aria-hidden", "true");
-  node.append(label);
-  setSpeaker(node, name);
-  return node;
-}
-
 function selectionWithin(node) {
   const selection = document.getSelection?.();
   if (!selection || selection.isCollapsed) return false;
   for (let index = 0; index < selection.rangeCount; index++) if (node.contains(selection.getRangeAt(index).commonAncestorContainer)) return true;
   return false;
-}
-
-function setSpeaker(node, name) {
-  setAttribute(node, "aria-label", name);
-  setText(node.lastElementChild, name === "you" || name === "summary" ? "" : name);
-  name === "you" ? node.lastElementChild.removeAttribute("title") : setAttribute(node.lastElementChild, "title", name);
 }
 
 function thinking(entry, tokens) {
@@ -1135,6 +1119,7 @@ function renderNotice(session, entry) {
     entryViews.set(viewKey, view);
   }
   usedEntryViews.add(viewKey);
+	setAttribute(view.row, "aria-label", agentAuthor(session, entryRole(entry)));
   const reason = entry.event?.data?.reason;
   setTranscriptCopyRecord(view.row, entry.event?.type === "run.stopped"
     ? `stopped: ${String(reason || "").replaceAll("_", " ")}`

@@ -356,13 +356,28 @@ func TestOnlyAnAppStartedInstallReturnsInAWindow2t6(t *testing.T) {
 	if strings.Contains(joined, "-NoBrowser") || !strings.Contains(joined, "-SessionID chat-7") {
 		t.Fatalf("app update arguments %q", joined)
 	}
-	withoutChat := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "", false), " ")
-	if !strings.Contains(withoutChat, "-NoBrowser") || strings.Contains(withoutChat, "-SessionID") {
-		t.Fatalf("other install arguments %q", withoutChat)
+	withoutChat := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "", true), " ")
+	if strings.Contains(withoutChat, "-NoBrowser") || strings.Contains(withoutChat, "-SessionID") {
+		t.Fatalf("app update without a chat did not reopen the first view: %q", withoutChat)
 	}
 	commandLine := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "chat-7", false), " ")
 	if !strings.Contains(commandLine, "-NoBrowser") {
 		t.Fatalf("command-line install opened a window: %q", commandLine)
+	}
+	if !strings.Contains(strings.Join(withChat, " "), "-StartupTimeoutSeconds 300") {
+		t.Fatalf("a 45-second start would be reported failed: %q", withChat)
+	}
+}
+
+func TestFailedInstalledStartReportsTheBoundedLauncherTail2th(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "launcher-errors.log")
+	prefix := bytes.Repeat([]byte("old launch detail\n"), 2_000)
+	if err := os.WriteFile(path, append(prefix, []byte("2026-01-01 startup stopped at config\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	line, size := lastNonemptyLine(path, 16<<10)
+	if line != "2026-01-01 startup stopped at config" || size != int64(len(prefix)+len("2026-01-01 startup stopped at config\n")) {
+		t.Fatalf("line=%q size=%d", line, size)
 	}
 }
 

@@ -585,7 +585,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			if stored && item.Snapshot().Scratch {
 				if _, err := s.renameStoredChat(id, *body.Label); err != nil {
 					log.Printf("chat rename: label changed; stored folder kept its name: %v", err)
-				} else if entries, err := s.chatStore.Scan(); err == nil {
+				} else if entries, err := s.chatState.storeSnapshot().Scan(); err == nil {
 					s.registry.ReconcileChatHomes(entries)
 				}
 			}

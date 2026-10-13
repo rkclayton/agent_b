@@ -272,9 +272,7 @@ func (s *Server) resourceProbe() map[string]any {
 		out["data_bytes"], _ = walk(root)
 		out["chats_bytes"], _ = walk(filepath.Join(root, "chats"))
 	}
-	s.chatMu.Lock()
-	out["chats"] = int64(len(s.chatEntries))
-	s.chatMu.Unlock()
+	out["chats"] = s.chatState.count()
 	if ram := totalRAM(); ram > 0 {
 		out["ram_bytes"] = ram
 	}

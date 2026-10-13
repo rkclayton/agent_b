@@ -167,10 +167,11 @@ func writeMirrorMetadata(folder string, metadata chatstore.Metadata) error {
 }
 
 func (s *Server) mirrorMetadata(id string) (chatstore.Metadata, string, error) {
-	if s.chatStore == nil {
+	store := s.chatState.storeSnapshot()
+	if store == nil {
 		return chatstore.Metadata{}, "", errors.New("chat storage unavailable")
 	}
-	entry, found, err := s.chatStore.Find(id)
+	entry, found, err := store.Find(id)
 	if err != nil || !found {
 		return chatstore.Metadata{}, "", errors.Join(err, os.ErrNotExist)
 	}

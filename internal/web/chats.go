@@ -29,37 +29,36 @@ func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	s.chatWatchMu.Lock()
-	s.stopChatTrackingLocked()
-	defer func() { s.startChatTrackingLocked(s.registry); s.chatWatchMu.Unlock() }()
+	defer s.chatState.lockForMutation(s.registry)()
+	store := s.chatState.storeSnapshot()
 	var err error
 	var changed map[string]any
 	switch body.Action {
 	case "add":
 		var destination string
-		destination, err = s.chatStore.AddFolder(body.Parent, body.Name)
+		destination, err = store.AddFolder(body.Parent, body.Name)
 		if err == nil {
 			changed = map[string]any{"operation": "add", "path": s.relativeChatPath(destination)}
 		}
 	case "rename":
 		var destination string
-		destination, err = s.chatStore.RenameFolder(body.Path, body.Name)
+		destination, err = store.RenameFolder(body.Path, body.Name)
 		if err == nil {
 			changed = map[string]any{"operation": "rename", "path": filepath.ToSlash(filepath.Clean(body.Path)), "value": s.relativeChatPath(destination)}
 		}
 	case "delete":
-		err = s.chatStore.DeleteFolder(body.Path)
+		err = store.DeleteFolder(body.Path)
 		if err == nil {
 			changed = map[string]any{"operation": "delete", "path": filepath.ToSlash(filepath.Clean(body.Path))}
 		}
 	case "move":
 		var destination string
-		destination, err = s.chatStore.Move(body.ID, body.Folder)
+		destination, err = store.Move(body.ID, body.Folder)
 		if err == nil {
 			changed = map[string]any{"operation": "move", "session_id": body.ID, "folder": s.relativeChatPath(filepath.Dir(destination))}
 		}
 	case "pin":
-		err = s.chatStore.SetPinned(body.ID, body.Pinned)
+		err = store.SetPinned(body.ID, body.Pinned)
 	default:
 		writeError(w, 400, "unknown chat tree action", "action")
 		return
@@ -68,7 +67,7 @@ func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error(), "chats")
 		return
 	}
-	entries, err := s.chatStore.Scan()
+	entries, err := store.Scan()
 	if err != nil {
 		writeError(w, 500, err.Error(), "chats")
 		return
@@ -81,7 +80,7 @@ func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) relativeChatPath(path string) string {
-	relative, err := filepath.Rel(s.chatStore.Root(), path)
+	relative, err := filepath.Rel(s.chatState.storeSnapshot().Root(), path)
 	if err != nil || relative == "." {
 		return ""
 	}
@@ -89,19 +88,17 @@ func (s *Server) relativeChatPath(path string) string {
 }
 
 func (s *Server) renameStoredChat(id, label string) (string, error) {
-	s.chatWatchMu.Lock()
-	defer s.chatWatchMu.Unlock()
-	s.stopChatTrackingLocked()
-	defer s.startChatTrackingLocked(s.registry)
-	return s.chatStore.Rename(id, label)
+	defer s.chatState.lockForMutation(s.registry)()
+	return s.chatState.storeSnapshot().Rename(id, label)
 }
 
 func (s *Server) chatFolders() ([]string, error) {
 	folders := []string{}
-	if s.chatStore == nil {
+	store := s.chatState.storeSnapshot()
+	if store == nil {
 		return folders, nil
 	}
-	root := s.chatStore.Root()
+	root := store.Root()
 	err := filepath.WalkDir(root, func(path string, item fs.DirEntry, walkErr error) error {
 		if os.IsNotExist(walkErr) {
 			return nil
@@ -123,10 +120,11 @@ func (s *Server) chatFolders() ([]string, error) {
 
 func (s *Server) decorateChatList(sessions map[string]projection.Snapshot) []string {
 	folders, _ := s.chatFolders()
-	if s.chatStore == nil {
+	store := s.chatState.storeSnapshot()
+	if store == nil {
 		return folders
 	}
-	entries, err := s.chatStore.Scan()
+	entries, err := store.Scan()
 	if err != nil {
 		return folders
 	}
@@ -192,12 +190,13 @@ func (s *Server) writeChatTree(w http.ResponseWriter) {
 	// Replay has projected sessions but deliberately has no writable chat store.
 	// Settings still asks for the global chat tree, so answer with the honest
 	// empty filesystem view instead of dereferencing the absent store.
-	if s.chatStore == nil {
+	store := s.chatState.storeSnapshot()
+	if store == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"root": "", "folders": []string{}, "chats": []map[string]string{}})
 		return
 	}
-	root := s.chatStore.Root()
-	entries, err := s.chatStore.Scan()
+	root := store.Root()
+	entries, err := store.Scan()
 	if err != nil {
 		writeError(w, 500, err.Error(), "chats")
 		return

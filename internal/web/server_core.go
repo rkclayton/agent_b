@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"harness/internal/agent"
-	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/detection"
@@ -118,12 +117,7 @@ type Server struct {
 	tryAgentIdle              func(string) bool
 	hostWindowAction          func(string, string) bool
 	startedAt                 string
-	chatMu                    sync.RWMutex
-	chatStore                 *chatstore.Store
-	chatEntries               []chatstore.Entry
-	chatWatchMu               sync.Mutex
-	chatCancel                context.CancelFunc
-	chatDone                  chan struct{}
+	chatState                 chatState
 }
 
 type probeRun struct{ cancel context.CancelFunc }
@@ -205,37 +199,7 @@ func (s *Server) SetRegistry(registry *session.Registry) {
 		log.Printf("included skills are unavailable: %v", err)
 	}
 	s.registry = registry
-	s.chatWatchMu.Lock()
-	defer s.chatWatchMu.Unlock()
-	s.stopChatTrackingLocked()
-	s.chatStore = chatstore.New(filepath.Join(s.profileRoot(), "chats"))
-	s.startChatTrackingLocked(registry)
-}
-
-func (s *Server) stopChatTrackingLocked() {
-	if s.chatCancel != nil {
-		s.chatCancel()
-	}
-	if s.chatDone != nil {
-		<-s.chatDone
-	}
-	s.chatCancel, s.chatDone = nil, nil
-}
-
-func (s *Server) startChatTrackingLocked(registry *session.Registry) {
-	ctx, cancel := context.WithCancel(context.Background())
-	s.chatCancel = cancel
-	done := make(chan struct{})
-	s.chatDone = done
-	go func() {
-		defer close(done)
-		_ = s.chatStore.Watch(ctx, func(entries []chatstore.Entry) {
-			s.chatMu.Lock()
-			s.chatEntries = entries
-			s.chatMu.Unlock()
-			registry.ReconcileChatHomes(entries)
-		})
-	}()
+	s.chatState.reset(filepath.Join(s.profileRoot(), "chats"), registry)
 }
 func (s *Server) SetProfiles(manager *profiles.Manager) { s.profiles = manager }
 func (s *Server) SetProfileChanged(change func(string) error) {

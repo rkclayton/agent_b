@@ -1,11 +1,13 @@
 package web
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,59 @@ import (
 	"harness/internal/session"
 	"harness/internal/worker"
 )
+
+type repositoryFacts struct {
+	Root    string `json:"root"`
+	Branch  string `json:"branch"`
+	Subject string `json:"subject"`
+	Day     string `json:"day"`
+}
+
+func inspectRepository(folder string) repositoryFacts {
+	clean, _ := filepath.Abs(strings.TrimSpace(folder))
+	root := clean
+	for {
+		if info, err := os.Stat(filepath.Join(root, ".git")); err == nil && (info.IsDir() || info.Mode().IsRegular()) {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			return repositoryFacts{Root: clean}
+		}
+		root = parent
+	}
+	facts := repositoryFacts{Root: root}
+	gitDir := filepath.Join(root, ".git")
+	if data, err := os.ReadFile(gitDir); err == nil {
+		if value := strings.TrimSpace(strings.TrimPrefix(string(data), "gitdir:")); value != "" {
+			if !filepath.IsAbs(value) {
+				value = filepath.Join(root, value)
+			}
+			gitDir = filepath.Clean(value)
+		}
+	}
+	head, _ := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if headText := strings.TrimSpace(string(head)); strings.HasPrefix(headText, "ref: ") {
+		facts.Branch = filepath.Base(strings.TrimPrefix(headText, "ref: "))
+	}
+	if log, err := os.Open(filepath.Join(gitDir, "logs", "HEAD")); err == nil {
+		defer log.Close()
+		scanner, last := bufio.NewScanner(log), ""
+		for scanner.Scan() {
+			last = scanner.Text()
+		}
+		fields := strings.Fields(last)
+		if len(fields) >= 6 {
+			if stamp, err := strconv.ParseInt(fields[4], 10, 64); err == nil {
+				facts.Day = time.Unix(stamp, 0).Format("2006-01-02")
+			}
+		}
+		if _, message, ok := strings.Cut(last, "\t"); ok {
+			facts.Subject = message
+		}
+	}
+	return facts
+}
 
 // Item 2fc: the Plan page is plan-centric. It lists every plan, shows one
 // plan's raw plan.md and its numbers, and runs Go on it, whichever chat (if
@@ -103,8 +158,30 @@ func (s *Server) planPage(w http.ResponseWriter, planID string) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"plan_id": target.ID, "name": target.Name, "repo": target.Repo, "plan": string(text),
-		"refusal": planRefusal(target.Dir), "stats": s.planStats(target, string(text), path),
+		"refusal": planRefusal(target.Dir), "facts": s.planFacts(target, path), "stats": s.planStats(target, string(text), path),
 	})
+}
+
+func (s *Server) planFacts(target planTarget, planPath string) map[string]any {
+	agents := filepath.Join(target.Repo, "AGENTS.md")
+	agentsSize := int64(0)
+	if info, err := os.Stat(agents); err == nil {
+		agentsSize = info.Size()
+	} else {
+		agents = ""
+	}
+	notes := filepath.Join(target.Dir, "NOTES.md")
+	notesCount := 0
+	if data, err := os.ReadFile(notes); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(line) != "" {
+				notesCount++
+			}
+		}
+	} else {
+		notes = ""
+	}
+	return map[string]any{"folder": target.Repo, "repository": inspectRepository(target.Repo), "plan_path": planPath, "agents_path": agents, "agents_size": agentsSize, "notes_path": notes, "notes_count": notesCount}
 }
 
 // planStats are the numbers the flyout summarises and the right side shows in
@@ -154,11 +231,24 @@ func (s *Server) planStats(target planTarget, text, path string) map[string]any 
 		}
 	}
 	stats["related"] = related
-	chats := []map[string]string{}
-	for _, item := range s.planners(target.ID) {
-		chats = append(chats, map[string]string{"id": item.ID, "label": item.Snapshot().Label})
+	chats := []map[string]any{}
+	changes := []map[string]any{}
+	for _, item := range s.registry.List() {
+		snapshot := item.Snapshot()
+		if !session.SamePath(snapshot.PlanRepo, target.Repo) && !session.SamePath(snapshot.Workspace, target.Repo) {
+			continue
+		}
+		last := snapshot.CreatedAt
+		if info, err := os.Stat(snapshot.LogPath); err == nil {
+			last = info.ModTime().UTC().Format(time.RFC3339)
+		}
+		chats = append(chats, map[string]any{"id": snapshot.ID, "label": snapshot.Label, "last_activity": last})
+		if snapshot.Run.LastRunID != "" {
+			changes = append(changes, map[string]any{"run_id": snapshot.Run.LastRunID, "chat_id": snapshot.ID, "chat": snapshot.Label, "when": last, "files": nil})
+		}
 	}
 	stats["chats"] = chats
+	stats["changes"] = changes
 	return stats
 }
 
@@ -173,12 +263,17 @@ func nestedPath(root, candidate string) bool {
 // rather than duplicated.
 func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Repo string `json:"repo"`
+		Action string `json:"action"`
+		Repo   string `json:"repo"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	repo := strings.Trim(strings.TrimSpace(body.Repo), `"`)
+	if body.Action == "preview" {
+		s.previewPlan(w, repo)
+		return
+	}
 	if repo == "" || !filepath.IsAbs(repo) {
 		writeError(w, http.StatusBadRequest, "type the full path of an existing folder", "repo")
 		return
@@ -189,6 +284,30 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "created": created, "planner_queue": hasPlannerQueue(plan.Repo)})
+}
+
+func (s *Server) previewPlan(w http.ResponseWriter, folder string) {
+	info, err := os.Stat(folder)
+	if err != nil || !info.IsDir() || !filepath.IsAbs(folder) {
+		writeError(w, http.StatusBadRequest, "choose an existing folder", "repo")
+		return
+	}
+	repository := inspectRepository(folder)
+	planValue, planPath := "will be made", ""
+	if values, _ := session.ListPlans(s.plansRoot()); len(values) > 0 {
+		for _, item := range values {
+			if session.SamePath(item.Repo, repository.Root) {
+				planPath = filepath.Join(s.plansRoot(), item.ID, "plan.md")
+				planValue = planPath
+				break
+			}
+		}
+	}
+	agents := filepath.Join(repository.Root, "AGENTS.md")
+	if _, err := os.Stat(agents); err != nil {
+		agents = ""
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"folder": filepath.Clean(folder), "repository": repository, "plan": planValue, "plan_path": planPath, "agents": agents})
 }
 
 // planBuildDraft is the planning chat's opening message. v0.70.1 overrule

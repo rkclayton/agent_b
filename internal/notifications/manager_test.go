@@ -112,7 +112,7 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 	} {
 		bus.Publish(event)
 	}
-	if _, err := manager.SendTest(context.Background()); err != nil {
+	if _, err := manager.SendTest(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -292,7 +292,7 @@ func TestEveryNoticeFansOutOnceAndDesktopHonorsViewingAndSwitch2rz(t *testing.T)
 	phone := &phoneStandIn{}
 	manager := New(bus, func(id string) string { return "title " + id }, "http://127.0.0.1:8790")
 	desktopOn := true
-	manager.SetChannels(desktop, phone, func() bool { return desktopOn })
+	manager.SetChannels(desktop, phone, func(string) bool { return desktopOn })
 	for _, kind := range []string{events.ApprovalRequired, events.RunStopped, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob} {
 		manager.deliverEvent(context.Background(), events.New(kind, "other", "r1", events.WithHuman(kind, map[string]any{"reason": "done", "scheduled_job": "job", "scheduled_answer": "one\ntwo\nthree"})))
 	}
@@ -303,7 +303,7 @@ func TestEveryNoticeFansOutOnceAndDesktopHonorsViewingAndSwitch2rz(t *testing.T)
 	if notice := desktop.notices[1]; notice.Title != "job" || notice.Body == "" || strings.Count(notice.Body, "\n") > 1 || notice.ChatID != "other" {
 		t.Fatalf("notice=%+v", notice)
 	}
-	answers, err := manager.SendTest(context.Background())
+	answers, err := manager.SendTest(context.Background(), "")
 	if err != nil || answers["desktop"] != "shown" || answers["phone"] != "not paired" || len(answers) != 2 {
 		t.Fatalf("answers=%v err=%v", answers, err)
 	}
@@ -311,5 +311,22 @@ func TestEveryNoticeFansOutOnceAndDesktopHonorsViewingAndSwitch2rz(t *testing.T)
 	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "off", "r3", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})))
 	if len(desktop.notices) != 7 || phone.sent != 9 {
 		t.Fatalf("desktop=%d phone=%d", len(desktop.notices), phone.sent)
+	}
+}
+
+func TestDesktopEventGroupsCanBeSwitchedIndependently2tx(t *testing.T) {
+	desktop := &desktopStandIn{}
+	manager := New(events.NewBus(), nil, "http://127.0.0.1:8790")
+	enabled := map[string]bool{"needs_you": true, "finished": false, "scheduled": true}
+	manager.SetChannels(desktop, nil, func(group string) bool { return group == "" || enabled[group] })
+	for _, event := range []events.Event{
+		events.New(events.ApprovalRequired, "a", "r", events.WithHuman(events.ApprovalRequired, map[string]any{})),
+		events.New(events.RunStopped, "b", "r", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})),
+		events.New(events.RunStopped, "c", "r", events.WithHuman(events.RunStopped, map[string]any{"reason": "done", "scheduled_job": "watch"})),
+	} {
+		manager.deliverEvent(context.Background(), event)
+	}
+	if len(desktop.notices) != 2 || desktop.notices[0].ChatID != "a" || desktop.notices[1].ChatID != "c" {
+		t.Fatalf("notices=%+v", desktop.notices)
 	}
 }

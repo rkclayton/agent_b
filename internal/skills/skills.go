@@ -153,6 +153,8 @@ func inspectZIP(source string, max int64) (Skill, string, []string, map[string]a
 
 var validName = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
+func ValidName(name string) bool { return validName.MatchString(name) }
+
 func Scan(root, stateRoot string, settings map[string]Setting) ([]Skill, string) {
 	entries, _ := os.ReadDir(root)
 	list := make([]Skill, 0, len(entries))

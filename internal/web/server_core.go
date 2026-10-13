@@ -531,6 +531,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/chats/tree", s.replayGuard(s.chatTree))
 	mux.HandleFunc("/api/chats/delete-all", s.replayGuard(s.deleteAllChats))
 	mux.HandleFunc("/api/plans", s.replayGuard(s.plans))
+	mux.HandleFunc("/api/folder-picker", s.replayGuard(s.folderPicker))
 	mux.HandleFunc("/api/plans/build", s.replayGuard(s.buildPlanRoute))
 	mux.HandleFunc("/api/plan", s.replayGuard(s.planSurface))
 	mux.HandleFunc("/api/plan/accept", s.replayGuard(s.planAccept))

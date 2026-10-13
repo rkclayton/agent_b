@@ -73,15 +73,16 @@ type Roles struct {
 }
 
 type Agent struct {
-	Name     string   `json:"name"`
-	Thinking bool     `json:"thinking"`
-	B        string   `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
-	C        string   `json:"c,omitempty"`
-	D        string   `json:"d,omitempty"`
-	Toolset  []string `json:"toolset"`
-	Model    string   `json:"model,omitempty"` // legacy model override; migrated into the connection
-	Prompt   string   `json:"prompt,omitempty"`
-	Private  bool     `json:"private,omitempty"`
+	Name     string                  `json:"name"`
+	Thinking bool                    `json:"thinking"`
+	B        string                  `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
+	C        string                  `json:"c,omitempty"`
+	D        string                  `json:"d,omitempty"`
+	Toolset  []string                `json:"toolset"`
+	Model    string                  `json:"model,omitempty"` // legacy model override; migrated into the connection
+	Prompt   string                  `json:"prompt,omitempty"`
+	Private  bool                    `json:"private,omitempty"`
+	Skills   map[string]SkillSetting `json:"skills,omitempty"`
 }
 
 func (a *Agent) UnmarshalJSON(data []byte) error {
@@ -735,11 +736,14 @@ type OperatorFiles struct {
 type Notifications struct {
 	DiscordCredential string `json:"discord_credential"`
 	Desktop           bool   `json:"desktop"`
+	DesktopNeedsYou   bool   `json:"desktop_needs_you"`
+	DesktopFinished   bool   `json:"desktop_finished"`
+	DesktopScheduled  bool   `json:"desktop_scheduled"`
 	initialized       bool
 }
 
 func defaultNotifications() Notifications {
-	return Notifications{DiscordCredential: "discord-webhook", Desktop: true, initialized: true}
+	return Notifications{DiscordCredential: "discord-webhook", Desktop: true, DesktopNeedsYou: true, DesktopFinished: true, DesktopScheduled: true, initialized: true}
 }
 func (n *Notifications) UnmarshalJSON(data []byte) error {
 	type plain Notifications
@@ -1127,9 +1131,22 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		cfg.Tools.Fetch.DenyDomains = kept
 	}
 	// Operator context is a launch-scoped state, never a startup instruction.
+	cfg.Approval.Unattended = false
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	applyDefaults(&cfg)
+	skillsMigrated := false
+	for index := range cfg.Agents {
+		if cfg.Agents[index].Skills != nil {
+			continue
+		}
+		cfg.Agents[index].Skills = cloneSkillSettings(cfg.Skills)
+		// An empty legacy map has no state to carry and remains omitted on disk.
+		// Only copying actual global choices is a persisted migration.
+		if len(cfg.Skills) > 0 {
+			skillsMigrated = true
+		}
+	}
 	builtInAgentMigrated := version < 14 && len(cfg.Agents) > 0 && AgentID(cfg.Agents[0].Name) != "agent_b"
 	if builtInAgentMigrated {
 		cfg.Agents[0].Name = "agent_b"
@@ -1154,7 +1171,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || builtInAgentMigrated || profilesMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated || unstamped {
+	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || builtInAgentMigrated || profilesMigrated || skillsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated || unstamped {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
@@ -1179,7 +1196,15 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if len(placeholderCleared) > 0 {
 		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
 	}
-	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || profilesMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated, created, nil
+	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || profilesMigrated || skillsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated, created, nil
+}
+
+func cloneSkillSettings(source map[string]SkillSetting) map[string]SkillSetting {
+	result := make(map[string]SkillSetting, len(source))
+	for name, setting := range source {
+		result[name] = setting
+	}
+	return result
 }
 
 func (c Config) Save(path string) error {
@@ -1215,6 +1240,7 @@ func (c Config) Save(path string) error {
 	}
 	persisted.Shell.OperatorContext = false
 	persisted.Shell.OperatorContextExpiresAt = ""
+	persisted.Approval.Unattended = false
 	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return err

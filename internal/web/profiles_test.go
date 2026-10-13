@@ -59,6 +59,7 @@ func TestProfilesEndpointCreatesRenamesAndSwitches(t *testing.T) {
 func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	cfg := config.Defaults(root)
+	cfg.Agents = append(cfg.Agents, config.Agent{Name: "Review", Toolset: config.FullToolset()})
 	configPath := filepath.Join(root, "harness.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
@@ -107,8 +108,12 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 		t.Fatalf("card=%+v detail=%q", card, detail)
 	}
 	state := server.skillState()
-	if len(state) != 1 || !state[0].Enabled || state[0].Source != "added in chat from "+source || !strings.Contains(server.Index(), "report-kit | Builds invented fixture reports.") {
+	if len(state) != 1 || !state[0].Enabled || state[0].Source != "added in chat from "+source || !strings.Contains(server.Index(cfg.DefaultAgentID()), "report-kit | Builds invented fixture reports.") {
 		t.Fatalf("skills=%+v", state)
+	}
+	review, _ := server.skillCatalog("review")
+	if len(review) != 1 || review[0].Enabled {
+		t.Fatalf("chat-added skill should be off for the other profile: %+v", review)
 	}
 	declined := filepath.Join(t.TempDir(), "declined-skill")
 	_ = os.MkdirAll(declined, 0o700)
@@ -197,8 +202,8 @@ func TestChatSkillProposalReplacesAUserSkillButNeverAnIncludedSkill2u9(t *testin
 	}
 	_, detail = offer("approve")
 	after, _ := os.ReadFile(filepath.Join(stored, "SKILL.md"))
-	if detail != "skill report-kit replaced" || !strings.Contains(string(after), "New description") || cfg.Skills["report-kit"].Enabled {
-		t.Fatalf("detail=%q skill=%q setting=%+v", detail, after, cfg.Skills["report-kit"])
+	if detail != "skill report-kit replaced" || !strings.Contains(string(after), "New description") || cfg.Agents[0].Skills["report-kit"].Enabled {
+		t.Fatalf("detail=%q skill=%q setting=%+v", detail, after, cfg.Agents[0].Skills["report-kit"])
 	}
 	if _, err := os.Stat(filepath.Join(stored, "old-only.txt")); !os.IsNotExist(err) {
 		t.Fatalf("old file remains: %v", err)
@@ -235,9 +240,10 @@ func TestChatSkillProposalReplacesAUserSkillButNeverAnIncludedSkill2u9(t *testin
 	}
 }
 
-func TestSkillImportUsesNormalizedPathAndArrivesDisabled2rx(t *testing.T) {
+func TestSkillImportUsesNormalizedPathAndArrivesOnForSelectedAgent2u7(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(t.TempDir())
+	cfg.Agents = append(cfg.Agents, config.Agent{Name: "Review", Toolset: config.FullToolset()})
 	path := filepath.Join(root, "harness.json")
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
@@ -262,11 +268,15 @@ func TestSkillImportUsesNormalizedPathAndArrivesDisabled2rx(t *testing.T) {
 		t.Fatalf("import=%d %s", response.Code, response.Body.String())
 	}
 	state := server.skillState()
-	if len(state) != 1 || state[0].Enabled || !strings.Contains(state[0].Source, source) {
+	if len(state) != 1 || !state[0].Enabled || !strings.Contains(state[0].Source, source) {
 		t.Fatalf("state=%+v", state)
 	}
+	review, _ := server.skillCatalog("review")
+	if len(review) != 1 || review[0].Enabled {
+		t.Fatalf("new skill should be off for the other agent: %+v", review)
+	}
 	server.skillsEndpoint(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"rescan"}`)))
-	if server.skillState()[0].Enabled {
+	if !server.skillState()[0].Enabled {
 		t.Fatalf("rescan state=%+v", server.skillState())
 	}
 	restarted, _, _, err := config.Load(path)
@@ -278,8 +288,12 @@ func TestSkillImportUsesNormalizedPathAndArrivesDisabled2rx(t *testing.T) {
 		t.Fatal(err)
 	}
 	afterRestart := New(restarted, path, t.TempDir(), RuntimeRoots{Data: root, Profile: reopened.Root(reopened.Active())}, events.NewBus())
-	if afterRestart.skillState()[0].Enabled {
-		t.Fatal("disabled skill came back on after restart")
+	if !afterRestart.skillState()[0].Enabled {
+		t.Fatal("selected agent skill did not stay on after restart")
+	}
+	review, _ = afterRestart.skillCatalog("review")
+	if review[0].Enabled {
+		t.Fatalf("other agent skill came on after restart: %+v", review)
 	}
 }
 
@@ -299,6 +313,111 @@ func TestSkillImportErrorsNameTheTriedPath2pe(t *testing.T) {
 		if response.Code != 400 || !strings.Contains(result.Error, displaySkillPath(tried)) || strings.Contains(result.Error, "open SKILL.md") {
 			t.Errorf("tried=%q decoded=%q want=%q response=%d %s", tried, result.Error, displaySkillPath(tried), response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestAnyFolderAddsOnlyPickedSkillsAndRemoveClearsEveryProfile2u7(t *testing.T) {
+	root, picked := t.TempDir(), t.TempDir()
+	profile := filepath.Join(root, "profile")
+	if err := os.MkdirAll(filepath.Join(profile, "skills"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill := func(relative, name, description string) string {
+		dir := filepath.Join(picked, relative)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nname: " + name + "\ndescription: " + description + "\n---\nProcedure.\n"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	writeSkill("one", "one", "First skill.")
+	writeSkill(filepath.Join("middle", "two"), "two", "Second skill.")
+	writeSkill(filepath.Join("deep", "more", "three"), "three", "Third skill.")
+	cfg := config.Defaults(root)
+	cfg.Agents = append(cfg.Agents, config.Agent{Name: "Review", Toolset: config.FullToolset()})
+	configPath := filepath.Join(root, "harness.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
+	preview, err := server.discoverSkillFolder(picked)
+	if err != nil || len(preview.Rows) != 3 {
+		t.Fatalf("preview=%+v err=%v", preview, err)
+	}
+	if _, err := os.Stat(filepath.Join(profile, "skills", "one")); !os.IsNotExist(err) {
+		t.Fatalf("preview copied a skill: %v", err)
+	}
+	body := `{"action":"import-many","agent_id":"agent_b","path":` + strconv.Quote(picked) + `,"include":["skill:one","skill:three"]}`
+	response := httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(body)))
+	if response.Code != 200 {
+		t.Fatalf("add=%d %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(profile, "skills", "two")); !os.IsNotExist(err) {
+		t.Fatalf("unticked skill was copied: %v", err)
+	}
+	selected, _ := server.skillCatalog("agent_b")
+	review, _ := server.skillCatalog("review")
+	if len(selected) != 2 || !selected[0].Enabled || !selected[1].Enabled || review[0].Enabled || review[1].Enabled {
+		t.Fatalf("selected=%+v review=%+v", selected, review)
+	}
+	response = httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"remove","agent_id":"agent_b","name":"one"}`)))
+	if response.Code != 200 {
+		t.Fatalf("remove=%d %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(profile, "skills", "one")); !os.IsNotExist(err) || strings.Contains(server.Index("agent_b"), "one |") || strings.Contains(server.Index("review"), "one |") {
+		t.Fatalf("removed skill survived: stat=%v selected=%q review=%q", err, server.Index("agent_b"), server.Index("review"))
+	}
+}
+
+func TestReplacingSkillPreservesEveryProfileSwitchAndIncludedCannotReplace2u7(t *testing.T) {
+	root, profile := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(profile, "skills", "stored"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := []byte("---\nname: stored\ndescription: Old.\n---\n")
+	if err := os.WriteFile(filepath.Join(profile, "skills", "stored", "SKILL.md"), old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	picked := filepath.Join(t.TempDir(), "stored")
+	if err := os.MkdirAll(picked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(picked, "SKILL.md"), []byte("---\nname: stored\ndescription: New.\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(root)
+	cfg.Agents[0].Skills = map[string]config.SkillSetting{"stored": {Enabled: false}}
+	cfg.Agents = append(cfg.Agents, config.Agent{Name: "Review", Toolset: config.FullToolset(), Skills: map[string]config.SkillSetting{"stored": {Enabled: true}}})
+	path := filepath.Join(root, "harness.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
+	body := `{"action":"import-many","agent_id":"agent_b","path":` + strconv.Quote(picked) + `,"include":["skill:stored"]}`
+	response := httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(body)))
+	updated, _ := os.ReadFile(filepath.Join(profile, "skills", "stored", "SKILL.md"))
+	if response.Code != 200 || !strings.Contains(string(updated), "description: New.") || cfg.Agents[0].Skills["stored"].Enabled || !cfg.Agents[1].Skills["stored"].Enabled {
+		t.Fatalf("replace=%d updated=%q agents=%+v", response.Code, updated, cfg.Agents)
+	}
+	response = httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"enable","agent_id":"agent_b","name":"stored","enabled":true}`)))
+	if response.Code != 200 || !cfg.Agents[0].Skills["stored"].Enabled || !cfg.Agents[1].Skills["stored"].Enabled {
+		t.Fatalf("profile-only toggle=%d agents=%+v", response.Code, cfg.Agents)
+	}
+	included := filepath.Join(profile, "skills", ".included", "shipped")
+	if err := os.MkdirAll(included, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"action":"replace","name":"shipped","path":`+strconv.Quote(picked)+`}`)))
+	if response.Code != 400 || !strings.Contains(response.Body.String(), "cannot be replaced") {
+		t.Fatalf("included replace=%d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -360,11 +479,11 @@ func TestHermesPreviewAndImport2nd(t *testing.T) {
 	if strings.Contains(string(skill), "~/.hermes") || strings.Contains(string(skill), "HERMES_HOME") || !strings.Contains(string(skill), "name: report-kit") {
 		t.Fatalf("skill was not portable: %s", skill)
 	}
-	if setting := cfg.Skills["report-kit"]; setting.Enabled || !strings.Contains(strings.Join(strings.Fields(imported.Body.String()), " "), "memory") {
+	if setting := cfg.Agents[0].Skills["report-kit"]; setting.Enabled || !strings.Contains(strings.Join(strings.Fields(imported.Body.String()), " "), "memory") {
 		t.Fatalf("setting=%+v report=%s", setting, imported.Body.String())
 	}
-	if !cfg.Skills["portable"].Enabled || !strings.Contains(server.Index(), "portable | Portable fixture.") {
-		t.Fatalf("portable skill did not arrive on: %+v index=%s", cfg.Skills["portable"], server.Index())
+	if !cfg.Agents[0].Skills["portable"].Enabled || !strings.Contains(server.Index(cfg.DefaultAgentID()), "portable | Portable fixture.") {
+		t.Fatalf("portable skill did not arrive on: %+v index=%s", cfg.Agents[0].Skills["portable"], server.Index(cfg.DefaultAgentID()))
 	}
 	memoryPath := filepath.Join(profile, "memory", "agent-"+cfg.DefaultAgentID()+".md")
 	memoryBody, err := os.ReadFile(memoryPath)

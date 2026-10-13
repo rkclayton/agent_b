@@ -1619,3 +1619,36 @@ func TestChatReadingSettingsUsePixelsAndMigrateNamedSteps2rg(t *testing.T) {
 		t.Error("unknown text colour was accepted")
 	}
 }
+
+func TestGlobalSkillChoicesMigrateOnceToEveryAgentProfile2u7(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(t.TempDir())
+	cfg.Skills = map[string]SkillSetting{
+		"alpha": {Enabled: true, Source: "existing"},
+		"beta":  {Enabled: false, Source: "existing"},
+	}
+	cfg.Agents = append(cfg.Agents, Agent{Name: "Review", Toolset: FullToolset()})
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, migrated, _, err := Load(path)
+	if err != nil || !migrated {
+		t.Fatalf("first load migrated=%t err=%v", migrated, err)
+	}
+	for _, agent := range loaded.Agents {
+		if !agent.Skills["alpha"].Enabled || agent.Skills["beta"].Enabled {
+			t.Fatalf("agent %q skills=%+v", agent.Name, agent.Skills)
+		}
+	}
+	loaded.Agents[0].Skills["alpha"] = SkillSetting{Enabled: false}
+	if !loaded.Agents[1].Skills["alpha"].Enabled {
+		t.Fatal("agent skill maps share mutable state")
+	}
+	if err := loaded.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, migratedAgain, _, err := Load(path)
+	if err != nil || migratedAgain || reloaded.Agents[0].Skills["alpha"].Enabled || !reloaded.Agents[1].Skills["alpha"].Enabled {
+		t.Fatalf("second load migrated=%t agents=%+v err=%v", migratedAgain, reloaded.Agents, err)
+	}
+}

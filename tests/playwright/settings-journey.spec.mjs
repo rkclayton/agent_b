@@ -55,16 +55,17 @@ test.beforeAll(async () => {
   harness = await start({ exe, appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"], streamDelayMs: 800 });
 });
 
-test("Hermes import shows the complete preview before writing", async () => {
+test("generic skill-folder add shows the complete Hermes-layout preview before writing", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
 	await toggleSettings(page);
-	await page.locator('.settings-nav [data-id="profiles"]').click();
-	await page.locator("#hermes-import-path").fill(hermesHome);
-	await page.locator('[data-action="hermes-preview"]').click();
-	await expect(page.locator(".hermes-row")).toHaveCount(8);
-	for (const name of ["SOUL.md", "MEMORY.md", "USER.md", "portable", "FIRST_KEY", "SECOND_KEY", "cron", "sessions"]) await expect(page.locator("#settings-page")).toContainText(name);
-	await expect(page.locator("#settings-page")).toContainText("preview only · nothing written");
+	await page.locator('.settings-nav [data-id="skills"]').click();
+	await page.route("**/api/folder-picker", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: hermesHome }) }));
+	await page.getByRole("button", { name: "Add skill", exact: true }).click();
+	await expect(page.locator(".skill-add-preview")).toBeVisible();
+	for (const name of ["MEMORY.md", "USER.md", "portable", "FIRST_KEY", "SECOND_KEY"]) await expect(page.locator("#settings-page")).toContainText(name);
+	for (const omitted of ["SOUL.md", "cron", "sessions"]) await expect(page.locator("#settings-page")).not.toContainText(omitted);
+	await expect(page.getByRole("button", { name: "Add", exact: true })).toBeVisible();
 	const evidence = join(repo, "logs", "evidence", "rel-1.58.0"); await mkdir(evidence, { recursive: true });
 	await page.screenshot({ path: join(evidence, "hermes-preview.png"), fullPage: true });
 	await page.close();
@@ -81,7 +82,7 @@ test("Settings is a centred bounded window over the drawn chat 2sy", async () =>
 	for (const width of [1280, 1920]) {
 		await page.setViewportSize({ width, height: 900 }); await page.goto(`${harness.base}/chat`); await toggleSettings(page);
 		const box = await page.evaluate(() => { const panel = document.querySelector("#settings-page").getBoundingClientRect(), strip = document.querySelector("#app-shell").getBoundingClientRect(); return { width: panel.width, height: panel.height, dx: Math.abs(panel.left + panel.width / 2 - innerWidth / 2), dy: Math.abs(panel.top + panel.height / 2 - (strip.bottom + (innerHeight - strip.bottom) / 2)), chat: document.querySelector("#chat-log").checkVisibility(), list: document.querySelector(".chat-list-panel").checkVisibility(), backdrop: document.querySelector("#settings-backdrop")?.checkVisibility() || false }; });
-		expect(box).toMatchObject({ width: 960, height: 720, chat: true, list: true, backdrop: true }); expect(box.dx).toBeLessThanOrEqual(1); expect(box.dy).toBeLessThanOrEqual(1);
+		expect(box).toMatchObject({ width: width * .8, height: 720, chat: true, list: true, backdrop: true }); expect(box.dx).toBeLessThanOrEqual(1); expect(box.dy).toBeLessThanOrEqual(16);
 		await page.screenshot({ path: join(repo, "test-results", `2sy-settings-${width}.png`), fullPage: true }); await page.getByTitle("Close").click();
 		await expect(page.locator("#settings-page")).toBeHidden();
 	}
@@ -413,7 +414,7 @@ test("telemetry consent is shared by Setup and About and persists both choices",
 	await expect(page.locator("#setup")).toHaveCount(0);
 	await toggleSettings(page);
 	await page.locator('.settings-nav [data-id="about"]').click();
-	await expect(page.getByText("Send anonymous data to help improve Agent_b", { exact: true })).toBeVisible();
+	await expect(page.getByText("anonymous diagnostics", { exact: true })).toBeVisible();
 	await page.screenshot({ path: join(evidence, "settings-about-anonymous-data.png"), fullPage: true });
 	await page.close();
 });

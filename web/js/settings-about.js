@@ -8,7 +8,7 @@ function telemetry() {
   const on = config.enabled !== false;
   let destination = "broker.agentb.app";
   try { destination = new URL(config.endpoint || "https://broker.agentb.app/v1/telemetry").host; } catch { destination = "configured receiver"; }
-  return `${toggle("telemetry.enabled", "Send anonymous data to help improve Agent_b", on)}<p class="settings-subhead-note">Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts. Sent to ${html(destination)}.</p>`;
+  return toggle("telemetry.enabled", "anonymous diagnostics", on, `Sends counts, durations and error classes to ${destination}; never chats, files or prompts.`);
 }
 
 function attrOf(value) {

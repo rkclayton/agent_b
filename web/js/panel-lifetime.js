@@ -39,6 +39,29 @@ export function lifetimeRows(counters = {}, percentile = () => 0) {
   ];
 }
 
+const lifetimeGroups = {
+  Runs: new Set(["chats", "runs / briefs", "turns", "completion rate", "interventions / brief", "cost / brief", "failure attribution model | harness | brief", "rework rate", "silence rate"]),
+  Approvals: new Set(["approvals raised / approved", "Run as you grants"]),
+  Context: new Set(["compactions", "prompt / completion tokens", "cache-hit ratio"]),
+  Time: new Set(["wall time", "model response p50 / max", "first / last use"]),
+};
+
+export function groupedLifetimeRows(counters = {}, percentile = () => 0) {
+  const rows = lifetimeRows(counters, percentile);
+  return Object.entries(lifetimeGroups).flatMap(([group, labels]) => rows
+    .filter(([figure]) => labels.has(figure))
+    .map(([figure, value]) => ({ group, figure, value })));
+}
+
+export function toolUseRows(tools = [], counters = {}) {
+  const total = tools.reduce((sum, tool) => sum + Number(counters[tool.name]?.calls || 0), 0);
+  return tools.map((tool) => {
+    const stats = counters[tool.name] || {};
+    const calls = Number(stats.calls || 0);
+    return { name: tool.name, calls, failures: Number(stats.failures || 0), lastUsed: stats.last_used || "—", share: total ? 100 * calls / total : 0 };
+  }).sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
+}
+
 // Item 2ji (c): the per-connection row, lifetime beside the last twenty runs.
 //
 // Lifetime alone cannot show that a connection has GOT WORSE, and that is the

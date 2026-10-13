@@ -10,7 +10,7 @@ const modules = [
 
 const source = Object.fromEntries(modules);
 
-test("subhead explanations are visible and row hints remain attached to controls", () => {
+test("subhead explanations stay in hover detail and row hints remain attached to controls", () => {
   // The helpers that carry it.
   assert.match(source["settings.js"], /function row\(label, control, extra = "", hint = ""\)/);
   assert.match(source["settings.js"], /function subhead\(label, hint = ""\)/);
@@ -18,11 +18,11 @@ test("subhead explanations are visible and row hints remain attached to controls
   for (const helper of ["toggle", "text", "number", "secret", "choices", "textarea", "approvalChoices"]) {
     assert.match(source["settings.js"], new RegExp(`function ${helper}\\([^)]*hint = ""\\)`), `${helper} cannot carry hover text`);
   }
-  // Row-specific hints stay attached; subsection prose is visible and has no title.
+  // Row-specific and subsection hints stay attached without another sentence at rest.
   assert.match(source["settings.js"], /const hover = hint === false \? "" : \(hint \|\| `\$\{label\} setting\.`\)/);
   assert.match(source["settings.js"], /\$\{hover \? ` title="\$\{attr\(hover\)\}"` : ""\}/);
-  assert.match(source["settings.js"], /class="settings-subhead">\$\{html\(label\)\}<\/div>\$\{hint \? `<p class="settings-subhead-note">/);
-  assert.doesNotMatch(source["settings.js"], /class="settings-subhead"[^\n]+title=/);
+  assert.match(source["settings.js"], /class="settings-subhead"\$\{hint \? ` title="\$\{attr\(hint\)\}"` : ""\}>\$\{html\(label\)\}<\/div>/);
+  assert.doesNotMatch(source["settings.js"], /class="settings-subhead-note"/);
 });
 
 test("the descriptor budget: Security keeps the dangerous line and the two authorized boundary explanations", () => {

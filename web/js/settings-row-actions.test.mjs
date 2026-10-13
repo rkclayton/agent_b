@@ -66,13 +66,14 @@ test("connection fields commit without a Save control and model selection commit
 });
 
 // Item 2l4 (a) and (d). Not one remove control rewrites its own label any more, and
-// every one of the seven that shared the pattern names what it will remove.
+// every remaining one that shares the pattern names what it will remove. The
+// standing-grant control left with the standing-grants page in item 2tz.
 test("no remove control changes its label when armed", () => {
   for (const forbidden of [/Confirm ×/, /Confirm remove/, /Confirm revoke/, /Confirm clear/, /Confirm empty/, /armed\.has\(key\) \? "confirm" : ""/]) {
     assert.doesNotMatch(all, forbidden, `a control still rewrites itself: ${forbidden}`);
   }
-  const confirmables = [...all.matchAll(/data-action="(remove-connection|close-session|remove-agent-memory|revoke-standing-grant|reset-session|revoke-workspace-policy|empty-operator-attachments)"[^>]*data-confirm=/g)];
-  assert.equal(confirmables.length, 7, `expected all seven armed controls to name what they remove, found ${confirmables.length}`);
+  const confirmables = [...all.matchAll(/data-action="(remove-connection|close-session|remove-agent-memory|reset-session|revoke-workspace-policy|empty-operator-attachments)"[^>]*data-confirm=/g)];
+  assert.equal(confirmables.length, 6, `expected all six armed controls to name what they remove, found ${confirmables.length}`);
 });
 
 // (b) and (c): one anchored popover, Escape and outside click cancel, and cancel

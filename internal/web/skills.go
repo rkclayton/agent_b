@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/http"
 	"os"
@@ -22,20 +23,45 @@ import (
 
 type skillRequest struct {
 	Action, Name, Path string
+	AgentID            string `json:"agent_id"`
 	Enabled            bool
 	Include            []string
 }
 
-func (s *Server) skillState() []skills.Skill { list, _ := s.skillCatalog(); return list }
+func (s *Server) skillState() []skills.Skill {
+	list, _ := s.skillCatalog(s.ConfigSnapshot().DefaultAgentID())
+	return list
+}
 
-func (s *Server) skillCatalog() ([]skills.Skill, string) {
-	s.mu.RLock()
-	settings := maps.Clone(s.cfg.Skills)
-	s.mu.RUnlock()
+func (s *Server) skillCatalog(agentID string) ([]skills.Skill, string) {
+	s.mu.Lock()
+	settings := maps.Clone(s.agentSkillSettingsLocked(agentID))
+	s.mu.Unlock()
 	return skills.Scan(filepath.Join(s.profileRoot(), "skills"), filepath.Join(s.profileRoot(), "skill-state"), settings)
 }
 
-func (s *Server) Index() string { _, block := s.skillCatalog(); return block }
+func (s *Server) Index(agentID string) string { _, block := s.skillCatalog(agentID); return block }
+
+func (s *Server) agentSkillSettingsLocked(agentID string) map[string]config.SkillSetting {
+	if s.cfg.Skills == nil {
+		s.cfg.Skills = map[string]config.SkillSetting{}
+	}
+	if agentID == "" {
+		agentID = s.cfg.DefaultAgentID()
+	}
+	for index := range s.cfg.Agents {
+		if config.AgentID(s.cfg.Agents[index].Name) == agentID {
+			if s.cfg.Agents[index].Skills == nil {
+				s.cfg.Agents[index].Skills = maps.Clone(s.cfg.Skills)
+				if s.cfg.Agents[index].Skills == nil {
+					s.cfg.Agents[index].Skills = map[string]config.SkillSetting{}
+				}
+			}
+			return s.cfg.Agents[index].Skills
+		}
+	}
+	return s.cfg.Skills
+}
 
 func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -48,19 +74,20 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.Action = strings.ToLower(strings.TrimSpace(request.Action))
-	s.mu.Lock()
-	if s.cfg.Skills == nil {
-		s.cfg.Skills = map[string]config.SkillSetting{}
+	if request.AgentID == "" {
+		request.AgentID = s.cfg.DefaultAgentID()
 	}
+	s.mu.Lock()
+	settings := s.agentSkillSettingsLocked(request.AgentID)
 	var err error
 	var response any
 	var hermesTelemetry map[string]any
 	persist, publish := true, true
 	switch request.Action {
 	case "enable":
-		value := s.cfg.Skills[request.Name]
+		value := settings[request.Name]
 		value.Enabled = request.Enabled
-		s.cfg.Skills[request.Name] = value
+		settings[request.Name] = value
 	case "import":
 		var value config.SkillSetting
 		request.Path = normalizeSkillImportPath(request.Path)
@@ -76,9 +103,96 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil {
-			s.cfg.Skills[value.Name] = value
+			value.Enabled = true
+			settings[value.Name] = value
+			for index := range s.cfg.Agents {
+				if config.AgentID(s.cfg.Agents[index].Name) != request.AgentID {
+					if s.cfg.Agents[index].Skills == nil {
+						s.cfg.Agents[index].Skills = maps.Clone(s.cfg.Skills)
+					}
+					other := s.cfg.Agents[index].Skills[value.Name]
+					other.Enabled = false
+					s.cfg.Agents[index].Skills[value.Name] = other
+				}
+			}
+		}
+	case "replace":
+		if _, statErr := os.Stat(filepath.Join(s.profileRoot(), "skills", ".included", request.Name)); statErr == nil {
+			err = fmt.Errorf("included skill %q cannot be replaced", request.Name)
+			break
+		}
+		was := settings[request.Name]
+		var value config.SkillSetting
+		value, err = replaceSkill(filepath.Join(s.profileRoot(), "skills"), normalizeSkillImportPath(request.Path), request.Name, s.cfg.Tools.Attachments.MaxBytes)
+		if err == nil {
+			value.Enabled, value.Source = was.Enabled, was.Source
+			settings[request.Name] = value
+		}
+	case "remove":
+		included := filepath.Join(s.profileRoot(), "skills", ".included", request.Name)
+		if _, statErr := os.Stat(included); statErr == nil {
+			err = fmt.Errorf("included skill %q cannot be removed", request.Name)
+			break
+		}
+		target := filepath.Join(s.profileRoot(), "skills", request.Name)
+		if filepath.Base(target) != request.Name || !skills.ValidName(request.Name) {
+			err = fmt.Errorf("invalid skill name %q", request.Name)
+			break
+		}
+		err = os.RemoveAll(target)
+		if err == nil {
+			for index := range s.cfg.Agents {
+				delete(s.cfg.Agents[index].Skills, request.Name)
+			}
+			delete(s.cfg.Skills, request.Name)
 		}
 	case "rescan":
+	case "preview-folder":
+		persist, publish = false, false
+		response, err = s.discoverSkillFolder(normalizeSkillImportPath(request.Path))
+	case "import-many":
+		request.Path = normalizeSkillImportPath(request.Path)
+		var preview skillFolderPreview
+		preview, err = s.discoverSkillFolder(request.Path)
+		if err == nil {
+			wanted := map[string]bool{}
+			for _, id := range request.Include {
+				wanted[id] = true
+			}
+			if hermesPreview, previewErr := hermes.PreviewHome(request.Path); previewErr == nil {
+				ids := []string{}
+				for _, row := range hermesPreview.Rows {
+					if wanted[row.ID] && (row.Kind == "memory" || row.Kind == "secret") {
+						ids = append(ids, row.ID)
+					}
+				}
+				if len(ids) > 0 {
+					var report hermes.Report
+					report, err = hermes.Import(request.Path, s.profileRoot(), request.AgentID, s.cfg.Memory.MaxTokens, ids)
+					response = report
+				}
+			}
+			for _, item := range preview.Rows {
+				if err != nil || item.Kind != "skill" || !wanted[item.ID] {
+					continue
+				}
+				var value config.SkillSetting
+				if item.Existing {
+					was := settings[item.Name]
+					value, err = replaceSkill(filepath.Join(s.profileRoot(), "skills"), item.Path, item.Name, s.cfg.Tools.Attachments.MaxBytes)
+					value.Enabled = was.Enabled
+				} else {
+					value, err = skills.Import(filepath.Join(s.profileRoot(), "skills"), item.Path, s.cfg.Tools.Attachments.MaxBytes)
+					value.Enabled = true
+				}
+				if err == nil {
+					settings[item.Name] = value
+					if !item.Existing {
+						s.disableSkillForOtherAgentsLocked(request.AgentID, item.Name)
+					}
+				}
+			}
+		}
 	case "hermes-preview":
 		persist, publish = false, false
 		request.Path = normalizeHermesPath(request.Path)
@@ -92,13 +206,15 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			for _, item := range report.Skills {
 				if item.Changed {
-					s.cfg.Skills[item.Name] = config.SkillSetting{Enabled: item.Enabled, Source: "imported from Hermes"}
+					value := settings[item.Name]
+					value.Enabled, value.Source = item.Enabled, "imported from folder"
+					settings[item.Name] = value
 				}
 			}
 			response = report
 		}
 	default:
-		err = errors.New("skill action must be enable, import, rescan, hermes-preview or hermes-import")
+		err = errors.New("skill action must be enable, import, replace, remove, rescan, preview-folder, import-many, hermes-preview or hermes-import")
 	}
 	if err == nil && persist {
 		err = s.saveProfileConfig(*s.cfg)
@@ -115,7 +231,7 @@ func (s *Server) skillsEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error(), "skills")
 		return
 	}
-	state := s.skillState()
+	state, _ := s.skillCatalog(request.AgentID)
 	if publish {
 		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "skills": state}))
 	}
@@ -163,6 +279,98 @@ func displaySkillPath(value string) string {
 func pathInfoMissing(path string) bool {
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+type skillFolderRow struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Path        string `json:"path"`
+	Reason      string `json:"reason"`
+	Files       int    `json:"files"`
+	Valid       bool   `json:"valid"`
+	Existing    bool   `json:"existing"`
+	Shipped     bool   `json:"shipped"`
+	Included    bool   `json:"included"`
+}
+type skillFolderPreview struct {
+	Rows []skillFolderRow `json:"rows"`
+}
+
+func (s *Server) disableSkillForOtherAgentsLocked(agentID, name string) {
+	if agentID == "" {
+		agentID = s.cfg.DefaultAgentID()
+	}
+	for index := range s.cfg.Agents {
+		if config.AgentID(s.cfg.Agents[index].Name) == agentID {
+			continue
+		}
+		settings := s.agentSkillSettingsLocked(config.AgentID(s.cfg.Agents[index].Name))
+		value := settings[name]
+		value.Enabled = false
+		settings[name] = value
+	}
+}
+
+func (s *Server) discoverSkillFolder(root string) (skillFolderPreview, error) {
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return skillFolderPreview{}, fmt.Errorf("skill folder was not found")
+	}
+	result := skillFolderPreview{Rows: []skillFolderRow{}}
+	seen := map[string]bool{}
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry == nil {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() || !strings.EqualFold(entry.Name(), "SKILL.md") {
+			return nil
+		}
+		dir := filepath.Dir(path)
+		item, _, files, inspectErr := skills.InspectSource(dir, s.cfg.Tools.Attachments.MaxBytes)
+		row := skillFolderRow{Kind: "skill", Path: dir, Files: len(files), Valid: inspectErr == nil && item.Valid, Included: inspectErr == nil && item.Valid}
+		if inspectErr != nil {
+			row.Reason = inspectErr.Error()
+		} else {
+			row.Name, row.Description, row.Reason = item.Name, item.Description, item.Reason
+		}
+		if row.Name == "" {
+			row.Name = filepath.Base(dir)
+		}
+		row.ID = "skill:" + row.Name
+		if seen[row.ID] {
+			return nil
+		}
+		seen[row.ID] = true
+		_, userErr := os.Stat(filepath.Join(s.profileRoot(), "skills", row.Name))
+		row.Existing = userErr == nil
+		_, shippedErr := os.Stat(filepath.Join(s.profileRoot(), "skills", ".included", row.Name))
+		row.Shipped = shippedErr == nil
+		result.Rows = append(result.Rows, row)
+		return nil
+	})
+	if err != nil {
+		return skillFolderPreview{}, err
+	}
+	if preview, previewErr := hermes.PreviewHome(root); previewErr == nil {
+		for _, row := range preview.Rows {
+			if seen[row.ID] || (row.Kind != "memory" && row.Kind != "secret") {
+				continue
+			}
+			result.Rows = append(result.Rows, skillFolderRow{ID: row.ID, Kind: row.Kind, Name: row.Name, Description: row.Detail, Valid: row.Selectable, Included: row.Included})
+		}
+	}
+	if len(result.Rows) == 0 {
+		result.Rows = append(result.Rows, skillFolderRow{ID: "invalid", Kind: "invalid", Name: filepath.Base(root), Reason: "SKILL.md is missing"})
+	}
+	return result, nil
 }
 
 func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID string) (string, error) {
@@ -237,11 +445,11 @@ func (s *Server) proposeSkill(ctx context.Context, chat *session.Session, runID,
 		return "skill proposal declined", nil
 	}
 	wasEnabled := true
-	s.mu.RLock()
-	if configured, ok := s.cfg.Skills[item.Name]; ok {
+	s.mu.Lock()
+	if configured, ok := s.agentSkillSettingsLocked(chat.AgentID)[item.Name]; ok {
 		wasEnabled = configured.Enabled
 	}
-	s.mu.RUnlock()
+	s.mu.Unlock()
 	var setting skills.Setting
 	if replacing {
 		setting, err = replaceSkill(root, source, item.Name, s.cfg.Tools.Attachments.MaxBytes)
@@ -253,10 +461,11 @@ func (s *Server) proposeSkill(ctx context.Context, chat *session.Session, runID,
 	}
 	setting.Enabled, setting.Source = wasEnabled, "added in chat from "+source
 	s.mu.Lock()
-	if s.cfg.Skills == nil {
-		s.cfg.Skills = map[string]config.SkillSetting{}
+	settings := s.agentSkillSettingsLocked(chat.AgentID)
+	settings[item.Name] = setting
+	if !replacing {
+		s.disableSkillForOtherAgentsLocked(chat.AgentID, item.Name)
 	}
-	s.cfg.Skills[item.Name] = setting
 	err = s.saveProfileConfig(*s.cfg)
 	s.mu.Unlock()
 	if err != nil {
@@ -292,7 +501,7 @@ func replaceSkill(root, source, name string, max int64) (skills.Setting, error) 
 	return setting, nil
 }
 
-func (s *Server) Read(path string) {
+func (s *Server) Read(path, agentID string) {
 	root := filepath.Join(s.profileRoot(), "skills")
 	rel, err := filepath.Rel(root, filepath.FromSlash(path))
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
@@ -304,15 +513,13 @@ func (s *Server) Read(path string) {
 		name = parts[1]
 	}
 	s.mu.Lock()
-	if s.cfg.Skills == nil {
-		s.cfg.Skills = map[string]config.SkillSetting{}
-	}
-	value, configured := s.cfg.Skills[name]
+	settings := s.agentSkillSettingsLocked(agentID)
+	value, configured := settings[name]
 	if !configured {
 		value.Enabled = true
 	}
 	value.LastRead = time.Now().UTC().Format(time.RFC3339)
-	s.cfg.Skills[name] = value
+	settings[name] = value
 	_ = s.saveProfileConfig(*s.cfg)
 	s.mu.Unlock()
 }

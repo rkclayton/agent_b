@@ -53,12 +53,12 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
-test("button-owned text survives a Settings redraw and Skills explains arrival", () => {
+test("button-owned text survives a Settings redraw", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
   const profiles = fs.readFileSync(new URL("settings-profiles.js", import.meta.url), "utf8");
   assert.match(controller, /actionDrafts\.set\(event\.target\.id, event\.target\.value\)/);
   assert.match(controller, /for \(const \[id, value\] of actionDrafts\)/);
-  assert.match(profiles, /Skills are on when added; use the switch to turn one off/);
+  assert.match(profiles, /change in Skills/);
 });
 
 test("Attachment ingest shows the editable disk limit and its reason", () => {
@@ -78,7 +78,7 @@ test("Profiles lists agent-layer memory with a named remove action", () => {
 	assert.match(page, /data-action="remove-agent-memory" data-id="ping output"/);
 });
 
-test("Memory marks notes about the agent without adding a control", () => {
+test("Memory moves note metadata into the headed table", () => {
 	const source = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
 	assert.match(source, /about_agent:[\s\S]*about the agent/);
 	assert.doesNotMatch(source, /data-action=["'`]keep-agent-memory/);
@@ -86,23 +86,16 @@ test("Memory marks notes about the agent without adding a control", () => {
 	context.store.active = "s1";
 	context.store.sessions.s1 = { agent_id: "agent-b", agent_memory_content: "Notes:\n- STAY IN WORKSPACE [scope: user, about-agent: yes]" };
 	const page = renderProfilesPage(context);
-	assert.match(page, /STAY IN WORKSPACE \[scope: user, about the agent\]/);
+	assert.match(page, /<th>Kind<\/th>[\s\S]*<td>user<\/td>[\s\S]*>STAY IN WORKSPACE</);
 	assert.match(page, /data-action="remove-agent-memory"/);
 	assert.doesNotMatch(page, /data-action=["'`]keep-agent-memory/);
 });
 
-test("Profiles renders the Hermes preview with one import action and include rows", () => {
+test("Profiles leaves skill management to the Skills page", () => {
 	const context = pageContext();
-	context.hermesPreview = { rows: [
-		{ id: "persona:SOUL.md", name: "SOUL.md", kind: "persona", detail: "not imported — it becomes an agent of your own when agents ship", included: false, selectable: false },
-		{ id: "memory:MEMORY.md", name: "MEMORY.md", kind: "memory", detail: "18 bytes", included: true, selectable: true },
-		{ id: "secret:FIRST_KEY", name: "FIRST_KEY", kind: "secret", detail: "imported in the next step", included: false, selectable: false },
-	] };
 	const page = renderProfilesPage(context);
-	assert.match(page, /Import from Hermes/);
-	assert.match(page, /SOUL\.md[\s\S]*not imported/);
-	assert.match(page, /MEMORY\.md[\s\S]*data-action="hermes-toggle"/);
-	assert.match(page, /FIRST_KEY[\s\S]*imported in the next step/);
+	assert.match(page, /change in Skills/);
+	assert.doesNotMatch(page, /skill-toggle|skill-import|Import from Hermes/);
 });
 
 test("all rendered Settings rows have one direct label and one control cell", () => {
@@ -119,10 +112,10 @@ test("all rendered Settings rows have one direct label and one control cell", ()
   }
 });
 
-test("Settings navigation has the required eight sections in order", () => {
+test("Settings navigation has Skills directly after Profiles", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
-  const labels = [...controller.matchAll(/\["(?:activity|plan|connections|profiles|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
-  assert.deepEqual(labels, ["Activity", "Plan", "Connections", "Profiles", "Chats", "Notifications", "Security", "About"]);
+  const labels = [...controller.matchAll(/\["(?:activity|plan|connections|profiles|skills|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
+  assert.deepEqual(labels, ["Activity", "Plan", "Connections", "Profiles", "Skills", "Chats", "Notifications", "Security", "About"]);
 });
 
 test("Delivery has no Settings page while file configuration remains supported", () => {
@@ -193,7 +186,7 @@ test("Security restores the service identity toggle and names a locked Repair de
 	assert.match(page, /account locked out · wait, then Repair/);
 	assert.match(page, /Repair unavailable — account locked out/);
 	assert.match(page, /data-action="setup-service-account" disabled/);
-	assert.match(page, /data-action="revoke-standing-grant"/);
+	assert.doesNotMatch(page, /data-action="revoke-standing-grant"/);
 });
 
 test("Security draws exactly one phone section: broker pairing titled Phone 2pl", () => {

@@ -7,11 +7,10 @@ import test from "node:test";
 // need the toggle thats it". Item 2ov later adds only the destination host to the disclaimer.
 const about = readFileSync(new URL("./settings-about.js", import.meta.url), "utf8");
 
-test("About carries the toggle and destination host without batch detail", () => {
-  assert.match(about, /toggle\("telemetry\.enabled", "Send anonymous data to help improve Agent_b"/);
-  assert.match(about, /class="settings-subhead-note"/);
-  assert.match(about, /Only diagnostic data is sent — counts, durations and error classes\. Never your chats, files or prompts\./);
-  assert.match(about, /Sent to \$\{html\(destination\)\}/);
+test("About carries one concise toggle with the destination in its hover detail", () => {
+  assert.match(about, /toggle\("telemetry\.enabled", "anonymous diagnostics"/);
+  assert.match(about, /Sends counts, durations and error classes to \$\{destination\}; never chats, files or prompts\./);
+  assert.doesNotMatch(about, /class="settings-subhead-note"/);
   for (const gone of ["what was sent", "telemetry_sent", "settings-telemetry-batch", "settings-telemetry-list", "settings-telemetry-empty", "no receiver configured"]) {
     assert.doesNotMatch(about, new RegExp(gone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Settings still shows ${gone}`);
   }
@@ -25,12 +24,15 @@ test("nothing in the page reads sent batches", () => {
   }
 });
 
-test("About renders the default and configured destination hosts", async () => {
+test("About passes the default and configured destination hosts to the toggle detail", async () => {
   const { renderAboutPage } = await import("./settings-about.js");
-  const context = { store: { config: { telemetry: {} }, build: {}, signature: {} }, row: (_label, value) => value, toggle: () => "toggle", html: String, signInStart: {} };
-  assert.match(renderAboutPage(context), /Sent to broker\.agentb\.app/);
+  const details = [];
+  const context = { store: { config: { telemetry: {} }, build: {}, signature: {} }, row: (_label, value) => value, toggle: (_key, _label, _on, detail) => { details.push(detail); return "toggle"; }, html: String, signInStart: {} };
+  renderAboutPage(context);
+  assert.match(details.pop(), /to broker\.agentb\.app;/);
   context.store.config.telemetry.endpoint = "https://collector.example.test:8443/intake";
-  assert.match(renderAboutPage(context), /Sent to collector\.example\.test:8443/);
+  renderAboutPage(context);
+  assert.match(details.pop(), /to collector\.example\.test:8443;/);
 });
 
 test("the unused telemetry styles go with the rows", () => {

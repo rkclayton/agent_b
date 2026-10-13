@@ -147,6 +147,25 @@ func (s *Server) plans(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, values)
 }
 
+func (s *Server) folderPicker(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		method(w)
+		return
+	}
+	var body struct {
+		Initial string `json:"initial"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	path, err := nativeFolderPicker(strings.TrimSpace(body.Initial))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "folder")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": path})
+}
+
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		method(w)

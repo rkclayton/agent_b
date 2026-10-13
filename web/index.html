@@ -83,8 +83,9 @@
     </section>
   </div>
   <div id="activity-panel" class="panel-surface">
-    <section id="panel-tool-use" class="panel-pane panel-group" aria-labelledby="panel-tool-use-title"><header class="panel-caption"><span id="panel-tool-use-title">Tool use</span><span>name · calls · fail % · last used</span></header><div id="panel-tool-counters" class="panel-lines"></div></section>
-    <section id="panel-lifetime" class="panel-pane panel-group panel-lifetime-group" aria-labelledby="panel-lifetime-title"><header class="panel-caption"><span id="panel-lifetime-title">Lifetime</span><span>brief = run until Plan exists</span></header><div id="panel-stats" class="panel-lines"></div></section>
+    <div class="panel-selector activity-profile-picker"><label for="activity-profile">profile</label><select id="activity-profile"></select></div>
+    <section id="panel-tool-use" class="panel-pane panel-group" aria-labelledby="panel-tool-use-title"><header class="panel-caption"><span id="panel-tool-use-title">Tool use</span></header><table class="activity-table tool-use-table"><thead><tr><th>Tool</th><th>Calls</th><th>Failed</th><th>Last used</th></tr></thead><tbody id="panel-tool-counters"></tbody></table></section>
+    <section id="panel-lifetime" class="panel-pane panel-group panel-lifetime-group" aria-labelledby="panel-lifetime-title"><header class="panel-caption"><span id="panel-lifetime-title">Lifetime</span></header><table class="activity-table figures-table"><thead><tr><th>Figure</th><th>Value</th></tr></thead><tbody id="panel-stats"></tbody></table></section>
     <section id="panel-live" class="panel-live panel-group" aria-labelledby="panel-live-title">
       <header class="panel-caption"><span id="panel-live-title">Live run</span><span class="panel-live-actions"><span id="panel-live-compactions"></span><span id="panel-live-state" role="status"></span><button id="panel-stop" class="stop-sign" type="button" aria-label="Stop"><span aria-hidden="true"></span></button></span></header>
       <div id="panel-run-result" class="panel-run-result" hidden><span id="panel-run-stop"></span><span id="panel-run-label" class="panel-run-label" aria-label="Label this run"></span></div>
@@ -138,7 +139,14 @@
         <button id="plan-add" class="plan-add" type="button" aria-label="Add a plan" title="Add a plan for a folder">+</button>
       </div>
       <form id="plan-add-form" class="plan-add-form" hidden>
-        <input id="plan-add-path" aria-label="Folder for the new plan" placeholder="folder path, then Enter" autocomplete="off" spellcheck="false">
+        <input id="plan-add-path" type="hidden">
+        <div id="plan-add-preview" class="plan-add-preview" hidden>
+          <div><span>Folder</span><strong id="plan-preview-folder"></strong></div>
+          <div><span>Repository</span><strong id="plan-preview-repository"></strong></div>
+          <div><span>Plan</span><strong id="plan-preview-plan"></strong></div>
+          <div><span>AGENTS.md</span><strong id="plan-preview-agents"></strong></div>
+          <button id="plan-add-confirm" type="submit">Add</button>
+        </div>
         <p id="plan-add-error" class="plan-add-error" hidden></p>
       </form>
       <div id="plan-build" class="plan-build" role="group" aria-label="Build plan now?" hidden>
@@ -153,17 +161,16 @@
       <p id="plan-list-empty" class="plan-list-empty" hidden>No plans yet. + adds one for a folder.</p>
     </nav>
     <section class="plan-view" aria-label="Plan document">
-      <div class="plan-intro">
-        <img class="plan-intro-mark" src="/static/assets/plan-mark.png" width="64" height="64" alt="" decoding="async">
-        <p>A plan points at one repository. You and agent_b write items that describe what should change; an order picks the items to build. Agent_b executes the order, appends what happened to NOTES, and stops when something needs you.</p>
-      </div>
-      <header class="plan-panel-head"><span id="plan-name">Plan</span><span class="plan-run-controls"><label for="plan-auto">Auto-continue</label><select id="plan-auto" aria-label="Auto-continue"><option value="off">Off</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option><option value="autonomous">Autonomous</option></select><button type="button" id="plan-go" class="plan-go" disabled>Go</button></span></header>
+      <header class="plan-panel-head"><span id="plan-name">Plan</span><span class="plan-run-controls"><button type="button" id="plan-go" class="plan-go" disabled>Go</button></span></header>
       <div id="plan-lint" class="plan-lint" role="status" hidden></div>
       <p id="plan-refusal" class="plan-refusal" hidden></p>
       <div id="plan-done" class="plan-done" hidden></div>
       <div class="plan-body">
-        <pre id="plan-raw" class="plan-raw" aria-label="plan.md, read-only"></pre>
-        <dl id="plan-stats" class="plan-stats" aria-label="Plan statistics"></dl>
+        <dl id="plan-facts" class="plan-facts" aria-label="Plan facts"></dl>
+        <details class="plan-text"><summary>Plan text</summary><pre id="plan-raw" class="plan-raw" aria-label="plan.md, read-only"></pre></details>
+        <section><h3>Chats</h3><table class="plan-data-table"><thead><tr><th>Chat</th><th>Last activity</th></tr></thead><tbody id="plan-chats"></tbody></table></section>
+        <section><h3>Changes</h3><table class="plan-data-table"><thead><tr><th>When</th><th>Chat</th><th>Files</th></tr></thead><tbody id="plan-changes"></tbody></table></section>
+        <dl id="plan-stats" class="plan-stats" aria-label="Plan statistics" hidden></dl>
       </div>
     </section>
   </div>

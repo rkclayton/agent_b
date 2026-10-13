@@ -41,7 +41,7 @@ test("every page request body stays inside its route contract", () => {
     "shell-credential|action,password|action,password|settings|server_connections.go", "sessions/:id|label,agent_id,connection_id|label,agent_id,connection_id|shell,settings|server_sessions.go", "connections/:id/duplicate|id,label|id,label|settings|server_connections.go",
     "sessions|label,connection_id,agent_id,role,plan_id|label,connection_id,agent_id,source_session_id,role,plan_id|shell,settings|server_sessions.go", "sessions/:id/reopen|||shell,chat|server_sessions.go", "sessions/:id/reset|||settings|server_sessions.go",
     "host-window|action,title|action,title|shell|server_actions.go", "chats/tree|action,parent,name,path,id,folder,pinned|action,parent,name,path,id,folder,pinned|shell|chats.go", "header-state|state,reason_code|state,reason_code|shell|telemetry.go",
-    "plan/go|plan_id,stop,auto_continue|session_id,plan_id,stop,auto_continue|plan|worker.go", "plans|repo|repo|plan|plan_page.go", "plans/build|plan_id,agent_id,brief|plan_id,agent_id,brief|plan|plan_page.go",
+    "plan/go|plan_id,stop|session_id,plan_id,stop|plan|worker.go", "plans|repo|repo|plan|plan_page.go", "plans/build|plan_id,agent_id,brief|plan_id,agent_id,brief|plan|plan_page.go",
   ].map((row) => row.split("|"));
   for (const [route, sentCSV, acceptedCSV, pagesCSV, serverFile] of rows) {
     const sent = sentCSV ? sentCSV.split(",") : [], accepted = new Set(acceptedCSV ? acceptedCSV.split(",") : []);
@@ -259,7 +259,8 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
 
 test("web_search and delegate remain file-configured without new Settings controls", () => {
 	assert.match(app, /\["web_search", "delegate"\]\.includes\(tool\.name\)/);
-	assert.match(app, /counts\.replaceChildren\(\.\.\.\(store\.tools \|\| \[\]\)\.map/);
+	assert.match(app, /root\.replaceChildren\(\.\.\.configurable\.map/);
+	assert.match(app, /counts\.replaceChildren\(\.\.\.toolUseRows\(store\.tools \|\| \[\], counters\)\.map/);
 });
 
 test("new chats expose no folder selection surface", () => {

@@ -337,7 +337,21 @@ func main() {
 		log.Fatal(err)
 	}
 	notificationManager := notifications.New(bus, registry.Label, "http://"+cfg.Listen)
-	notificationManager.SetChannels(desktopNotifier{}, notificationPhone, func() bool { return web.ConfigSnapshot().Notifications.Desktop })
+	notificationManager.SetChannels(desktopNotifier{}, notificationPhone, func(group string) bool {
+		settings := web.ConfigSnapshot().Notifications
+		if !settings.Desktop {
+			return false
+		}
+		switch group {
+		case "needs_you":
+			return settings.DesktopNeedsYou
+		case "finished":
+			return settings.DesktopFinished
+		case "scheduled":
+			return settings.DesktopScheduled
+		}
+		return true
+	})
 	if fixture := notificationFixtureURL(); fixture != "" {
 		if configureErr := notificationManager.ConfigureLoopbackFixture(fixture); configureErr != nil {
 			log.Printf("notification acceptance fixture is invalid; notifications disabled: %v", configureErr)

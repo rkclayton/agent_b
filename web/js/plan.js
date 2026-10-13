@@ -19,10 +19,11 @@ import { changedLines, fadeFor, filterPlans, markerSummary } from "./plan-surfac
 // not drawn here: they sit in the planning chat's own thread.
 const byID = (id) => document.getElementById(id);
 const roots = {
-  search: byID("plan-search"), add: byID("plan-add"), form: byID("plan-add-form"), path: byID("plan-add-path"), addError: byID("plan-add-error"),
+  search: byID("plan-search"), add: byID("plan-add"), form: byID("plan-add-form"), path: byID("plan-add-path"), addError: byID("plan-add-error"), addPreview: byID("plan-add-preview"),
+  previewFolder: byID("plan-preview-folder"), previewRepository: byID("plan-preview-repository"), previewPlan: byID("plan-preview-plan"), previewAgents: byID("plan-preview-agents"),
   build: byID("plan-build"), buildYes: byID("plan-build-yes"), buildNo: byID("plan-build-no"), list: byID("plan-list"), listEmpty: byID("plan-list-empty"),
   wizard: byID("plan-wizard"), wizardLabel: byID("plan-wizard-label"), wizardValue: byID("plan-wizard-value"), wizardNext: byID("plan-wizard-next"), wizardSkip: byID("plan-wizard-skip"),
-  name: byID("plan-name"), go: byID("plan-go"), auto: byID("plan-auto"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"),
+  name: byID("plan-name"), go: byID("plan-go"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"), facts: byID("plan-facts"), chats: byID("plan-chats"), changes: byID("plan-changes"),
 };
 // The address is read ONCE, at import, before the workspace rewrites it to the chat's
 // own path: a deep link of /plan?plan=<id> or ?session=<id> is honoured, and nothing
@@ -41,7 +42,7 @@ let planningBrief = { purpose: "", done: "", do_not_touch: "" };
 let goState = { enabled: false, running: false };
 let goTimer = 0;
 let plansLoaded = false;
-let autoArmed = "";
+let addPreview = null;
 
 let unsubscribe = null;
 let rawTimer = 0;
@@ -120,7 +121,6 @@ function select(id) {
   }
   if (id === selected) return;
   selected = id;
-  loadAuto();
   // Item 2no (a): no address change beyond what other sections do. Choosing a plan
   // used to rewrite the document's address to /plan?plan=<id>; the selection is this
   // section's state, and Settings' own `#settings/plan` is the address.
@@ -140,7 +140,6 @@ async function loadPlan() {
   previousText = data.plan || "";
   loaded = data;
   loadedFor = id;
-  loadAuto();
   renderList();
   renderPlan();
   void renderGo();
@@ -175,6 +174,9 @@ function renderEmpty() {
   roots.name.textContent = "Plan";
   roots.raw.textContent = "";
   roots.stats.replaceChildren();
+  roots.facts.replaceChildren();
+  roots.chats.replaceChildren();
+  roots.changes.replaceChildren();
   roots.go.disabled = true;
 }
 
@@ -202,19 +204,23 @@ function renderRaw() {
 
 function renderStats() {
   const stats = loaded?.stats || {};
+  const facts = loaded?.facts || {};
+  const repo = facts.repository || {};
   const rows = [
-    ["repository", loaded?.repo || "none"],
-    ["items", markerSummary(stats.markers)],
-    ["plan.md changed", stats.changed_at ? clock(stats.changed_at) : "unknown"],
-    ["last Go", stats.last_go ? `${clock(stats.last_go)}${stats.last_result ? ` · ${stats.last_result.done} done · ${stats.last_result.stuck} stuck · ${stats.last_result.waiting} waiting` : ""}` : "not since Agent_b started"],
-    ["related plans", (stats.related || []).map((plan) => plan.name || plan.id).join(", ") || "none"],
-    ["planning chats", (stats.chats || []).map((chat) => chat.label || chat.id).join(", ") || "none"],
+    ["Folder", facts.folder || loaded?.repo || "none", facts.folder],
+    ["Repository", [repo.root, repo.branch, repo.subject, repo.day].filter(Boolean).join(" · ") || "not a repository", repo.root],
+    ["Plan", `${facts.plan_path || "plan.md"} · ${markerSummary(stats.markers)}`, facts.plan_path],
+    ["AGENTS.md", facts.agents_path ? `${facts.agents_path} · ${facts.agents_size} bytes` : "not found", facts.agents_path],
+    ["Notes", `${facts.notes_count || 0}`, facts.notes_path],
   ];
-  roots.stats.replaceChildren(...rows.flatMap(([term, value]) => {
+  roots.facts.replaceChildren(...rows.flatMap(([term, value, path]) => {
     const name = document.createElement("dt"); name.textContent = term;
-    const detail = document.createElement("dd"); detail.textContent = value;
+    const detail = document.createElement("dd");
+    if (path) { const link = document.createElement("a"); link.href = fileURL(path); link.textContent = value; detail.append(link); } else detail.textContent = value;
     return [name, detail];
   }));
+  roots.chats.replaceChildren(...(stats.chats || []).map((chat) => tableRow(linkToChat(chat.id, chat.label || chat.id), clock(chat.last_activity))));
+  roots.changes.replaceChildren(...(stats.changes || []).map((change) => tableRow(clock(change.when), linkToChat(change.chat_id, change.chat || change.chat_id, change.run_id), change.files ?? "—")));
 }
 
 // Go reads its state for the selected plan; it is refused with the reason as
@@ -231,12 +237,7 @@ async function renderGo() {
   roots.go.textContent = goState.running ? "Stop" : "Go";
   roots.go.classList.toggle("running", !!goState.running);
   roots.go.disabled = !goState.running && !goState.enabled;
-  roots.auto.disabled = !!goState.running;
   roots.go.title = goState.running ? "Stop the worker" : goState.enabled ? "Run the accepted items in plan order" : goState.refusal || "No item is waiting";
-  if (goState.running) roots.auto.value = goState.auto_continue || roots.auto.value;
-  if (autoArmed === selected && !goState.running && goState.auto_continue === "off") {
-    roots.auto.value = "off"; rememberAuto(); autoArmed = "";
-  }
   renderLint(goState.diagnostics);
   await renderDone();
 }
@@ -260,15 +261,10 @@ function renderLint(diagnostics) {
 roots.go.addEventListener("click", async () => {
   if (!selected) return;
   roots.go.disabled = true;
-  try { autoArmed = selected; await api("/api/plan/go", { plan_id: selected, stop: !!goState.running, auto_continue: roots.auto.value }); }
+  try { await api("/api/plan/go", { plan_id: selected, stop: !!goState.running }); }
   catch (error) { roots.done.hidden = false; roots.done.textContent = error.message; }
   finally { void renderGo(); }
 });
-roots.auto.addEventListener("change", rememberAuto);
-
-function autoKey() { return `agentb.plan.auto.${selected}`; }
-function rememberAuto() { if (selected) try { localStorage.setItem(autoKey(), roots.auto.value); } catch {} }
-function loadAuto() { try { roots.auto.value = localStorage.getItem(autoKey()) || "off"; } catch { roots.auto.value = "off"; } }
 
 // The done card: what finished, what is stuck and why. Nothing else.
 async function renderDone() {
@@ -295,25 +291,33 @@ async function renderDone() {
 // same route every other registration takes, and — for a plan it created —
 // asks "Build plan now?".
 roots.search.addEventListener("input", renderList);
-roots.add.addEventListener("click", () => {
-  roots.form.hidden = !roots.form.hidden;
+roots.add.addEventListener("click", async () => {
   roots.addError.hidden = true;
-  if (!roots.form.hidden) roots.path.focus();
+  try {
+    const picked = await api("/api/folder-picker", { initial: loaded?.repo || "" });
+    addPreview = await api("/api/plans", { action: "preview", repo: picked.path });
+    roots.path.value = addPreview.folder;
+    roots.previewFolder.textContent = addPreview.folder;
+    roots.previewRepository.textContent = [addPreview.repository?.root, addPreview.repository?.branch].filter(Boolean).join(" · ") || "not found";
+    roots.previewPlan.textContent = addPreview.plan || "will be made";
+    roots.previewAgents.textContent = addPreview.agents || "not found";
+    roots.form.hidden = false; roots.addPreview.hidden = false;
+  } catch (error) { roots.addError.textContent = error.message; roots.addError.hidden = false; roots.form.hidden = false; }
 });
 roots.path.addEventListener("keydown", (event) => { if (event.key === "Escape") { roots.form.hidden = true; roots.path.value = ""; } });
 roots.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   roots.addError.hidden = true;
   try {
-    const result = await api("/api/plans", { repo: roots.path.value });
+    const result = await api("/api/plans", { repo: addPreview?.folder || roots.path.value });
     roots.form.hidden = true;
     roots.path.value = "";
     await loadPlans();
     select(result.plan.id);
     // Item 2q0: a repository with a planner's queue skips the brief; its chat opens idle.
     if (result.planner_queue) { buildFor = result.plan.id; planningBrief = { purpose: "", done: "", do_not_touch: "" }; return void startPlanning(); }
-    buildFor = result.created ? result.plan.id : "";
-    roots.build.hidden = !buildFor;
+    buildFor = "";
+    roots.build.hidden = true;
   } catch (error) {
     roots.addError.textContent = error.message;
     roots.addError.hidden = false;
@@ -371,3 +375,6 @@ async function startPlanning() {
 
 function line(text) { const value = document.createElement("div"); value.textContent = text; return value; }
 function clock(iso) { const date = new Date(iso); return Number.isNaN(date.getTime()) ? String(iso) : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+function fileURL(path) { return encodeURI(`file:///${String(path).replaceAll("\\", "/")}`); }
+function linkToChat(id, label, run = "") { const link = document.createElement("a"); link.href = `/chat?session=${encodeURIComponent(id)}${run ? `&run=${encodeURIComponent(run)}` : ""}`; link.textContent = label; return link; }
+function tableRow(...cells) { const row = document.createElement("tr"); for (const value of cells) { const cell = document.createElement("td"); if (value instanceof Node) cell.append(value); else cell.textContent = String(value); row.append(cell); } return row; }

@@ -7,7 +7,7 @@ import { renderTimeline } from "./timeline.js";
 import { createMessageDropController } from "./message-drop.js";
 import { createApprovalCard } from "./approval.js";
 import { loadReflection, loadReflectionNotes, wireReflectionNotes } from "./reflection.js";
-import { agentKey, compactionFigures, lifetimeRows, ratio, runProfileRows } from "./panel-lifetime.js";
+import { agentKey, compactionFigures, groupedLifetimeRows, ratio, runProfileRows, toolUseRows } from "./panel-lifetime.js";
 import { renderStopState } from "./stop-state.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText } from "./chat-activity.js";
@@ -25,6 +25,7 @@ const liveEmpty = document.getElementById("panel-live-empty");
 const liveIdle = document.getElementById("panel-live-idle");
 const dropLastMessage = document.getElementById("drop-last-message");
 const agentSelect = document.getElementById("panel-agent");
+const activityProfile = document.getElementById("activity-profile");
 const roleTable = document.getElementById("panel-roles");
 const feedback = document.getElementById("panel-feedback");
 const panelStop = document.getElementById("panel-stop");
@@ -47,6 +48,10 @@ agentSelect.addEventListener("change", () => {
       .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0))[0];
     if (next) setActive(next.id);
   }
+  void refreshLedger();
+});
+activityProfile.addEventListener("change", () => {
+  selectedAgent = activityProfile.value;
   void refreshLedger();
 });
 // Item 2iq (a): b's row and the strip's switcher write the same setting, so
@@ -130,6 +135,7 @@ function renderPanels() {
   const agents = store.config.agents || [];
   if (!agents.some((agent) => agentKey(agent) === selectedAgent)) selectedAgent = agentKey(agents[0]);
   agentSelect.replaceChildren(...agents.map((agent) => option(agentKey(agent), agent.name, agentKey(agent) === selectedAgent)));
+  activityProfile.replaceChildren(...agents.map((agent) => option(agentKey(agent), agent.name, agentKey(agent) === selectedAgent)));
   const agent = agents.find((candidate) => agentKey(candidate) === selectedAgent);
   renderAgentConnection(agent);
   document.getElementById("panel-agent-binding").textContent = agent ? "" : store.loaded ? "No configured agents" : "";
@@ -340,16 +346,26 @@ function renderTools(agent) {
 	document.getElementById("panel-tools-count").textContent = `${configurableEnabled.length} tools active`;
 	const counters = ledger?.agent?.tools || {};
 	root.replaceChildren(...configurable.map((tool) => {
-    const row = node("label", "panel-line panel-tool-line");
+		const row = node("details", "panel-tool-line");
+		row.title = tool.description || tool.name;
+		const summary = document.createElement("summary");
     const toggle = document.createElement("input");
-	    toggle.type = "checkbox"; toggle.checked = enabled.has(tool.name); toggle.dataset.tool = tool.name; toggle.disabled = store.replay || selectedAgent === "agent_b";
-    row.append(toggle, text(tool.name));
+		toggle.type = "checkbox"; toggle.checked = enabled.has(tool.name); toggle.dataset.tool = tool.name; toggle.disabled = store.replay || selectedAgent === "agent_b";
+		summary.append(toggle, text(tool.name));
+		const description = node("div", "panel-tool-description");
+		description.textContent = tool.description || "";
+		row.append(summary, description);
     return row;
   }));
-  counts.replaceChildren(...(store.tools || []).map((tool) => {
-    const stats = counters[tool.name] || {};
-    const row = node("div", "panel-line panel-tool-line panel-tool-counts");
-    row.append(text(tool.name), text(stats.calls || 0), text(ratio(stats.failures || 0, stats.calls || 0)), text(stats.last_used || "—"));
+  counts.replaceChildren(...toolUseRows(store.tools || [], counters).map((item) => {
+    const row = node("tr");
+    const name = node("td"); name.textContent = item.name;
+    const calls = node("td", "activity-calls");
+    const bar = node("span", "activity-call-bar"); bar.style.width = `${item.share}%`;
+    calls.append(bar, text(item.calls));
+    const failed = node("td"); failed.textContent = ratio(item.failures, item.calls);
+    const used = node("td"); used.textContent = item.lastUsed;
+    row.append(name, calls, failed, used);
     return row;
   }));
 }
@@ -358,14 +374,23 @@ function renderLifetime() {
   const root = document.getElementById("panel-stats");
   if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="panel-empty">No lifetime activity.</p>' : ""; return; }
   const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.connections || {})];
-  root.replaceChildren(...sections.flatMap(([name, counters]) => [
-    text(name, "panel-connection-head"),
-    ...lifetimeRows(counters, percentile).map(([label, value]) => line(label, value)),
-    // Item 2ji (c): the run profile, lifetime beside the last twenty. It appears
-    // only once a run has reported its time, so a ledger written before this item
-    // shows nothing rather than a column of dashes.
-    ...runProfileSection(runProfileRows(counters)),
-  ]));
+  root.replaceChildren(...sections.flatMap(([name, counters]) => {
+    const rows = [];
+    const section = node("tr", "activity-section");
+    const sectionHead = node("th"); sectionHead.colSpan = 2; sectionHead.textContent = name; section.append(sectionHead); rows.push(section);
+    let group = "";
+    for (const item of groupedLifetimeRows(counters, percentile)) {
+      if (item.group !== group) {
+        group = item.group;
+        const heading = node("tr", "activity-group"); const th = node("th"); th.colSpan = 2; th.textContent = group; heading.append(th); rows.push(heading);
+      }
+      const row = node("tr"); const figure = node("td"); figure.textContent = item.figure; const value = node("td"); value.textContent = String(item.value); row.append(figure, value); rows.push(row);
+    }
+    for (const [label, life, recent] of runProfileRows(counters)) {
+      const row = node("tr"); const figure = node("td"); figure.textContent = label; const value = node("td"); value.textContent = `${life} · ${recent}`; row.append(figure, value); rows.push(row);
+    }
+    return rows;
+  }));
 }
 
 async function toggleTool(event) {

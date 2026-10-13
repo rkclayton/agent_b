@@ -14,7 +14,7 @@ type notificationManager interface {
 	Validate(string) error
 	Configure(string) error
 	State() notifications.State
-	SendTest(context.Context) (map[string]string, error)
+	SendTest(context.Context, string) (map[string]string, error)
 	SetViewing(string)
 }
 
@@ -35,6 +35,7 @@ func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
 			Action  string `json:"action"`
 			URL     string `json:"url"`
 			Session string `json:"session"`
+			Way     string `json:"way"`
 		}
 		if !decode(w, r, &body) {
 			return
@@ -76,7 +77,7 @@ func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
 		case "test":
 			ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 			defer cancel()
-			answers, err := s.notifications.SendTest(ctx)
+			answers, err := s.notifications.SendTest(ctx, strings.TrimSpace(body.Way))
 			if err != nil {
 				writeError(w, http.StatusBadGateway, err.Error(), "notifications.discord_url")
 				return

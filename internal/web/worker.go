@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"harness/internal/agent"
@@ -63,13 +62,12 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 		refusal = s.workerConnectionBusy(target.AgentID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"waiting":       worker.RemainingIn(items, planDir),
-		"running":       running,
-		"enabled":       worker.RemainingIn(items, planDir) && !running && refusal == "",
-		"items":         len(items),
-		"refusal":       refusal,
-		"diagnostics":   diagnostics,
-		"auto_continue": autoContinueName(s.workerAutoContinue(target.ID)),
+		"waiting":     worker.RemainingIn(items, planDir),
+		"running":     running,
+		"enabled":     worker.RemainingIn(items, planDir) && !running && refusal == "",
+		"items":       len(items),
+		"refusal":     refusal,
+		"diagnostics": diagnostics,
 	})
 }
 
@@ -78,7 +76,6 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 		PlanID    string `json:"plan_id"`
 		Stop      bool   `json:"stop"`
-		Auto      string `json:"auto_continue"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -117,13 +114,7 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		target = planTarget{ID: snapshot.PlanID, Dir: planDir, Repo: snapshot.PlanRepo, AgentID: snapshot.AgentID}
 	}
 	if body.Stop {
-		s.setWorkerAutoContinue(target.ID, 0)
 		writeJSON(w, http.StatusOK, map[string]any{"stopped": s.worker.Stop(target.ID, s.workerSessionID(target.ID))})
-		return
-	}
-	auto, err := parseAutoContinue(body.Auto)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error(), "auto_continue")
 		return
 	}
 	planDir := target.Dir
@@ -154,14 +145,8 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 	plan := &worker.Plan{Dir: planDir}
 	repo := target.Repo
 	s.setWorkerSession(target.ID, created.ID)
-	s.setWorkerAutoContinue(target.ID, auto)
 	go func() {
-		if auto == 0 {
-			_, _ = s.worker.Go(context.Background(), created, plan, repo)
-		} else {
-			_, _ = s.worker.GoAuto(context.Background(), created, plan, repo, auto)
-		}
-		s.setWorkerAutoContinue(target.ID, 0)
+		_, _ = s.worker.Go(context.Background(), created, plan, repo)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": created.ID, "plan_id": target.ID})
 }
@@ -203,45 +188,6 @@ func (s *Server) planWorker(w http.ResponseWriter, r *http.Request) {
 type workerState struct {
 	session   string
 	startedAt time.Time
-	auto      int
-}
-
-func (s *Server) setWorkerAutoContinue(planID string, value int) {
-	s.mu.Lock()
-	state := s.workerStates[planID]
-	state.auto = value
-	s.workerStates[planID] = state
-	s.mu.Unlock()
-}
-
-func (s *Server) workerAutoContinue(planID string) int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.workerStates[planID].auto
-}
-
-func parseAutoContinue(value string) (int, error) {
-	if value == "" || value == "off" {
-		return 0, nil
-	}
-	if value == "autonomous" {
-		return -1, nil
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil || (parsed != 1 && parsed != 2 && parsed != 3 && parsed != 5) {
-		return 0, errors.New("auto_continue must be off, 1, 2, 3, 5, or autonomous")
-	}
-	return parsed, nil
-}
-
-func autoContinueName(value int) string {
-	if value < 0 {
-		return "autonomous"
-	}
-	if value == 0 {
-		return "off"
-	}
-	return strconv.Itoa(value)
 }
 
 func (s *Server) setWorkerSession(planID, sessionID string) {

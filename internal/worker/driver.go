@@ -87,16 +87,10 @@ type Summary struct {
 // Go runs the plan. It returns when no waiting item remains, when every
 // remaining item is stuck, or when it is stopped.
 func (d *Driver) Go(parent context.Context, s *session.Session, plan *Plan, repo string) (Summary, error) {
-	return d.goPlan(parent, s, plan, repo, 0)
+	return d.goPlan(parent, s, plan, repo)
 }
 
-// GoAuto runs only approved code-surface items. A positive limit is the
-// selected number of orders; -1 is Autonomous. Zero retains ordinary Go.
-func (d *Driver) GoAuto(parent context.Context, s *session.Session, plan *Plan, repo string, limit int) (Summary, error) {
-	return d.goPlan(parent, s, plan, repo, limit)
-}
-
-func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, repo string, limit int) (Summary, error) {
+func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, repo string) (Summary, error) {
 	planID := s.Snapshot().PlanID
 	d.mu.Lock()
 	if _, busy := d.running[planID]; busy {
@@ -113,7 +107,7 @@ func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, 
 		d.mu.Unlock()
 	}()
 
-	summary, orders := Summary{PlanID: planID}, 0
+	summary := Summary{PlanID: planID}
 	for {
 		if ctx.Err() != nil {
 			summary.Stopped = true
@@ -132,21 +126,6 @@ func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, 
 		item, ok := NextIn(items, plan.Dir)
 		if !ok {
 			break
-		}
-		if limit > 0 && orders >= limit {
-			summary.Stopped = true
-			summary.Reasons = append(summary.Reasons, fmt.Sprintf("auto-continue reached its %d-order cap", limit))
-			_ = plannerNote(plan.Dir, fmt.Sprintf("stopped after %d orders because the selected cap was reached", orders))
-			break
-		}
-		if limit != 0 {
-			if ok, reason := autoContinueItem(plan.Dir, item); !ok {
-				summary.Stopped = true
-				summary.Reasons = append(summary.Reasons, reason)
-				_ = plannerNote(plan.Dir, "stopped before "+item.ID+" because "+reason)
-				break
-			}
-			_ = plannerNote(plan.Dir, "ordered "+item.ID+" because it is the next approved in-scope code item")
 		}
 		// Marking [~] clears any earlier stuck reason, so a retried item starts clean.
 		if err := plan.Mark(item, "~", ""); err != nil {
@@ -202,16 +181,6 @@ func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, 
 			}
 		}
 		Publish(d.bus, s, "", outcome)
-		orders++
-		if limit != 0 {
-			if outcome.Marker == "x" {
-				_ = plannerNote(plan.Dir, "marked "+item.ID+" done because its verifier passed")
-			} else {
-				summary.Stopped = true
-				_ = plannerNote(plan.Dir, "stopped after "+item.ID+" because "+outcome.Reason)
-				break
-			}
-		}
 		if ctx.Err() != nil {
 			summary.Stopped = true
 			break
@@ -231,34 +200,6 @@ func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, 
 		PublishPlanDone(d.bus, s, "", summary.Done, summary.Stuck)
 	}
 	return summary, nil
-}
-
-func autoContinueItem(planDir string, item Item) (bool, string) {
-	data, err := os.ReadFile(filepath.Join(planDir, "plan", "items", item.ID+".md"))
-	if err != nil {
-		return false, "the approved item has no readable contract"
-	}
-	kind := strings.ToLower(field(string(data), "kind"))
-	if kind != "feature" && kind != "defect" {
-		return false, "kind " + kind + " is outside auto-continue"
-	}
-	allowed := map[string]bool{"run-loop": true, "tools": true, "llm": true, "session": true, "events": true, "tests": true, "scripts": true}
-	surfaces := strings.FieldsFunc(strings.ToLower(field(string(data), "surfaces")), func(r rune) bool { return r == ',' || r == ' ' })
-	if len(surfaces) == 0 {
-		return false, "the approved item names no code surface"
-	}
-	for _, surface := range surfaces {
-		if !allowed[surface] {
-			return false, "surface " + surface + " is outside auto-continue"
-		}
-	}
-	lower := strings.ToLower(item.Text)
-	for _, boundary := range []string{"prod", "identity", "credential", "destructive"} {
-		if strings.Contains(lower, boundary) {
-			return false, "the item crosses the " + boundary + " boundary"
-		}
-	}
-	return true, ""
 }
 
 func plannerNote(planDir, action string) error {

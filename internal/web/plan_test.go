@@ -36,6 +36,38 @@ func TestPlanProposalValidationRejectsAttackerPathsAndSelfAuthorization(t *testi
 	}
 }
 
+func TestPlanPreviewReadsFourStepsWithoutWriting2u0(t *testing.T) {
+	repo, profile := filepath.Join(t.TempDir(), "repo"), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "logs", "HEAD"), []byte("a b Person <someone@example.org> 1760313600 +0000\tcommit: stand-in subject\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("stand-in"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{roots: RuntimeRoots{Profile: profile}}
+	response := httptest.NewRecorder()
+	server.previewPlan(response, repo)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["folder"] != repo || got["plan"] != "will be made" || got["agents"] != filepath.Join(repo, "AGENTS.md") {
+		t.Fatalf("preview=%+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(profile, "plans")); !os.IsNotExist(err) {
+		t.Fatalf("preview wrote plans: %v", err)
+	}
+}
+
 func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "AgentB")
 	if err := os.MkdirAll(repo, 0o755); err != nil {

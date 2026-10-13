@@ -1115,10 +1115,10 @@
 .settings-page {
   position: fixed;
   z-index: 28;
-  top: calc(var(--app-header-height) + (100dvh - var(--app-header-height)) / 2);
+  top: 50dvh;
   left: 50%;
-  width: min(960px, calc(100vw - 48px));
-  height: min(720px, calc(100dvh - var(--app-header-height) - 48px));
+  width: 80vw;
+  height: 80dvh;
   transform: translate(-50%, -50%);
   display: grid;
   grid-template-rows: 48px minmax(0, 1fr);
@@ -1238,7 +1238,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
 }
 .setting-row .path {
@@ -2043,9 +2043,40 @@
   border-top: 1px solid rgba(112, 125, 139, .28);
 }
 .panel-line > :last-child { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.panel-tool-line { grid-template-columns: 30px minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
+.panel-tool-line { min-height: 28px; border-top: 1px solid rgba(112, 125, 139, .28); }
+.panel-tool-line > summary { min-height: 28px; display: grid; grid-template-columns: 30px minmax(130px, 1fr); align-items: center; padding: 0 10px; cursor: pointer; }
+.panel-tool-line > summary::-webkit-details-marker { display: none; }
+.panel-tool-description { padding: 2px 10px 6px 40px; color: var(--mute); font: 12px/18px var(--sans); }
+#panel-tools-panel { display: block; }
 .panel-tool-counts { grid-template-columns: minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
-.panel-tool-line > :last-child { color: var(--mute); }
+.activity-profile-picker { width: max-content; }
+.activity-table { width: max-content; max-width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
+.activity-table th, .activity-table td { padding: 4px 10px; border-top: 1px solid rgba(112, 125, 139, .28); text-align: left; white-space: nowrap; }
+.activity-table thead th, .activity-group th { color: var(--mute); font-weight: 400; }
+.activity-table td:nth-child(n+2) { font-variant-numeric: tabular-nums; }
+.activity-calls { min-width: 96px; display: flex; align-items: center; gap: 8px; }
+.activity-call-bar { display: inline-block; height: 6px; max-width: 64px; background: var(--signal); }
+.figures-table td:last-child { text-align: right; }
+.activity-section th { padding-top: 10px; color: var(--ink); font-weight: 500; }
+.profile-memory-table, .allowed-directories { width: max-content; max-width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
+.profile-memory-table[hidden] { display: none; }
+.profile-memory-block { display: grid; grid-template-columns: minmax(0, 1fr); }
+.profile-memory-table { margin: 4px 0 8px 170px; }
+.profile-memory-table th, .profile-memory-table td, .allowed-directories th, .allowed-directories td { padding: 4px 8px; border-top: 1px solid var(--line); text-align: left; }
+.profile-memory-table th, .allowed-directories th { color: var(--mute); font-weight: 400; }
+.memory-note-text { max-width: 42ch; overflow: hidden; padding: 0; background: transparent; color: var(--ink); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.profile-memory-note.open .memory-note-text { max-width: none; white-space: normal; }
+.allowed-directories input { min-width: 32ch; }
+.skills-table, .skill-add-preview { width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
+.skills-table th, .skills-table td, .skill-add-preview td { padding: 4px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.skills-table th { color: var(--mute); font-weight: 400; }
+.skills-table th:nth-child(3), .skills-table td:nth-child(3) { width: 54px; }
+.skill-badge { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--raised); color: var(--ink); white-space: nowrap; }
+.skill-table-row.invalid .skill-badge, .skill-add-preview tr.invalid .skill-badge { color: var(--alarm); border-color: var(--alarm); }
+.skill-description { display: block; max-width: 48ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-table-row.open .skill-description { max-width: none; white-space: normal; }
+.skill-detail { color: var(--mute); }
+.skill-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 /* Item 2m2 (a): a measured value sits in a seat as wide as its widest form.
    Tabular figures keep every digit the same width; the seat keeps the FIELD the
    same width when the count of digits changes. Right-aligned, because a number

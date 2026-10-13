@@ -11,6 +11,42 @@ import (
 	"harness/internal/tools"
 )
 
+type profileSkillHost2u7 struct{ seen []string }
+
+func (h *profileSkillHost2u7) Index(agentID string) string {
+	h.seen = append(h.seen, agentID)
+	if agentID == "review" {
+		return "review-only | Review skill."
+	}
+	return ""
+}
+
+func (*profileSkillHost2u7) Read(string, string) {}
+func (*profileSkillHost2u7) Proposal(context.Context, *session.Session, string) (string, error) {
+	return "", nil
+}
+
+func TestBudgetPromptRequestsTheChatsOwnProfileSkillIndex2u7(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	cfg.Context.Accounting = "estimated"
+	connection := cfg.Connections[0]
+	connection.Model = "stand-in"
+	connection.Context.NCtx = 32768
+	connection.Context.ReserveOutput = 10240
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "system {{skills}}"}, func(string) (*config.Connection, bool) {
+		return &connection, true
+	}, func() config.Config { return cfg })
+	host := &profileSkillHost2u7{}
+	runner.SetSkillHost(host)
+	for _, agentID := range []string{"agent_b", "review"} {
+		item := &session.Session{ID: agentID, AgentID: agentID, ConnectionID: connection.ID, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+		runner.PublishBudget(context.Background(), item)
+	}
+	if len(host.seen) != 2 || host.seen[0] != "agent_b" || host.seen[1] != "review" {
+		t.Fatalf("skill indexes requested for %v", host.seen)
+	}
+}
+
 func TestPublishBudgetDialFailurePublishesEstimatedBudget(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

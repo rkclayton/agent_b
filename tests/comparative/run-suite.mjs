@@ -200,7 +200,7 @@ if (directProbeOnly) {
   } else if (plannerReplayOnly) {
     const planner = fs.readFileSync(path.join(repoRoot, "prompts", "planner.md"), "utf8").split("## Authoring reference")[0];
     const notes = fs.readFileSync(path.join(repoRoot, "NOTES.md"), "utf8").match(/### W1 results([\s\S]*?)### W2 results/)?.[1] || "";
-    const prompt = `${notes}\nApproved sequence: 2kb feature surfaces settings,chat,tests; 2k9 defect surfaces scripts,run-loop,tests. The recorded next order began 2kb. Under auto-continue, reply only with the next item id or STOP.`;
+    const prompt = `${notes}\nApproved sequence: 2kb feature surfaces settings,chat,tests; 2k9 defect surfaces scripts,run-loop,tests. The recorded next order began 2kb. Reply only with the next item id or STOP.`;
     const request = { model: sourceConnection.model, messages: [{ role: "system", content: planner }, { role: "user", content: prompt }], temperature: 0, max_tokens: 32, chat_template_kwargs: { enable_thinking: false } };
     const reply = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(request) }).then(async (response) => { const value = await response.json(); if (!response.ok) throw new Error(`planner replay HTTP ${response.status}`); return value; });
     const output = String(reply.choices?.[0]?.message?.content || "").trim();

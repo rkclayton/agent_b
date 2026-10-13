@@ -1,41 +1,28 @@
-let html, attr, store, errors, subhead;
+let html, attr, store, errors, subhead, expanded;
+
+function profileAgentID(agent) {
+  const name = String(agent?.name || agent || "").trim().toLowerCase();
+  return name === "agent_b" ? name : name.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
 
 export function renderProfilesPage(context) {
-  ({ html, attr, store, errors, subhead } = context);
-  const { hermesPreview, hermesReport, actionDrafts } = context;
-  const state = store.profiles || store.config.profiles || { active: "", names: [] };
-  const rows = (state.names || []).map((name) => {
-    const active = name === state.active;
-    return `<div class="setting-row profile-row" title="Switch or rename this user.">
-      <label>${html(name)}${active ? " · active" : ""}</label>
-      <div class="settings-actions profile-user-actions">
-        <button type="button" data-action="switch-profile" data-id="${attr(name)}" ${active ? "disabled" : ""}>Switch</button>
-        <input id="rename-profile-${attr(name)}" value="${attr(name)}" aria-label="Rename ${attr(name)}">
-        <button type="button" data-action="rename-profile" data-id="${attr(name)}">Rename</button>
-      </div>
-    </div>`;
-  }).join("");
+  ({ html, attr, store, errors, subhead, expanded = new Set() } = context);
   const activeSession = store.sessions?.[store.active];
   const notes = String(activeSession?.agent_memory_content || "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
-  const memory = notes.length ? notes.map((note) => {
-    const key = `agent-memory:${note}`;
-    const label = note.replace("about-agent: yes", "about the agent");
-    return `<div class="setting-row"><label>${html(label)}</label><div><button type="button" data-action="remove-agent-memory" data-id="${attr(note)}" data-confirm="this memory note">Remove</button></div></div>`;
-  }).join("") : '<p class="settings-note inline">No agent-layer memory entries.</p>';
-  const skills = (store.skills || []).map((skill) => `<div class="setting-row skill-row" title="${attr((skill.warnings || []).join(" · ") || skill.reason || "User skill")}">
-    <label><strong>${html(skill.name || "invalid")}</strong><span class="settings-note inline">${html(skill.description || skill.reason || "invalid")}</span></label>
-    <div class="settings-actions"><span>${html(skill.source)} · ${skill.index_tokens || 0} tokens · last read ${html(skill.last_read || "never")}${skill.valid ? "" : ` · invalid: ${html(skill.reason)}`}</span><button type="button" role="switch" aria-checked="${!!skill.enabled}" class="switch ${skill.enabled ? "on" : ""}" data-action="skill-toggle" data-id="${attr(skill.name)}" data-value="${skill.enabled ? "false" : "true"}" ${skill.valid ? "" : "disabled"}></button></div>
-  </div>`).join("");
-  const hermesRows = (hermesPreview?.rows || []).map((row) => `<tr class="hermes-row"><td><strong>${html(row.name)}</strong></td><td>${html(row.kind)}</td><td>${html(row.detail)}${row.bytes ? ` · ${row.bytes} bytes` : ""}${(row.calls || []).length ? ` · unmapped ${html(row.calls.join(", "))}` : ""}</td><td>${row.selectable ? `<button type="button" role="switch" aria-checked="${!!row.included}" class="switch ${row.included ? "on" : ""}" data-action="hermes-toggle" data-id="${attr(row.id)}"></button>` : "excluded"}</td></tr>`).join("");
-  const hermesPreviewBlock = hermesPreview ? `<p class="settings-note inline">${hermesPreview.secret_count || 0} secret names found · values are not read</p><table class="hermes-preview"><thead><tr><th>item</th><th>kind</th><th>preview</th><th>include</th></tr></thead><tbody>${hermesRows}</tbody></table><div class="setting-row"><label>preview only · nothing written</label><div><button type="button" data-action="hermes-confirm">Import selected</button></div></div>` : "";
-  const hermesReportBlock = hermesReport ? `<p class="settings-note inline hermes-report">${html(hermesReport.message)}${(hermesReport.rewritten || []).length ? ` · rewritten ${html(hermesReport.rewritten.join(", "))}` : ""}${(hermesReport.unresolved || []).length ? ` · unmapped ${html(hermesReport.unresolved.join(", "))}` : ""}${(hermesReport.cut || []).length ? ` · trimmed ${html(hermesReport.cut.join(", "))}` : ""}</p>` : "";
-  return `${subhead("Agent profiles")}<div data-adopt="agents-panel"></div>${memory}
-    ${subhead("Users")}${rows || '<p class="settings-note inline">No users configured.</p>'}
-    ${subhead("Create user", "Creates an empty user; connections remain shared.")}
-    <div class="setting-row profile-create-row" title="Create an empty user; connections stay shared."><label for="new-profile-name">name</label><div class="settings-actions profile-create-actions"><input id="new-profile-name" maxlength="64"><button type="button" data-action="create-profile">Create</button></div></div>
-    ${subhead("Skills", "Skills are on when added; use the switch to turn one off. Their scripts use the ordinary approval policy.")}
-    ${skills || '<p class="settings-note inline">No skills found.</p>'}
-    <div class="setting-row profile-skill-import-row" title="Import one skill folder or ZIP archive into this user."><label for="skill-import-path">folder to import</label><div class="settings-actions profile-skill-import-actions"><input id="skill-import-path" placeholder="C:\\path\\to\\skill"><button type="button" data-action="skill-import">Import</button><button type="button" data-action="skill-rescan">Rescan</button></div></div>
-    ${subhead("Import from Hermes", "Preview memory, skills and excluded data before anything is written.")}
-    <div class="setting-row profile-hermes-row" title="Choose the Hermes folder to preview before importing memory and skills into this user."><label for="hermes-import-path">Hermes folder</label><div class="settings-actions profile-hermes-actions"><input id="hermes-import-path" value="${attr(actionDrafts?.get?.("hermes-import-path") || "~/.hermes")}"><button type="button" data-action="hermes-preview">Import from Hermes</button></div></div>${hermesPreviewBlock}${hermesReportBlock}`;
+  const memoryRows = notes.map((raw, index) => {
+    const date = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0] || "—";
+    const tail = /\[([^\]]+)\]\s*$/.exec(raw)?.[1] || "";
+    const kind = /scope:\s*([^,]+)/.exec(tail)?.[1]?.trim() || (tail.includes("about-agent") ? "agent" : "note");
+    const note = raw.replace(/^\d{4}-\d{2}-\d{2}\s*/, "").replace(/\s*\[[^\]]+\]\s*$/, "");
+    const open = expanded.has(`profile-memory-note:${index}`);
+    return `<tr class="profile-memory-note ${open ? "open" : ""}"><td>${html(date)}</td><td>${html(kind)}</td><td><button type="button" class="memory-note-text" data-action="profile-memory-note-toggle" data-id="${index}" title="${attr(note)}">${html(note)}</button></td><td><button type="button" data-action="remove-agent-memory" data-id="${attr(raw)}" data-confirm="this memory note">Remove</button></td></tr>`;
+  }).join("");
+  const memoryOpen = expanded.has("profile-memory");
+  const memory = `<div class="profile-memory-block"><div class="setting-row profile-memory-row" title="Agent memory notes."><label>memory</label><div><span>${notes.length}</span><button type="button" data-action="profile-memory-toggle" aria-expanded="${memoryOpen}">${memoryOpen ? "Close" : "Open"}</button></div></div><table class="profile-memory-table" ${memoryOpen ? "" : "hidden"}><thead><tr><th>Date</th><th>Kind</th><th>Note</th><th>Remove</th></tr></thead><tbody>${memoryRows}</tbody></table></div>`;
+  const agentID = activeSession?.agent_id || profileAgentID(store.config?.agents?.[0]);
+  const agent = (store.config?.agents || []).find((item) => profileAgentID(item) === agentID) || {};
+  const enabled = agent.skills || {};
+  const badges = (store.skills || []).filter((skill) => skill.valid && (enabled[skill.name]?.enabled ?? skill.enabled)).map((skill) => `<span class="skill-badge">${html(skill.name)}</span>`).join("");
+  const skills = `<div class="setting-row profile-skills-row" title="Skills enabled for this agent profile."><label>skills</label><div><span class="skill-badges">${badges || "none"}</span><button type="button" data-action="settings-section" data-id="skills" data-skill-profile="${attr(agentID)}">change in Skills</button></div></div>`;
+  return `${subhead("Agent profiles")}<div data-adopt="agents-panel"></div>${skills}${memory}`;
 }

@@ -156,18 +156,12 @@ test("the connection row actions are the sheet's normal control size", async ({ 
   }
 });
 
-// Item 2le (f): both images resolve and the header text is present. The operator
-// supplied the artwork and asked for "a very brief description adjacent that
-// explains how planning works".
-test("the Plan header carries the artwork and three lines about planning", async ({ page }) => {
-  // Item 2no: the Plan section lives in the one document now.
+// Item 2u0 removes the picture and explanatory paragraph from the Plan page;
+// the compact navigation mark remains and every prepared size still resolves.
+test("the Plan page has no intro prose and its navigation artwork resolves", async ({ page }) => {
   const planHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
-  const intro = planHTML.slice(planHTML.indexOf('<div class="plan-intro">'), planHTML.indexOf("</div>", planHTML.indexOf('<div class="plan-intro">')));
-  expect(intro, "the Plan page has no header block").toContain("/static/assets/plan-mark.png");
-  const copy = /<p>([\s\S]*?)<\/p>/.exec(intro)?.[1] ?? "";
-  const sentences = (copy.match(/[^.]+\./g) || []).filter((value) => value.trim().length > 20);
-  expect(sentences.length, "the description should be three sentences, no more").toBeLessThanOrEqual(3);
-  expect(copy).toContain("A plan points at one repository");
+  expect(planHTML).not.toContain('class="plan-intro"');
+  expect(planHTML).not.toContain("A plan points at one repository");
 
   // Item 2lm (b) and (f): the nav mark is a size set now, because the strip draws
   // a 12px box and the product runs at more than one device pixel ratio --
@@ -1047,17 +1041,20 @@ test("Activity's upper grid leaves no empty column at 1250px", async ({ page }) 
   const geometry = await page.evaluate(() => {
     const pane = document.querySelector("#panel-tool-use").getBoundingClientRect();
     const lifetime = document.querySelector("#panel-lifetime").getBoundingClientRect();
-    const rows = document.querySelector("#panel-lifetime .panel-lines");
-    const columns = getComputedStyle(rows).gridTemplateColumns.split(" ").length;
-    return { pane: pane.height, paneWidth: Math.round(pane.width), lifetime: lifetime.height, columns, width: Math.round(lifetime.width), sameRow: Math.abs(pane.top - lifetime.top) < 2 };
+    const toolTable = document.querySelector("#panel-tool-use table").getBoundingClientRect();
+    const lifetimeTable = document.querySelector("#panel-lifetime table").getBoundingClientRect();
+    return { pane: pane.height, paneWidth: Math.round(pane.width), lifetime: lifetime.height, width: Math.round(lifetime.width), toolTable: Math.round(toolTable.width), lifetimeTable: Math.round(lifetimeTable.width), sameRow: Math.abs(pane.top - lifetime.top) < 2 };
   });
 
   // Both panes take the whole surface, so there is no second column left to be
-  // empty, and the metrics use that width instead of running down one column.
+  // empty, and both headed tables use that width.
   expect(geometry.sameRow, "the panes still share a row").toBe(false);
-  expect(geometry.columns, `the metrics still run down a single column in ${geometry.width}px`).toBeGreaterThan(1);
   expect(geometry.width, "Lifetime does not take the width of the surface").toBeGreaterThan(700);
   expect(geometry.paneWidth, "Tool use does not take the width of the surface").toBeGreaterThan(700);
+  expect(geometry.lifetimeTable).toBeGreaterThan(0);
+  expect(geometry.lifetimeTable).toBeLessThanOrEqual(geometry.width);
+  expect(geometry.toolTable).toBeGreaterThan(0);
+  expect(geometry.toolTable).toBeLessThanOrEqual(geometry.paneWidth);
 });
 
 // Item 2ln (e): rel-1.15.0 card 8 said the Profiles page leaves a column empty at

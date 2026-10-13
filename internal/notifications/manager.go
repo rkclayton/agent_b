@@ -50,7 +50,7 @@ type Manager struct {
 	wait           func(context.Context, time.Duration) error
 	desktop        Desktop
 	phone          Phone
-	desktopEnabled func() bool
+	desktopEnabled func(string) bool
 
 	mu             sync.RWMutex
 	webhook        *url.URL
@@ -61,7 +61,7 @@ type Manager struct {
 	started        bool
 }
 
-func (m *Manager) SetChannels(desktop Desktop, phone Phone, enabled func() bool) {
+func (m *Manager) SetChannels(desktop Desktop, phone Phone, enabled func(string) bool) {
 	m.mu.Lock()
 	m.desktop, m.phone, m.desktopEnabled = desktop, phone, enabled
 	m.mu.Unlock()
@@ -150,7 +150,7 @@ func (m *Manager) State() State {
 	defer m.mu.RUnlock()
 	enabled := false
 	if m.desktopEnabled != nil {
-		enabled = m.desktopEnabled()
+		enabled = m.desktopEnabled("")
 	}
 	state := State{Desktop: enabled, Phone: "not paired"}
 	if m.phone != nil {
@@ -215,27 +215,27 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 }
 
-func (m *Manager) SendTest(ctx context.Context) (map[string]string, error) {
+func (m *Manager) SendTest(ctx context.Context, way string) (map[string]string, error) {
 	m.mu.RLock()
 	desktop, phone, enabled, webhook := m.desktop, m.phone, m.desktopEnabled, m.webhook != nil
 	m.mu.RUnlock()
-	desktopOn := enabled != nil && enabled()
+	desktopOn := enabled != nil && enabled("")
 	answers := map[string]string{}
-	if desktopOn && desktop != nil {
+	if (way == "" || way == "desktop") && desktopOn && desktop != nil {
 		if err := desktop.Show(DesktopNotice{Title: "Agent_b", Body: "Test notification", Link: m.baseURL}); err != nil {
 			answers["desktop"] = "refused"
 		} else {
 			answers["desktop"] = "shown"
 		}
 	}
-	if webhook {
+	if (way == "" || way == "discord") && webhook {
 		if err := m.deliver(ctx, "test", "Agent_b test notification.\nThe harness sent this from Settings without starting a run.\n"+m.baseURL); err != nil {
 			answers["webhook"] = "refused"
 		} else {
 			answers["webhook"] = "accepted"
 		}
 	}
-	if phone != nil {
+	if (way == "" || way == "phone") && phone != nil {
 		answer, err := phone.Notify(ctx, "run_stopped", "", "Agent_b test notification")
 		if err != nil {
 			answer = "refused"
@@ -252,8 +252,8 @@ func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
 	m.mu.RLock()
 	desktop, phone, enabled, webhook := m.desktop, m.phone, m.desktopEnabled, m.webhook != nil
 	m.mu.RUnlock()
-	desktopOn := enabled != nil && enabled()
 	data, _ := event.Data.(map[string]any)
+	desktopOn := enabled != nil && enabled(notificationGroup(event.Type, data))
 	notice := humanNotice(data, event.Type)
 	title := "chat"
 	if job, ok := data["scheduled_job"].(string); ok && strings.TrimSpace(job) != "" {
@@ -283,6 +283,16 @@ func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
 	if phone != nil {
 		_, _ = phone.Notify(ctx, pushKind(event.Type), event.SessionID, strings.ReplaceAll(body, "\n", " "))
 	}
+}
+
+func notificationGroup(eventType string, data map[string]any) string {
+	if job, _ := data["scheduled_job"].(string); strings.TrimSpace(job) != "" || eventType == events.WorkerJob {
+		return "scheduled"
+	}
+	if eventType == events.ApprovalRequired || eventType == events.ItemStuck {
+		return "needs_you"
+	}
+	return "finished"
 }
 
 func pushKind(eventType string) string {

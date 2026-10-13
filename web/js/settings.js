@@ -8,6 +8,7 @@ import { renderChatsPage } from "./settings-chats.js";
 import { renderGeneralPage } from "./settings-general.js";
 import { renderNotificationsPage } from "./settings-notifications.js";
 import { renderProfilesPage } from "./settings-profiles.js";
+import { renderSkillsPage } from "./settings-skills.js";
 import { renderSecurityPage } from "./settings-security.js";
 import { renderWorkspacePage } from "./settings-workspace.js";
 import { setWaitProgress, waitElement } from "./wait.js";
@@ -80,6 +81,9 @@ let openedFrom = "";
 // ?from=plan, or #settings/plan.
 let planRequestedByAddress = false;
 let hardeningConnectionID = "";
+let skillAgent = "";
+let skillPreview = null;
+let skillPreviewPath = "";
 let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
 const connectionList = () => Array.isArray(store.connections) ? store.connections : [];
@@ -97,6 +101,7 @@ const sectionLabels = [
   ["plan", "Plan"],
   ["connections", "Connections"],
   ["profiles", "Profiles"],
+  ["skills", "Skills"],
   ["chats", "Chats"],
   ["notifications", "Notifications"],
   ["shell", "Security"],
@@ -346,6 +351,7 @@ function render() {
     plan: () => planSection(),
     connections: () => renderConnectionsPage(settingsPageContext(active)),
     profiles: () => renderProfilesPage(settingsPageContext(active)),
+    skills: () => renderSkillsPage(settingsPageContext(active)),
     sessions: () => renderGeneralPage("sessions", active, settingsPageContext(active)),
     tools: () => renderGeneralPage("tools", active, settingsPageContext(active)),
     memory: () => renderGeneralPage("memory", active, settingsPageContext(active)),
@@ -515,7 +521,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts,
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
     credentialList, credentialMessage, credentialAlarm, credentialDevice,
@@ -651,7 +657,7 @@ function row(label, control, extra = "", hint = "") {
 
 // A subsection heading carries the paragraph that used to sit under it.
 function subhead(label, hint = "") {
-  return `<div class="settings-subhead">${html(label)}</div>${hint ? `<p class="settings-subhead-note">${html(hint)}</p>` : ""}`;
+  return `<div class="settings-subhead"${hint ? ` title="${attr(hint)}"` : ""}>${html(label)}</div>`;
 }
 
 // Item 2l1 (a5) and (a6): the one action proposes what it learned as SOFT values
@@ -1054,9 +1060,12 @@ async function dispatchAction(event, button, action, id) {
     // Item 2no (a): every section is drawn in the pane, the Plan included. This used
     // to be location.assign('/plan...') — a page navigation dressed as a section.
     activeSection = id;
+    if (id === "skills") skillAgent = button.dataset.skillProfile || skillAgent || store.sessions?.[store.active]?.agent_id || "";
     notePage(id);
     history.replaceState(null, "", `#settings/${activeSection}`);
-    return render();
+		render();
+		sheet.querySelector(".settings-content")?.scrollTo({ top: 0, left: 0 });
+		return;
   }
   if (action === "connection-toggle") {
     const wasOpen = expanded.has(id);
@@ -1065,6 +1074,15 @@ async function dispatchAction(event, button, action, id) {
       expanded.add(id);
       void listConnectionModels(id);
     }
+    return render();
+  }
+  if (action === "profile-memory-toggle") {
+    if (expanded.has("profile-memory")) expanded.delete("profile-memory"); else expanded.add("profile-memory");
+    return render();
+  }
+  if (action === "profile-memory-note-toggle") {
+    const key = `profile-memory-note:${id}`;
+    if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
     return render();
   }
   if (action === "show-key") {
@@ -1116,9 +1134,23 @@ async function dispatchAction(event, button, action, id) {
     return render();
   }
 	if (action === "skill-toggle") {
-		try { await api("/api/skills", {action:"enable", name:id, enabled:button.dataset.value === "true"}); reduce({type:"snapshot", data:await api("/api/state",undefined,"GET")}); }
-		catch(error) { errors.set("profiles",error.message); }
+		try { await api("/api/skills", {action:"enable", name:id, agent_id:button.dataset.agentId || skillAgent, enabled:button.dataset.value === "true"}); reduce({type:"snapshot", data:await api("/api/state",undefined,"GET")}); }
+		catch(error) { errors.set("skills",error.message); }
 		return render();
+	}
+	if (action === "skill-row-toggle") { const key=`skill:${id}`; if(expanded.has(key))expanded.delete(key);else expanded.add(key); return render(); }
+	if (action === "skill-add-pick") {
+		try { const picked=await api("/api/folder-picker",{initial:""}); skillPreviewPath=picked.path; const result=await api("/api/skills",{action:"preview-folder",path:picked.path,agent_id:skillAgent}); skillPreview=result.hermes; }
+		catch(error){errors.set("skills",error.message)} return render();
+	}
+	if (action === "skill-add-confirm") {
+		try { const include=[...sheet.querySelectorAll("[data-skill-preview-id]:checked")].map((item)=>item.dataset.skillPreviewId); await api("/api/skills",{action:"import-many",path:skillPreviewPath,include,agent_id:skillAgent}); skillPreview=null; reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
+		catch(error){errors.set("skills",error.message)} return render();
+	}
+	if (action === "skill-remove") {
+		const key=`skill-remove:${id}`; if(!armed.has(key)){armed.add(key);return render()} armed.delete(key);
+		try { await api("/api/skills",{action:"remove",name:id,agent_id:button.dataset.agentId || skillAgent}); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
+		catch(error){errors.set("skills",error.message)} return render();
 	}
 	if (action === "skill-import" || action === "skill-rescan") {
 		try { await api("/api/skills", action === "skill-import" ? {action:"import", path:sheet.querySelector("#skill-import-path")?.value || ""} : {action:"rescan"}); if(action==="skill-import")actionDrafts.delete("skill-import-path"); reduce({type:"snapshot",data:await api("/api/state",undefined,"GET")}); }
@@ -1473,7 +1505,7 @@ async function dispatchAction(event, button, action, id) {
 	if (action === "verify-hardening") return hardeningAction("verify");
 	if (action === "refresh-hardening") return refreshHardeningStatus();
 	if (action === "save-notification") return notificationAction("save");
-	if (action === "test-notification") return notificationAction("test");
+	if (action === "test-notification") return notificationAction("test", id);
 	if (action === "clear-notification") return notificationAction("clear");
 	if (action === "install-update") return installUpdate();
 	if (action === "check-update") return checkUpdate();
@@ -1684,7 +1716,7 @@ async function refreshNotificationStatus() {
 	if (open && activeSection === "notifications") render();
 }
 
-async function notificationAction(action) {
+async function notificationAction(action, way = "") {
 	const input = sheet.querySelector("#discord-webhook-url");
 	const value = input?.value || "";
 	notificationBusy = true;
@@ -1693,7 +1725,7 @@ async function notificationAction(action) {
 	if (input) input.value = "";
 	render();
 	try {
-		const result = await api("/api/notifications", action === "save" ? { action, url: value } : { action });
+		const result = await api("/api/notifications", action === "save" ? { action, url: value } : { action, way });
 		notificationStatus = result.notifications || notificationStatus;
 		notificationMessage = action === "test" ? Object.entries(result.answers || {}).map(([way, answer]) => `${way} · ${answer}`).join(" · ") : action === "clear" ? "Discord notifications disabled." : "Discord webhook saved.";
 	} catch (error) {
@@ -1837,6 +1869,7 @@ async function blur(event) {
 }
 
 async function change(event) {
+  if (event.target.matches("[data-skills-profile]")) { skillAgent = event.target.value; return render(); }
   if (event.target.matches("[data-profile-select]")) {
     try {
       await api("/api/profiles", { action: "switch", name: event.target.value });

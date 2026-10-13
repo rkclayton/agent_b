@@ -102,7 +102,7 @@ function shell(active) {
 	const sandboxStatus = store.sandbox || {};
 	const sandboxState = sandboxStatus.available ? "ready" : (sandboxStatus.reason || "Docker Sandbox is unavailable");
 	const trustedFolders = Array.isArray(store.config.shell?.trusted_folders) ? store.config.shell.trusted_folders : [];
-	const trustedRows = trustedFolders.map((entry, index) => `<span class="settings-actions"><input id="trusted-folder-${index}" value="${attr(entry.path)}" aria-label="Trusted folder"><span>${html((entry.added_at || "").slice(0, 10))} · ${entry.source === "card" ? "from a card" : "in Settings"}</span><button type="button" data-action="trusted-folder-change" data-id="${index}">Change</button><button type="button" data-action="trusted-folder-delete" data-id="${index}">Delete</button></span>`).join("");
+	const trustedRows = trustedFolders.map((entry, index) => `<tr><td><input id="trusted-folder-${index}" value="${attr(entry.path)}" aria-label="Allowed directory"></td><td>${html((entry.added_at || "").slice(0, 10))} · ${entry.source === "card" ? "card" : "Settings"}</td><td><button type="button" data-action="trusted-folder-change" data-id="${index}">Change</button><button type="button" data-action="trusted-folder-delete" data-id="${index}">Delete</button></td></tr>`).join("");
 	const confirmedSubnets = new Set(store.config.shell?.confirmed_local_subnets || []);
 	const detectedSubnets = hardeningStatus.detected_local_subnets || [];
 	const subnetChoices = detectedSubnets.length
@@ -120,16 +120,12 @@ function shell(active) {
   return `${subhead("Run as you", "Run everything as you for 20 minutes. This is the one line that stays visible because misreading it is dangerous.")}
 	${row("identity", `<button type="button" class="settings-operator-status" data-action="operator-context" aria-pressed="${operatorView.active}" aria-label="${attr(operatorView.label)}"><img src="${operatorView.src}" srcset="${operatorView.srcset}" width="24" height="24" alt=""><span>${operatorView.active ? "Stop running everything as me" : "Run everything as me for 20 minutes"}</span></button>`, "", "Runs every tool as you, without the service account's limits, for 20 minutes or until you stop it.")}
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
-	${subhead("Unattended", "Never ask. A worker or scheduled run that would have raised a card records a boundary failure on its item and carries on; the report lists every one. This changes who is asked, not who runs anything and not what the boundary permits.")}
-	${toggle("approval.unattended", "Unattended: never ask; boundary hits fail the item", !!store.config.approval?.unattended, "A chat you are typing in still asks you. This is for a worker started by Go and for a scheduled run, which have nobody in front of them.")}
-	${subhead("Standing grants", "Exact repo, folder, connector, and host approvals for this user. They survive restarts and new chats until revoked.")}
-	${row("grants", standingGrants.length ? `<span class="settings-actions vertical">${standingGrants.map((grant)=>`<span>${html(grant.kind)} · ${html(grant.subject)} <button type="button" data-action="revoke-standing-grant" data-id="${attr(grant.id)}" data-confirm="the ${attr(grant.kind)} grant for ${attr(grant.subject)}">Revoke</button></span>`).join("")}</span>` : '<span class="account-status">none</span>')}
-	${subhead("Docker Sandbox", "Install-wide: routes shell and bash through Docker Sandbox when it is ready.")}
-	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
-	${row("status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`)}
-	${subhead("Folders that don't ask", "A folder and its descendants skip outside-folder prompts; with Service identity on they run as you.")}
-	${row("folders", `<span class="settings-actions vertical">${trustedRows || '<span class="account-status">none</span>'}<span class="settings-actions"><input id="trusted-folder-new" placeholder="C:\\folder" aria-label="Add trusted folder"><button type="button" data-action="trusted-folder-add">Add</button></span></span>`)}
-	${subhead("Service identity", "Use the restricted Windows account for tools. Switching it on sets the account up and asks Windows once; switching it off takes effect immediately.")}
+	${subhead("Allowed Directories", "A directory and its descendants skip outside-folder prompts.")}
+	<table class="allowed-directories"><thead><tr><th>Directory</th><th>Added</th><th></th></tr></thead><tbody>${trustedRows}<tr><td><input id="trusted-folder-new" placeholder="C:\\folder" aria-label="Add allowed directory"></td><td>—</td><td><button type="button" data-action="trusted-folder-add">Add</button></td></tr></tbody></table>
+	${brokerRows()}
+	${credentialRows()}
+	${subhead("Experimental", "")}
+	<div class="experimental-label" title="Use the restricted Windows account for tools.">Service identity</div>
 	${row("Service identity", `<button type="button" role="switch" aria-checked="${identityOn}" aria-label="Service identity" class="switch ${identityOn ? "on" : ""}" data-action="service-identity-toggle" ${serviceAccountBusy ? "disabled" : ""}></button><span class="account-status">${serviceAccountBusy ? "Turning on — Windows will ask once" : identityOn ? "on" : "off"}</span>`, "", "Off: tools run as the account that launched Agent_b. On: Agent_b runs tools as its own restricted Windows account.")}
 	${feedback(serviceAccountMessage, serviceAccountAlarm)}
 	${serviceAccountStatus.execution_policy_message ? `<p class="settings-feedback alarm" role="status">${html(serviceAccountStatus.execution_policy_message)}</p>` : ""}
@@ -141,7 +137,7 @@ function shell(active) {
 	  ${store.shell_identity?.notice ? `<p class="settings-feedback alarm" role="status">${html(store.shell_identity.notice)}</p>` : ""}
 	  ${row("account", `<span class="account-status"><span class="lamp ${serviceAccountStatus.state === "ready" ? "live" : identityAlarm ? "alarm" : ""}"></span>${html(accountState)}</span>`)}
 	  ${row("credential", `<span class="account-status">${html(stored)}</span>`)}
-	  ${subhead("Host protections", "Folder access and outbound policy applied to the service identity.")}
+	  <div class="settings-minor-head" title="Folder access and outbound policy applied to the service identity.">Host protections</div>
 	  ${row("protections", `<span class="account-status"><span class="lamp ${protectionReady ? "live" : hardeningStatus.loaded ? "alarm" : ""}"></span>${html(protectionState)}</span>`)}
 	  ${driftLines ? `<ul class="settings-drift">${driftLines}</ul>` : ""}
 	  ${row("model route", `<select id="hardening-connection" aria-label="Model route for host protections">${hardeningConnections()}</select>`)}
@@ -150,8 +146,8 @@ function shell(active) {
 	  ${row("actions", `<div class="settings-actions"><button type="button" data-action="setup-service-account" ${setupDisabled ? "disabled" : ""}>${setupLabel}</button></div>`)}
 	${feedback(hardeningMessage, hardeningAlarm)}
 	</details>
-	${brokerRows()}
-	${credentialRows()}
+	${toggle("sandbox.enabled", "Docker Sandbox", sandboxEnabled, "Install-wide: routes shell and bash through Docker Sandbox.")}
+	${row("Docker status", `<span class="account-status"><span class="lamp ${sandboxStatus.available ? "live" : ""}"></span>${html(sandboxState)}</span>`)}
     `;
 }
 

@@ -79,6 +79,8 @@
   min-height: min(620px, calc(100dvh - 180px));
   grid-template-columns: clamp(150px, 26%, 260px) minmax(0, 1fr);
 }
+.settings-content .plan-workspace:has(.plan-add-form:not([hidden])) { grid-template-columns: minmax(0, 1fr); }
+.settings-content .plan-workspace:has(.plan-add-form:not([hidden])) .plan-view { display: none; }
 @media (max-width: 760px) {
   .settings-content .plan-workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -88,3 +90,16 @@
   .settings-content .plan-intro { grid-template-columns: minmax(0, 1fr); }
   .settings-content .plan-intro-mark { display: none; }
 }
+.plan-add-preview { display: grid; gap: 6px; padding: 8px; }
+.plan-add-preview > div { display: grid; grid-template-columns: 86px minmax(0,1fr); gap: 10px; }
+.plan-add-preview span { color: var(--mute); }
+.plan-add-preview strong { overflow-wrap: anywhere; font-weight: 400; }
+.plan-facts { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 6px 12px; margin: 0; }
+.plan-facts dt { color: var(--mute); }
+.plan-facts dd { margin: 0; overflow-wrap: anywhere; }
+.plan-body { display: grid; align-content: start; gap: 16px; }
+.plan-body h3 { margin: 0 0 6px; font-size: 12px; font-weight: 500; }
+.plan-text summary { cursor: pointer; color: var(--mute); }
+.plan-data-table { width: max-content; max-width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
+.plan-data-table th, .plan-data-table td { padding: 4px 10px; border-top: 1px solid var(--line); text-align: left; }
+.plan-data-table th { color: var(--mute); font-weight: 400; }

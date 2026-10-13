@@ -71,9 +71,9 @@ type Runner struct {
 var resolveNamedPath = tools.ResolveNamedPath
 
 type SkillHost interface {
-	Index() string
+	Index(string) string
 	Proposal(context.Context, *session.Session, string) (string, error)
-	Read(string)
+	Read(string, string)
 }
 
 type BoundaryAction struct {
@@ -556,7 +556,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			records := s.MessagesCopy()
 			skills := ""
 			if r.skills != nil {
-				skills = r.skills.Index()
+				skills = r.skills.Index(s.AgentID)
 			}
 			systemBase := r.prompt.RenderSkillParts(connection, s, toolNames, "", "")
 			systemProject := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, "")
@@ -1128,7 +1128,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			for _, item := range results {
 				if item.ok && item.call.Name == "read_file" && r.skills != nil {
 					if path, ok := item.args["path"].(string); ok {
-						r.skills.Read(path)
+						r.skills.Read(path, s.AgentID)
 					}
 				}
 				category := item.category
@@ -2148,7 +2148,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	project := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, "")
 	skillsBlock := ""
 	if r.skills != nil {
-		skillsBlock = r.skills.Index()
+		skillsBlock = r.skills.Index(s.AgentID)
 	}
 	skillsSystem := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock)
 	memoryBlock := s.WorkspaceMemory()

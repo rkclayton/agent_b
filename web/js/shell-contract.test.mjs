@@ -241,14 +241,14 @@ test("the Plan chip is the operator's prepared artwork, not a drawing", async ()
   assert.match(chipRule, /width:12px;height:12px/);
 });
 
-// Item 2lm @keep: the full-detail Plan page header is exactly what v1.15.0 ships.
-// Only the nav variant was prepared again.
-test("the full-detail Plan mark is untouched", async () => {
+// Item 2u0 removes the full-detail Plan header, while retaining the asset itself
+// and the compact navigation mark.
+test("the retired full-detail Plan mark remains an intact asset", async () => {
   const png = await readFile(new URL("../assets/plan-mark.png", import.meta.url));
   assert.equal(png.readUInt32BE(16), 128);
   assert.equal(png.readUInt32BE(20), 128);
   const plan = await readFile(new URL("../index.html", import.meta.url), "utf8");
-  assert.match(plan, /plan-mark\.png/, "the Plan section no longer heads with the full-detail mark");
+  assert.doesNotMatch(plan, /plan-mark\.png/, "the retired full-detail mark returned to the Plan section");
 });
 
 // Item 2gk (v1.3.0/W2): the readout left, and the marker that drew

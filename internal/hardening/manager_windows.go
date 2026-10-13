@@ -17,10 +17,7 @@ var procIsUserAnAdmin = syscall.NewLazyDLL("shell32.dll").NewProc("IsUserAnAdmin
 
 type windowsManager struct{}
 
-// New keeps the cross-platform constructor stable. The former script paths are
-// ignored because Windows host policy is now inspected and applied natively.
-func New(string, string, string) Manager { return NewNative() }
-func NewNative() Manager                 { return &windowsManager{} }
+func NewNative() Manager { return &windowsManager{} }
 
 func (m *windowsManager) Status(ctx context.Context, request Request) (Status, error) {
 	if err := ctx.Err(); err != nil {

@@ -32,8 +32,10 @@ if (-not ($registered | Where-Object { $_.Equals($full, [StringComparison]::Ordi
 # .git file names a record under this repository's worktrees folder and that
 # record names this path back, and the record is not locked. Only that record is
 # removed afterwards; other stale records are left for git.
-$commonDir = [string](& $git -C $Repository rev-parse --path-format=absolute --git-common-dir | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonDir)) { throw "git rev-parse --git-common-dir failed in $Repository" }
+$commonOutput = @(& $git -C $Repository rev-parse --path-format=absolute --git-common-dir)
+$commonExit = $LASTEXITCODE
+$commonDir = [string]($commonOutput | Select-Object -First 1)
+if ($commonExit -ne 0 -or [string]::IsNullOrWhiteSpace($commonDir)) { throw "git rev-parse --git-common-dir failed in $Repository" }
 $worktreesRoot = [IO.Path]::GetFullPath((Join-Path $commonDir.Trim() 'worktrees')).TrimEnd('\')
 $dotGit = Join-Path $full '.git'
 if (-not (Test-Path -LiteralPath $dotGit -PathType Leaf)) { throw "Refusing: $full has no .git file linking it to $Repository" }

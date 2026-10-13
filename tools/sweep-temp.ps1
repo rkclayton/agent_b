@@ -1,108 +1,84 @@
-# sweep-temp.ps1 — the operator's sweep of Agent_b scratch (item 2ft).
-#
-# Lists, and with -Apply removes, Agent_b roots and files under %TEMP% (names starting
-# Agent_b / AgentB / agentb, and each order folder under agentb-worker) and the
-# entries of the repository's retired .tmp, when ALL of these hold:
-#   - older than the last three orders: last written before the creation of the
-#     third-newest order folder under logs\evidence (or -Cutoff);
-#   - no open item (plan\items\*.md) and no line of NOTES.md names it;
-#   - no running Agent_b.exe lives under it.
-# Everything else is kept and listed with the reason. Listing is the default;
-# nothing is removed without -Apply. Removal goes through the removal guard.
+# sweep-temp.ps1 — bounded cleanup of Agent_b temporary and build leftovers.
 [CmdletBinding()]
 param(
     [switch]$Apply,
     [datetime]$Cutoff,
     [string]$RepositoryRoot,
-    [string]$Report
+    [string]$Report,
+    [string]$TempRoot,
+    [string]$CurrentOrder
 )
 $ErrorActionPreference = 'Stop'
 if (-not $RepositoryRoot) { $RepositoryRoot = Split-Path -Parent $PSScriptRoot }
+$RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\')
 . (Join-Path $RepositoryRoot 'scripts\removal-guard.ps1')
-
-$temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
-$repoTmp = Join-Path $RepositoryRoot '.tmp'
+if (-not $TempRoot) { $TempRoot = [IO.Path]::GetTempPath() }
+$temp = [IO.Path]::GetFullPath($TempRoot).TrimEnd('\')
 
 if (-not $PSBoundParameters.ContainsKey('Cutoff')) {
     $orders = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'logs\evidence') -Directory |
-        Where-Object { $_.Name -match '^\d{4}-\d\d-\d\d-v(\d+)\.(\d+)\.(\d+)$' } |
+        Where-Object Name -match '^\d{4}-\d\d-\d\d-v\d+\.\d+\.\d+$' |
         Sort-Object { [version]($_.Name -replace '^\d{4}-\d\d-\d\d-v', '') } -Descending)
     if ($orders.Count -lt 3) { throw 'Fewer than three order folders under logs\evidence; pass -Cutoff.' }
-    # The earlier of the folder's creation and the date in its name: a restored
-    # or copied evidence folder is created "now" (v0.70.2 cold review).
     $named = [datetime]::ParseExact($orders[2].Name.Substring(0, 10), 'yyyy-MM-dd', $null)
     $Cutoff = @($orders[2].CreationTime, $named) | Sort-Object | Select-Object -First 1
     $cutoffSource = $orders[2].Name
 } else { $cutoffSource = 'parameter' }
-
-$cited = [Text.StringBuilder]::new()
-$null = $cited.Append((Get-Content -Raw -LiteralPath (Join-Path $RepositoryRoot 'NOTES.md')))
-foreach ($item in Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'plan\items') -Filter *.md) {
-    $null = $cited.Append((Get-Content -Raw -LiteralPath $item.FullName))
+if (-not $CurrentOrder -and (Test-Path -LiteralPath (Join-Path $RepositoryRoot 'plan\_inflight.md'))) {
+    $marker = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'plan\_inflight.md') -TotalCount 1
+    if ($marker -match '^(?<order>rel-[^/]+)') { $CurrentOrder = $Matches.order }
 }
-$citedText = $cited.ToString()
 
-# A linked git worktree is left to tools\remove-worktree.ps1, which also
-# removes git's record of it.
+$tracked = @(& git -C $RepositoryRoot ls-files | ForEach-Object { $_.Replace('\','/') })
+$operational = [Text.StringBuilder]::new()
+foreach ($file in @(& git -C $RepositoryRoot ls-files tools scripts tests '.github/workflows')) {
+    $path = Join-Path $RepositoryRoot $file
+    if (Test-Path -LiteralPath $path -PathType Leaf) { $null = $operational.AppendLine([IO.File]::ReadAllText($path)) }
+}
+$operationalText = $operational.ToString()
 $worktrees = @(& git -C $RepositoryRoot worktree list --porcelain 2>$null | Where-Object { $_ -like 'worktree *' } | ForEach-Object { [IO.Path]::GetFullPath($_.Substring(9).Replace('/', '\')).TrimEnd('\') })
+$live = @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Path } catch { $null } } | Where-Object { $_ })
 
-$live = @(Get-Process -Name 'Agent_b' -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Path } catch { $null } } | Where-Object { $_ })
-
-function Get-TreeInfo {
-    param([string]$Path)
+function Get-TreeInfo([string]$Path) {
     $item = Get-Item -LiteralPath $Path -Force
     if (-not $item.PSIsContainer) { return @{ bytes = [int64]$item.Length; newest = $item.LastWriteTime } }
-    $bytes = [int64]0; $newest = $item.LastWriteTime
-    foreach ($file in Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue) {
-        $bytes += $file.Length
-        if ($file.LastWriteTime -gt $newest) { $newest = $file.LastWriteTime }
-    }
+    $bytes = [int64]0; $newest = $item.LastWriteTime; $pending = [Collections.Stack]::new(); $pending.Push($Path)
+    while($pending.Count){ foreach($child in Get-ChildItem -LiteralPath ([string]$pending.Pop()) -Force -ErrorAction SilentlyContinue){ if($child.Attributes -band [IO.FileAttributes]::ReparsePoint){continue}; if($child.PSIsContainer){$pending.Push($child.FullName)}else{$bytes += $child.Length; if($child.LastWriteTime -gt $newest){$newest=$child.LastWriteTime}} } }
     return @{ bytes = $bytes; newest = $newest }
 }
-
-$candidates = @()
-# v0.70.2/W7: files at the top of %TEMP% (transcripts, logs) are swept too.
+function Add-Candidate([Collections.ArrayList]$List, [string]$Path, [string]$Root, [string]$Area, [bool]$AgeLimited = $false, [string]$ForcedKeep = '') {
+    if (Test-Path -LiteralPath $Path) { $null = $List.Add(@{ path=$Path; root=$Root; area=$Area; age=$AgeLimited; forced=$ForcedKeep }) }
+}
+$candidates = [Collections.ArrayList]::new()
 foreach ($entry in Get-ChildItem -LiteralPath $temp -Force -ErrorAction SilentlyContinue) {
     if ($entry.Name -notmatch '^(?i)agent_?b(?=$|[-_.])') { continue }
-    if ($entry.PSIsContainer -and $entry.Name -ieq 'agentb-worker') {
-        foreach ($order in Get-ChildItem -LiteralPath $entry.FullName -Directory -Force) { $candidates += @{ path = $order.FullName; root = $entry.FullName; area = 'temp' } }
-        continue
-    }
-    $candidates += @{ path = $entry.FullName; root = $temp; area = 'temp' }
+    if ($entry.PSIsContainer -and $entry.Name -ieq 'agentb-worker') { foreach ($order in Get-ChildItem -LiteralPath $entry.FullName -Directory -Force) { Add-Candidate $candidates $order.FullName $entry.FullName 'temp' $true } }
+    else { Add-Candidate $candidates $entry.FullName $temp 'temp' $true }
 }
-if (Test-Path -LiteralPath $repoTmp) {
-    foreach ($entry in Get-ChildItem -LiteralPath $repoTmp -Force) { $candidates += @{ path = $entry.FullName; root = $repoTmp; area = '.tmp' } }
-}
+foreach ($area in '.tmp','.codex-temp','.claude-temp') { $root=Join-Path $RepositoryRoot $area; if(Test-Path -LiteralPath $root){ foreach($entry in Get-ChildItem -LiteralPath $root -Force){ Add-Candidate $candidates $entry.FullName $root $area $true } } }
+foreach ($entry in Get-ChildItem -LiteralPath $RepositoryRoot -Directory -Force -Filter '.plan-candidate-*') { Add-Candidate $candidates $entry.FullName $RepositoryRoot 'plan-candidate' $false $(if($CurrentOrder -and $entry.Name -like "*$CurrentOrder*"){'current order'}else{''}) }
+$candidateRoot=Join-Path $RepositoryRoot 'candidates'
+if(Test-Path -LiteralPath $candidateRoot){ $newest=@(Get-ChildItem -LiteralPath $candidateRoot -Force | Sort-Object LastWriteTime -Descending | Select-Object -First 3 | ForEach-Object FullName); foreach($entry in Get-ChildItem -LiteralPath $candidateRoot -Force){ Add-Candidate $candidates $entry.FullName $candidateRoot 'candidates' $false $(if($newest -contains $entry.FullName){'one of the three newest candidates'}else{''}) } }
+foreach($name in 'candidate','scratch','test-results','playwright-report'){ Add-Candidate $candidates (Join-Path $RepositoryRoot $name) $RepositoryRoot $name }
+foreach($entry in Get-ChildItem -LiteralPath $RepositoryRoot -File -Force | Where-Object Extension -in '.exe','.dll','.com'){ Add-Candidate $candidates $entry.FullName $RepositoryRoot 'root-program' }
 
 $rows = foreach ($candidate in $candidates) {
-    $name = Split-Path -Leaf $candidate.path
-    $info = Get-TreeInfo -Path $candidate.path
-    $reason = $null
-    if ($info.newest -ge $Cutoff) { $reason = 'within the last three orders' }
-    elseif ($name -like 'Agent_b-install-rollback-*') { $reason = 'an install rollback copy: it may hold the only copy of the previous install' }
-    elseif ($worktrees | Where-Object { $full = [IO.Path]::GetFullPath($candidate.path).TrimEnd('\'); $_ -eq $full -or $_.StartsWith($full + '\', [StringComparison]::OrdinalIgnoreCase) }) { $reason = 'a linked git worktree (or holds one): remove it with tools\remove-worktree.ps1' }
-    elseif ($live | Where-Object { $_.StartsWith($candidate.path + '\', [StringComparison]::OrdinalIgnoreCase) }) { $reason = 'holds a running Agent_b.exe' }
-    elseif ($citedText.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $reason = 'named by NOTES.md or an open item' }
-    [pscustomobject]@{ area = $candidate.area; path = $candidate.path; root = $candidate.root; bytes = $info.bytes; newest = $info.newest.ToString('s'); action = $(if ($reason) { 'keep' } else { 'remove' }); reason = $reason; result = $null }
+    $path=[IO.Path]::GetFullPath($candidate.path); $name=Split-Path -Leaf $path; $info=Get-TreeInfo $path
+    $relative=$(if($path.StartsWith($RepositoryRoot+'\',[StringComparison]::OrdinalIgnoreCase)){$path.Substring($RepositoryRoot.Length+1).Replace('\','/')}else{''}); $reason=$candidate.forced
+    if(-not $reason -and $candidate.age -and $info.newest -ge $Cutoff){$reason='within the last three orders'}
+    elseif(-not $reason -and $name -like 'Agent_b-install-rollback-*'){$reason='an install rollback copy'}
+    elseif(-not $reason -and @($tracked | Where-Object { $_ -eq $relative -or $_.StartsWith($relative+'/',[StringComparison]::OrdinalIgnoreCase) }).Count){$reason='git tracks it or something beneath it'}
+    elseif(-not $reason -and ($candidate.area -eq 'root-program') -and $operationalText.IndexOf($name,[StringComparison]::OrdinalIgnoreCase) -ge 0){$reason='named by a tracked script, test, or workflow'}
+    elseif(-not $reason -and @($worktrees | Where-Object { $_ -eq $path -or $_.StartsWith($path+'\',[StringComparison]::OrdinalIgnoreCase) }).Count){$reason='a linked git worktree or holds one'}
+    elseif(-not $reason -and @($live | Where-Object { $_ -eq $path -or $_.StartsWith($path+'\',[StringComparison]::OrdinalIgnoreCase) }).Count){$reason='holds a running program'}
+    [pscustomobject]@{area=$candidate.area;path=$path;root=$candidate.root;bytes=$info.bytes;newest=$info.newest.ToString('s');action=$(if($reason){'keep'}else{'remove'});reason=$reason;result=$null}
 }
-
-foreach ($row in $rows | Where-Object action -eq 'remove') {
-    if (-not $Apply) { $row.result = 'whatif'; continue }
-    try { Remove-TreeWithinAllowedRoots -Path $row.path -AllowedRoots @($row.root) -Purpose 'temp sweep'; $row.result = $(if (Test-Path -LiteralPath $row.path) { 'partly removed' } else { 'removed' }) }
-    catch { $row.result = "failed: $($_.Exception.Message)" }
+foreach($row in $rows | Where-Object action -eq 'remove'){
+    if(-not $Apply){$row.result='whatif';continue}
+    try{Remove-TreeWithinAllowedRoots -Path $row.path -AllowedRoots @($row.root) -Purpose 'temp sweep';$row.result=$(if(Test-Path -LiteralPath $row.path){'partly removed'}else{'removed'})}catch{$row.result="failed: $($_.Exception.Message)"}
 }
-
-$summary = [ordered]@{
-    at = (Get-Date).ToString('o'); applied = [bool]$Apply; cutoff = $Cutoff.ToString('s'); cutoff_from = $cutoffSource
-    temp_total_mb = [math]::Round((($rows | Where-Object area -eq 'temp' | Measure-Object bytes -Sum).Sum) / 1MB, 1)
-    tmp_total_mb = [math]::Round((($rows | Where-Object area -eq '.tmp' | Measure-Object bytes -Sum).Sum) / 1MB, 1)
-    remove_count = @($rows | Where-Object action -eq 'remove').Count
-    remove_mb = [math]::Round((($rows | Where-Object action -eq 'remove' | Measure-Object bytes -Sum).Sum) / 1MB, 1)
-    keep_count = @($rows | Where-Object action -eq 'keep').Count
-    keep_mb = [math]::Round((($rows | Where-Object action -eq 'keep' | Measure-Object bytes -Sum).Sum) / 1MB, 1)
-    failed = @($rows | Where-Object { $_.result -like 'failed*' }).Count
-    rows = $rows
-}
-if ($Report) { $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Report -Encoding utf8 }
-foreach ($row in $rows) { '{0,-6} {1,-6} {2,10:N0} KB  {3}{4}' -f $row.area, $row.action, [math]::Round($row.bytes / 1KB), $row.path, $(if ($row.reason) { "  ($($row.reason))" } elseif ($row.result -and $row.result -ne 'whatif') { "  [$($row.result)]" } else { '' }) }
-'SWEEP {0}: cutoff {1} ({2}); remove {3} ({4} MB), keep {5} ({6} MB); failed {7}' -f $(if ($Apply) { 'APPLIED' } else { 'WHATIF' }), $summary.cutoff, $cutoffSource, $summary.remove_count, $summary.remove_mb, $summary.keep_count, $summary.keep_mb, $summary.failed
+$summary=[ordered]@{at=(Get-Date).ToString('o');applied=[bool]$Apply;cutoff=$Cutoff.ToString('s');cutoff_from=$cutoffSource;remove_count=@($rows|Where-Object action -eq 'remove').Count;remove_bytes=[int64](($rows|Where-Object action -eq 'remove'|Measure-Object bytes -Sum).Sum);keep_count=@($rows|Where-Object action -eq 'keep').Count;keep_bytes=[int64](($rows|Where-Object action -eq 'keep'|Measure-Object bytes -Sum).Sum);failed=@($rows|Where-Object result -like 'failed*').Count;rows=$rows}
+if($Report){$summary|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $Report -Encoding utf8}
+foreach($row in $rows){'{0,-16} {1,-6} {2,12:N0}  {3}{4}' -f $row.area,$row.action,$row.bytes,$row.path,$(if($row.reason){" ($($row.reason))"}elseif($row.result -and $row.result -ne 'whatif'){" [$($row.result)]"}else{''})}
+'SWEEP {0}: cutoff {1} ({2}); remove {3} ({4} bytes), keep {5} ({6} bytes); failed {7}' -f $(if($Apply){'APPLIED'}else{'WHATIF'}),$summary.cutoff,$cutoffSource,$summary.remove_count,$summary.remove_bytes,$summary.keep_count,$summary.keep_bytes,$summary.failed
+if($summary.failed){exit 1}

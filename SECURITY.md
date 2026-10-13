@@ -2,97 +2,374 @@
 
 Agent_b executes shell commands selected by a model. Use it only where that authority is acceptable.
 
-Profile skills are operator-owned instructions. The harness reads their enabled index and serves explicit read-only file-tool requests inside the active profile's `skills` folder with its own non-elevated identity; canonical path checks refuse file-tool writes before dispatch. This routing is not containment. Enabling a third-party skill trusts its instructions, while scripts it names retain the ordinary shell identity and approval policy.
+Profile skills are operator-owned instructions. The harness reads their enabled index and serves explicit read-only file-tool requests inside the active
+profile's `skills` folder with its own non-elevated identity; canonical path checks refuse file-tool writes before dispatch. This routing is not containment.
+Enabling a third-party skill trusts its instructions, while scripts it names retain the ordinary shell identity and approval policy.
 
 ## Workspace and shell boundary
 
-A plan chooses a file tool's working directory; it is not a reach allow-list. Relative paths start in the session's scratch or selected repository, while absolute paths and relative climbs proceed to the filesystem under the identity running the tool. Plan files under `<data-root>/plans` remain readable by every B and D session but writable only by the D session bound to that plan; the internal `plan.json` repository manifest and a repository's `.agentb` policy remain model-immutable. Operator identity does not disable those ownership rules: write_file and edit_file compare a target with the plans and policy folders both as written and as the file system resolves them, so a junction, symbolic link or reparse point cannot reach protected files under another name (item 2fq). D still cannot enable `shell` or `run_script`, and a repository policy's `default_toolset` cannot turn them on. These application guards protect ownership and routing only; Windows identity, ACLs and firewall policy are the reach boundary.
+A plan chooses a file tool's working directory; it is not a reach allow-list. Relative paths start in the session's scratch or selected repository,
+while absolute paths and relative climbs proceed to the filesystem under the identity running the tool.
+Plan files under `<data-root>/plans` remain readable by every B and D session but writable only by the D session bound to that plan;
+the internal `plan.json` repository manifest and a repository's `.agentb` policy remain model-immutable.
+Operator identity does not disable those ownership rules: write_file and edit_file compare a target with the plans and policy folders both as written and as the
+file system resolves them, so a junction, symbolic link or reparse point cannot reach protected files under another name (item 2fq).
+D still cannot enable `shell` or `run_script`, and a repository policy's `default_toolset` cannot turn them on.
+These application guards protect ownership and routing only; Windows identity, ACLs and firewall policy are the reach boundary.
 
-The hardened ACL policy makes the minimum matching OS exceptions: the service account may traverse the operator data root but may not list, read, or mutate it, while every existing profile's `plans` and `scratch` children have explicit recursive `Modify`. Existing hardened installs must reapply Host protections after this layout migration and after creating a profile before relying on D writes or scratch chats in it; that operator-only action is never performed by an application upgrade. Configuration, credentials, logs, retained chats, and memory remain outside service-account reach.
+The hardened ACL policy makes the minimum matching OS exceptions: the service account may traverse the operator data root but may not list, read, or mutate it,
+while every existing profile's `plans` and `scratch` children have explicit recursive `Modify`.
+Existing hardened installs must reapply Host protections after this layout migration and after creating a profile before relying on D writes or scratch chats in
+it; that operator-only action is never performed by an application upgrade. Configuration, credentials, logs, retained chats,
+and memory remain outside service-account reach.
 
-With the service identity disabled, built-in file tools run directly with the non-elevated operator's OS reach. With the split enabled, those tools impersonate the configured low-privilege Windows account and raise **Run as you** only when that identity is denied or unavailable. The separately governed `shell` and `run_script` literal-path card remains: a command naming a path outside the working folder can hold for one exact operator retry, its card names the paths it found (up to twelve, then a count), and a run_script card carries the source. Its fourth choice persists the resolved parent folder in `shell.trusted_folders`; that folder and resolved descendants bypass later outside-folder cards in every chat and, with the split on, deliberately run as the operator. Link and junction targets are resolved before matching, so an escape from a trusted tree is not trusted. Only the authenticated local Settings page or this explicit card decision mutates the list. This is routing ergonomics, not containment; assembled paths and interpreter code may evade the scan. The shell itself is not jailed: the session root is only its initial working directory, and it can change directories, use absolute paths, invoke network clients, and run any program available to its active token. Service-account ACLs constrain what tools can reach, not what they can do with reachable resources. The wrapper kills shell process trees on timeout, checks a small configurable denylist, and logs complete calls and results. [Windows host hardening](docs/HARDENING.md) reduces blast radius; it is not an OS sandbox.
+With the service identity disabled, built-in file tools run directly with the non-elevated operator's OS reach. With the split enabled,
+those tools impersonate the configured low-privilege Windows account and raise **Run as you** only when that identity is denied or unavailable.
+The separately governed `shell` and `run_script` literal-path card remains:
+a command naming a path outside the working folder can hold for one exact operator retry, its card names the paths it found (up to twelve, then a count),
+and a run_script card carries the source. Its fourth choice persists the resolved parent folder in `shell.trusted_folders`;
+that folder and resolved descendants bypass later outside-folder cards in every chat and, with the split on, deliberately run as the operator.
+Link and junction targets are resolved before matching, so an escape from a trusted tree is not trusted.
+Only the authenticated local Settings page or this explicit card decision mutates the list. This is routing ergonomics, not containment;
+assembled paths and interpreter code may evade the scan. The shell itself is not jailed: the session root is only its initial working directory,
+and it can change directories, use absolute paths, invoke network clients, and run any program available to its active token.
+Service-account ACLs constrain what tools can reach, not what they can do with reachable resources. The wrapper kills shell process trees on timeout,
+checks a small configurable denylist, and logs complete calls and results. [Windows host hardening](docs/HARDENING.md) reduces blast radius;
+it is not an OS sandbox.
 
-**File-tool reach (item 2jt, v1.9.0; `internal/tools/file_identity_windows.go`).** The tool receives the running identity's ordinary filesystem result: content or listing when allowed, and the OS not-found or access-denied result otherwise. With the service split disabled this exposes any file content the non-elevated operator can open; with it enabled, the service account's ACLs remain the boundary and an access denial may be retried only through the existing operator decision. Plan-file ownership and repository-policy immutability are independent of reach and remain enforced in both postures.
+**File-tool reach (item 2jt, v1.9.0; `internal/tools/file_identity_windows.go`).** The tool receives the running identity's ordinary filesystem result:
+content or listing when allowed, and the OS not-found or access-denied result otherwise.
+With the service split disabled this exposes any file content the non-elevated operator can open; with it enabled,
+the service account's ACLs remain the boundary and an access denial may be retried only through the existing operator decision.
+Plan-file ownership and repository-policy immutability are independent of reach and remain enforced in both postures.
 
-Approving a new plan repository now grants the configured service account inherited Modify access on that exact canonical repository before the plan is published. The grant uses the operator-owned repository ACL without elevation and registration fails if Windows refuses it; it does not grant access to a parent, sibling, or unrelated path. Full host-protection repair remains the elevated provisioning pass.
+Approving a new plan repository now grants the configured service account inherited Modify access on that exact canonical repository before the plan is
+published. The grant uses the operator-owned repository ACL without elevation and registration fails if Windows refuses it;
+it does not grant access to a parent, sibling, or unrelated path. Full host-protection repair remains the elevated provisioning pass.
 
-**Reflection reads what the model read (item 17-i, v1.1.0; `internal/reflection`).** Reflection's summary is written by the model from a transcript that can contain text the operator did not write — a fetched page, a search snippet, a file's contents, a tool result. That summary is stored, shown on Settings -> Activity, and can produce a memory note, which is durable prompt material for every later run in that folder. So: a run that used `fetch_url`, `web_search`, or `call_service`, or whose result the tool layer marked untrusted, produces **no** memory note at all; every note reflection does write is prefixed `[reflection, unconfirmed]` so a reader knows nobody confirmed it; a pass writes at most six; and each is published as `memory.noted`, so dropping a chat's memory drops these too. Reflection registers no plan: it names candidate repositories in its overview text and the operator registers them through the existing card. The structure extractor runs a repository's own toolchain, so its environment is pinned (`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `GOWORK=off`, `GOBIN=`; `CARGO_NET_OFFLINE=true`, `RUSTUP_TOOLCHAIN=`, `RUSTC=`) rather than inherited, so a hostile `go.mod` or `rust-toolchain.toml` cannot choose the binary that runs; files over 1 MiB are not read, and at most 4,000 are walked.
+**Reflection reads what the model read (item 17-i, v1.1.0; `internal/reflection`).** Reflection's summary is written by the model from a transcript that can
+contain text the operator did not write — a fetched page, a search snippet, a file's contents, a tool result. That summary is stored,
+shown on Settings -> Activity, and can produce a memory note, which is durable prompt material for every later run in that folder. So:
+a run that used `fetch_url`, `web_search`, or `call_service`, or whose result the tool layer marked untrusted, produces **no** memory note at all;
+every note reflection does write is prefixed `[reflection, unconfirmed]` so a reader knows nobody confirmed it; a pass writes at most six;
+and each is published as `memory.noted`, so dropping a chat's memory drops these too. Reflection registers no plan:
+it names candidate repositories in its overview text and the operator registers them through the existing card.
+The structure extractor runs a repository's own toolchain, so its environment is pinned (`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`,
+`GOWORK=off`, `GOBIN=`; `CARGO_NET_OFFLINE=true`, `RUSTUP_TOOLCHAIN=`, `RUSTC=`) rather than inherited,
+so a hostile `go.mod` or `rust-toolchain.toml` cannot choose the binary that runs; files over 1 MiB are not read, and at most 4,000 are walked.
 
-**The shell's interpreter (item 2gb, v1.0.1; `internal/tools/shell_dialect.go`, `internal/tools/interpreter.go`).** The shell tool and `run_script powershell` run PowerShell 7 when it is installed machine-wide (`%ProgramFiles%\PowerShell\7\pwsh.exe`, or the ProgramW6432 and 32-bit equivalents), and otherwise the configured Windows PowerShell. The interpreter is never taken from `PATH` or from a per-user location such as `%LOCALAPPDATA%\Microsoft\WindowsApps`: anything a non-admin can write there would become the process every shell call runs, including the calls that run as the operator. On a 5.1 host the model's top-level `&&` and `||` are rewritten before execution; the rewrite never touches quoted text, here-strings, comments, or anything after `--%`, and a command whose quotes or brackets do not balance is passed through untouched. The deny list, outside-path scan and operator-identity checks all read the model's original text, and the rewritten command is written to the operator's log whenever it differs.
+**The shell's interpreter (item 2gb, v1.0.1; `internal/tools/shell_dialect.go`,
+`internal/tools/interpreter.go`).** The shell tool and `run_script powershell` run PowerShell 7 when it is installed machine-wide
+(`%ProgramFiles%\PowerShell\7\pwsh.exe`, or the ProgramW6432 and 32-bit equivalents), and otherwise the configured Windows PowerShell.
+The interpreter is never taken from `PATH` or from a per-user location such as `%LOCALAPPDATA%\Microsoft\WindowsApps`:
+anything a non-admin can write there would become the process every shell call runs, including the calls that run as the operator.
+On a 5.1 host the model's top-level `&&` and `||` are rewritten before execution; the rewrite never touches quoted text, here-strings, comments,
+or anything after `--%`, and a command whose quotes or brackets do not balance is passed through untouched. The deny list,
+outside-path scan and operator-identity checks all read the model's original text,
+and the rewritten command is written to the operator's log whenever it differs.
 
-**Outside paths (item 2tc, v1.60.60; `internal/tools/outside_decision.go`).** A literal path outside the working folder raises the existing boundary approval whether or not that path exists yet, for both `shell` and `run_script`. Approval mode, unattended handling, trusted folders and service identity keep their existing meanings. The scan is routing ergonomics, not containment: assembled paths and interpreter code may evade it, while the operating-system identity and ACLs remain the reach boundary.
+**Outside paths (item 2tc, v1.60.60; `internal/tools/outside_decision.go`).** A literal path outside the working folder raises the existing boundary approval
+whether or not that path exists yet, for both `shell` and `run_script`. Approval mode, unattended handling,
+trusted folders and service identity keep their existing meanings. The scan is routing ergonomics, not containment:
+assembled paths and interpreter code may evade it, while the operating-system identity and ACLs remain the reach boundary.
 
-**Agent_b's own folders, and regex escapes (item 2q3, v1.60.5).** With the service identity disabled, a shell or `run_script` path under Agent_b's own data folder (`%LOCALAPPDATA%\Agent_b`) or install folder (`%LOCALAPPDATA%\Programs\Agent_b`) raises no card when no writing, moving or deleting form appears in its statement or later in the source (`Set-Content`, `Out-File`, `New-Item`, `Remove-Item`, `del`, `move`, `copy`, `ren`, `tee`, `icacls`, `attrib`, `open`, a `>` redirection that is not `2>$null`, `2>&1` or `>nul`, and their aliases); a write there still asks. What this widens, without a card: reading the operator's chat journals of every profile, logs, memory notes, `harness.json`, downloaded installers and the installed program files. Credentials kept in Windows Credential Manager are not files and are not reached by this. These exempt paths never count as trusted: with the service identity on, nothing changes. A UNC path now needs a server name that starts with a letter or digit, then one separator and a share. `'\\.git\\'` and `'\\bTODO\\b'` were read as servers and raised cards; they no longer do. A "folder" answer whose folder cannot be kept in `shell.trusted_folders` runs the approved action once and says so, instead of refusing after the yes. Item 2q4 (v1.60.6): the card's Always is that same `shell.trusted_folders` choice. A path that does not exist as written, such as a wildcard, is matched by the nearest folder above it that does, so a trusted folder covers `logs\*.log` beneath it. Two or more outside folders sharing a parent below the user's profile (never the profile itself) are asked about, and on Always trusted, as that one parent: wider than the folders the command named.
+**Agent_b's own folders, and regex escapes (item 2q3, v1.60.5).** With the service identity disabled,
+a shell or `run_script` path under Agent_b's own data folder (`%LOCALAPPDATA%\Agent_b`) or install folder (`%LOCALAPPDATA%\Programs\Agent_b`) raises no card
+when no writing, moving or deleting form appears in its statement or later in the source (`Set-Content`, `Out-File`, `New-Item`, `Remove-Item`, `del`, `move`,
+`copy`, `ren`, `tee`, `icacls`, `attrib`, `open`, a `>` redirection that is not `2>$null`, `2>&1` or `>nul`, and their aliases); a write there still asks.
+What this widens, without a card: reading the operator's chat journals of every profile, logs, memory notes, `harness.json`,
+downloaded installers and the installed program files. Credentials kept in Windows Credential Manager are not files and are not reached by this.
+These exempt paths never count as trusted: with the service identity on, nothing changes. A UNC path now needs a server name that starts with a letter or digit,
+then one separator and a share. `'\\.git\\'` and `'\\bTODO\\b'` were read as servers and raised cards; they no longer do.
+A "folder" answer whose folder cannot be kept in `shell.trusted_folders` runs the approved action once and says so, instead of refusing after the yes.
+Item 2q4 (v1.60.6): the card's Always is that same `shell.trusted_folders` choice. A path that does not exist as written, such as a wildcard,
+is matched by the nearest folder above it that does, so a trusted folder covers `logs\*.log` beneath it.
+Two or more outside folders sharing a parent below the user's profile (never the profile itself) are asked about, and on Always trusted, as that one parent:
+wider than the folders the command named.
 
-`tools.find_files.skip_roots` avoids recursively enumerating known protected Windows and Defender trees under either identity; it is behavioral hygiene, not access control, and Windows ACLs remain authoritative.
+`tools.find_files.skip_roots` avoids recursively enumerating known protected Windows and Defender trees under either identity; it is behavioral hygiene,
+not access control, and Windows ACLs remain authoritative.
 
-The install-global Docker Sandbox switch defaults off. When `sbx` is ready, the operator can turn it on; `shell` and `run_script bash` then use a sandbox whose host mounts are the session scratch/retained root plus only registered plan repositories selected by file operations in that run. Docker's local daemon and OAuth authentication are bound to the operator's OS-user session, so these calls run under the operator's Docker session, not `agentb-svc`, and are outside the service account's SID-scoped firewall rule. Agent_b raises the existing **Run as you** identity decision before such execution. The microVM is the sandbox boundary; every supplied host mount is deliberately read-write. An absent or signed-out `sbx` keeps the switch off and exposes the reason. If an enabled sandbox stops being available, Agent_b saves the switch off before ordinary `shell` falls back to its normal host identity and puts that change at the start of the result; `run_script bash` refuses because it has no host fallback.
+The install-global Docker Sandbox switch defaults off. When `sbx` is ready, the operator can turn it on;
+`shell` and `run_script bash` then use a sandbox whose host mounts are the session scratch/retained root plus only registered plan repositories selected by file
+operations in that run. Docker's local daemon and OAuth authentication are bound to the operator's OS-user session,
+so these calls run under the operator's Docker session, not `agentb-svc`, and are outside the service account's SID-scoped firewall rule.
+Agent_b raises the existing **Run as you** identity decision before such execution. The microVM is the sandbox boundary;
+every supplied host mount is deliberately read-write. An absent or signed-out `sbx` keeps the switch off and exposes the reason.
+If an enabled sandbox stops being available, Agent_b saves the switch off before ordinary `shell` falls back to its normal host identity and puts that change at
+the start of the result; `run_script bash` refuses because it has no host fallback.
 
-In the operator's words of 2026-10-11 03:03, the loop should be “mature, predictable” and should “get rid of the guard rails and things that are out of the ordinary.” Commands formerly caught by file-routing, execution-policy, script-host, system-binary, signing and certificate-store rules now run like any other command inside the folder. Outside paths still raise the boundary approval, and the operator's deny list still refuses exact configured entries. Multi-line PowerShell continues to use `run_script` over standard input. The release publisher's signing checks and Settings › Security remain separate operator-owned workflows; removing tool-layer refusals does not change them.
+In the operator's words of 2026-10-11 03:03, the loop should be “mature,
+predictable” and should “get rid of the guard rails and things that are out of the ordinary.” Commands formerly caught by file-routing, execution-policy,
+script-host, system-binary, signing and certificate-store rules now run like any other command inside the folder.
+Outside paths still raise the boundary approval, and the operator's deny list still refuses exact configured entries.
+Multi-line PowerShell continues to use `run_script` over standard input.
+The release publisher's signing checks and Settings › Security remain separate operator-owned workflows; removing tool-layer refusals does not change them.
 
-Developer acceptance uses a separate `CN=Agent_b Disposable Test Signing` identity, never the production identity. `tools/new-test-signing-certificate.ps1` is an explicit operator-run bootstrap with `-WhatIf` support: it creates a one-year, non-exportable CurrentUser key with interactive key protection disabled, proves the private key can sign before adding trust, and trusts only its public certificate in that same user's Root and TrustedPublisher stores. This deliberately lets that Windows user trust test executables signed by the key; compromise of the user account can therefore produce locally trusted test signatures. The key is neither reachable by `agentb-svc` nor portable to another host, and executable acceptance selects this exact subject. Removing the three exact CurrentUser certificate-store entries revokes the test identity.
+Developer acceptance uses a separate `CN=Agent_b Disposable Test Signing` identity, never the production identity.
+`tools/new-test-signing-certificate.ps1` is an explicit operator-run bootstrap with `-WhatIf` support: it creates a one-year,
+non-exportable CurrentUser key with interactive key protection disabled, proves the private key can sign before adding trust,
+and trusts only its public certificate in that same user's Root and TrustedPublisher stores.
+This deliberately lets that Windows user trust test executables signed by the key;
+compromise of the user account can therefore produce locally trusted test signatures. The key is neither reachable by `agentb-svc` nor portable to another host,
+and executable acceptance selects this exact subject. Removing the three exact CurrentUser certificate-store entries revokes the test identity.
 
-The non-elevated-operator side of that signing boundary was checked directly on 2026-09-06: a medium-integrity Explorer-token child could not sign with LocalMachine certificate `8C7AB22A989F6B99B867868A52920119C3EDFFEB` (`result=DENIED`), as recorded in `%LocalAppData%\Agent_b\logs\main-20260906T123516.jsonl` and `NOTES.md`. On 2026-09-24 the release order deliberately granted `local-pc\someone` read access to that certificate's one CNG container; an unelevated isolated probe then signed and timestamped successfully. This widens key use only to the operator account on this machine, not to the service identity or another host.
+The non-elevated-operator side of that signing boundary was checked directly on 2026-09-06:
+a medium-integrity Explorer-token child could not sign with LocalMachine certificate `8C7AB22A989F6B99B867868A52920119C3EDFFEB` (`result=DENIED`),
+as recorded in `%LocalAppData%\Agent_b\logs\main-20260906T123516.jsonl` and `NOTES.md`.
+On 2026-09-24 the release order deliberately granted `local-pc\someone` read access to that certificate's one CNG container;
+an unelevated isolated probe then signed and timestamped successfully. This widens key use only to the operator account on this machine,
+not to the service identity or another host.
 
-Model-connection API keys are not stored in `harness.json`. A connection keeps a lowercase credential reference; the corresponding value is protected with Windows DPAPI under the launching user's scope and decrypted into the in-memory connection when configuration loads. Masked API responses and configuration events expose only `•••• set`, and request/event logs do not contain the key. The existing service-account password remains in its separate fixed DPAPI store.
+Model-connection API keys are not stored in `harness.json`. A connection keeps a lowercase credential reference;
+the corresponding value is protected with Windows DPAPI under the launching user's scope and decrypted into the in-memory connection when configuration loads.
+Masked API responses and configuration events expose only `•••• set`, and request/event logs do not contain the key.
+The existing service-account password remains in its separate fixed DPAPI store.
 
-The desktop broker identity and completed phone pairing are durable so an update or restart does not require pairing again. Each is a separate named user-scoped DPAPI blob under the operator data root, using the same credential-store write, replacement, and read-back path as connection credentials. The protected blobs are available to code running as the same Windows user; they are not exposed through configuration, logs, events, prompts, diagnostics, or tool results. Revoking a phone deletes only the pairing blob after the revoke is sent successfully; the stable desktop identity remains. While the desktop has an authenticated broker connection, approval-needed, run-stopped, and item-stuck events each send one sealed push even when the phone has no live session; the pairing log records only the fixed push kind and the broker's accepted, refused, or no-token outcome.
+The desktop broker identity and completed phone pairing are durable so an update or restart does not require pairing again.
+Each is a separate named user-scoped DPAPI blob under the operator data root, using the same credential-store write, replacement,
+and read-back path as connection credentials. The protected blobs are available to code running as the same Windows user;
+they are not exposed through configuration, logs, events, prompts, diagnostics, or tool results.
+Revoking a phone deletes only the pairing blob after the revoke is sent successfully; the stable desktop identity remains.
+While the desktop has an authenticated broker connection, approval-needed, run-stopped,
+and item-stuck events each send one sealed push even when the phone has no live session;
+the pairing log records only the fixed push kind and the broker's accepted, refused, or no-token outcome.
 
-The Discord webhook follows the same credential rule: `harness.json` contains only `notifications.discord_credential`, while the URL is user-scoped DPAPI data and is never returned by APIs or written to events. Notifications run in the non-elevated harness process as the operator, not as `agentb-svc`. Their dedicated client accepts only an HTTPS Discord webhook path on an exact supported Discord host, refuses redirects, disables mention parsing, and cancels delivery when that configured destination changes; removing the credential removes that in-memory destination. This is a narrow application egress guard, not containment, and it does not change the SID-scoped service-account firewall or the separate `fetch_url` policy.
+The Discord webhook follows the same credential rule: `harness.json` contains only `notifications.discord_credential`,
+while the URL is user-scoped DPAPI data and is never returned by APIs or written to events.
+Notifications run in the non-elevated harness process as the operator, not as `agentb-svc`.
+Their dedicated client accepts only an HTTPS Discord webhook path on an exact supported Discord host, refuses redirects, disables mention parsing,
+and cancels delivery when that configured destination changes; removing the credential removes that in-memory destination.
+This is a narrow application egress guard, not containment, and it does not change the SID-scoped service-account firewall or the separate `fetch_url` policy.
 
-The first-run wizard adds no persistent completion state and does not change probe semantics. Its local detector is read-only: it queries Windows hardware/process information and known executable locations and does not alter `PATH`, install software, download models, or start connections. The separate operator-selected **Install one here** action does download and start a model stack: the browser can submit only compile-time catalog IDs; URLs, exact byte counts, SHA-256 values, and backend archives come from the server's pinned catalog. Production downloads require HTTPS, reject HTTPS-to-HTTP redirects, stream into `.part` files under the data root with an exact `bytes+1` ceiling, and are renamed only after byte-count and SHA-256 verification. Runtime zip extraction follows verification, rejects traversal and links, caps total declared expansion at 2 GiB, checks each extracted length, and requires exactly one `llama-server.exe` before writing the sign-in launcher or starting anything. The server, not browser input, obtains the selected backend's available memory; after checksum verification it reads the GGUF context/KV metadata, refuses an 8192-token context that cannot fit weights plus f16 KV cache and the fixed reserve, and writes the derived explicit context into the launcher and connection. A malicious release host or DNS answer can deny service but cannot supply executable bytes that pass the pin; changing the browser recommendation table cannot change server-side artifacts or the memory used for context sizing. The installed server and GGUF deliberately run with the operator's authority, not `agentb-svc`; this is local model installation, not containment. An interpreter's `runs as service` label means the configured service account (or a broad built-in group it belongs to) has read/execute ACL entries on the resolved executable; `operator-only` means that check found no such grant. This display is an onboarding hint, not a security boundary or a proof that every dependency is reachable. Windows ACLs remain authoritative at execution time.
+The first-run wizard adds no persistent completion state and does not change probe semantics. Its local detector is read-only:
+it queries Windows hardware/process information and known executable locations and does not alter `PATH`, install software, download models,
+or start connections. The separate operator-selected **Install one here** action does download and start a model stack:
+the browser can submit only compile-time catalog IDs; URLs, exact byte counts, SHA-256 values, and backend archives come from the server's pinned catalog.
+Production downloads require HTTPS, reject HTTPS-to-HTTP redirects, stream into `.part` files under the data root with an exact `bytes+1` ceiling,
+and are renamed only after byte-count and SHA-256 verification. Runtime zip extraction follows verification, rejects traversal and links,
+caps total declared expansion at 2 GiB, checks each extracted length,
+and requires exactly one `llama-server.exe` before writing the sign-in launcher or starting anything. The server, not browser input,
+obtains the selected backend's available memory; after checksum verification it reads the GGUF context/KV metadata,
+refuses an 8192-token context that cannot fit weights plus f16 KV cache and the fixed reserve,
+and writes the derived explicit context into the launcher and connection.
+A malicious release host or DNS answer can deny service but cannot supply executable bytes that pass the pin;
+changing the browser recommendation table cannot change server-side artifacts or the memory used for context sizing.
+The installed server and GGUF deliberately run with the operator's authority, not `agentb-svc`; this is local model installation, not containment.
+An interpreter's `runs as service` label means the configured service account (or a broad built-in group it belongs to) has read/execute ACL entries on the
+resolved executable; `operator-only` means that check found no such grant. This display is an onboarding hint,
+not a security boundary or a proof that every dependency is reachable. Windows ACLs remain authoritative at execution time.
 
-The Settings → Security control labeled **Run everything as me for 20 minutes** is an explicit, process-global capability escape hatch. It bypasses service-account isolation for shell and file tools, including the file tools' workspace boundary, and leaves access decisions to the non-elevated Windows account that launched Agent_b. Switching modes is immediate and does not open a confirmation dialog. While active, every Chat status strip shows `operator mode · until HH:MM`; Settings shows the high-contrast active robot glyph and both surfaces return to off state from authoritative server events when a grant fails or expires. Operator-mode transitions are status, not agent-authored chat messages. Each SSE connection and foreground resume reconciles server state so a suspended or disconnected client cannot retain a stale privilege indication when it resumes. Operator mode is always off after startup and process exit. It has no absolute ceiling while active work continues: by default it turns off after 20 minutes without ordinary agent tool execution, and every such execution resets the deadline at start and completion. Browser/SSE/config reads and the one-shot ACL escape do not reset it. A single tool call running longer than the window is deliberately allowed to lapse rather than risk an indefinitely open grant behind a wedged call. Every transition, reset, and operator-context tool result is logged. Enabling, disabling, or changing the service-identity configuration through HTTP requires the request's local client process to belong to the Agent_b operator and rejects Agent_b itself or any descendant process; possession of the browser mutation token alone is insufficient, so neither a service-account shell nor an operator-context shell can change the mode or disable the split. This does not grant Administrator authority, bypass Windows ACLs, or create a sandbox.
+The Settings → Security control labeled **Run everything as me for 20 minutes** is an explicit, process-global capability escape hatch.
+It bypasses service-account isolation for shell and file tools, including the file tools' workspace boundary,
+and leaves access decisions to the non-elevated Windows account that launched Agent_b. Switching modes is immediate and does not open a confirmation dialog.
+While active, every Chat status strip shows `operator mode · until HH:MM`;
+Settings shows the high-contrast active robot glyph and both surfaces return to off state from authoritative server events when a grant fails or expires.
+Operator-mode transitions are status, not agent-authored chat messages.
+Each SSE connection and foreground resume reconciles server state so a suspended or disconnected client cannot retain a stale privilege indication when it
+resumes. Operator mode is always off after startup and process exit. It has no absolute ceiling while active work continues:
+by default it turns off after 20 minutes without ordinary agent tool execution, and every such execution resets the deadline at start and completion.
+Browser/SSE/config reads and the one-shot ACL escape do not reset it.
+A single tool call running longer than the window is deliberately allowed to lapse rather than risk an indefinitely open grant behind a wedged call.
+Every transition, reset, and operator-context tool result is logged. Enabling, disabling,
+or changing the service-identity configuration through HTTP requires the request's local client process to belong to the Agent_b operator and rejects Agent_b
+itself or any descendant process; possession of the browser mutation token alone is insufficient,
+so neither a service-account shell nor an operator-context shell can change the mode or disable the split. This does not grant Administrator authority,
+bypass Windows ACLs, or create a sandbox.
 
-Built-in file tools deliberately let Windows ACLs authorize ordinary paths and do not pre-resolve every ancestor for reach decisions. This permits ACL-authorized targets beneath traversable but metadata-inaccessible parents and OS-authorized symlink paths. Protected plan and repository-policy writes are canonicalized separately before mutation so their ownership rules remain immutable under every identity.
+Built-in file tools deliberately let Windows ACLs authorize ordinary paths and do not pre-resolve every ancestor for reach decisions.
+This permits ACL-authorized targets beneath traversable but metadata-inaccessible parents and OS-authorized symlink paths.
+Protected plan and repository-policy writes are canonicalized separately before mutation so their ownership rules remain immutable under every identity.
 
-The service-identity split defaults off. When its stored credential works, Agent_b creates shell processes under the configured low-privilege Windows identity with an explicit minimal environment. Its `PATH` contains only Windows system directories and the Windows PowerShell directory, so other tools require absolute paths. Until the identity is provisioned and verified, `write_file`, `edit_file`, `shell`, `run_script`, and `call_service` do not run and return `service identity not set up`; read-only file tools remain available through the non-elevated harness process so setup can be diagnosed. Startup never silently turns a failed split off or falls through to operator execution. The only deliberate process-global exception is the existing timed, visible **Run everything as me for 20 minutes** mode. The alternate path preserves the initial working directory, combined output, timeout, and process-tree termination through a Windows job object, but it still requires an operator-machine test before being relied upon. A separate account limits reach; it is not a sandbox and does not contain an exploit. Follow [Windows host hardening](docs/HARDENING.md) before relying on the split.
+The service-identity split defaults off. When its stored credential works,
+Agent_b creates shell processes under the configured low-privilege Windows identity with an explicit minimal environment.
+Its `PATH` contains only Windows system directories and the Windows PowerShell directory, so other tools require absolute paths.
+Until the identity is provisioned and verified, `write_file`, `edit_file`, `shell`, `run_script`,
+and `call_service` do not run and return `service identity not set up`;
+read-only file tools remain available through the non-elevated harness process so setup can be diagnosed.
+Startup never silently turns a failed split off or falls through to operator execution. The only deliberate process-global exception is the existing timed,
+visible **Run everything as me for 20 minutes** mode. The alternate path preserves the initial working directory, combined output, timeout,
+and process-tree termination through a Windows job object, but it still requires an operator-machine test before being relied upon.
+A separate account limits reach; it is not a sandbox and does not contain an exploit.
+Follow [Windows host hardening](docs/HARDENING.md) before relying on the split.
 
-Office files (item 2ep) add no dependency: `.xlsx`/`.docx` ingest and `.xlsx` output use only the Go standard library (`archive/zip`, `encoding/xml`, which never resolves external entities), within the attachment byte bound. Written workbook cells are inline strings or numbers, never formulas. The Chat delivery chip's open action runs in the harness process as the operator and opens only document types, because a default open of a script or executable would run it.
+Office files (item 2ep) add no dependency: `.xlsx`/`.docx` ingest and `.xlsx` output use only the Go standard library (`archive/zip`, `encoding/xml`,
+which never resolves external entities), within the attachment byte bound. Written workbook cells are inline strings or numbers, never formulas.
+The Chat delivery chip's open action runs in the harness process as the operator and opens only document types,
+because a default open of a script or executable would run it.
 
-PDF attachments (item 2fj) add one dependency, `github.com/ledongthuc/pdf` (BSD-3-Clause, pure Go, no cgo, no dependencies of its own), which reads a PDF's text layer locally when the connection has no document input and no extraction service is configured. It parses untrusted input: its panics are recovered and reported as an unreadable PDF, never allowed to reach the server, and a file missing its cross-reference table is repaired in memory only. A PDF with no text layer is rendered page by page through its last page by the Windows inbox PDF renderer (`Windows.Data.Pdf`) and read by the same inbox OCR as images; the operator can stop between pages and completed pages remain. Both sidecars are framed as untrusted evidence, like the extraction service's. `tools.attachments.max_bytes` is a visible operator-set disk/upload bound (256 MiB by default), not a prompt or extraction-output bound.
+PDF attachments (item 2fj) add one dependency, `github.com/ledongthuc/pdf` (BSD-3-Clause, pure Go, no cgo, no dependencies of its own),
+which reads a PDF's text layer locally when the connection has no document input and no extraction service is configured. It parses untrusted input:
+its panics are recovered and reported as an unreadable PDF, never allowed to reach the server,
+and a file missing its cross-reference table is repaired in memory only.
+A PDF with no text layer is rendered page by page through its last page by the Windows inbox PDF renderer (`Windows.Data.Pdf`) and read by the same inbox OCR as
+images; the operator can stop between pages and completed pages remain. Both sidecars are framed as untrusted evidence, like the extraction service's.
+`tools.attachments.max_bytes` is a visible operator-set disk/upload bound (256 MiB by default), not a prompt or extraction-output bound.
 
-Dependency alerts (item 2fr) are sorted by whether the code ships. A runtime alert — a module compiled into `Agent_b.exe` whose vulnerable code the binary reaches (`govulncheck`) — is fixed in the next release by upgrading within the Go language version the repository builds with; one whose fix needs a newer Go stays open with that reason until the toolchain moves. An alert on code the binary never compiles or calls is dismissed with that reason. Node packages are test tooling and ship in no artifact; their alerts are triaged. As of v0.70.1: `golang.org/x/net` v0.50.0 and `golang.org/x/crypto` v0.48.0 (the newest on Go 1.24); five `golang.org/x/net/html` advisories reachable through `fetch_url`'s text extraction remain open because their fix (v0.55.0) requires Go 1.25, and `fetch_url` bounds the body it parses to its byte limit; the `golang.org/x/crypto` SSH advisories are not compiled in (the binary uses only `chacha20poly1305`, through `utls`). `x/net` v0.50 refuses HTML nested more than 512 elements deep; `fetch_url` then returns the page's text with its tags removed and a line saying why, never nothing.
+Dependency alerts (item 2fr) are sorted by whether the code ships.
+A runtime alert — a module compiled into `Agent_b.exe` whose vulnerable code the binary reaches (`govulncheck`) — is fixed in the next release by upgrading
+within the Go language version the repository builds with; one whose fix needs a newer Go stays open with that reason until the toolchain moves.
+An alert on code the binary never compiles or calls is dismissed with that reason. Node packages are test tooling and ship in no artifact;
+their alerts are triaged. As of v0.70.1: `golang.org/x/net` v0.50.0 and `golang.org/x/crypto` v0.48.0 (the newest on Go 1.24);
+five `golang.org/x/net/html` advisories reachable through `fetch_url`'s text extraction remain open because their fix (v0.55.0) requires Go 1.25,
+and `fetch_url` bounds the body it parses to its byte limit;
+the `golang.org/x/crypto` SSH advisories are not compiled in (the binary uses only `chacha20poly1305`, through `utls`).
+`x/net` v0.50 refuses HTML nested more than 512 elements deep; `fetch_url` then returns the page's text with its tags removed and a line saying why,
+never nothing.
 
-Service-account processes are started on the operator's interactive desktop, so since v0.65.0 their job object carries UI restrictions set before the process runs: they cannot use USER handles owned by processes outside the job (another process's windows, including Agent_b's own hidden session window and the operator's applications), create or switch desktops, change display settings or system parameters, read or write the clipboard, use global atoms (DDE), or call `ExitWindows`. A tool process can still see that such a window exists; it cannot post or send it messages. **This is not isolation from the desktop.** The processes still run on the operator's interactive desktop, and the job limits do not stop synthesized input (`SendInput`) or global window hooks; only a separate desktop for service-account processes would, and that is a pending operator decision (v0.65.0 card). Until then, the service account's reach over the operator's open windows through input injection is an accepted, documented gap. Agent_b's hidden session window additionally ignores `WM_CLOSE` and records a session end only when Windows sends `WM_QUERYENDSESSION` and then `WM_ENDSESSION`, never for a posted message. The installer's graceful stop uses an install-root-and-process scoped named event (`Local\Agent_b-stop-<canonical-root-sha256-prefix>-<pid>`) whose DACL admits only the operator's account and SYSTEM; a process that finds the name already taken does not use it. The root digest is addressing, not an authentication secret: it prevents an installer operating on one application root from naming another root's channel, while the DACL remains the access boundary. Only the installer, after exact executable-path selection, may use the unscoped earlier-version fallback during an upgrade. A live probe on a disposable install (`tests/test-window-probe.ps1`) runs as a service-account tool process and proves both messages and the event are refused. These restrictions do not cover operator-identity processes (Run as you, operator mode, the page itself), which can still address the operator's own windows.
+Service-account processes are started on the operator's interactive desktop,
+so since v0.65.0 their job object carries UI restrictions set before the process runs:
+they cannot use USER handles owned by processes outside the job (another process's windows,
+including Agent_b's own hidden session window and the operator's applications), create or switch desktops, change display settings or system parameters,
+read or write the clipboard, use global atoms (DDE), or call `ExitWindows`. A tool process can still see that such a window exists;
+it cannot post or send it messages. **This is not isolation from the desktop.** The processes still run on the operator's interactive desktop,
+and the job limits do not stop synthesized input (`SendInput`) or global window hooks; only a separate desktop for service-account processes would,
+and that is a pending operator decision (v0.65.0 card). Until then,
+the service account's reach over the operator's open windows through input injection is an accepted, documented gap.
+Agent_b's hidden session window additionally ignores `WM_CLOSE` and records a session end only when Windows sends `WM_QUERYENDSESSION` and then `WM_ENDSESSION`,
+never for a posted message. The installer's graceful stop uses an install-root-and-process scoped named event
+(`Local\Agent_b-stop-<canonical-root-sha256-prefix>-<pid>`) whose DACL admits only the operator's account and SYSTEM;
+a process that finds the name already taken does not use it. The root digest is addressing, not an authentication secret:
+it prevents an installer operating on one application root from naming another root's channel, while the DACL remains the access boundary. Only the installer,
+after exact executable-path selection, may use the unscoped earlier-version fallback during an upgrade.
+A live probe on a disposable install (`tests/test-window-probe.ps1`) runs as a service-account tool process and proves both messages and the event are refused.
+These restrictions do not cover operator-identity processes (Run as you, operator mode, the page itself), which can still address the operator's own windows.
 
-On Windows, the normal service-context process tree is `Agent_b.exe → powershell.exe → any program named by the inline command`. `CreateProcessWithLogonW` creates PowerShell directly as the service identity; there is no intermediate `cmd.exe` or generated script. `fetch_url` performs anonymous, governed open-web HTTP inside `Agent_b.exe`; it neither downloads through PowerShell nor hands fetched bytes to the service shell. `call_service` is deliberately separate: it may call an unregistered absolute HTTP(S) URL with no credential, or a registered service with its configured identity. A registered credential is acquired and attached only when the request host matches the service's registered host; foreign request or redirect hosts are refused with a mismatch line. An `exec:` credential argv runs directly as the non-elevated operator with no shell. Bearer values remain in process memory, model-supplied authorization values are redacted from durable/UI projections, and any reflected token is scrubbed from returned content. Registration grants credential authority for one host; it is no longer a network reach allow-list.
+On Windows, the normal service-context process tree is `Agent_b.exe → powershell.exe → any program named by the inline command`.
+`CreateProcessWithLogonW` creates PowerShell directly as the service identity; there is no intermediate `cmd.exe` or generated script.
+`fetch_url` performs anonymous, governed open-web HTTP inside `Agent_b.exe`;
+it neither downloads through PowerShell nor hands fetched bytes to the service shell. `call_service` is deliberately separate:
+it may call an unregistered absolute HTTP(S) URL with no credential, or a registered service with its configured identity.
+A registered credential is acquired and attached only when the request host matches the service's registered host;
+foreign request or redirect hosts are refused with a mismatch line. An `exec:` credential argv runs directly as the non-elevated operator with no shell.
+Bearer values remain in process memory, model-supplied authorization values are redacted from durable/UI projections,
+and any reflected token is scrubbed from returned content. Registration grants credential authority for one host; it is no longer a network reach allow-list.
 
-**User-scope DPAPI protects a stored secret at rest and from other users of this machine. It does NOT isolate it from arbitrary code running as the same Windows user:** anything running as the operator can ask Windows to decrypt these blobs, because that is what user scope means. The protection that matters against a tool process is the OS boundary — the separate low-privilege service account and the NTFS deny entry on the data root — not the encryption. Connector credentials added in Settings are kept this way, one blob per name beside the model-connection credentials, and a plain record beside them holds each credential's name, kind, HTTPS origin and date — never a secret. Entra definitions and MSAL refresh/account caches are separate DPAPI blobs; MSAL access-token entries are removed before persistence and remain in process memory. A credential is attached only to a request whose origin (scheme, host and port) equals the approved one exactly; http, another port, another host, and any redirect that leaves the origin are refused before the credential is read, and a redirect is never followed carrying one. This holds for stored keys, Entra tokens and an `exec:` helper's output alike; the helper runs without a shell and without a window, bounded by the connector's timeout, and its output is held in memory only. `static_bearer:` is retired: each one is moved into the store once, on load, verified by reading it back, and a connector whose variable is empty or whose value does not verify is left unauthenticated rather than falling back to the environment. Secret credentials and interactive sign-in are managed only from the operator's own page, with its session cookie and mutation token; a tool process, the model, a chat and a paired phone are each refused. A revoked refresh clears that credential's cache after one failed silent attempt, and connector execution never starts an interactive flow. A non-rendered service response is size-bounded before its atomic workspace name becomes visible; a response containing the attached credential is refused and deleted, and the model sees only file metadata.
+**User-scope DPAPI protects a stored secret at rest and from other users of this machine.
+It does NOT isolate it from arbitrary code running as the same Windows user:** anything running as the operator can ask Windows to decrypt these blobs,
+because that is what user scope means. The protection that matters against a tool process is the OS boundary — the separate low-privilege service account and
+the NTFS deny entry on the data root — not the encryption. Connector credentials added in Settings are kept this way,
+one blob per name beside the model-connection credentials, and a plain record beside them holds each credential's name, kind,
+HTTPS origin and date — never a secret. Entra definitions and MSAL refresh/account caches are separate DPAPI blobs;
+MSAL access-token entries are removed before persistence and remain in process memory. A credential is attached only to a request whose origin (scheme,
+host and port) equals the approved one exactly; http, another port, another host,
+and any redirect that leaves the origin are refused before the credential is read, and a redirect is never followed carrying one. This holds for stored keys,
+Entra tokens and an `exec:` helper's output alike; the helper runs without a shell and without a window, bounded by the connector's timeout,
+and its output is held in memory only. `static_bearer:` is retired: each one is moved into the store once, on load, verified by reading it back,
+and a connector whose variable is empty or whose value does not verify is left unauthenticated rather than falling back to the environment.
+Secret credentials and interactive sign-in are managed only from the operator's own page, with its session cookie and mutation token; a tool process, the model,
+a chat and a paired phone are each refused. A revoked refresh clears that credential's cache after one failed silent attempt,
+and connector execution never starts an interactive flow. A non-rendered service response is size-bounded before its atomic workspace name becomes visible;
+a response containing the attached credential is refused and deleted, and the model sees only file metadata.
 
-An MCP connector proposal may carry a server-published Entra tenant, public client ID, and scopes. Those values are not credentials or tokens. The local approval card displays them with the exact credential name and destination origin; only approval writes the protected definition and connector reference. The model cannot start sign-in, grant consent, obtain the resulting account cache, or bypass the origin check.
+An MCP connector proposal may carry a server-published Entra tenant, public client ID, and scopes. Those values are not credentials or tokens.
+The local approval card displays them with the exact credential name and destination origin;
+only approval writes the protected definition and connector reference. The model cannot start sign-in, grant consent, obtain the resulting account cache,
+or bypass the origin check.
 
-Agent_b generates a long random service-account password, stores it only as a user-scoped DPAPI blob, and never displays or accepts it in the browser. An elevated fresh install provisions the account and protections in the install elevation it already owns. A per-user update remains unelevated and defers provisioning to one explicit first-launch action: the hidden UAC helper creates or repairs the account, applies the ACL and firewall policies, and tests the credential in one pass while Agent_b itself remains non-elevated. Keep the listener on loopback, approve UAC only for an operation you initiated, and treat any failure after the elevated helper starts as a potentially partial account/password/protection change.
+Agent_b generates a long random service-account password, stores it only as a user-scoped DPAPI blob, and never displays or accepts it in the browser.
+An elevated fresh install provisions the account and protections in the install elevation it already owns.
+A per-user update remains unelevated and defers provisioning to one explicit first-launch action: the hidden UAC helper creates or repairs the account,
+applies the ACL and firewall policies, and tests the credential in one pass while Agent_b itself remains non-elevated. Keep the listener on loopback,
+approve UAC only for an operation you initiated, and treat any failure after the elevated helper starts as a potentially partial account/password/protection
+change.
 
-Agent_b refuses to start when its effective Windows token is elevated, before loading configuration, probing a model, opening the listener, or enabling shell execution. Membership in the local Administrators group is allowed: a normal Explorer launch uses the UAC-filtered token. This keeps **Run once as operator** from inheriting Administrator authority.
+Agent_b refuses to start when its effective Windows token is elevated, before loading configuration, probing a model, opening the listener,
+or enabling shell execution. Membership in the local Administrators group is allowed: a normal Explorer launch uses the UAC-filtered token.
+This keeps **Run once as operator** from inheriting Administrator authority.
 
-The model prompt receives only OS-derived date, timezone, and (on Windows) a coarse region code. Agent_b does not collect precise device location or infer a city from that context; this information is convenience context, not a location-tracking feature.
+The model prompt receives only OS-derived date, timezone, and (on Windows) a coarse region code.
+Agent_b does not collect precise device location or infer a city from that context; this information is convenience context, not a location-tracking feature.
 
-Settings can also apply and verify complete-tree service-account ACLs and an account-scoped outbound Block rule through UAC. The ACL policy grants mutation to data-root `plans` and `scratch`, the exchange folder, and a legacy workspace only when that compatibility root exists; it must be reapplied after application updates create or replace files. The default firewall policy permits loopback and nothing else. **It names no model connection** (item 2nx): nothing in it is derived from a configured model server, no hostname is resolved when protection is applied, and changing or losing the active connection neither changes the rule nor reports drift. Model requests are made by the Agent_b process, which runs as the operator, not by the service identity — which is why the exemption was never needed. An install carrying the older model-allow rule loses it on the next Apply. Optional `shell.allowed_model_ranges` entries are explicit operator-owned IPv4 CIDR exceptions; there are no implicit VPN-product ranges. The policy does not change machine-wide firewall defaults or inspect destinations above the IP layer. **Allow my local network** is off by default. Enabling it is a deliberate widening of the OS boundary: the HTTP request must come from a verified local process owned by the server account or in the same interactive Windows session, the operator must confirm detected RFC1918 IPv4 subnets, Apply protection subtracts only those prefixes from the service identity's Block rule, and a SID-scoped outbound ICMPv4 echo rule is limited to the same prefixes. Disabling and applying restores the configured boundary and removes that echo rule. `fetch_url` follows the same confirmed-prefix decision while retaining DNS and redirect rechecks. Link-local addresses, `169.254.169.254`, and the Agent_b listener remain refused with the switch on. A device on an allowed LAN can therefore receive connections and malicious fetched content can reach LAN HTTP services; fetched bytes remain explicitly untrusted, and neither condition grants filesystem or operator identity.
+Settings can also apply and verify complete-tree service-account ACLs and an account-scoped outbound Block rule through UAC.
+The ACL policy grants mutation to data-root `plans` and `scratch`, the exchange folder, and a legacy workspace only when that compatibility root exists;
+it must be reapplied after application updates create or replace files. The default firewall policy permits loopback and nothing else.
+**It names no model connection** (item 2nx): nothing in it is derived from a configured model server, no hostname is resolved when protection is applied,
+and changing or losing the active connection neither changes the rule nor reports drift. Model requests are made by the Agent_b process,
+which runs as the operator, not by the service identity — which is why the exemption was never needed.
+An install carrying the older model-allow rule loses it on the next Apply.
+Optional `shell.allowed_model_ranges` entries are explicit operator-owned IPv4 CIDR exceptions; there are no implicit VPN-product ranges.
+The policy does not change machine-wide firewall defaults or inspect destinations above the IP layer. **Allow my local network** is off by default.
+Enabling it is a deliberate widening of the OS boundary: the HTTP request must come from a verified local process owned by the server account or in the same
+interactive Windows session, the operator must confirm detected RFC1918 IPv4 subnets,
+Apply protection subtracts only those prefixes from the service identity's Block rule,
+and a SID-scoped outbound ICMPv4 echo rule is limited to the same prefixes. Disabling and applying restores the configured boundary and removes that echo rule.
+`fetch_url` follows the same confirmed-prefix decision while retaining DNS and redirect rechecks. Link-local addresses, `169.254.169.254`,
+and the Agent_b listener remain refused with the switch on. A device on an allowed LAN can therefore receive connections and malicious fetched content can reach
+LAN HTTP services; fetched bytes remain explicitly untrusted, and neither condition grants filesystem or operator identity.
 
-Chat file downloads are read-only operations performed by the Agent_b server process as the non-elevated operator. They expose only regular files that the shared file-tool jail resolves beneath the selected session workspace; this jail remains an application guard, not containment. The open-folder action is mutation-token protected and resolves its selection through the same jail before asking the operator desktop to reveal it.
+Chat file downloads are read-only operations performed by the Agent_b server process as the non-elevated operator.
+They expose only regular files that the shared file-tool jail resolves beneath the selected session workspace; this jail remains an application guard,
+not containment. The open-folder action is mutation-token protected and resolves its selection through the same jail before asking the operator desktop to
+reveal it.
 
-The exchange folder is a fourth, explicitly configured reachable tree, separate from application, operator data, and workspace roots. Host protection grants the service identity recursive `Modify` on that folder and only traverse access on otherwise private ancestors needed to reach it. This intentionally widens the OS boundary to the exchange folder so files placed there can later enter the attachment workflow; changing the folder requires reapplying and verifying host protection. Network shares, mapped drives, and SMB credentials are not supported.
+The exchange folder is a fourth, explicitly configured reachable tree, separate from application, operator data, and workspace roots.
+Host protection grants the service identity recursive `Modify` on that folder and only traverse access on otherwise private ancestors needed to reach it.
+This intentionally widens the OS boundary to the exchange folder so files placed there can later enter the attachment workflow;
+changing the folder requires reapplying and verifying host protection. Network shares, mapped drives, and SMB credentials are not supported.
 
-Attachment ingest is an operator browser action protected by the launch mutation token, not a model tool or approval escape. The operator-context HTTP process writes at most `tools.attachments.max_bytes` beneath the selected session workspace's `attachments/` directory through the shared file-tool resolver; the service identity subsequently reads those bytes under the workspace ACL. Filenames are reduced to safe basenames, ZIP archives are refused, collisions never overwrite, and JSONL records contain only path, size, and SHA-256—not attachment bytes. Native document/image bytes exist only in the in-memory model request. Configured extraction endpoints receive the uploaded file and their text sidecars are explicitly labeled untrusted; Office XML extraction is bounded and uses the standard library without extracting archive paths.
+Attachment ingest is an operator browser action protected by the launch mutation token, not a model tool or approval escape.
+The operator-context HTTP process writes at most `tools.attachments.max_bytes` beneath the selected session workspace's `attachments/` directory through the
+shared file-tool resolver; the service identity subsequently reads those bytes under the workspace ACL. Filenames are reduced to safe basenames,
+ZIP archives are refused, collisions never overwrite, and JSONL records contain only path, size, and SHA-256—not attachment bytes.
+Native document/image bytes exist only in the in-memory model request.
+Configured extraction endpoints receive the uploaded file and their text sidecars are explicitly labeled untrusted;
+Office XML extraction is bounded and uses the standard library without extracting archive paths.
 
-Every native document/image content part is immediately preceded by a separate harness-generated text part that describes the following payload as untrusted evidence, never instructions. The framing describes the operator's attachment action without speaking as the operator. One frame governs one adjacent payload; base64 remains a non-text data URL and cannot forge the text delimiter. Before dispatch, encoded data-URL lengths are conservatively treated as an upper bound in context tokens and allocated cumulatively across retained attachment history against the connection's `n_ctx - reserve_output`; a payload that does not fit is not sent and receives an explicit outcome in both Chat and model-visible text.
+Every native document/image content part is immediately preceded by a separate harness-generated text part that describes the following payload as untrusted
+evidence, never instructions. The framing describes the operator's attachment action without speaking as the operator. One frame governs one adjacent payload;
+base64 remains a non-text data URL and cannot forge the text delimiter. Before dispatch,
+encoded data-URL lengths are conservatively treated as an upper bound in context tokens and allocated cumulatively across retained attachment history against
+the connection's `n_ctx - reserve_output`; a payload that does not fit is not sent and receives an explicit outcome in both Chat and model-visible text.
 
-Image OCR is local and uses the inbox Windows Runtime APIs in `combase.dll` and `shcore.dll`; it adds no helper process, packaged binary, language payload, or network destination. OCR sidecars remain inside the workspace, are labeled untrusted derived content, and state that layout was not preserved. The per-connection `native` override deliberately trusts the operator over a capability probe and may send document/image bytes to that connection's configured model endpoint; `extract` keeps those bytes local. This routing choice changes data handling, not the OS security boundary.
+Image OCR is local and uses the inbox Windows Runtime APIs in `combase.dll` and `shcore.dll`; it adds no helper process, packaged binary, language payload,
+or network destination. OCR sidecars remain inside the workspace, are labeled untrusted derived content, and state that layout was not preserved.
+The per-connection `native` override deliberately trusts the operator over a capability probe and may send document/image bytes to that connection's configured
+model endpoint; `extract` keeps those bytes local. This routing choice changes data handling, not the OS security boundary.
 
-The normal installer is per-user and unelevated: application files go under `%LocalAppData%\Programs\Agent_b`, operator state under `%LocalAppData%\Agent_b`, and the service workspace under `%LocalAppData%\Agent_b-workspace`. An explicit `--all-users` install requires an already elevated console and uses Program Files/ProgramData. The installer never builds or signs: it verifies the signed payload, manifest SHA-256, embedded tag/commit, and the copied executable before accepting it. The uninstaller can preserve or purge operator data, but it does not silently delete shared machine-level account, ACL, or firewall controls.
+The normal installer is per-user and unelevated: application files go under `%LocalAppData%\Programs\Agent_b`, operator state under `%LocalAppData%\Agent_b`,
+and the service workspace under `%LocalAppData%\Agent_b-workspace`.
+An explicit `--all-users` install requires an already elevated console and uses Program Files/ProgramData. The installer never builds or signs:
+it verifies the signed payload, manifest SHA-256, embedded tag/commit, and the copied executable before accepting it.
+The uninstaller can preserve or purge operator data, but it does not silently delete shared machine-level account, ACL, or firewall controls.
 
 ## Approval and unattended runs
 
-Agent permissions are enforced in harness code for every agent and every pinned revision; editable agent instructions and locked prompt blocks describe runtime facts but are not a security boundary. Effective approval is always the strictest of host policy, operator setting, and agent default, so an agent default can tighten approval but can never loosen it.
+Agent permissions are enforced in harness code for every agent and every pinned revision;
+editable agent instructions and locked prompt blocks describe runtime facts but are not a security boundary.
+Effective approval is always the strictest of host policy, operator setting, and agent default,
+so an agent default can tighten approval but can never loosen it.
 
-Agent_b has two user-facing prompts. **Allow this** governs a risky action under `approval.mode` or a trusted repository policy: the shipped `boundary-only` default runs tools without generic pre-execution confirmation, `mutating` pauses `write_file`, `edit_file`, `shell`, and `run_script`, and `all` pauses every tool call. **Run as you** governs every need for the operator's Windows identity: configured operator commands, built-in file operations outside the service account's reach, and operator-only interpreters. Every card offers **Yes, for this chat**, **Just once**, and **No**; when the request has an exact repo, folder, connector, or host subject it also offers **Always allow this exact scope**. That choice writes a grant under the active profile in the operator-owned data root, survives restarts and updates, covers only the named subject (never a parent or sibling), and remains until Settings revokes it. One chat grant covers all identity needs until `session.closed` or explicit revocation. The Settings operator mode is the distinct process-global control and is never implied by either grant. If the service identity is disabled, there is no identity gate because the operator is already driving an unrestricted shell. Approval reduces accidental actions; it does not turn the shell wrapper into a sandbox.
+Agent_b has two user-facing prompts. **Allow this** governs a risky action under `approval.mode` or a trusted repository policy:
+the shipped `boundary-only` default runs tools without generic pre-execution confirmation, `mutating` pauses `write_file`, `edit_file`, `shell`,
+and `run_script`, and `all` pauses every tool call. **Run as you** governs every need for the operator's Windows identity: configured operator commands,
+built-in file operations outside the service account's reach, and operator-only interpreters. Every card offers **Yes, for this chat**, **Just once**,
+and **No**; when the request has an exact repo, folder, connector, or host subject it also offers **Always allow this exact scope**.
+That choice writes a grant under the active profile in the operator-owned data root, survives restarts and updates,
+covers only the named subject (never a parent or sibling), and remains until Settings revokes it.
+One chat grant covers all identity needs until `session.closed` or explicit revocation.
+The Settings operator mode is the distinct process-global control and is never implied by either grant. If the service identity is disabled,
+there is no identity gate because the operator is already driving an unrestricted shell. Approval reduces accidental actions;
+it does not turn the shell wrapper into a sandbox.
 
-In `boundary-only`, registering a valid plan and deciding a detected tool loop do not raise **Allow this**: chat records `registered <repo> as a plan` or `stopped a loop after <n> turns, continuing differently` and the run carries on. `mutating` and `all` keep both cards unchanged. Unattended keeps its stricter no-question refusal for both.
+In `boundary-only`, registering a valid plan and deciding a detected tool loop do not raise **Allow this**:
+chat records `registered <repo> as a plan` or `stopped a loop after <n> turns, continuing differently` and the run carries on.
+`mutating` and `all` keep both cards unchanged. Unattended keeps its stricter no-question refusal for both.
 
-**Unattended (item 5f, v1.2.5; `internal/config/config.go`, `internal/agent/run.go`).** The Settings → Security switch **Unattended: never ask; boundary hits fail the item** changes WHO IS ASKED and nothing else. It narrows nothing about identity: tools still run as whoever they would have run as, and the boundary still refuses exactly what it refused before. With it on, a worker or scheduled run that would have raised any of the four cards — a policy approval, an identity escalation, a cycle decision, or a plan registration — instead records `[!] boundary: <what>` on its item and carries on, and the report lists every hit. A chat the operator is typing in stays attended regardless, because he is there and asking him is the point. Unattended and operator mode are independent: both on at once is a deliberate choice made in Settings, never one arrived at by accident.
+**Unattended (item 5f, v1.2.5; `internal/config/config.go`, `internal/agent/run.go`).** The Settings → Security switch **Unattended: never ask;
+boundary hits fail the item** changes WHO IS ASKED and nothing else. It narrows nothing about identity: tools still run as whoever they would have run as,
+and the boundary still refuses exactly what it refused before. With it on,
+a worker or scheduled run that would have raised any of the four cards — a policy approval, an identity escalation, a cycle decision,
+or a plan registration — instead records `[!] boundary: <what>` on its item and carries on, and the report lists every hit.
+A chat the operator is typing in stays attended regardless, because he is there and asking him is the point. Unattended and operator mode are independent:
+both on at once is a deliberate choice made in Settings, never one arrived at by accident.
 
-When Windows denies a built-in file operation, shell output looks like an OS permission denial, or a requested interpreter exists only for the operator, Agent_b raises **Run as you** in every approval mode. **Just once** reruns only the displayed operation; **Yes, for this chat** sends later file, shell, and interpreter identity needs through the same non-elevated operator identity until the chat closes or the status-strip robot is used to revoke it. The model cannot invoke the operator path directly, the UI shows the exact path or command, and each decision, grant, lapse, and revocation is logged. File-tool denial comes from the impersonated Windows token; shell denial classification remains a text heuristic. Inspect the operation before approving: this escape deliberately bypasses service-account ACL and firewall restrictions and is not a security boundary.
+When Windows denies a built-in file operation, shell output looks like an OS permission denial, or a requested interpreter exists only for the operator,
+Agent_b raises **Run as you** in every approval mode. **Just once** reruns only the displayed operation; **Yes, for this chat** sends later file, shell,
+and interpreter identity needs through the same non-elevated operator identity until the chat closes or the status-strip robot is used to revoke it.
+The model cannot invoke the operator path directly, the UI shows the exact path or command, and each decision, grant, lapse, and revocation is logged.
+File-tool denial comes from the impersonated Windows token; shell denial classification remains a text heuristic. Inspect the operation before approving:
+this escape deliberately bypasses service-account ACL and firewall restrictions and is not a security boundary.
 
 ## The one native file Agent_b ships that it did not build
 
@@ -130,9 +407,12 @@ instead of borrowing one from Edge.
 
 ## Machine-scoped service credentials, and the trade they make
 
-Implemented in `internal/credential/machine_windows.go` (the access list and its check), `internal/credential/store.go` (the scope and which secrets may use it), and the signed native helper in `internal/nativepolicy`.
+Implemented in `internal/credential/machine_windows.go` (the access list and its check),
+`internal/credential/store.go` (the scope and which secrets may use it), and the signed native helper in `internal/nativepolicy`.
 
-The current native setup is the operator-approved Settings action; it stores a user-scoped credential and performs account, ACL, firewall, and logon verification through Windows APIs. Existing machine-scoped credentials from managed deployments remain readable under the strict access-list check below. This release does not publish an unattended provisioning command; a management deployment must not attempt to recreate the removed PowerShell path.
+The current native setup is the operator-approved Settings action; it stores a user-scoped credential and performs account, ACL, firewall,
+and logon verification through Windows APIs. Existing machine-scoped credentials from managed deployments remain readable under the strict access-list check
+below. This release does not publish an unattended provisioning command; a management deployment must not attempt to recreate the removed PowerShell path.
 
 **The trade, stated plainly.** A machine-scoped DPAPI blob is encrypted under a
 key held by the machine, not by any user. **Anything running on that machine can
@@ -161,30 +441,108 @@ What this means for an administrator deciding whether to use it:
 
 ## Network exposure
 
-Agent_b has no user login and ships with `listen` bound to loopback. Each launch generates separate browser-session and mutation capabilities. A verified operator browser receives an HttpOnly, SameSite=Strict session cookie and the mutation capability once in the page response; the native WebView2 host carries its bootstrap capability in the URL fragment, removes it before making the exchange request, and receives the same HttpOnly cookie. `/api/state` and `/api/events` require the cookie and no longer return the mutation capability. Every mutation requires both the cookie and the `X-AgentB-Mutation-Token` header, and a missing or invalid capability returns an empty 401. Settings may read one connection's user-DPAPI API key through a mutation-protected connection route only after the operator presses Show; the browser drops it after 30 seconds, and the route never publishes, logs, persists, or phone-projects the value. A phone is a full-authority operator surface only after the broker pairing described above; the broker carries ciphertext and the phone's in-process app-message requests receive only their paired-device context, never the browser capabilities. The older browser phone page, enrolment bearer and Web Push store are removed. Agent_b descendant processes fail the existing Windows client-process check when they try to obtain page credentials; no listener capability or pairing code is placed in tool environments, files, state, logs, or URLs. `call_service` also refuses the configured listener before dialing, as `fetch_url` already does. These are application capability guards that keep ordinary Agent_b tool children away from the control plane; they are not an OS containment boundary, and another process already running as the operator can still exercise the operator-browser bootstrap path. Agent_b provides no remote reachability path and does not widen the loopback listener. Cross-origin browser mutations are rejected, framing is denied, and a restrictive Content Security Policy is sent. The native frameless window's minimize, maximize and close actions use the same guarded loopback boundary and are unavailable when no native host exists. Moving the listener off loopback exposes an endpoint that can run shell commands and requires a real TLS/authentication design.
+Agent_b has no user login and ships with `listen` bound to loopback. Each launch generates separate browser-session and mutation capabilities.
+A verified operator browser receives an HttpOnly, SameSite=Strict session cookie and the mutation capability once in the page response;
+the native WebView2 host carries its bootstrap capability in the URL fragment, removes it before making the exchange request,
+and receives the same HttpOnly cookie. `/api/state` and `/api/events` require the cookie and no longer return the mutation capability.
+Every mutation requires both the cookie and the `X-AgentB-Mutation-Token` header, and a missing or invalid capability returns an empty 401.
+Settings may read one connection's user-DPAPI API key through a mutation-protected connection route only after the operator presses Show;
+the browser drops it after 30 seconds, and the route never publishes, logs, persists, or phone-projects the value.
+A phone is a full-authority operator surface only after the broker pairing described above;
+the broker carries ciphertext and the phone's in-process app-message requests receive only their paired-device context, never the browser capabilities.
+The older browser phone page, enrolment bearer and Web Push store are removed.
+Agent_b descendant processes fail the existing Windows client-process check when they try to obtain page credentials;
+no listener capability or pairing code is placed in tool environments, files, state, logs, or URLs.
+`call_service` also refuses the configured listener before dialing, as `fetch_url` already does.
+These are application capability guards that keep ordinary Agent_b tool children away from the control plane; they are not an OS containment boundary,
+and another process already running as the operator can still exercise the operator-browser bootstrap path.
+Agent_b provides no remote reachability path and does not widen the loopback listener. Cross-origin browser mutations are rejected, framing is denied,
+and a restrictive Content Security Policy is sent. The native frameless window's minimize,
+maximize and close actions use the same guarded loopback boundary and are unavailable when no native host exists.
+Moving the listener off loopback exposes an endpoint that can run shell commands and requires a real TLS/authentication design.
 
-Item 2qk deliberately gives a broker-paired phone two more operator powers: it may rename or permanently delete an identified PC chat. The dispatcher exposes only the named `chat.rename` and `chat.delete` routes, validates their closed bodies, and invokes the same handlers as the local page; it exposes no generic path, folder move, archive, close, reopen, credential, configuration, or machine-state route. A stolen paired phone can therefore destroy chat history. Revoking the pairing remains the boundary and immediate remedy.
+Item 2qk deliberately gives a broker-paired phone two more operator powers: it may rename or permanently delete an identified PC chat.
+The dispatcher exposes only the named `chat.rename` and `chat.delete` routes, validates their closed bodies, and invokes the same handlers as the local page;
+it exposes no generic path, folder move, archive, close, reopen, credential, configuration, or machine-state route.
+A stolen paired phone can therefore destroy chat history. Revoking the pairing remains the boundary and immediate remedy.
 
-Connector add, edit, and remove proposals always use the existing operator approval card, even when generic approvals are off. Rejection and validation failure write nothing; approval saves through the harness configuration owner and hot-reloads `call_service`. A connector stores only `none`, an environment-variable name, or an operator-context credential-helper command—never a pasted token. A proposal may also import an OpenAPI document: the harness fetches it once over https (or reads a file the operator named by full path), the same card shows the operations it would enable and what the document declares about its own authentication, and approval keeps the document as a snapshot under the operator data root — never in the repository and never in the workspace a tool can reach — pinned by SHA-256. The document is an ALLOW-LIST, not an authority: it narrows such a connector to the enabled operations and is refused outright if the snapshot no longer matches its hash, while the credential, the host pinning and the method allow-list remain exactly what the operator configured. Nothing in a document can introduce a credential, a host or a method. Credentials are pinned to the configured service host, helper output is redacted, and direct tool-process attempts to mutate `/api/config` remain unauthorized. This approval and routing layer is not containment; the service helper runs with the operator's non-elevated identity by design.
+Connector add, edit, and remove proposals always use the existing operator approval card, even when generic approvals are off.
+Rejection and validation failure write nothing; approval saves through the harness configuration owner and hot-reloads `call_service`.
+A connector stores only `none`, an environment-variable name, or an operator-context credential-helper command—never a pasted token.
+A proposal may also import an OpenAPI document: the harness fetches it once over https (or reads a file the operator named by full path),
+the same card shows the operations it would enable and what the document declares about its own authentication,
+and approval keeps the document as a snapshot under the operator data root — never in the repository and never in the workspace a tool can reach — pinned by
+SHA-256. The document is an ALLOW-LIST, not an authority: it narrows such a connector to the enabled operations and is refused outright if the snapshot no
+longer matches its hash, while the credential, the host pinning and the method allow-list remain exactly what the operator configured.
+Nothing in a document can introduce a credential, a host or a method. Credentials are pinned to the configured service host, helper output is redacted,
+and direct tool-process attempts to mutate `/api/config` remain unauthorized. This approval and routing layer is not containment;
+the service helper runs with the operator's non-elevated identity by design.
 
-A second installed window launch treats `agent_b-run.json` as untrusted addressing data: it requires an exact canonical application-root match, the same live PID incarnation, a loopback port, and `/api/state` reporting that PID before it signals the install-root-and-PID-scoped activation event. It never rewrites the live marker. This prevents a stale or forged marker from redirecting the launch to an unrelated process; it is not an identity boundary against another process already running as the operator. Since item 2o0 (v1.42.0) every serving process owns that event for its whole life, with or without a window, and its DACL admits only the operator's account and SYSTEM (as the graceful-stop event does); before, the window created it with the default DACL. Signalling it raises the window, or creates one when the server has none, and does nothing else.
+A second installed window launch treats `agent_b-run.json` as untrusted addressing data: it requires an exact canonical application-root match,
+the same live PID incarnation, a loopback port, and `/api/state` reporting that PID before it signals the install-root-and-PID-scoped activation event.
+It never rewrites the live marker. This prevents a stale or forged marker from redirecting the launch to an unrelated process;
+it is not an identity boundary against another process already running as the operator.
+Since item 2o0 (v1.42.0) every serving process owns that event for its whole life, with or without a window,
+and its DACL admits only the operator's account and SYSTEM (as the graceful-stop event does); before, the window created it with the default DACL.
+Signalling it raises the window, or creates one when the server has none, and does nothing else.
 
-When **Check for updates** is on (the default), the operator process makes one anonymous GET at startup and once per day to GitHub's latest-release API for `someone/agent_b`. It sends no Agent_b state, identifier, credential, cookie, or model content. An administrator may instead name an organisation-owned HTTPS latest-release endpoint with `AGENTB_UPDATE_SOURCE_URL`; this changes location, not verification. A newer release is only reported; it is never downloaded or installed on a schedule. Pressing **Update** downloads `release.json` and `Agent_b-setup.exe`, bounds both responses, requires the manifest's release and clean executable identities to agree, and verifies exact size and SHA-256. The outer Authenticode result is logged and only `HashMismatch` is refused. The installer separately requires the embedded CLI signature to have an intact Authenticode hash and the pinned Agent_b release-certificate thumbprint; disposable signing is accepted only under explicit TestMode or the non-mutating WhatIf preflight. Its transcript names both identities. Thus an organisation may re-sign the outer installer/runtime for publisher policy without replacing payload trust. A mismatch is named and the file is removed. Release candidates are signed and timestamped by the ordinary operator release process after the one-time key-container ACL grant; the per-user updater installer does not sign.
+When **Check for updates** is on (the default), the operator process makes one anonymous GET at startup and once per day to GitHub's latest-release API for
+`someone/agent_b`. It sends no Agent_b state, identifier, credential, cookie, or model content.
+An administrator may instead name an organisation-owned HTTPS latest-release endpoint with `AGENTB_UPDATE_SOURCE_URL`; this changes location, not verification.
+A newer release is only reported; it is never downloaded or installed on a schedule. Pressing **Update** downloads `release.json` and `Agent_b-setup.exe`,
+bounds both responses, requires the manifest's release and clean executable identities to agree, and verifies exact size and SHA-256.
+The outer Authenticode result is logged and only `HashMismatch` is refused.
+The installer separately requires the embedded CLI signature to have an intact Authenticode hash and the pinned Agent_b release-certificate thumbprint;
+disposable signing is accepted only under explicit TestMode or the non-mutating WhatIf preflight. Its transcript names both identities.
+Thus an organisation may re-sign the outer installer/runtime for publisher policy without replacing payload trust. A mismatch is named and the file is removed.
+Release candidates are signed and timestamped by the ordinary operator release process after the one-time key-container ACL grant;
+the per-user updater installer does not sign.
 
-The `fetch_url` and `web_search` tools are the governed public-network paths. Both perform GET-only, cookie-free requests with no model-supplied headers, recheck every redirect and resolved address, deny loopback/private/link-local destinations unless the exact host is configured in `tools.fetch.allow_internal_hosts`, cap time and bytes, and label returned text as untrusted in both model context and the timeline. `web_search` uses the same client and returns only engine-provided result metadata; fetching page content remains `fetch_url`'s job. Their browser-shaped TLS ClientHello improves compatibility; it does not impersonate a signed-in browser or make fetched instructions trustworthy. DNS/IP validation and domain allowlists reduce SSRF exposure but are application guards, not a network sandbox; `tools.fetch.allow_domains` and `tools.fetch.deny_domains` are empty by default, and either can be filled for an untrusted workload. On a hardened Windows host, the service-account firewall blocks public network access from `shell`; these two tools run in the Agent_b process and are therefore the sanctioned service-context paths. Operator mode deliberately removes that firewall enforcement, and an unhardened host may let shell clients reach the network.
+The `fetch_url` and `web_search` tools are the governed public-network paths. Both perform GET-only, cookie-free requests with no model-supplied headers,
+recheck every redirect and resolved address, deny loopback/private/link-local destinations unless the exact host is configured in
+`tools.fetch.allow_internal_hosts`, cap time and bytes, and label returned text as untrusted in both model context and the timeline.
+`web_search` uses the same client and returns only engine-provided result metadata; fetching page content remains `fetch_url`'s job.
+Their browser-shaped TLS ClientHello improves compatibility; it does not impersonate a signed-in browser or make fetched instructions trustworthy.
+DNS/IP validation and domain allowlists reduce SSRF exposure but are application guards, not a network sandbox;
+`tools.fetch.allow_domains` and `tools.fetch.deny_domains` are empty by default, and either can be filled for an untrusted workload. On a hardened Windows host,
+the service-account firewall blocks public network access from `shell`;
+these two tools run in the Agent_b process and are therefore the sanctioned service-context paths. Operator mode deliberately removes that firewall enforcement,
+and an unhardened host may let shell clients reach the network.
 
-Each B chat may operate in its scratch/retained root and every repository named by the live plan list, and may read the plans tree. Each bound D chat writes only its immutable plan and may read its repository or any plan; operator identity cannot widen D write authority.
+Each B chat may operate in its scratch/retained root and every repository named by the live plan list, and may read the plans tree.
+Each bound D chat writes only its immutable plan and may read its repository or any plan; operator identity cannot widen D write authority.
 
 ## Stored model content
 
-`logs/*.jsonl` and retained `chats/*.jsonl` contain complete prompts and responses, including file contents and command output, and are ignored for that reason. Operational logs may rotate; retained chat journals remain until the operator explicitly confirms deletion of that chat.
+`logs/*.jsonl` and retained `chats/*.jsonl` contain complete prompts and responses, including file contents and command output, and are ignored for that reason.
+Operational logs may rotate; retained chat journals remain until the operator explicitly confirms deletion of that chat.
 
-`memory/*.md` contains model-authored notes that are injected into future sessions' system prompts for the same workspace. The `remember` and `recall` tools deliberately run as the Agent_b application identity rather than through the service-account `FileIdentity` wrapper. This is a narrow exception: neither tool accepts a path, filename, workspace, or routing argument; the application derives the one reachable file from the operator-configured memory directory and the active session workspace. The model supplies only note content to `remember`, while `recall` is read-only. Operator mode does not widen either tool. Running these tools through the service identity would also conflict with the hardened installation's deliberate write denial on the memory directory.
+`memory/*.md` contains model-authored notes that are injected into future sessions' system prompts for the same workspace.
+The `remember` and `recall` tools deliberately run as the Agent_b application identity rather than through the service-account `FileIdentity` wrapper.
+This is a narrow exception: neither tool accepts a path, filename, workspace, or routing argument;
+the application derives the one reachable file from the operator-configured memory directory and the active session workspace.
+The model supplies only note content to `remember`, while `recall` is read-only. Operator mode does not widen either tool.
+Running these tools through the service identity would also conflict with the hardened installation's deliberate write denial on the memory directory.
 
-Each chat retains one canonical scratch or legacy base directory; B file tools add every live plan repository to that application-level root set, including while impersonating the service account, and no folder-selection or binding decision widens it. Repository instruction discovery prefers `AGENT_B.md`, then `AGENTS.md`, then `CLAUDE.md` at each selected root and reads only the first present file; ancestor traversal is otherwise unchanged. That text is prompt content, never executable policy. A root `.agentb/policy.json` is honored only after the operator approves its exact SHA-256, which is stored under the operator-owned data/memory root rather than in the repository; model file tools refuse writes beneath `.agentb/` under the named repo-policy immutability rule. Repository policy may loosen listed session defaults, but it can never control this list: **operator mode, elevation, signing, allow_internal_hosts, services allowlist**. Windows ACLs and the service account remain the security boundary; the root selector is an ergonomic guard, not containment.
+Each chat retains one canonical scratch or legacy base directory; B file tools add every live plan repository to that application-level root set,
+including while impersonating the service account, and no folder-selection or binding decision widens it. Repository instruction discovery prefers `AGENT_B.md`,
+then `AGENTS.md`, then `CLAUDE.md` at each selected root and reads only the first present file; ancestor traversal is otherwise unchanged.
+That text is prompt content, never executable policy. A root `.agentb/policy.json` is honored only after the operator approves its exact SHA-256,
+which is stored under the operator-owned data/memory root rather than in the repository;
+model file tools refuse writes beneath `.agentb/` under the named repo-policy immutability rule. Repository policy may loosen listed session defaults,
+but it can never control this list: **operator mode, elevation, signing, allow_internal_hosts, services allowlist**.
+Windows ACLs and the service account remain the security boundary; the root selector is an ergonomic guard, not containment.
 
-A note derived from untrusted content can persist across sessions. Review it—the settings sheet shows the content and `recall` returns the dated stored entries—and remove the note file manually if it should not be trusted or retained.
+A note derived from untrusted content can persist across sessions.
+Review it—the settings sheet shows the content and `recall` returns the dated stored entries—and remove the note file manually if it should not be trusted or
+retained.
 
-Fetched text is one such untrusted source. The envelope does not follow content into a later `remember` call automatically, so review durable notes derived from fetched material with the same care as the original page.
+Fetched text is one such untrusted source. The envelope does not follow content into a later `remember` call automatically,
+so review durable notes derived from fetched material with the same care as the original page.
 
-`INBOX.md` is a pull-only operator channel under the operator-owned data root. `STOP`, notes, `TASK:`, and bounded delays cannot grant identity. Approval answers are ignored unless **Allow approvals from the mailbox** is enabled; changing that setting through HTTP requires the same verified local-operator process check as the shell identity controls, and the default is off. When enabled, whoever can write the synced operator folder can answer a pending card and therefore grant the non-elevated operator identity within that card's existing scope. Folder access and sync-account security are consequently the boundary for mailbox answers; the 40-line / 4-KB cap and verb parser are input hygiene, not containment.
+`INBOX.md` is a pull-only operator channel under the operator-owned data root. `STOP`, notes, `TASK:`, and bounded delays cannot grant identity.
+Approval answers are ignored unless **Allow approvals from the mailbox** is enabled;
+changing that setting through HTTP requires the same verified local-operator process check as the shell identity controls, and the default is off. When enabled,
+whoever can write the synced operator folder can answer a pending card and therefore grant the non-elevated operator identity within that card's existing scope.
+Folder access and sync-account security are consequently the boundary for mailbox answers; the 40-line / 4-KB cap and verb parser are input hygiene,
+not containment.

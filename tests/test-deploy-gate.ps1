@@ -93,6 +93,11 @@ foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'rele
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy publication does not require $required." }
 }
 if ($deploy -match 'someone/agent_b') { throw 'Deploy still holds the stand-in repository.' }
+if ($deploy -notmatch 'Invoke-AgentBPostReleaseSweep' -or $deploy.IndexOf('Invoke-AgentBPostReleaseSweep') -gt $deploy.LastIndexOf('DEPLOY COMPLETE')) {
+    throw 'Deploy does not finish with the non-holding repository sweep.'
+}
+$sweepFailure = @(Invoke-AgentBPostReleaseSweep -Repository $repository -Runner { throw 'fixture sweep refusal' })
+if (($sweepFailure -join "`n") -notmatch '^SWEEP FAILED: fixture sweep refusal$') { throw 'A failed release sweep did not become exactly one non-holding report line.' }
 if ($deploy -match '--notes\s+"Agent_b') { throw 'Deploy still publishes a placeholder release body.' }
 foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'run list', 'privacy-gate.mjs')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not preserve host repair $required." }

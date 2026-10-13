@@ -149,6 +149,28 @@ try {
     Assert-Refused { & $remover -Path $documents -Repository $repository } 'Refusing: * has no .git file linking it to *' 'Removal of a folder named by a forged worktree record'
     if (-not (Test-Path -LiteralPath (Join-Path $documents 'report.docx'))) { throw 'A forged worktree record led to deleting the folder it named.' }
     Write-Host 'PASS: remove-worktree refuses a folder that a forged worktree record names'
+
+    # 2uc: repository cleanup covers every named class, preserves each keep,
+    # and a NOTES-only citation no longer prevents removal.
+    $sweepRepo = Join-Path $disposable 'sweep-repo'; $sweepTemp = Join-Path $disposable 'sweep-temp'
+    $null = New-Item -ItemType Directory -Path "$sweepRepo\scripts",$sweepTemp -Force
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1') -Destination "$sweepRepo\scripts\removal-guard.ps1"
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\sweep-temp.ps1') -Destination "$sweepRepo\sweep-temp.ps1"
+    & $git init -q $sweepRepo
+    [IO.File]::WriteAllText("$sweepRepo\NOTES.md", 'notes-only')
+    [IO.File]::WriteAllText("$sweepRepo\scripts\uses-program.ps1", "& (Join-Path `$PSScriptRoot '..\needed.exe')")
+    $remove = @('.tmp\notes-only','.codex-temp\old','.claude-temp\old','.plan-candidate-old','candidate\old','scratch\old','test-results\old','playwright-report\old','old.exe','candidates\one')
+    $keep = @('.tmp\recent','.tmp\Agent_b-install-rollback-old','.tmp\tracked.txt','.plan-candidate-rel-test','candidates\two','candidates\three','candidates\four','needed.exe')
+    foreach($relative in $remove + $keep) { $path=Join-Path $sweepRepo $relative; if($relative -match '(?:\.exe|\.txt)$'){ $null=New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force; [IO.File]::WriteAllText($path,'x') } else { $null=New-Item -ItemType Directory -Path $path -Force; [IO.File]::WriteAllText((Join-Path $path 'x'),'x') } }
+    & $git -C $sweepRepo add scripts/removal-guard.ps1 scripts/uses-program.ps1 .tmp/tracked.txt -f
+    & $git -C $sweepRepo -c user.name=guard -c user.email=someone@example.org commit -qm fixture
+    $old=(Get-Date).AddDays(-10); foreach($relative in $remove + $keep){ $path=Join-Path $sweepRepo $relative; Get-Item -LiteralPath $path -Force | ForEach-Object { $_.LastWriteTime=$old }; if((Get-Item -LiteralPath $path -Force).PSIsContainer){ Get-ChildItem -LiteralPath $path -Recurse -Force | ForEach-Object { $_.LastWriteTime=$old } } }
+    (Get-Item -LiteralPath "$sweepRepo\.tmp\recent").LastWriteTime=Get-Date
+    $n=0; foreach($name in 'two','three','four') { (Get-Item -LiteralPath "$sweepRepo\candidates\$name").LastWriteTime=(Get-Date).AddMinutes($n++) }
+    & "$sweepRepo\sweep-temp.ps1" -Apply -RepositoryRoot $sweepRepo -TempRoot $sweepTemp -Cutoff (Get-Date).AddDays(-1) -CurrentOrder rel-test | Out-Null
+    foreach($relative in $remove){ if(Test-Path -LiteralPath (Join-Path $sweepRepo $relative)){ throw "Sweep kept removable $relative" } }
+    foreach($relative in $keep){ if(-not (Test-Path -LiteralPath (Join-Path $sweepRepo $relative))){ throw "Sweep removed kept $relative" } }
+    Write-Host 'PASS: repository sweep removes every cleanup class and keeps recent, rollback, current-order, newest-three, tracked, and operational entries'
 } finally {
     if (Test-Path -LiteralPath $disposable) { Remove-TreeWithinAllowedRoots -Path $disposable -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'removal-guard test cleanup' }
 }

@@ -184,5 +184,6 @@ try {
     }
 }
 
+Invoke-AgentBPostReleaseSweep -Repository $repository | Write-Host
 Write-Host "DEPLOY COMPLETE: the required installer was built, signed, timestamped, verified, and published at $setupPath"
 exit 0

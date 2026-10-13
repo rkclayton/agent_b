@@ -1,3 +1,15 @@
+function Invoke-AgentBPostReleaseSweep {
+    param([Parameter(Mandatory = $true)][string]$Repository, [scriptblock]$Runner)
+    try {
+        if ($Runner) { & $Runner | Out-Null; return }
+        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File (Join-Path $Repository 'tools\sweep-temp.ps1') -Apply -RepositoryRoot $Repository 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw [string]($output | Select-Object -Last 1) }
+    } catch {
+        $reason = [regex]::Replace($_.Exception.Message, '\s+', ' ').Trim()
+        Write-Output "SWEEP FAILED: $reason"
+    }
+}
+
 function Get-StagedCandidateState {
     param([Parameter(Mandatory = $true)][string]$Candidate)
     $root = [IO.Path]::GetFullPath($Candidate)

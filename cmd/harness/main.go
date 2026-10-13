@@ -386,7 +386,7 @@ func main() {
 	operatorContext, cancelOperatorFiles := context.WithCancel(context.Background())
 	defer cancelOperatorFiles()
 	go operatorFiles.RunRetention(operatorContext)
-	operatorEvents := bus.Listen(operatorContext, "operator files")
+	operatorEvents := bus.Listen(operatorContext, "file retention")
 	go func() {
 		for event := range operatorEvents {
 			var snapshot *session.Snapshot

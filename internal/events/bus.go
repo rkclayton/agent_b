@@ -203,11 +203,18 @@ func (b *Bus) subscribe(name string) (chan Event, <-chan struct{}, func()) {
 // queue overflows, queued events are abandoned and a fresh subscription is made;
 // events are never replayed or reordered.
 func (b *Bus) Listen(ctx context.Context, name string) <-chan Event {
+	out, _ := b.ListenWithDone(ctx, name)
+	return out
+}
+
+func (b *Bus) ListenWithDone(ctx context.Context, name string) (<-chan Event, <-chan struct{}) {
 	out := make(chan Event, 128)
+	done := make(chan struct{})
 	in, dropped, unsubscribe := b.subscribe(name)
 	go func() {
 		defer close(out)
-		for ctx.Err() == nil {
+		defer close(done)
+		for {
 			for {
 				select {
 				case <-ctx.Done():
@@ -233,12 +240,17 @@ func (b *Bus) Listen(ctx context.Context, name string) <-chan Event {
 				}
 			}
 		resubscribe:
-			if ctx.Err() == nil {
-				in, dropped, unsubscribe = b.subscribe(name)
+			if ctx.Err() != nil {
+				return
+			}
+			in, dropped, unsubscribe = b.subscribe(name)
+			if ctx.Err() != nil {
+				unsubscribe()
+				return
 			}
 		}
 	}()
-	return out
+	return out, done
 }
 
 // ListenUntilDrop is for a listener whose owning connection must be ended on

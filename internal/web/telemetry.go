@@ -33,8 +33,9 @@ type telemetryState struct {
 	// it only removes it from the fan-out map -- so a goroutine ranging over it
 	// waits forever and takes the caller of Close with it. That deadlock was
 	// real and this is the fix, not a precaution.
-	stop chan struct{}
-	done chan struct{}
+	stop         chan struct{}
+	done         chan struct{}
+	listenerDone <-chan struct{}
 }
 
 type telemetryHost struct {
@@ -75,7 +76,7 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 		return
 	}
 	listenerContext, unsubscribe := context.WithCancel(context.Background())
-	channel := s.bus.Listen(listenerContext, "telemetry")
+	channel, listenerDone := s.bus.ListenWithDone(listenerContext, "telemetry")
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
@@ -129,7 +130,7 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 			}
 		}
 	}()
-	s.telemetry.state = &telemetryState{sender: sender, unsubscribe: unsubscribe, stop: stop, done: done}
+	s.telemetry.state = &telemetryState{sender: sender, unsubscribe: unsubscribe, stop: stop, done: done, listenerDone: listenerDone}
 }
 
 func (s *Server) stopTelemetryLocked() {
@@ -139,6 +140,7 @@ func (s *Server) stopTelemetryLocked() {
 	}
 	s.telemetry.state = nil
 	state.unsubscribe()
+	<-state.listenerDone
 	close(state.stop)
 	<-state.done
 	// Close deletes the queue. Off is not "sends less".

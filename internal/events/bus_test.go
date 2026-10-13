@@ -213,31 +213,33 @@ func TestNamedListenersRecoverAfterOverflow2um(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	streams := map[string]<-chan Event{}
-	for _, name := range []string{"terminal", "scheduled runs", "operator files", "worker", "notifications", "activity totals", "connection health", "reflection", "telemetry"} {
+	for _, name := range []string{"terminal", "scheduled runs", "file retention", "worker", "notifications", "activity totals", "connection health", "reflection", "telemetry"} {
 		streams[name] = bus.Listen(ctx, name)
 	}
 	for index := 0; index < 1000; index++ {
 		bus.Publish(New(ModelDelta, "main", "flood", map[string]any{"text": "x"}))
 	}
 	time.Sleep(5 * time.Second) // every consumer remains held while its bus queue overflows
-	deadline := time.Now().Add(time.Second)
-	for bus.SubscriberCount() != len(streams) && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	post := bus.Publish(New(RunStopped, "main", "after", map[string]any{"reason": "done"}))
+	reached := make(chan string, len(streams))
 	for name, stream := range streams {
-		deadline := time.After(time.Second)
-		for {
-			select {
-			case got := <-stream:
-				if got.Seq == post.Seq {
-					goto reached
+		go func() {
+			for got := range stream {
+				if got.RunID == "after" {
+					reached <- name
+					return
 				}
-			case <-deadline:
-				t.Fatalf("%s did not receive the post-flood event", name)
 			}
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	post := bus.Publish(New(RunStopped, "main", "after", map[string]any{"reason": "done"}))
+	_ = post
+	for range streams {
+		select {
+		case <-reached:
+		case <-time.After(time.Second):
+			t.Fatal("a recovered listener did not receive the post-flood event")
 		}
-	reached:
 	}
 }
 

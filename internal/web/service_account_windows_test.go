@@ -295,7 +295,7 @@ func TestSwitchOffNeverInspectsWindowsAccountState2qo(t *testing.T) {
 			manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true}}
 			server, _, _ := serviceAccountTestServer(t, manager)
 			server.cfg.Shell.ServiceAccount.Enabled = true
-			server.operatorRequest = func(*http.Request) error { return errors.New(state) }
+			server.operatorState.request = func(*http.Request) error { return errors.New(state) }
 			request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"shell":{"service_account":{"enabled":false}}}`))
 			authorizeMutation(request, server)
 			response := httptest.NewRecorder()

@@ -402,8 +402,8 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 		stamped := stampDocument(data, pageBuildID())
 		cookie, cookieErr := r.Cookie(browserSessionCookie)
 		credentialed := cookieErr == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(s.browserSession)) == 1
-		if !credentialed && s.operatorRequest != nil {
-			credentialed = s.operatorRequest(r) == nil
+		if !credentialed && s.operatorRequestAvailable() {
+			credentialed = s.operatorOwnedRequest(r) == nil
 		}
 		if credentialed {
 			http.SetCookie(w, &http.Cookie{Name: browserSessionCookie, Value: s.browserSession, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})

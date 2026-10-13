@@ -157,7 +157,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 	}
 	var before func()
 	if body.Decision == "operator_mode" {
-		if err := s.operatorRequest(r); err != nil {
+		if err := s.operatorOwnedRequest(r); err != nil {
 			writeError(w, http.StatusForbidden, "Run as you can be enabled only by a local process owned by the Windows account that launched Agent_b", "decision")
 			return
 		}
@@ -310,7 +310,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "clear" {
-		if err := s.operatorRequest(r); err != nil {
+		if err := s.operatorOwnedRequest(r); err != nil {
 			writeError(w, http.StatusForbidden, "clearing stats requires a verified local process of the user", "agent_id")
 			return
 		}
@@ -345,7 +345,7 @@ func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 		method(w)
 		return
 	}
-	if err := s.operatorRequest(r); err != nil {
+	if err := s.operatorOwnedRequest(r); err != nil {
 		writeError(w, http.StatusForbidden, "flushing memory requires a verified local process of the user", "agent_id")
 		return
 	}

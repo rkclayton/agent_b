@@ -80,38 +80,30 @@ type Server struct {
 	mutationToken      string
 	// Item 2mx: submissions already answered, so a phone's retry does not start a
 	// second run.
-	submissions      *idempotentSubmissions
-	operatorChangeMu sync.Mutex
-	operatorMu       sync.Mutex
-	operatorEnabled  bool
-	operatorExpires  string
-	operatorTimer    operatorTimer
-	operatorEpoch    uint64
-	operatorRequest  func(*http.Request) error
-	operatorNow      func() time.Time
-	operatorAfter    func(time.Duration, func()) operatorTimer
-	browserSession   string
-	openFolder       func(string) error
-	openFile         func(string) error
-	attachmentState  attachmentState
-	detectLocal      func(context.Context, string) (any, error)
-	workspaceState   *workspaceinfo.Manager
-	memoryState      *memory.Manager
-	reflection       *reflectionState
-	proposals        *proposalOffers
-	speech           speechProbe
-	speechCommand    func(context.Context, string, ...string) *exec.Cmd
-	modelInstaller   *modelinstall.Manager
-	measureMu        sync.RWMutex
-	measurements     map[string]measureState
-	measureCancels   map[string]context.CancelFunc
-	statsState       *stats.Manager
-	operatorFiles    *operatorfiles.Manager
-	profiles         *profiles.Manager
-	profileChanged   func(string) error
-	fontState        fontState
-	probeMu          sync.Mutex
-	probeCancels     map[string]*probeRun
+	submissions     *idempotentSubmissions
+	operatorState   operatorState
+	browserSession  string
+	openFolder      func(string) error
+	openFile        func(string) error
+	attachmentState attachmentState
+	detectLocal     func(context.Context, string) (any, error)
+	workspaceState  *workspaceinfo.Manager
+	memoryState     *memory.Manager
+	reflection      *reflectionState
+	proposals       *proposalOffers
+	speech          speechProbe
+	speechCommand   func(context.Context, string, ...string) *exec.Cmd
+	modelInstaller  *modelinstall.Manager
+	measureMu       sync.RWMutex
+	measurements    map[string]measureState
+	measureCancels  map[string]context.CancelFunc
+	statsState      *stats.Manager
+	operatorFiles   *operatorfiles.Manager
+	profiles        *profiles.Manager
+	profileChanged  func(string) error
+	fontState       fontState
+	probeMu         sync.Mutex
+	probeCancels    map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
 	probeRetries              map[string]int
@@ -160,17 +152,13 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	cfg.Shell.OperatorContextExpiresAt = ""
 	server := &Server{
 		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), submissions: newIdempotentSubmissions(),
-		startedAt:       time.Now().UTC().Format(time.RFC3339),
-		operatorRequest: requireOperatorHTTPClient,
-		operatorNow:     time.Now,
-		operatorAfter: func(duration time.Duration, fn func()) operatorTimer {
-			return time.AfterFunc(duration, fn)
-		},
-		openFolder:   openContainingFolder,
-		openFile:     openWithDefaultApplication,
-		proposals:    newProposalOffers(),
-		probeCancels: map[string]*probeRun{},
-		reachability: map[string]*reachabilityRetry{},
+		startedAt:     time.Now().UTC().Format(time.RFC3339),
+		operatorState: newOperatorState(),
+		openFolder:    openContainingFolder,
+		openFile:      openWithDefaultApplication,
+		proposals:     newProposalOffers(),
+		probeCancels:  map[string]*probeRun{},
+		reachability:  map[string]*reachabilityRetry{},
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
@@ -360,10 +348,7 @@ func (s *Server) ConfigSnapshot() config.Config {
 	s.mu.RLock()
 	result := *s.cfg
 	s.mu.RUnlock()
-	s.operatorMu.Lock()
-	result.Shell.OperatorContext = s.operatorEnabled
-	result.Shell.OperatorContextExpiresAt = s.operatorExpires
-	s.operatorMu.Unlock()
+	result.Shell.OperatorContext, result.Shell.OperatorContextExpiresAt = s.operatorContextSnapshot()
 	return result
 }
 

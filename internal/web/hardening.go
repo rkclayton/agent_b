@@ -55,7 +55,7 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Action == "apply" && body.AllowLocalNetwork {
-		if err := s.operatorRequest(r); err != nil {
+		if err := s.operatorOwnedRequest(r); err != nil {
 			writeError(w, http.StatusForbidden, "Allow my local network can be enabled only by the verified local browser process of the user", "shell.allow_local_network")
 			return
 		}

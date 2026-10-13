@@ -4,62 +4,93 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"harness/internal/events"
 	"harness/internal/tools"
 )
 
+type operatorState struct {
+	changeMu sync.Mutex
+	mu       sync.Mutex
+	enabled  bool
+	expires  string
+	timer    operatorTimer
+	epoch    uint64
+	request  func(*http.Request) error
+	now      func() time.Time
+	after    func(time.Duration, func()) operatorTimer
+}
+
+func newOperatorState() operatorState {
+	return operatorState{
+		request: requireOperatorHTTPClient,
+		now:     time.Now,
+		after: func(duration time.Duration, fn func()) operatorTimer {
+			return time.AfterFunc(duration, fn)
+		},
+	}
+}
+
+func (s *Server) operatorOwnedRequest(r *http.Request) error { return s.operatorState.request(r) }
+func (s *Server) operatorRequestAvailable() bool             { return s.operatorState.request != nil }
+func (s *Server) operatorContextSnapshot() (bool, string) {
+	s.operatorState.mu.Lock()
+	defer s.operatorState.mu.Unlock()
+	return s.operatorState.enabled, s.operatorState.expires
+}
+
 func (s *Server) setOperatorContext(enabled bool, reason string, expectedEpoch uint64) tools.ShellIdentityStatus {
-	s.operatorChangeMu.Lock()
-	defer s.operatorChangeMu.Unlock()
+	s.operatorState.changeMu.Lock()
+	defer s.operatorState.changeMu.Unlock()
 	s.mu.RLock()
 	timeoutMinutes := s.cfg.Shell.OperatorContextIdleTimeoutMinutes
 	s.mu.RUnlock()
 
-	s.operatorMu.Lock()
-	if expectedEpoch != 0 && expectedEpoch != s.operatorEpoch {
+	s.operatorState.mu.Lock()
+	if expectedEpoch != 0 && expectedEpoch != s.operatorState.epoch {
 		status := s.currentOperatorStatusLocked()
-		s.operatorMu.Unlock()
+		s.operatorState.mu.Unlock()
 		return status
 	}
 	s.resetOperatorTimerLocked(enabled, timeoutMinutes)
-	s.operatorMu.Unlock()
+	s.operatorState.mu.Unlock()
 	return s.applyOperatorContext(enabled, reason)
 }
 
 func (s *Server) touchOperatorContext(reason string) {
-	s.operatorChangeMu.Lock()
-	defer s.operatorChangeMu.Unlock()
+	s.operatorState.changeMu.Lock()
+	defer s.operatorState.changeMu.Unlock()
 	s.mu.RLock()
 	timeoutMinutes := s.cfg.Shell.OperatorContextIdleTimeoutMinutes
 	s.mu.RUnlock()
-	s.operatorMu.Lock()
-	if !s.operatorEnabled {
-		s.operatorMu.Unlock()
+	s.operatorState.mu.Lock()
+	if !s.operatorState.enabled {
+		s.operatorState.mu.Unlock()
 		return
 	}
 	s.resetOperatorTimerLocked(true, timeoutMinutes)
-	s.operatorMu.Unlock()
+	s.operatorState.mu.Unlock()
 	s.applyOperatorContext(true, reason)
 }
 
 func (s *Server) resetOperatorTimerLocked(enabled bool, timeoutMinutes int) {
-	s.operatorEpoch++
-	epoch := s.operatorEpoch
-	if s.operatorTimer != nil {
-		s.operatorTimer.Stop()
-		s.operatorTimer = nil
+	s.operatorState.epoch++
+	epoch := s.operatorState.epoch
+	if s.operatorState.timer != nil {
+		s.operatorState.timer.Stop()
+		s.operatorState.timer = nil
 	}
-	s.operatorEnabled = enabled
-	s.operatorExpires = ""
+	s.operatorState.enabled = enabled
+	s.operatorState.expires = ""
 	if !enabled {
 		return
 	}
 	duration := time.Duration(timeoutMinutes) * time.Minute
-	expires := s.operatorNow().Add(duration).UTC()
-	s.operatorExpires = expires.Format(time.RFC3339)
-	s.operatorTimer = s.operatorAfter(duration, func() {
+	expires := s.operatorState.now().Add(duration).UTC()
+	s.operatorState.expires = expires.Format(time.RFC3339)
+	s.operatorState.timer = s.operatorState.after(duration, func() {
 		s.setOperatorContext(false, "idle timeout expired", epoch)
 	})
 }
@@ -83,12 +114,12 @@ func (s *Server) applyOperatorContext(enabled bool, reason string) tools.ShellId
 }
 
 func (s *Server) currentOperatorStatusLocked() tools.ShellIdentityStatus {
-	if !s.operatorEnabled {
+	if !s.operatorState.enabled {
 		return tools.ShellIdentityStatus{}
 	}
 	return tools.ShellIdentityStatus{
 		OperatorContext:          true,
-		OperatorContextExpiresAt: s.operatorExpires,
+		OperatorContextExpiresAt: s.operatorState.expires,
 		Reason:                   "Run as you is on; tools are running as the Windows account that launched Agent_b",
 	}
 }
@@ -216,7 +247,7 @@ func (s *Server) requireOperatorConfigRequest(w http.ResponseWriter, r *http.Req
 			}
 		}
 	}
-	if err := s.operatorRequest(r); err != nil {
+	if err := s.operatorState.request(r); err != nil {
 		log.Printf("SECURITY: protected config mutation refused field=%s: %v", field, err)
 		writeError(w, http.StatusForbidden, "security-sensitive shell settings refused: "+err.Error(), field)
 		return false

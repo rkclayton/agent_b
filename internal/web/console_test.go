@@ -85,7 +85,7 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 	server.SetRegistry(registry)
 	server.SetWorkspaceState(nil, memories)
 	server.SetProjection(projection.NewStore(), writers)
-	server.operatorRequest = func(*http.Request) error { return nil }
+	server.operatorState.request = func(*http.Request) error { return nil }
 	return server, registry, writers, memories, &cfg, root
 }
 

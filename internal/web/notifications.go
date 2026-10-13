@@ -27,7 +27,7 @@ func (s *Server) notificationSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, s.notifications.State())
 	case http.MethodPost:
-		if err := s.operatorRequest(r); err != nil {
+		if err := s.operatorOwnedRequest(r); err != nil {
 			writeError(w, http.StatusForbidden, "notification settings can be changed only by the local Windows account that launched Agent_b", "notifications.discord_url")
 			return
 		}

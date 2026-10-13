@@ -398,7 +398,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 3 && parts[1] == "grants" && parts[2] == "revoke" && r.Method == http.MethodPost {
-		if err := s.operatorRequest(r); err != nil {
+		if err := s.operatorOwnedRequest(r); err != nil {
 			writeError(w, http.StatusForbidden, "Run as you can be revoked only by the verified local process of the user", "session_id")
 			return
 		}

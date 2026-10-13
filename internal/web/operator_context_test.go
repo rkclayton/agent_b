@@ -91,8 +91,8 @@ func (c *fakeOperatorClock) Fire(timer *fakeOperatorTimer) {
 
 func useFakeOperatorClock(server *Server) *fakeOperatorClock {
 	clock := newFakeOperatorClock()
-	server.operatorNow = clock.Now
-	server.operatorAfter = clock.After
+	server.operatorState.now = clock.Now
+	server.operatorState.after = clock.After
 	return clock
 }
 
@@ -193,7 +193,7 @@ func TestEverySSEConnectionStartsWithCurrentOperatorContext(t *testing.T) {
 
 func TestOperatorContextEnableRequiresOperatorOwnedHTTPClient(t *testing.T) {
 	server, shell, _ := operatorTestServer(t)
-	server.operatorRequest = func(*http.Request) error { return errors.New("service identity") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("service identity") }
 
 	response := postOperatorContext(t, server, true)
 	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "service identity") {
@@ -208,7 +208,7 @@ func TestServiceIdentityCanAlwaysDisableItsOwnSplit2qo(t *testing.T) {
 	server, shell, _ := operatorTestServer(t)
 	server.cfg.Shell.ServiceAccount.Enabled = true
 	shell.Configure(server.ConfigSnapshot())
-	server.operatorRequest = func(*http.Request) error { return errors.New("service identity") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("service identity") }
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"shell":{"service_account":{"enabled":false}}}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -222,7 +222,7 @@ func TestOperatorContextIsRuntimeOnlyAndExpiresAfterIdleTimeout(t *testing.T) {
 	server, shell, path := operatorTestServer(t)
 	eventStream, unsubscribe := server.bus.Subscribe()
 	defer unsubscribe()
-	server.operatorRequest = func(*http.Request) error { return nil }
+	server.operatorState.request = func(*http.Request) error { return nil }
 	clock := useFakeOperatorClock(server)
 
 	response := postOperatorContext(t, server, true)
@@ -359,7 +359,7 @@ func TestBrowserAndConfigReadsDoNotResetIdleTimeout(t *testing.T) {
 
 func TestOperatorContextPatchMustBeIsolatedAndTimeoutIsProtected(t *testing.T) {
 	server, _, _ := operatorTestServer(t)
-	server.operatorRequest = func(*http.Request) error { return nil }
+	server.operatorState.request = func(*http.Request) error { return nil }
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"shell":{"operator_context":true,"timeout_s":10}}`))
 	authorizeMutation(request, server)
@@ -396,7 +396,7 @@ func TestApprovalOperatorModeRequiresVerifiedOperatorAndShellWait(t *testing.T) 
 		t.Fatal("approval was not published")
 	}
 
-	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("not operator") }
 	request := httptest.NewRequest(http.MethodPost, "/api/approve", strings.NewReader(`{"session_id":"session","call_id":"call","decision":"operator_mode"}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -405,7 +405,7 @@ func TestApprovalOperatorModeRequiresVerifiedOperatorAndShellWait(t *testing.T) 
 		t.Fatalf("unverified status=%d body=%s", response.Code, response.Body)
 	}
 
-	server.operatorRequest = func(*http.Request) error { return nil }
+	server.operatorState.request = func(*http.Request) error { return nil }
 	request = httptest.NewRequest(http.MethodPost, "/api/approve", strings.NewReader(`{"session_id":"session","call_id":"call","decision":"operator_mode"}`))
 	authorizeMutation(request, server)
 	response = httptest.NewRecorder()
@@ -420,7 +420,7 @@ func TestApprovalOperatorModeRequiresVerifiedOperatorAndShellWait(t *testing.T) 
 
 func TestOperatorCommandPolicyConfigRequiresVerifiedOperator(t *testing.T) {
 	server, _, _ := operatorTestServer(t)
-	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("not operator") }
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"tools":{"shell":{"operator_commands":["git","hg"]}}}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -432,7 +432,7 @@ func TestOperatorCommandPolicyConfigRequiresVerifiedOperator(t *testing.T) {
 
 func TestMailboxApprovalConfigRequiresVerifiedOperator(t *testing.T) {
 	server, _, _ := operatorTestServer(t)
-	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("not operator") }
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"operator_files":{"allow_mailbox_approvals":true}}`))
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -452,7 +452,7 @@ func TestRunAsYouRevokeRequiresVerifiedOperator(t *testing.T) {
 	runner := agent.NewRunner(server.bus, tools.New(), nil, server.Connection, server.ConfigSnapshot)
 	server.SetRuntime(nil, runner, nil)
 
-	server.operatorRequest = func(*http.Request) error { return errors.New("not operator") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("not operator") }
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+item.ID+"/grants/revoke", nil)
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
@@ -461,7 +461,7 @@ func TestRunAsYouRevokeRequiresVerifiedOperator(t *testing.T) {
 		t.Fatalf("unverified status=%d body=%s", response.Code, response.Body)
 	}
 
-	server.operatorRequest = func(*http.Request) error { return nil }
+	server.operatorState.request = func(*http.Request) error { return nil }
 	request = httptest.NewRequest(http.MethodPost, "/api/sessions/"+item.ID+"/grants/revoke", nil)
 	authorizeMutation(request, server)
 	response = httptest.NewRecorder()

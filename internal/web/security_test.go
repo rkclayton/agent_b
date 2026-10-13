@@ -185,7 +185,7 @@ func TestBrowserCredentialBootstrapIsNotIssuedToToolDescendants2jy(t *testing.T)
 	}
 	cfg := config.Defaults(root)
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
-	server.operatorRequest = func(*http.Request) error { return errors.New("Agent_b descendant") }
+	server.operatorState.request = func(*http.Request) error { return errors.New("Agent_b descendant") }
 
 	page := httptest.NewRecorder()
 	server.Handler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/?setup=skip", nil))
@@ -201,7 +201,7 @@ func TestBrowserCredentialBootstrapIsNotIssuedToToolDescendants2jy(t *testing.T)
 		t.Fatalf("native bootstrap status=%d cookies=%+v", response.Code, response.Result().Cookies())
 	}
 
-	server.operatorRequest = func(*http.Request) error { return nil }
+	server.operatorState.request = func(*http.Request) error { return nil }
 	page = httptest.NewRecorder()
 	server.Handler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/?setup=skip", nil))
 	if !strings.Contains(page.Body.String(), server.mutationToken) || len(page.Result().Cookies()) != 1 || !page.Result().Cookies()[0].HttpOnly {

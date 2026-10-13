@@ -215,10 +215,6 @@ func shellCommandForHost(host powerShellHost, command string) string {
 	return rewriteChainOperators(command)
 }
 
-// PowerShell7ForEvidence is the resolved PowerShell 7 path, or "" when the host
-// has none. Item 2gb's replay script reports which interpreter it ran.
-func PowerShell7ForEvidence() string { return powerShell7() }
-
 // ShellHostFinding is the capability probe's host finding (item 2gb): which
 // shell actually backs the shell tool on this host, and whether the model's
 // chain operators run natively or through the rewrite.

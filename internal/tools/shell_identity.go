@@ -299,12 +299,6 @@ func (s *Shell) SetFileCoordinator(coordinator *FileCoordinator) {
 	s.fileCoordinator = coordinator
 }
 
-func (s *Shell) fileCoordinatorSnapshot() *FileCoordinator {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.fileCoordinator
-}
-
 func (s *Shell) SetIdentityReporter(reporter func(ShellIdentityStatus)) {
 	s.identityMu.Lock()
 	s.identityReporter = reporter

@@ -48,14 +48,6 @@ func withOSPathPolicy(ctx context.Context) context.Context {
 	return context.WithValue(ctx, osPathPolicyKey{}, true)
 }
 
-func resolveForTool(ctx context.Context, workspace, path string) (string, error) {
-	enforceWorkspace := true
-	if allowed, _ := ctx.Value(osPathPolicyKey{}).(bool); allowed {
-		enforceWorkspace = false
-	}
-	return resolvePath(workspace, path, enforceWorkspace)
-}
-
 func resolveForSessionTool(ctx context.Context, s *session.Session, root, path string) (string, error) {
 	// Item 2jt: plan registration chooses a working directory; it is not a
 	// filesystem allow-list. Absolute paths are therefore decided by the OS

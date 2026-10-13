@@ -93,14 +93,6 @@ func (c *FileCoordinator) publishPlan(s *session.Session) {
 	}
 }
 
-func (c *FileCoordinator) wasAgentWritten(s *session.Session, resolved string) bool {
-	if c == nil || s == nil {
-		return false
-	}
-	_, ok := c.workspaces.LastWriter(resolved)
-	return ok
-}
-
 type WriteFile struct{ coordinator *FileCoordinator }
 
 func NewWriteFile(c *FileCoordinator) *WriteFile { return &WriteFile{coordinator: c} }

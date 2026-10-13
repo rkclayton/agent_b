@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	contextmgr "harness/internal/context"
 	"harness/internal/delivery"
 	"harness/internal/events"
 	"harness/internal/llm"
@@ -36,6 +37,7 @@ type runState struct {
 	truncatedToolRetry, retryInstruction                                     string
 	refusedTurn                                                              int
 	readCutShort, accountingRepairTried, templateRetryTried, softLineChecked bool
+	compacted, compactionNoticeSent                                          bool
 	messageLimitRetried, windowRetried, windowSummaryRetried                 bool
 	byteLimitRetries, runMessageLimit, runByteLimit, runWindow               int
 	guards                                                                   *runGuards
@@ -493,6 +495,7 @@ func (x *runState) fitWindow() runOutcome {
 	r := x.r
 	if limit := x.connection.Capabilities.ObservedMessageLimit; limit > 0 && len(x.request.Messages) >= limit {
 		if r.compactForMessageLimit(x.ctx, x.s, x.runID, x.connection, limit) {
+			x.compacted = true
 			x.turn--
 			return runAgainOutcome
 		}
@@ -504,6 +507,7 @@ func (x *runState) fitWindow() runOutcome {
 	if limit := x.connection.Capabilities.ObservedByteLimit; limit > 0 {
 		if size := llm.SerializedBytes(x.connection, x.request, true); size >= byteLimitTarget(limit) {
 			if r.compactForByteLimit(x.ctx, x.s, x.runID, x.connection, limit, x.request) {
+				x.compacted = true
 				x.turn--
 				return runAgainOutcome
 			}
@@ -514,9 +518,15 @@ func (x *runState) fitWindow() runOutcome {
 	// sent instead of after it overflows.
 	if !x.softLineChecked {
 		x.softLineChecked = true
-		if x.budget.Ceiling > 0 && x.budget.UsedEst >= int(float64(x.budget.Ceiling)*r.cfg().Context.SoftPct) && r.compactAfterTurn(x.ctx, x.s, x.runID, x.turn-1, x.connection, x.currentReasoning) {
-			x.turn--
-			return runAgainOutcome
+		if x.budget.Ceiling > 0 && x.budget.UsedEst >= int(float64(x.budget.Ceiling)*r.cfg().Context.SoftPct) {
+			if r.compactAfterTurn(x.ctx, x.s, x.runID, x.turn-1, x.connection, x.currentReasoning) {
+				x.compacted = true
+				x.turn--
+				return runAgainOutcome
+			}
+			if x.budget.UsedEst >= int(float64(x.budget.Ceiling)*r.cfg().Context.SummaryPct) {
+				x.reportCompactionUnavailable()
+			}
 		}
 	}
 	guardUsed := guardedPromptTokens(x.budget)
@@ -531,10 +541,12 @@ func (x *runState) fitWindow() runOutcome {
 		}
 		changed, exhausted := r.compactToFit(x.ctx, x.s, x.runID, x.connection, x.currentReasoning, x.budget)
 		if changed {
+			x.compacted = true
 			x.turn--
 			return runAgainOutcome
 		}
 		if exhausted {
+			x.reportCompactionUnavailable()
 			if r.cutNewestRunningResult(x.ctx, x.s, x.connection) {
 				x.turn--
 				return runAgainOutcome
@@ -542,13 +554,38 @@ func (x *runState) fitWindow() runOutcome {
 			// Everything outside the running turn is already compacted. The
 			// only thing left to cut is the task itself, and answering some
 			// older message instead is what 2eg was filed for.
-			return x.stop("context_exhausted", fmt.Sprintf("context cannot be reduced further: prompt count %d (%s) + output floor %d exceeds context window %d (%s) after compaction; nothing outside it is left to compact%s", guardUsed, budgetCountSource(x.budget), floor, x.budget.NCtx, x.windowSource, keptReadsSentence(x.s)), x.turn-1)
+			return x.stop("context_exhausted", fmt.Sprintf("context cannot be reduced further: prompt count %d (%s) + output floor %d exceeds context window %d (%s)%s; nothing outside it is left to compact%s", guardUsed, budgetCountSource(x.budget), floor, x.budget.NCtx, x.windowSource, x.afterCompaction(), keptReadsSentence(x.s)), x.turn-1)
 		}
-		return x.stop("context_ceiling", fmt.Sprintf("prompt count %d (%s) leaves less than the %d-token output floor in context window %d (%s) after compaction", guardUsed, budgetCountSource(x.budget), floor, x.budget.NCtx, x.windowSource), x.turn-1)
+		x.reportCompactionUnavailable()
+		return x.stop("context_ceiling", fmt.Sprintf("prompt count %d (%s) leaves less than the %d-token output floor in context window %d (%s)%s", guardUsed, budgetCountSource(x.budget), floor, x.budget.NCtx, x.windowSource, x.afterCompaction()), x.turn-1)
 	}
 	r.bus.Publish(x.requestEvent)
 	r.budget.MarkRequest(x.s.ID, x.budget.UsedEst)
 	return runGoOnOutcome
+}
+
+func (x *runState) afterCompaction() string {
+	if x.compacted {
+		return " after compaction"
+	}
+	return ""
+}
+
+func (x *runState) reportCompactionUnavailable() {
+	if x.compactionNoticeSent {
+		return
+	}
+	reason := "the context summarizer could not produce a usable hand-off"
+	if _, _, ok := contextmgr.FoldSpan(x.s.MessagesCopy(), x.s.RunPin()); !ok {
+		reason = "no earlier context is available before this run's message"
+	} else if x.r.compactionBlocked(x.s.ID, x.runID, x.s.Snapshot().Run.Turn) {
+		reason = "the last compaction did not free enough room"
+	}
+	content := "Context could not be reduced because " + reason + "."
+	message := events.Message{ID: x.r.id("m"), Role: "harness", Category: "history", Content: content, Tokens: estimatedTokenCount(content), Estimated: true, Turn: x.turn}
+	x.s.Append(message)
+	x.r.bus.Publish(events.New(events.MessageAppended, x.s.ID, x.runID, map[string]any{"message": message}))
+	x.compactionNoticeSent = true
 }
 func (x *runState) callModel() runOutcome {
 	return x.callModelStep()

@@ -998,27 +998,32 @@ func (s *Session) RunPin() string {
 	return s.runPinID
 }
 
-// RunPinFromTail picks the first message of the trailing block of user messages,
+// RunPinFromTail picks the first message of the newest block of user messages,
 // which is what a run answers: one message normally, several when they queued.
+// Harness history appended while the run starts does not move that pin.
 //
-// If the tail is not a user message at all, it pins the last message rather than
-// returning "". An empty pin means "no run in flight, nothing protected", and
-// degrading to that silently is the one failure that loses the task again.
+// A chat with no user message pins its last message rather than returning "".
+// An empty pin means "no run in flight, nothing protected", and degrading to
+// that silently is the one failure that loses the task again.
 func RunPinFromTail(messages []events.Message) string {
 	if len(messages) == 0 {
 		return ""
 	}
-	pin := ""
+	newestUser := -1
 	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].Role != "user" {
+		if messages[index].Role == "user" {
+			newestUser = index
 			break
 		}
-		pin = messages[index].ID
 	}
-	if pin == "" {
-		pin = messages[len(messages)-1].ID
+	if newestUser < 0 {
+		return messages[len(messages)-1].ID
 	}
-	return pin
+	first := newestUser
+	for first > 0 && messages[first-1].Role == "user" {
+		first--
+	}
+	return messages[first].ID
 }
 
 // SetPlanPage marks a chat as using the operator-governed Plan surface. It is

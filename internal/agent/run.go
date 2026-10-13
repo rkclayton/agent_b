@@ -1651,7 +1651,7 @@ func budgetCountSource(budget events.Budget) string {
 
 func guardedPromptTokens(budget events.Budget) int {
 	used := budget.UsedEst
-	if budget.Mode == "estimated" {
+	if budget.Mode == "estimated" && budget.UsedMeasured <= 0 {
 		used = int(math.Ceil(float64(used) * 1.10))
 	}
 	return used

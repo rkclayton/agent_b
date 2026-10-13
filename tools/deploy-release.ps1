@@ -7,6 +7,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $releaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
+$releaseClock = [Diagnostics.Stopwatch]::StartNew()
+$releaseStepStarted = 0L
+function Complete-ReleaseStep([string]$Name) {
+    $finished = $releaseClock.ElapsedMilliseconds
+    Write-Host "RELEASE STEP: $Name $($finished - $script:releaseStepStarted) ms"
+    $script:releaseStepStarted = $finished
+}
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 & (Join-Path $repository 'tools\owned-check.ps1')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -35,6 +42,7 @@ if (@($ciRuns | Where-Object { $_.headSha -ceq $commit -and $_.status -ceq 'comp
     throw "DEPLOY REFUSED: hosted CI is not green on $commit."
 }
 Write-Host "HOSTED CI: green on $commit"
+Complete-ReleaseStep 'hosted-ci-green'
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "DEPLOY REFUSED: release notes are missing: $notesPath" }
 & node (Join-Path $repository 'tools\check-release-notes.mjs') $notesPath
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the release notes do not pass the notes gate; see the lines above." }
@@ -45,6 +53,7 @@ $env:AGENTB_CLIENT_TERMS = Join-Path $agentBHome 'client-terms.txt'
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the client-terms gate did not pass (exit $LASTEXITCODE); see the lines above." }
 & node (Join-Path $repository 'tools\privacy-gate.mjs')
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the privacy scan did not pass (exit $LASTEXITCODE); see the lines above." }
+Complete-ReleaseStep 'privacy-scan'
 if ($ResumeStagedCandidate) {
     Assert-RetainedStagedCandidate -Candidate $candidate -ExpectedTag $Tag -ExpectedCommit $commit
     Write-Host "RESUMED CANDIDATE: retained signed $Tag at $commit; staging, signing, and completed gates were not repeated"
@@ -61,6 +70,7 @@ if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
 
 & node (Join-Path $repository 'tools\check-invariants.mjs') --release-source $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the candidate's update source is not usable." }
+Complete-ReleaseStep 'update-source'
 
 if (Test-Path -LiteralPath $candidate) {
     Remove-MatchingStagedCandidate -Candidate $candidate -CandidatesRoot (Join-Path $repository 'candidates') -ExpectedTag $Tag
@@ -91,6 +101,7 @@ if ($signingExit -ne 0) { throw "DEPLOY REFUSED: release signing is not availabl
 
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }
+Complete-ReleaseStep 'build-sign-release-key'
 }
 
 # Item 2t5: the setup's outer signature being Valid does not prove that its
@@ -105,8 +116,10 @@ if ($questionExit -ne 0 -or $questionLine -notmatch 'payload signature: AgentB r
     throw "DEPLOY REFUSED: staged installer is not accepted by its own pinned-key question: $questionLine"
 }
 Write-Host "INSTALLER ACCEPTANCE: $questionLine"
+Complete-ReleaseStep 'installer-key-question'
 
 Invoke-AgentBShortReleaseRun -CandidateDirectory $candidate -ExpectedCommit $commit | Write-Host
+Complete-ReleaseStep 'signed-build-short-run'
 
 $manifest = Get-Content -Raw -LiteralPath (Join-Path $candidate 'candidate-final.json') | ConvertFrom-Json
 $releaseManifest = [ordered]@{
@@ -150,6 +163,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "PUBLISH CARD: $uploadLine"
     throw "DEPLOY REFUSED: GitHub Release asset upload exited $LASTEXITCODE; run the carded upload line."
 }
+Complete-ReleaseStep 'publish'
 
 $publicCheckRoot = Join-Path ([IO.Path]::GetTempPath()) ("Agent_b-public-installer-check-" + [Guid]::NewGuid().ToString('N'))
 try {
@@ -163,6 +177,7 @@ try {
         throw "DEPLOY REFUSED: public installer is not accepted by its own pinned-key question: $publicLine"
     }
     Write-Host "PUBLIC INSTALLER ACCEPTANCE: $publicLine"
+    Complete-ReleaseStep 'public-installer-answer'
 } finally {
     if (Test-Path -LiteralPath $publicCheckRoot) {
         Remove-TreeWithinAllowedRoots -Path $publicCheckRoot -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'public installer acceptance cleanup'

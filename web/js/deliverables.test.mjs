@@ -67,6 +67,20 @@ test("file chips derive only successful file-producing tools from a canned proje
   assert.equal(script.children[0].className, "file-chip-name", "a file whose default action runs it is not opened from its name");
 });
 
+test("one image result exposes every returned picture as a file chip 2s3", () => {
+  const files = filesFromResponse([
+    { type: "agent", run_id: "run-images", toolCallIDs: ["pictures"] },
+    { type: "tool", name: "image", callID: "pictures", result: { ok: true, files: [
+      { path: "image-1.png", bytes: 12 },
+      { path: "image-2.png", bytes: 15 },
+    ] } },
+  ]);
+  assert.deepEqual(files.map(({ path, bytes, runID }) => ({ path, bytes, runID })), [
+    { path: "image-1.png", bytes: 12, runID: "run-images" },
+    { path: "image-2.png", bytes: 15, runID: "run-images" },
+  ]);
+});
+
 test("both mode points open-folder at the durable exchange copy", () => {
   const items = [
     { type: "agent", run_id: "r8", toolCallIDs: ["write"] },

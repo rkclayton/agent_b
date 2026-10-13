@@ -69,6 +69,7 @@ var scopes = map[string]Scope{
 	"run":           ScopeProfile, // the dials a person tunes to their own patience
 	"cron":          ScopeProfile, // scheduled jobs and their deadline live in this profile
 	"context":       ScopeProfile, // accounting and compaction thresholds
+	"images":        ScopeProfile, // which existing connection makes this person's pictures
 	"memory":        ScopeProfile, // a profile already owns its memory directory
 	"skills":        ScopeProfile, // trusted procedures and their per-profile enablement
 	"reflection":    ScopeProfile, // the floor, which is a working preference

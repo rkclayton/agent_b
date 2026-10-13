@@ -643,7 +643,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
     "control", "chat_template_kwargs", "top_level", "server_flag", "none", "effort", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",
     "repeat penalty", "llama.cpp only", "System prompt", "system prompt override", "Capabilities", "not probed",
-    "no findings", "Save", "Duplicate",
+    "no findings", "Save", "Duplicate", "images", "chat's connection", "server default",
   ]);
   assert.deepEqual(textNodes.filter((node) => !allowed.has(node)), [], `non-label/value/state/error text: ${textNodes.join(" | ")}`);
 });

@@ -50,11 +50,14 @@ func applyDefaults(c *Config) {
 	d := Defaults(c.Workspace)
 	legacyFull := FullToolset()[:12]
 	previousFull := FullToolset()[:13]
+	priorCurrent := FullToolset()[:14]
 	for index := range c.Agents {
 		if equalStrings(c.Agents[index].Toolset, legacyFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob")
+			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob", "image")
 		} else if equalStrings(c.Agents[index].Toolset, previousFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob")
+			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob", "image")
+		} else if equalStrings(c.Agents[index].Toolset, priorCurrent) {
+			c.Agents[index].Toolset = append(append([]string(nil), priorCurrent...), "image")
 		}
 	}
 	if c.ConfigVersion == 0 {

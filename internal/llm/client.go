@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -16,6 +18,31 @@ import (
 
 	"harness/internal/config"
 )
+
+type ImageInput struct {
+	Name string
+	Data []byte
+}
+
+type ImageRequest struct {
+	Prompt string
+	Model  string
+	Size   string
+	Count  int
+	Images []ImageInput
+}
+
+type ImageResult struct {
+	Data   []byte
+	Format string
+}
+
+type ImageHTTPError struct {
+	Status  int
+	Message string
+}
+
+func (e *ImageHTTPError) Error() string { return e.Message }
 
 type Client struct {
 	connection *config.Connection
@@ -47,6 +74,137 @@ var sharedTransport = func() *http.Transport {
 
 func New(connection *config.Connection) *Client {
 	return &Client{connection: connection, http: &http.Client{Timeout: time.Duration(connection.RequestTimeoutS) * time.Second, Transport: sharedTransport}}
+}
+
+func (c *Client) ProbeImages(ctx context.Context) (bool, error) {
+	raw, status, err := c.DoJSON(ctx, http.MethodPost, "/v1/images/generations", map[string]any{})
+	if err != nil {
+		return false, err
+	}
+	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
+		return false, nil
+	}
+	if status >= 200 && status < 500 {
+		return true, nil
+	}
+	return false, &ImageHTTPError{Status: status, Message: imageErrorMessage(raw, status)}
+}
+
+func (c *Client) Images(ctx context.Context, input ImageRequest) ([]ImageResult, error) {
+	var raw []byte
+	var status int
+	var err error
+	if len(input.Images) == 0 {
+		body := map[string]any{"prompt": input.Prompt, "n": input.Count}
+		if input.Model != "" {
+			body["model"] = input.Model
+		}
+		if input.Size != "" {
+			body["size"] = input.Size
+		}
+		raw, status, err = c.DoJSON(ctx, http.MethodPost, "/v1/images/generations", body)
+	} else {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		_ = form.WriteField("prompt", input.Prompt)
+		_ = form.WriteField("n", fmt.Sprint(input.Count))
+		if input.Model != "" {
+			_ = form.WriteField("model", input.Model)
+		}
+		if input.Size != "" {
+			_ = form.WriteField("size", input.Size)
+		}
+		for _, picture := range input.Images {
+			part, createErr := form.CreateFormFile("image[]", picture.Name)
+			if createErr != nil {
+				return nil, createErr
+			}
+			if _, createErr = part.Write(picture.Data); createErr != nil {
+				return nil, createErr
+			}
+		}
+		if err = form.Close(); err == nil {
+			var request *http.Request
+			request, err = c.newRequest(ctx, http.MethodPost, "/v1/images/edits", &body)
+			if err == nil {
+				request.Header.Set("Content-Type", form.FormDataContentType())
+				var response *http.Response
+				response, err = c.http.Do(request)
+				if err == nil {
+					defer response.Body.Close()
+					raw, err = readBounded(response.Body, 64<<20)
+					status = response.StatusCode
+				}
+			}
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, &ImageHTTPError{Status: status, Message: imageErrorMessage(raw, status)}
+	}
+	var response struct {
+		OutputFormat string `json:"output_format"`
+		Data         []struct {
+			B64 string `json:"b64_json"`
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return nil, fmt.Errorf("decode image response: %w", err)
+	}
+	results := make([]ImageResult, 0, len(response.Data))
+	for _, item := range response.Data {
+		var data []byte
+		if item.B64 != "" {
+			data, err = base64.StdEncoding.DecodeString(item.B64)
+		} else if item.URL != "" {
+			data, err = c.fetchImage(ctx, item.URL)
+		} else {
+			err = fmt.Errorf("image response contained no picture")
+		}
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, ImageResult{Data: data, Format: response.OutputFormat})
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("image response contained no pictures")
+	}
+	return results, nil
+}
+
+func (c *Client) fetchImage(ctx context.Context, address string) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("image address HTTP %d", response.StatusCode)
+	}
+	return readBounded(response.Body, 64<<20)
+}
+
+func imageErrorMessage(raw []byte, status int) string {
+	var value struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &value) == nil && strings.TrimSpace(value.Error.Message) != "" {
+		return strings.TrimSpace(value.Error.Message)
+	}
+	text := strings.TrimSpace(string(raw))
+	if text != "" {
+		return strings.Join(strings.Fields(text), " ")
+	}
+	return fmt.Sprintf("image HTTP %d", status)
 }
 
 func (c *Client) Chat(ctx context.Context, request Request) (Response, error) {

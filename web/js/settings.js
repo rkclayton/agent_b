@@ -569,7 +569,7 @@ function controlKey(node) {
 // in sectionLabels and so cannot be the active section at all -- and left Agents
 // and Notifications, which an operator reaches from the nav, saying nothing. The
 // test was written second and found it.
-export const perProfileSections = new Set(["chats", "profiles", "notifications"]);
+export const perProfileSections = new Set(["chats", "connections", "profiles", "notifications"]);
 
 // the AVAILABILITY RULE, moved with the Plan and not widened. It is
 // the rule the tab carried: the Plan is offered on a planner chat, or when no
@@ -1887,6 +1887,20 @@ async function blur(event) {
 
 async function change(event) {
   if (event.target.matches("[data-skills-profile]")) { skillAgent = event.target.value; return render(); }
+	if (event.target.matches('.setting-input[data-path="images.connection"]')) {
+		drafts.set("images.connection", event.target.value);
+		draftKinds.set("images.connection", "text");
+		drafts.set("images.model", "");
+		draftKinds.set("images.model", "text");
+		await saveSettings("images.");
+		return;
+	}
+	if (event.target.matches('.setting-input[data-path="images.model"]')) {
+		drafts.set("images.model", event.target.value);
+		draftKinds.set("images.model", "text");
+		await saveSettings("images.");
+		return;
+	}
   if (event.target.matches("[data-profile-select]")) {
     try {
       await api("/api/profiles", { action: "switch", name: event.target.value });
@@ -1900,7 +1914,7 @@ async function change(event) {
   // the one explicit way out of the dropdown, for a server that cannot
   // enumerate its models. Choosing it turns the control into a field and saves
   // nothing by itself.
-  if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value === "__type__") {
+  if (event.target.matches('.setting-input[data-path^="connections."][data-path$=".model"]') && event.target.value === "__type__") {
     const id = event.target.dataset.path.split(".")[1];
     typedModels.add(id);
     drafts.delete(event.target.dataset.path);
@@ -1918,7 +1932,7 @@ async function change(event) {
   // PICKING A MODEL FILLS THE REST. Until now Test filled the fields and
   // picking a different model from the list left them describing the one Test happened
   // to try. Nothing here is typed by the operator and nothing here saves.
-  if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value && event.target.value !== "__type__") {
+  if (event.target.matches('.setting-input[data-path^="connections."][data-path$=".model"]') && event.target.value && event.target.value !== "__type__") {
 		const path = event.target.dataset.path;
 		const id = path.split(".")[1];
 		drafts.set(path, event.target.value);

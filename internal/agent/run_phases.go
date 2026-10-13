@@ -345,6 +345,10 @@ func (x *runState) turnBoundary() runOutcome {
 	state.Turn = x.turn
 	x.s.SetRun(state)
 	x.enabled = x.s.EnabledTools()
+	if x.enabled["image"] {
+		cfg := r.cfg()
+		x.enabled["image"] = cfg.Images.Connection != "" || x.connection.Capabilities.Images
+	}
 	x.toolNames = r.tools.Names(x.enabled)
 	// Non-configurable read-only tools are returned by Names even when they
 	// have no toggle entry. The response guard must use the offered set too.
@@ -849,6 +853,16 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 						path, _ := file["path"].(string)
 						bytes, _ := file["bytes"].(int64)
 						x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+					}
+					if files, ok := item.metadata["files"].([]any); ok {
+						for _, value := range files {
+							file, _ := value.(map[string]any)
+							path, _ := file["path"].(string)
+							bytes, _ := file["bytes"].(int64)
+							if path != "" {
+								x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+							}
+						}
 					}
 				}
 			}

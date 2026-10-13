@@ -120,15 +120,15 @@ func TestNetworkBoundaryStaysStableUntilReopen(t *testing.T) {
 }
 
 func TestMediaCapabilitiesFollowConnectionAndToolset(t *testing.T) {
-	textOnly := MediaCapabilities(&config.Connection{}, map[string]bool{})
-	for _, want := range []string{"run_script is not enabled", "cannot see an attached image", "no image generator configured", "Do not prefer SVG"} {
+	textOnly := MediaCapabilities(config.Config{}, &config.Connection{}, map[string]bool{})
+	for _, want := range []string{"run_script is not enabled", "cannot see an attached image", "Making pictures is not set up", "Do not prefer SVG"} {
 		if !strings.Contains(textOnly, want) {
 			t.Fatalf("text-only capabilities %q do not contain %q", textOnly, want)
 		}
 	}
 	vision := config.Connection{AttachmentHandling: "native", ReadsImages: true}
-	native := MediaCapabilities(&vision, map[string]bool{"run_script": true})
-	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see a user-attached image"} {
+	native := MediaCapabilities(config.Config{Images: config.Images{Connection: "pictures"}}, &vision, map[string]bool{"run_script": true, "image": true})
+	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see a user-attached image", "make and change pictures"} {
 		if !strings.Contains(native, want) {
 			t.Fatalf("native capabilities %q do not contain %q", native, want)
 		}

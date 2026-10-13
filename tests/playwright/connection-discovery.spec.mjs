@@ -41,6 +41,36 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
+test("the images row has two picks and saves them 2s3", async () => {
+  const captures = join(repo, "logs", "evidence", "rel-1.62.51", "captures");
+  await mkdir(captures, { recursive: true });
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  const connection = page.locator('[data-path="images.connection"]');
+  const model = page.locator('[data-path="images.model"]');
+  await expect(connection.locator("option")).toHaveText(["chat's connection", "UI"]);
+  await expect(model.locator("option")).toHaveText(["server default"]);
+  await connection.selectOption("ui");
+  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await expect(model.locator("option")).toHaveText(["server default", "absent-model"]);
+  await model.selectOption("absent-model");
+  await model.blur();
+  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await page.reload();
+  await openSettings(page);
+  await expect(connection).toHaveValue("ui");
+  await expect(model).toHaveValue("absent-model");
+  const imageRow = page.locator('.setting-row:has([data-path="images.connection"])');
+  await expect(imageRow.locator("select")).toHaveCount(2);
+  for (const [name, width, height] of [["minimum", 304, 254], ["1280x860", 1280, 860], ["1920x1080", 1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    await imageRow.scrollIntoViewIfNeeded();
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+    await page.screenshot({ path: join(captures, `images-row-${name}.png`) });
+  }
+  await page.close();
+});
+
 // NOTE, measured at rel-1.31.0: every case here opens its own page, and a page holds
 // an SSE stream. Six of them reach the browser's per-origin HTTP/1.1 connection limit
 // and the next page's requests queue behind them forever — which showed up as a save

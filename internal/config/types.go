@@ -12,6 +12,7 @@ type Config struct {
 	Workspace     string                  `json:"workspace"`
 	LogDir        string                  `json:"log_dir"`
 	Connections   []Connection            `json:"connections"`
+	Images        Images                  `json:"images"`
 	Profiles      ProfileCatalog          `json:"profiles"`
 	Services      map[string]Service      `json:"services"`
 	Agents        []Agent                 `json:"agents"`
@@ -37,6 +38,11 @@ type Config struct {
 	Broker      Broker   `json:"broker,omitempty"`
 	Signing     Signing  `json:"signing"`
 	LoadNotices []string `json:"-"`
+}
+
+type Images struct {
+	Connection string `json:"connection"`
+	Model      string `json:"model"`
 }
 
 type SkillSetting struct {
@@ -96,7 +102,7 @@ func AgentID(name string) string {
 // delegate follows the twelve established tools; every older tool
 // keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration

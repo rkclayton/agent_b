@@ -25,6 +25,12 @@ func (c Config) Validate() error {
 	if err != nil {
 		return err
 	}
+	if c.Images.Connection != "" && !connections[c.Images.Connection] {
+		return fmt.Errorf("images.connection: must be empty or name an existing connection")
+	}
+	if c.Images.Connection == "" && c.Images.Model != "" {
+		return fmt.Errorf("images.model: must be empty while images.connection uses the chat's connection")
+	}
 	if err := c.validateAgents(connections); err != nil {
 		return err
 	}

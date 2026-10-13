@@ -79,6 +79,7 @@ type Capabilities struct {
 	PromptProgress       bool     `json:"prompt_progress"`
 	DocumentInput        bool     `json:"document_input"`
 	ImageInput           bool     `json:"image_input"`
+	Images               bool     `json:"images"`
 	Vision               string   `json:"vision"`
 	ReasoningControl     string   `json:"reasoning_control"`
 	ReasoningEmission    string   `json:"reasoning_emission,omitempty"`

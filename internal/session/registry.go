@@ -274,7 +274,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		s.NetworkBoundarySet = true
 	}
 	if !s.MediaCapabilitiesSet {
-		s.MediaCapabilities = MediaCapabilities(connection, tools)
+		s.MediaCapabilities = MediaCapabilities(r.config(), connection, tools)
 		s.MediaCapabilitiesSet = true
 	}
 	if r.workspaces != nil && !s.WorkspaceMissing {
@@ -489,7 +489,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		r.configureProjects(session)
 	}
@@ -523,7 +523,7 @@ func NetworkBoundary(settings config.Config) string {
 
 // MediaCapabilities is captured when a chat opens so its capability claims
 // follow that chat's connection and toolset without changing mid-session.
-func MediaCapabilities(connection *config.Connection, enabled map[string]bool) string {
+func MediaCapabilities(settings config.Config, connection *config.Connection, enabled map[string]bool) string {
 	render := "Raster rendering from code is unavailable because run_script is not enabled."
 	if enabled["run_script"] {
 		render = "You can render PNG or JPEG files from code with run_script using Windows PowerShell System.Drawing; files written in the workspace are delivered when the run ends."
@@ -532,7 +532,11 @@ func MediaCapabilities(connection *config.Connection, enabled map[string]bool) s
 	if connection != nil && connection.NativeImageInput() {
 		read = "This connection can see a user-attached image included in the current message."
 	}
-	return "Image capabilities: " + render + " " + read + " Agent_b has no image generator configured, so do not claim to generate an image from a description. Do not prefer SVG or any other format by default."
+	makePictures := "Making pictures is not set up."
+	if enabled["image"] && (settings.Images.Connection != "" || connection != nil && connection.Capabilities.Images) {
+		makePictures = "You can make and change pictures with the image tool."
+	}
+	return "Image capabilities: " + render + " " + read + " " + makePictures + " Do not prefer SVG or any other format by default."
 }
 
 func hasAgentFile(dir string) bool {
@@ -1056,7 +1060,7 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	s.mu.Lock()
 	s.AgentID, s.ConnectionID, s.AgentName, s.BConnection = agentID, connectionID, agent.Name, connection.Label
 	s.PromptAddendum, s.ToolsEnabled = agent.Prompt, enabled
-	s.MediaCapabilities, s.MediaCapabilitiesSet = MediaCapabilities(connection, enabled), true
+	s.MediaCapabilities, s.MediaCapabilitiesSet = MediaCapabilities(r.config(), connection, enabled), true
 	s.Runnable, s.NotRunnableReason = true, ""
 	s.MemoryBlock, s.MemoryPath, s.AgentMemoryBlock, s.AgentMemoryPath, s.Budget = memoryBlock, memoryPath, agentMemoryBlock, agentMemoryPath, initialBudget(connection)
 	s.mu.Unlock()

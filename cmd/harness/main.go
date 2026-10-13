@@ -492,6 +492,8 @@ func main() {
 	entraManager := entra.New(vault)
 	callServiceTool.SetTokenProvider("entra", entraManager)
 	cronManager := cron.New(profileRoot, nil, nil)
+	imageTool := tools.NewImage()
+	imageTool.Configure(*cfg)
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -511,6 +513,7 @@ func main() {
 		delegateTool,
 		tools.NewChatHistory(func() tools.ChatHistoryReader { return writers }),
 		tools.NewCronjob(cronManager),
+		imageTool,
 	)
 	// the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.

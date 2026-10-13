@@ -71,7 +71,17 @@ function connections() {
       </div>${editor}`;
     })
     .join("");
-  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>`;
+  const connectionPath = "images.connection";
+  const modelPath = "images.model";
+  const selectedConnection = String(drafts.has(connectionPath) ? drafts.get(connectionPath) : store.config?.images?.connection || "");
+  const selectedModel = String(drafts.has(modelPath) ? drafts.get(modelPath) : store.config?.images?.model || "");
+  const imageConnection = connections.find((item) => item.id === selectedConnection);
+  const connectionOptions = [`<option value="" ${selectedConnection ? "" : "selected"}>chat's connection</option>`]
+    .concat(connections.map((item) => `<option value="${attr(item.id)}" ${selectedConnection === item.id ? "selected" : ""}>${html(item.label)}</option>`));
+  const modelOptions = [`<option value="" ${selectedModel ? "" : "selected"}>server default</option>`]
+    .concat((imageConnection?.models || []).map((item) => `<option value="${attr(item.model)}" ${selectedModel === item.model ? "selected" : ""}>${html(item.model)}</option>`));
+  const imageRow = row("images", `<span class="choice-row"><select class="setting-input" data-path="${connectionPath}" data-kind="text">${connectionOptions.join("")}</select><select class="setting-input" data-path="${modelPath}" data-kind="text">${modelOptions.join("")}</select></span>`);
+  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${imageRow}`;
 }
 
 // One line on the existing findings row: each memory layer's current size

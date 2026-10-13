@@ -90,10 +90,10 @@ this state has no startup session and routes normal live pages to `/setup`. Once
 `run.max_turns` is a pathological-case backstop whose shipped default is 10000; it is not shown as an ordinary Settings control.
 An explicit zero is rejected as ambiguous rather than silently becoming the default.
 `Connection` has
-`{id,label,base_url,model,credential,request_timeout_s,probe_mode,attachment_handling:auto|native|extract,sampling:{thinking,nonthinking},reasoning:{control,enabled,effort,valid_efforts,preserve},context:{n_ctx,reserve_output,sizing?},system_prompt_override,capabilities,measurement?}`; an installer-written `context.sizing` is `{weights_bytes,kv_bytes_per_token,available_bytes,reserve_bytes}` and records the inputs for its explicit llama-server `--ctx-size`. `measurement` is `{passed,total,tool_errors,tool_error_rate,trials,provenance,measured_at,duration_ms,capped}` and is descriptive, never a runnable gate. Omitted `attachment_handling` defaults to `auto`: `auto` follows probed document/image capability, `native` sends supported attachment kinds regardless of the probe, and `extract` keeps their binary bytes out of the model request. `context.n_ctx` is the required authoritative context size for that connection; probed `capabilities.n_ctx` is evidence and initializes it only while unset. Parameters remain properties of connections, not roles. A submitted `api_key` is runtime/API input only: it is stored under the named user-scoped DPAPI `credential`, appears as `"•••• set"` in masked API/event output, never enters logs, and is omitted from `harness.json`.
+`{id,label,base_url,model,credential,request_timeout_s,probe_mode,attachment_handling:auto|native|extract,sampling:{thinking,nonthinking},reasoning:{control,enabled,effort,valid_efforts,preserve},context:{n_ctx,reserve_output,sizing?},system_prompt_override,capabilities,measurement?}`; the profile setting `images` is `{connection,model}`, where empty connection means the asking chat's connection and empty model means the image server's default. An installer-written `context.sizing` is `{weights_bytes,kv_bytes_per_token,available_bytes,reserve_bytes}` and records the inputs for its explicit llama-server `--ctx-size`. `measurement` is `{passed,total,tool_errors,tool_error_rate,trials,provenance,measured_at,duration_ms,capped}` and is descriptive, never a runnable gate. Omitted `attachment_handling` defaults to `auto`: `auto` follows probed document/image capability, `native` sends supported attachment kinds regardless of the probe, and `extract` keeps their binary bytes out of the model request. `context.n_ctx` is the required authoritative context size for that connection; probed `capabilities.n_ctx` is evidence and initializes it only while unset. Parameters remain properties of connections, not roles. A submitted `api_key` is runtime/API input only: it is stored under the named user-scoped DPAPI `credential`, appears as `"•••• set"` in masked API/event output, never enters logs, and is omitted from `harness.json`.
 
 `Capabilities` has
-`{server:llama.cpp|openai-compatible|unknown,props,n_ctx,tokenize,apply_template,apply_template_tools,streaming,tool_calls,grammar_constrained,cached_tokens,timings,prompt_progress,reasoning_control:chat_template_kwargs|top_level|server_flag|none,reasoning_emission?:structured|inline|none,valid_efforts,overflow_behavior:error|truncate|unknown,probed_at,findings}`. `reasoning_emission` is absent until a full controlled reasoning probe classifies it.
+`{server:llama.cpp|openai-compatible|unknown,props,n_ctx,tokenize,apply_template,apply_template_tools,streaming,tool_calls,grammar_constrained,cached_tokens,timings,prompt_progress,document_input,image_input,images,vision,reasoning_control:chat_template_kwargs|top_level|server_flag|none,reasoning_emission?:structured|inline|none,valid_efforts,overflow_behavior:error|truncate|unknown,probed_at,findings}`. `images` records whether Test found the image calls without making a picture. `reasoning_emission` is absent until a full controlled reasoning probe classifies it.
 
 ## Model-server transport
 
@@ -191,8 +191,8 @@ Reapply and verify Host protections on an existing hardened installation before 
 
 The registry sends enabled tools in this stable order (registered in `cmd/harness/main.go`, dispatched by `internal/tools/registry.go`): `read_file`,
 `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, `call_service`, `delegate`,
-`chat_history`, `cronjob`. The internal-service caller remains position 12; `delegate` remains at 13;
-the read-only `chat_history` remains at 14 and `cronjob` is appended at 15, while every older tool retains its relative position.
+`chat_history`, `cronjob`, `image`. The internal-service caller remains position 12; `delegate` remains at 13;
+ the read-only `chat_history` remains at 14, `cronjob` remains at 15, and `image` is appended at 16, while every older tool retains its relative position.
 Tool errors normally enter model context with an `error:` prefix and always produce `tool.result.ok:false`;
 a stale-view or routing refusal may instead start with `note:` while remaining an unsuccessful, unexecuted outcome.
 Documented empty/no-match results are successful outcomes.
@@ -307,6 +307,7 @@ Documented empty/no-match results are successful outcomes.
   and write the answer to `<profile>/cron/output/<job-id>/<timestamp>.md`. `[SILENT]` successful answers leave only that file;
   other outcomes retain a named chat under `Scheduled` and use existing run-finished notices.
   `deliver` is retained for Hermes compatibility but does not change delivery.
+- `image {description,pictures?,size?,count?}` calls `POST /v1/images/generations`, or multipart `POST /v1/images/edits` when workspace pictures are supplied. It uses `images.connection`, falling back to the asking chat's connection, and omits `model` when `images.model` is empty. `count` is one to four and no run may save more than eight pictures. Inline base64 and returned-address results are saved in the chat folder; the configured key is sent only to the connection host and never follows a returned address. A missing endpoint, refused key, refused description, timeout, or run limit is one line. The tool is offered when a named image connection exists or the asking connection's Test found the image calls.
 
 ## Events
 
@@ -588,8 +589,8 @@ approval registers exactly as the operator's sentence does, a decline registers 
   then receives the session scratch/retained root followed by only plan repositories selected by file operations in that run.
   An absent or signed-out `sbx` keeps the stored switch off and exposes the reason in state. If an enabled sandbox stops,
   the switch is saved off before ordinary shell falls back and the result begins with that disclosure;
-  `run_script` bash refuses because it has no host fallback. The registry is fifteen tools; `delegate` follows the twelve-tool 2ho order,
-  `chat_history` follows `delegate`, and `cronjob` is last.
+  `run_script` bash refuses because it has no host fallback. The registry is sixteen tools; `delegate` follows the twelve-tool 2ho order,
+  `chat_history` follows `delegate`, `cronjob` follows it, and `image` is last.
 - `POST /api/shell-credential {action:store,password}` writes a user-scoped DPAPI blob; `{action:test}` attempts a no-op service-account process;
   `{action:clear}` removes it. Responses and events expose status only, never the password.
 - `GET /api/service-account` inspects the configured local account without elevation through the Windows account APIs.
@@ -652,7 +653,7 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
   file tools impersonate that account and Windows ACLs decide reach. With it disabled, file tools use the non-elevated operator's OS reach;
   plan ownership and repository-policy immutability remain enforced in both postures.
 - Tool order is `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`,
-  `call_service`, `delegate`, `chat_history`, `cronjob`. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
+  `call_service`, `delegate`, `chat_history`, `cronjob`, `image`. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
   their model-visible descriptions tell callers to pass a returned `next_offset` as `offset`. Before any tool result is appended,
   the room remaining before the output reserve is divided among every result still in that call batch.
   A result larger than its share is cut to a UTF-8-safe head and tail, remains successful or failed as the tool reported it, and names the byte size,

@@ -127,6 +127,7 @@ type Session struct {
 	ToolsEnabled           map[string]bool
 	// set when an untrusted tool result lands in this turn.
 	untrustedInTurn  bool
+	generatedImages  int
 	ToolCalls        map[string]int
 	LastSeen         map[string]time.Time
 	TouchedPlanRepos map[string]bool
@@ -448,6 +449,23 @@ func (s *Session) RefreshScratchMemory() bool {
 func (s *Session) ResetRunTouches() {
 	s.mu.Lock()
 	s.TouchedPlanRepos = map[string]bool{}
+	s.generatedImages = 0
+	s.mu.Unlock()
+}
+
+func (s *Session) ReserveGeneratedImages(count int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if count < 1 || s.generatedImages+count > 8 {
+		return false
+	}
+	s.generatedImages += count
+	return true
+}
+
+func (s *Session) ReleaseGeneratedImages(count int) {
+	s.mu.Lock()
+	s.generatedImages = max(0, s.generatedImages-count)
 	s.mu.Unlock()
 }
 

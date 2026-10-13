@@ -37,8 +37,8 @@ func Eval(ctx context.Context, connection *config.Connection) (config.Capabiliti
 
 func probe(ctx context.Context, connection *config.Connection, evaluateCeiling bool) (config.Capabilities, []string, error) {
 	if connection.ProbeMode == "off" {
-		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from connection context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming/tool calls/document input/image input: assumed available", "vision: reads images (assumed; probe mode off)", "overflow: assumed unknown"}
-		caps := config.Capabilities{Server: "openai-compatible", NCtx: connection.Context.NCtx, Streaming: true, ToolCalls: true, DocumentInput: true, ImageInput: true, Vision: config.VisionReadsImages, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
+		findings := []string{"probe mode off: all capabilities assumed", "server: assumed openai-compatible", "n_ctx: taken from connection context", "tokenize/apply-template/cached tokens/timings/prompt progress: assumed unavailable", "streaming/tool calls/document input/image input/images: assumed available", "vision: reads images (assumed; probe mode off)", "overflow: assumed unknown"}
+		caps := config.Capabilities{Server: "openai-compatible", NCtx: connection.Context.NCtx, Streaming: true, ToolCalls: true, DocumentInput: true, ImageInput: true, Images: true, Vision: config.VisionReadsImages, ReasoningControl: "none", ValidEfforts: []string{}, OverflowBehavior: "unknown", Findings: findings, ProbedAt: time.Now().UTC().Format(time.RFC3339)}
 		return caps, findings, nil
 	}
 	caps := config.Capabilities{Server: "unknown", ReasoningControl: "none", OverflowBehavior: "unknown", ValidEfforts: []string{}}
@@ -154,7 +154,7 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 	if connection.ProbeMode == "minimal" {
 		caps.ToolCalls = true
 		caps.Vision = config.VisionRejected
-		findings = append(findings, "tool calls: not probed in minimal mode; assumed available", "document input: not probed in minimal mode; assumed unavailable", "image input: not probed in minimal mode; assumed unavailable", "vision: rejected (assumed; not probed in minimal mode)", "reasoning control: not probed in minimal mode; assumed none", "valid efforts: not probed in minimal mode; assumed empty", "overflow: not probed in minimal mode; assumed unknown")
+		findings = append(findings, "tool calls: not probed in minimal mode; assumed available", "document input: not probed in minimal mode; assumed unavailable", "image input: not probed in minimal mode; assumed unavailable", "images: not probed in minimal mode; assumed unavailable", "vision: rejected (assumed; not probed in minimal mode)", "reasoning control: not probed in minimal mode; assumed none", "valid efforts: not probed in minimal mode; assumed empty", "overflow: not probed in minimal mode; assumed unknown")
 		return finish(caps, findings)
 	}
 
@@ -165,11 +165,19 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 
 	caps.DocumentInput = probeContentPart(ctx, client, map[string]any{"type": "file", "file": map[string]any{"filename": "probe.pdf", "file_data": "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(probePDF())}})
 	caps.Vision, caps.ImageInput = probeVision(ctx, client)
-	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput), "vision: "+caps.Vision)
+	caps.Images = probeImages(ctx, client)
+	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput), "images: "+availability(caps.Images), "vision: "+caps.Vision)
 
 	probeReasoning(ctx, client, connection, &caps, &findings)
 	probeOverflow(ctx, client, connection, &caps, &findings, evaluateCeiling)
 	return finish(caps, findings)
+}
+
+func probeImages(ctx context.Context, client *llm.Client) bool {
+	check, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	available, err := client.ProbeImages(check)
+	return err == nil && available
 }
 
 type applyTemplateProbeShape struct {

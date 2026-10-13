@@ -1,4 +1,4 @@
-const producingTools = new Set(["write_file", "edit_file", "call_service"]);
+const producingTools = new Set(["write_file", "edit_file", "call_service", "image"]);
 
 export function filesFromResponse(items) {
   const callRuns = new Map();
@@ -13,16 +13,19 @@ export function filesFromResponse(items) {
     try {
       if (item?.type !== "tool" || !producingTools.has(item.name) || item.result?.ok !== true) continue;
       const recorded = item.result?.file;
-      const path = recorded?.path || legacyRelativePath(item.args?.path);
-      if (typeof path !== "string" || !path) continue;
-      files.set(path.toLowerCase(), {
-        path,
-        bytes: Number.isFinite(recorded?.bytes) ? recorded.bytes : null,
-        callID: item.callID || "",
-        runID: callRuns.get(item.callID) || "",
-        openScope: "workspace",
-        openPath: path,
-      });
+      const recordedFiles = Array.isArray(item.result?.files) ? item.result.files : [recorded || { path: legacyRelativePath(item.args?.path) }];
+      for (const entry of recordedFiles) {
+        const path = entry?.path;
+        if (typeof path !== "string" || !path) continue;
+        files.set(path.toLowerCase(), {
+          path,
+          bytes: Number.isFinite(entry?.bytes) ? entry.bytes : null,
+          callID: item.callID || "",
+          runID: callRuns.get(item.callID) || "",
+          openScope: "workspace",
+          openPath: path,
+        });
+      }
     } catch {}
   }
   const delivery = (items || []).find((item) => {

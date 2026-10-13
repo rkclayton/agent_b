@@ -2,15 +2,15 @@ import { api, reduce, setActive, store, subscribe } from "./bus.js";
 import { operatorStatusView } from "./operator-status.js";
 import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
 import { notePage } from "./page-health.js";
-import { connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
-import { renderAboutPage } from "./settings-about.js";
-import { renderChatsPage } from "./settings-chats.js";
-import { renderGeneralPage } from "./settings-general.js";
-import { renderNotificationsPage } from "./settings-notifications.js";
-import { renderProfilesPage } from "./settings-profiles.js";
-import { renderSkillsPage } from "./settings-skills.js";
-import { renderSecurityPage } from "./settings-security.js";
-import { renderWorkspacePage } from "./settings-workspace.js";
+import { connectionActions, connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
+import { aboutActions, renderAboutPage } from "./settings-about.js";
+import { chatActions, renderChatsPage } from "./settings-chats.js";
+import { generalActions, renderGeneralPage } from "./settings-general.js";
+import { notificationActions, renderNotificationsPage } from "./settings-notifications.js";
+import { profileActions, renderProfilesPage } from "./settings-profiles.js";
+import { renderSkillsPage, skillActions } from "./settings-skills.js";
+import { renderSecurityPage, securityActions } from "./settings-security.js";
+import { renderWorkspacePage, workspaceActions } from "./settings-workspace.js";
 import { setWaitProgress, waitElement } from "./wait.js";
 import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
@@ -1035,8 +1035,25 @@ function errorPanelMarkup() {
   return `<aside class="settings-error-panel" role="dialog" aria-modal="false" aria-label="Error details"><header><strong>Details</strong><button type="button" data-action="close-error-details" aria-label="Close details">×</button></header><pre>${html(detail)}</pre></aside>`;
 }
 
-// dispatchAction is the original body of click, unchanged.
 async function dispatchAction(event, button, action, id) {
+	const handler = settingsActions[action];
+	if (handler) return handler({ run: (name) => runAction(event, button, name, id) });
+}
+
+const settingsActions = {
+	...generalActions,
+	...connectionActions,
+	...profileActions,
+	...skillActions,
+	...chatActions,
+	...notificationActions,
+	...securityActions,
+	...workspaceActions,
+	...aboutActions,
+};
+
+// The section tables select the original action body without changing it.
+async function runAction(event, button, action, id) {
 	if (action === "setting-menu-toggle") {
 		const controller = settingMenus.get(button);
 		controller?.toggle();

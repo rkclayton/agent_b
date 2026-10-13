@@ -25,3 +25,8 @@ export function renderNotificationsPage(pageContext) {
 		</div>`)}
 		${notificationMessage ? `<p class="settings-note ${notificationAlarm ? "alarm" : ""}">${html(notificationMessage)}</p>` : ""}`;
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const notificationActions = actionTable([
+  "save-notification", "test-notification", "clear-notification",
+]);

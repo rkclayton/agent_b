@@ -32,3 +32,9 @@ export function renderChatsPage(active, context) {
     ${context.subhead("Delete")}
     ${context.row("all chats", `<button type="button" class="delete-all-chats" data-action="delete-all-chats" ${chatCount ? "" : "disabled"}>Delete all chats</button>`, "", `${chatCount} chat${chatCount === 1 ? "" : "s"}`)}`;
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const chatActions = actionTable([
+  "delete-all-chats", "surface-visible", "new-session", "close-session",
+  "reset-session",
+]);

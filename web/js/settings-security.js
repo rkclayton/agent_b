@@ -257,3 +257,16 @@ export function renderSecurityPage(page, active, context) {
   useSettingsContext(context);
   return page === "session" ? sessionControls(active) : shell(active);
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const securityActions = actionTable([
+  "revoke-standing-grant", "trusted-folder-add", "trusted-folder-change",
+  "trusted-folder-delete", "operator-context", "local-network-toggle",
+  "open-setup", "session-tool-toggle", "store-shell-credential",
+  "test-shell-credential", "clear-shell-credential", "setup-service-account",
+  "service-identity-toggle", "disable-service-account", "refresh-service-account",
+  "broker-pair", "broker-confirm", "broker-revoke", "broker-cancel",
+  "credential-add", "credential-entra-add", "credential-sign-in",
+  "credential-device-code", "credential-sign-out", "credential-remove",
+  "apply-hardening", "verify-hardening", "refresh-hardening", "remove-hardening",
+]);

@@ -99,3 +99,8 @@ export function renderAboutPage(context) {
   useSettingsContext(context);
   return about();
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const aboutActions = actionTable([
+  "install-update", "check-update", "sign-in-start", "export-diagnostics",
+]);

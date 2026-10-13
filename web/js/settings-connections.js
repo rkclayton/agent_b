@@ -306,3 +306,10 @@ export function renderMeasurement(measurement) {
   }
   return `<div class="findings"><span class="settings-note">${when}</span>${rows.join("")}</div>`;
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const connectionActions = actionTable([
+  "connection-toggle", "show-key", "probe", "measure-connection",
+  "recommended-connection", "add-connection", "duplicate-connection",
+  "remove-connection",
+]);

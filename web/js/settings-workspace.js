@@ -35,3 +35,8 @@ export function renderWorkspacePage(context) {
   useSettingsContext(context);
   return folders();
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const workspaceActions = actionTable([
+  "revoke-workspace-policy", "empty-operator-attachments", "adopt-instructions",
+]);

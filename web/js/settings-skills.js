@@ -31,3 +31,10 @@ export function renderSkillsPage(context) {
   const previewBlock = preview ? `<table class="skill-add-preview"><tbody>${previewRows}</tbody></table>${eligible.length ? `<button type="button" data-action="skill-add-confirm">${addLabel}</button>` : ""}` : "";
   return `${profile}<table class="skills-table"><thead><tr><th>Skill</th><th>Description</th><th>On</th><th></th></tr></thead><tbody>${rows}</tbody></table><div class="setting-row" title="Choose a skill folder or a folder containing skills."><label>add</label><div><button type="button" data-action="skill-add-pick">Add skill</button></div></div>${previewBlock}`;
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const skillActions = actionTable([
+  "skill-toggle", "skill-row-toggle", "skill-add-pick", "skill-add-confirm",
+  "skill-remove", "skill-import", "skill-rescan", "hermes-preview",
+  "hermes-toggle", "hermes-confirm",
+]);

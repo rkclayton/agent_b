@@ -17,6 +17,17 @@ const agentKey = (agent) => { const name = String(agent?.name || "").trim().toLo
 // nothing to flip to.
 
 export function initShell(options = {}) {
+  return wireKeyboard(wireTopBar(wireTabStrip(wireFolders(wireChatMenu(wireChatList(createShell(options)))))));
+}
+
+function wireChatList(shell) { return shell; }
+function wireChatMenu(shell) { return shell; }
+function wireFolders(shell) { return shell; }
+function wireTabStrip(shell) { return shell; }
+function wireTopBar(shell) { return shell; }
+function wireKeyboard(shell) { return shell; }
+
+function createShell(options = {}) {
 	installUIErrorRelay({ token: () => store.mutation_token, sessionID: () => store.active });
 	installPageHealth({ token: () => store.mutation_token });
   const root = document.getElementById("app-shell");

@@ -88,3 +88,10 @@ export function renderGeneralPage(page, active, pageContext) {
   useSettingsContext(pageContext);
   return ({ sessions, tools, memory })[page]?.(active) || "";
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const generalActions = actionTable([
+  "setting-menu-toggle", "error-details", "close-error-details", "close",
+  "save-setting", "settings-section", "save-settings", "config-toggle",
+  "config-choice", "copy",
+]);

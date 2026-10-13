@@ -26,3 +26,9 @@ export function renderProfilesPage(context) {
   const skills = `<div class="setting-row profile-skills-row" title="Skills enabled for this agent profile."><label>skills</label><div><span class="skill-badges">${badges || "none"}</span><button type="button" data-action="settings-section" data-id="skills" data-skill-profile="${attr(agentID)}">change in Skills</button></div></div>`;
   return `${subhead("Agent profiles")}<div data-adopt="agents-panel"></div>${skills}${memory}`;
 }
+import { actionTable } from "./settings-action-table.js";
+
+export const profileActions = actionTable([
+  "profile-memory-toggle", "profile-memory-note-toggle", "create-profile",
+  "switch-profile", "rename-profile", "remove-agent-memory",
+]);

@@ -53,11 +53,6 @@ type ProfileCatalog struct {
 	Names  []string `json:"names"`
 }
 
-type Roles struct {
-	Main string `json:"main"`
-	Aux  string `json:"aux"`
-}
-
 type Agent struct {
 	Name     string                  `json:"name"`
 	Thinking bool                    `json:"thinking"`

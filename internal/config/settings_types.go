@@ -200,17 +200,6 @@ const (
 	DeliverModeBoth          = "both"
 )
 
-const ApprovalDefaultMigrationNotice = "corrected inherited approval default from mutating to boundary-only; mutating can be reselected in Settings > Run & approval"
-const OperatorIdleTimeoutMigrationNotice = "migrated shell.operator_context_timeout_minutes to shell.operator_context_idle_timeout_minutes; Run as you now expires after agent inactivity"
-const ByteWindowMigrationNotice = "migrated read_file and fetch_url limits from line counts to UTF-8 byte windows"
-const ModelRolesMigrationNotice = "migrated model connections to schema 5 with an explicit main role, optional aux role, and per-connection context size"
-
-// ModelPlaceholderMigrationNotice is, and it names the connections it
-// cleared: the operator asked five times for the placeholder to go and every fix so
-// far had only stopped new connections getting it.
-const ModelPlaceholderMigrationNotice = "cleared the \"model\" placeholder from connection(s): "
-const AgentObjectsMigrationNotice = "migrated connection roles to schema 6 with one named agent, bound b/c connections, and the full toolset"
-
 type GlobalContext struct {
 	SoftPct    float64 `json:"soft_pct"`
 	SummaryPct float64 `json:"summary_pct"`

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -460,36 +459,6 @@ func TestServicesAdditiveCurrentSchemaDefaultsEmpty(t *testing.T) {
 	}
 }
 
-func TestChatAutoRenameIsDroppedSilentlyDuringMigration(t *testing.T) {
-	cfg := Defaults(t.TempDir())
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	document["config_version"] = float64(9)
-	document["chat"] = map[string]any{"auto_rename": false}
-	data, _ = json.Marshal(document)
-	path := filepath.Join(t.TempDir(), "harness.json")
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	loaded, migrated, _, err := Load(path)
-	if err != nil || !migrated || len(loaded.LoadNotices) != 0 {
-		t.Fatalf("loaded=%+v migrated=%t err=%v", loaded, migrated, err)
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(persisted, []byte("auto_rename")) {
-		t.Fatalf("retired auto_rename key survived migration: %s", persisted)
-	}
-}
-
 func TestUpdateCheckDefaultsOnButPersistsOff(t *testing.T) {
 	defaults := Defaults(t.TempDir())
 	if !defaults.Updates.AutoCheck {
@@ -673,65 +642,6 @@ func TestPolicyListsDefaultOnlyWhenOmitted(t *testing.T) {
 	if cleared.Tools.Fetch.DenyDomains == nil || len(cleared.Tools.Fetch.DenyDomains) != 0 || cleared.Tools.FindFiles.SkipRoots == nil || len(cleared.Tools.FindFiles.SkipRoots) != 0 || cleared.Tools.Shell.OperatorCommands == nil || len(cleared.Tools.Shell.OperatorCommands) != 0 {
 		t.Fatalf("explicit clears were replaced: deny=%#v skip=%#v operator=%#v", cleared.Tools.Fetch.DenyDomains, cleared.Tools.FindFiles.SkipRoots, cleared.Tools.Shell.OperatorCommands)
 	}
-	retired := []string{"ipinfo.io", "ipapi.co", "ip-api.com", "ifconfig.me", "ipify.org", "geojs.io", "ipgeolocation.io", "icanhazip.com"}
-	path := filepath.Join(t.TempDir(), "harness.json")
-	old := Defaults(t.TempDir())
-	old.ConfigVersion, old.Tools.Fetch.DenyDomains = 11, append(retired, "example.test")
-	data, _ := json.Marshal(old)
-	_ = os.WriteFile(path, data, 0o600)
-	loaded, migrated, _, err := Load(path)
-	if err != nil || !migrated || !reflect.DeepEqual(loaded.Tools.Fetch.DenyDomains, []string{"example.test"}) {
-		t.Fatalf("retired-list migration=%t deny=%v err=%v", migrated, loaded.Tools.Fetch.DenyDomains, err)
-	}
-}
-
-func TestOperatorIdleTimeoutSchemaMigration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	cfg := Defaults(t.TempDir())
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	document["config_version"] = float64(2)
-	shell := document["shell"].(map[string]any)
-	delete(shell, "operator_context_idle_timeout_minutes")
-	shell["operator_context_timeout_minutes"] = float64(37)
-	data, err = json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, migrated, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !migrated || loaded.ConfigVersion != CurrentConfigVersion || loaded.Shell.OperatorContextIdleTimeoutMinutes != 37 {
-		t.Fatalf("migrated=%t version=%d idle=%d", migrated, loaded.ConfigVersion, loaded.Shell.OperatorContextIdleTimeoutMinutes)
-	}
-	if len(loaded.LoadNotices) != 4 || loaded.LoadNotices[0] != OperatorIdleTimeoutMigrationNotice || loaded.LoadNotices[1] != ByteWindowMigrationNotice || loaded.LoadNotices[2] != ModelRolesMigrationNotice || loaded.LoadNotices[3] != AgentObjectsMigrationNotice {
-		t.Fatalf("migration notices=%#v", loaded.LoadNotices)
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(persisted, []byte(`operator_context_timeout_minutes`)) || !bytes.Contains(persisted, []byte(`"operator_context_idle_timeout_minutes": 37`)) {
-		t.Fatalf("persisted migration=%s", persisted)
-	}
-	reloaded, migrated, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if migrated || len(reloaded.LoadNotices) != 0 || reloaded.Shell.OperatorContextIdleTimeoutMinutes != 37 {
-		t.Fatalf("second load migrated=%t notices=%#v idle=%d", migrated, reloaded.LoadNotices, reloaded.Shell.OperatorContextIdleTimeoutMinutes)
-	}
 }
 
 func TestCurrentOperatorIdleTimeoutConfigIsUntouched(t *testing.T) {
@@ -758,109 +668,6 @@ func TestCurrentOperatorIdleTimeoutConfigIsUntouched(t *testing.T) {
 	}
 }
 
-func TestVersion3LineLimitsMigrateToByteWindows(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	cfg := Defaults(t.TempDir())
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	document["config_version"] = float64(3)
-	toolSettings := document["tools"].(map[string]any)
-	for _, name := range []string{"read_file", "fetch"} {
-		settings := toolSettings[name].(map[string]any)
-		settings["default_limit"] = float64(200)
-		settings["max_limit"] = float64(400)
-		settings["max_line_chars"] = float64(500)
-	}
-	data, err = json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, migrated, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !migrated || loaded.ConfigVersion != CurrentConfigVersion || loaded.Tools.ReadFile.DefaultLimit != 16<<10 || loaded.Tools.ReadFile.MaxLimit != 64<<10 || loaded.Tools.Fetch.DefaultLimit != 16<<10 || loaded.Tools.Fetch.MaxLimit != 64<<10 {
-		t.Fatalf("migrated=%t config=%+v", migrated, loaded.Tools)
-	}
-	if len(loaded.LoadNotices) != 3 || loaded.LoadNotices[0] != ByteWindowMigrationNotice || loaded.LoadNotices[1] != ModelRolesMigrationNotice || loaded.LoadNotices[2] != AgentObjectsMigrationNotice {
-		t.Fatalf("migration notices=%#v", loaded.LoadNotices)
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var saved struct {
-		Tools map[string]map[string]any `json:"tools"`
-	}
-	if err := json.Unmarshal(persisted, &saved); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"read_file", "fetch"} {
-		if _, exists := saved.Tools[name]["max_line_chars"]; exists {
-			t.Fatalf("legacy %s line cap persisted: %s", name, persisted)
-		}
-	}
-}
-
-func TestApprovalModeSchemaMigration(t *testing.T) {
-	tests := []struct {
-		name       string
-		mode       string
-		stamped    bool
-		wantMode   string
-		wantNotice bool
-	}{
-		{name: "unstamped inherited mutating", mode: ApprovalModeMutating, wantMode: ApprovalModeBoundaryOnly, wantNotice: true},
-		{name: "stamped deliberate mutating", mode: ApprovalModeMutating, stamped: true, wantMode: ApprovalModeMutating},
-		{name: "unstamped off alias", mode: ApprovalModeOff, wantMode: ApprovalModeOff},
-		{name: "unstamped all", mode: ApprovalModeAll, wantMode: ApprovalModeAll},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "harness.json")
-			writeConfigFixture(t, path, test.mode, test.stamped)
-			cfg, _, _, err := Load(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if cfg.ConfigVersion != CurrentConfigVersion || cfg.Approval.Mode != test.wantMode {
-				t.Fatalf("loaded version=%d mode=%q, want version=%d mode=%q", cfg.ConfigVersion, cfg.Approval.Mode, CurrentConfigVersion, test.wantMode)
-			}
-			if got := len(cfg.LoadNotices) == 1; got != test.wantNotice {
-				t.Fatalf("notice present=%v, want %v: %#v", got, test.wantNotice, cfg.LoadNotices)
-			}
-			disk, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var persisted Config
-			if err := json.Unmarshal(disk, &persisted); err != nil {
-				t.Fatal(err)
-			}
-			if persisted.ConfigVersion != CurrentConfigVersion || persisted.Approval.Mode != test.wantMode {
-				t.Fatalf("persisted version=%d mode=%q", persisted.ConfigVersion, persisted.Approval.Mode)
-			}
-			reloaded, _, _, err := Load(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(reloaded.LoadNotices) != 0 {
-				t.Fatalf("migration notice repeated: %#v", reloaded.LoadNotices)
-			}
-		})
-	}
-}
-
 func TestSaveStampsConfigVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	cfg := Defaults(t.TempDir())
@@ -878,100 +685,11 @@ func TestSaveStampsConfigVersion(t *testing.T) {
 	}
 }
 
-func TestLoadMigratesLegacyConnectionListWithoutFieldLoss(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	cfg := Defaults(t.TempDir())
-	cfg.ConfigVersion = 7
-	want := cfg.Connections[0]
-	want.ID = "operator-endpoint"
-	want.Label = "Operator endpoint"
-	want.BaseURL = "https://example.invalid/v1"
-	want.ExtractURL = "https://extract.invalid/v1"
-	want.AttachmentHandling = "extract"
-	want.Model = "model-x"
-	want.Credential = ""
-	want.APIKey = ""
-	want.RequestTimeoutS = 91
-	want.ProbeMode = "off"
-	want.Context.NCtx = 65536
-	want.MaxConcurrent = 3
-	want.SystemPromptOverride = "keep every field"
-	want.Measurement = &Measurement{Passed: 7, Total: 10, BriefsRun: 10, ToolErrors: 2, ToolErrorRate: .2, Trials: 1, Provenance: "fixture", MeasuredAt: "2026-09-23T00:00:00Z", DurationMS: 1234}
-	want.Capabilities.Server, want.Capabilities.Streaming, want.Capabilities.ToolCalls = "openai-compatible", true, true
-	want.Capabilities.DocumentInput, want.Capabilities.ImageInput, want.Capabilities.Vision = true, true, VisionReadsImages
-	want.Capabilities.OverflowBehavior = "unknown"
-	want.StoreActiveModel()
-	cfg.Connections = []Connection{want}
-	cfg.Agents[0].B = want.ID
-
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	legacyKey := "ser" + "vers"
-	document[legacyKey] = document["connections"]
-	delete(document, "connections")
-	data, _ = json.Marshal(document)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, migrated, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !migrated || len(loaded.Connections) != 1 || !reflect.DeepEqual(loaded.Connections[0], want) {
-		t.Fatalf("migrated=%t connection=%+v, want %+v", migrated, loaded.Connections, want)
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(persisted, []byte(`"`+legacyKey+`"`)) || !bytes.Contains(persisted, []byte(`"connections"`)) {
-		t.Fatalf("legacy list key survived migration: %s", persisted)
-	}
-}
-
-func TestLegacyV1WithoutApprovalDefaultsToBoundaryOnly(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	document := map[string]any{
-		"workspace": t.TempDir(),
-		"server":    map[string]any{"base_url": "http://127.0.0.1:8080"},
-	}
-	data, err := json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, migrated, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !migrated || cfg.ConfigVersion != CurrentConfigVersion || cfg.Approval.Mode != ApprovalModeBoundaryOnly {
-		t.Fatalf("migrated=%v version=%d mode=%q", migrated, cfg.ConfigVersion, cfg.Approval.Mode)
-	}
-}
-
 func TestReserveOutputUsesCanonicalDefault(t *testing.T) {
 	cfg := Config{Connections: []Connection{{}}, Shell: Shell{Command: []string{"unused"}}}
 	ApplyDefaults(&cfg)
 	if got := cfg.Connections[0].Context.ReserveOutput; got != DefaultReserveOutput {
 		t.Fatalf("reserve_output=%d, want canonical default %d", got, DefaultReserveOutput)
-	}
-}
-
-func TestLegacyMigrationRejectsMalformedOptionalSections(t *testing.T) {
-	for _, field := range []string{"sampling_thinking", "sampling_nonthinking", "thinking", "context"} {
-		raw := []byte(fmt.Sprintf(`{"server":{},%q:"not-an-object"}`, field))
-		if _, _, err := migrateV1(raw); err == nil || !strings.Contains(err.Error(), field) {
-			t.Fatalf("field %s migration error=%v", field, err)
-		}
 	}
 }
 
@@ -1036,91 +754,6 @@ func TestOperatorContextNeverPersistsOrRestartsEnabled(t *testing.T) {
 	}
 }
 
-func TestSchema4ModelConnectionsMigrateWithUTF8BOM(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	cfg := Defaults(t.TempDir())
-	cfg.Connections[0].ID = "small"
-	cfg.Connections[0].Label = "Small"
-	cfg.Connections[0].Model = ""
-	main := defaultConnection()
-	main.ID, main.Label, main.BaseURL, main.Model = "acme", "acme", "http://127.0.0.1:8080", "model"
-	main.Context.NCtx = 16384
-	main.Capabilities.NCtx = 32768
-	main.Capabilities.ToolCalls = true
-	main.Capabilities.Streaming = true
-	main.Capabilities.OverflowBehavior = "error"
-	cfg.Connections = append(cfg.Connections, main)
-
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	document["config_version"] = float64(4)
-	delete(document, "roles")
-	for _, raw := range document["connections"].([]any) {
-		connection := raw.(map[string]any)
-		models, _ := connection["models"].([]any)
-		if len(models) > 0 {
-			for key, value := range models[0].(map[string]any) {
-				if key != "model" {
-					connection[key] = value
-				}
-			}
-		}
-		delete(connection, "models")
-		if context, ok := connection["context"].(map[string]any); ok {
-			context["n_ctx_override"] = context["n_ctx"]
-			delete(context, "n_ctx")
-		}
-		if connection["id"] == "acme" {
-			connection["model"] = "model"
-			connection["context"] = map[string]any{"n_ctx_override": float64(16384), "reserve_output": float64(DefaultReserveOutput)}
-			connection["capabilities"] = map[string]any{"n_ctx": float64(32768), "tool_calls": true, "streaming": true, "overflow_behavior": "error"}
-		}
-		connection["api_key"] = ""
-		delete(connection, "credential")
-	}
-	data, err = json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = append([]byte{0xef, 0xbb, 0xbf}, data...)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, migrated, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !migrated || loaded.ConfigVersion != CurrentConfigVersion || len(loaded.Agents) != 1 || loaded.Agents[0].B != "" || loaded.Agents[0].C != "" {
-		t.Fatalf("migrated=%t version=%d agents=%+v", migrated, loaded.ConfigVersion, loaded.Agents)
-	}
-	if profile, ok := loaded.ProfileForConnection("acme"); !ok || AgentID(profile.Name) != "agent_b" {
-		t.Fatalf("acme profile=%+v ok=%t", profile, ok)
-	}
-	if loaded.Connections[1].Context.NCtx != 16384 || loaded.Connections[1].Capabilities.NCtx != 32768 {
-		t.Fatalf("connection context=%+v capabilities=%+v", loaded.Connections[1].Context, loaded.Connections[1].Capabilities)
-	}
-	// Item 2nq (a): this fixture's connection also carries the old placeholder, so the
-	// load clears it and says so — a third notice, naming the connection it cleared.
-	if len(loaded.LoadNotices) != 3 || loaded.LoadNotices[0] != ModelRolesMigrationNotice || loaded.LoadNotices[1] != AgentObjectsMigrationNotice ||
-		!strings.HasPrefix(loaded.LoadNotices[2], ModelPlaceholderMigrationNotice) {
-		t.Fatalf("notices=%#v", loaded.LoadNotices)
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.HasPrefix(persisted, []byte{0xef, 0xbb, 0xbf}) || bytes.Contains(persisted, []byte("n_ctx_override")) || bytes.Contains(persisted, []byte("api_key")) || bytes.Contains(persisted, []byte(`"roles"`)) {
-		t.Fatalf("legacy fields survived migration: %s", persisted)
-	}
-}
-
 func TestAgentConnectionsUseLetteredSlots(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	c := cfg.Connections[0]
@@ -1143,112 +776,11 @@ func TestAgentNameReservesAgentA(t *testing.T) {
 	}
 }
 
-func TestConnectionDecodePreservesExplicitNumericZero(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	document := `{
-  "config_version": 5,
-  "workspace": ".",
-  "connections": [{
-    "id": "local", "base_url": "http://127.0.0.1:8080", "model": "model",
-    "sampling": {"thinking": {"temperature": 0, "top_k": 0, "repeat_penalty": 0}},
-    "reasoning": {"enabled": false},
-    "context": {"n_ctx": 8192, "reserve_output": 0}
-  }],
-  "roles": {"main": "local", "aux": ""}
-}`
-	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	loaded, _, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	connection := loaded.Connections[0]
-	if connection.Context.ReserveOutput != 0 || connection.Sampling.Thinking.Temperature != 0 || connection.Sampling.Thinking.TopK != 0 || connection.Sampling.Thinking.RepeatPenalty != 0 || connection.Reasoning.Enabled {
-		t.Fatalf("explicit zeros changed: %+v", connection)
-	}
-	if connection.Sampling.Thinking.TopP != .95 || connection.Sampling.Nonthinking.TopP != .8 || connection.Reasoning.Control != "auto" || connection.Reasoning.Effort != "medium" {
-		t.Fatalf("omitted sampling defaults missing: %+v", connection.Sampling)
-	}
-}
-
 func TestConnectionCredentialNameIsValidated(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	cfg.Connections[0].Credential = "../outside"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "connections[0].credential") {
 		t.Fatalf("invalid credential error=%v", err)
-	}
-}
-
-func TestSchema4APIKeyMovesToNamedDPAPIStore(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("DPAPI is Windows-only")
-	}
-	dir := t.TempDir()
-	dataRoot := t.TempDir()
-	path := filepath.Join(dir, "harness.json")
-	cfg := Defaults(t.TempDir())
-	cfg.ConfigVersion = 4
-	cfg.Connections[0].Model = "model"
-	cfg.Connections[0].Context.NCtx = 8192
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	delete(document, "roles")
-	connection := document["connections"].([]any)[0].(map[string]any)
-	if models, _ := connection["models"].([]any); len(models) > 0 {
-		for key, value := range models[0].(map[string]any) {
-			if key != "model" {
-				connection[key] = value
-			}
-		}
-	}
-	delete(connection, "models")
-	connection["api_key"] = "migration-secret"
-	delete(connection, "credential")
-	context, ok := connection["context"].(map[string]any)
-	if !ok {
-		context = map[string]any{"n_ctx": float64(8192), "reserve_output": float64(DefaultReserveOutput)}
-		connection["context"] = context
-	}
-	context["n_ctx_override"] = context["n_ctx"]
-	delete(context, "n_ctx")
-	data, err = json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, _, _, err := LoadWithRoots(path, filepath.Join(dir, "harness.example.json"), dataRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.Connections[0].Credential != "local" || loaded.Connections[0].APIKey != "migration-secret" || loaded.Masked().Connections[0].APIKey != "•••• set" {
-		t.Fatalf("loaded connection=%+v masked=%+v", loaded.Connections[0], loaded.Masked().Connections[0])
-	}
-	persisted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(persisted, []byte("migration-secret")) || bytes.Contains(persisted, []byte("api_key")) || !bytes.Contains(persisted, []byte(`"credential": "local"`)) {
-		t.Fatalf("secret persisted in config: %s", persisted)
-	}
-	if _, err := os.Stat(filepath.Join(dataRoot, ".agentb-connection-credential-local.dpapi")); err != nil {
-		t.Fatalf("named credential missing: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".agentb-connection-credential-local.dpapi")); !os.IsNotExist(err) {
-		t.Fatalf("credential was inferred beside config: %v", err)
-	}
-	reloaded, _, _, err := LoadWithRoots(path, filepath.Join(dir, "harness.example.json"), dataRoot)
-	if err != nil || reloaded.Connections[0].APIKey != "migration-secret" {
-		t.Fatalf("reloaded key=%q err=%v", reloaded.Connections[0].APIKey, err)
 	}
 }
 
@@ -1308,36 +840,6 @@ func TestApplyDefaultsAddsDelegateOnlyToThePreviousFullToolset(t *testing.T) {
 	}
 }
 
-func TestVersionSixMigrationAddsWebSearchOnlyToTheFullToolset(t *testing.T) {
-	legacy := `{"config_version":6,"tools":{},"agents":[{"name":"Full","b":"local","toolset":["read_file","list_dir","write_file","edit_file","search","shell","remember","recall","fetch_url","run_script","call_service"]},{"name":"Limited","b":"local","toolset":["read_file","fetch_url"]}]}`
-	migrated, data, err := migrateWebSearch([]byte(legacy), 6)
-	if err != nil || !migrated {
-		t.Fatalf("migrated=%t err=%v", migrated, err)
-	}
-	var raw struct {
-		ConfigVersion int `json:"config_version"`
-		Tools         struct {
-			WebSearch WebSearchTool `json:"web_search"`
-		} `json:"tools"`
-		Agents []Agent `json:"agents"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatal(err)
-	}
-	if raw.ConfigVersion != CurrentConfigVersion || !raw.Tools.WebSearch.Enabled || raw.Tools.WebSearch.PerEngineTimeoutS != 8 {
-		t.Fatalf("migration=%+v", raw)
-	}
-	if got := strings.Join(raw.Agents[0].Toolset, ","); got != "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service" {
-		t.Fatalf("full=%s", got)
-	}
-	if got := strings.Join(raw.Agents[1].Toolset, ","); got != "read_file,fetch_url" {
-		t.Fatalf("limited widened=%s", got)
-	}
-}
-
-// A configuration written before the merge names the two tools it replaced.
-// That meant "this agent may search", so it is read as search rather than
-// refused as unknown, which would have turned searching off silently.
 func TestPreMergeToolsetIsReadAsSearch(t *testing.T) {
 	for _, item := range []struct {
 		toolset []string
@@ -1362,72 +864,6 @@ func TestPreMergeToolsetIsReadAsSearch(t *testing.T) {
 // from addConnection(); both only stop a NEW connection getting it, and nothing ever
 // removed it from a configuration already written. Every one of those fixes was a
 // no-op for his install.
-func TestTheModelPlaceholderLeavesTheSavedConfig2nq(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "harness.json")
-	written := `{
-  "config_version": 10,
-  "listen": "127.0.0.1:8790",
-  "workspace": ` + strconv.Quote(filepath.Join(root, "workspace")) + `,
-  "connections": [
-    {"id": "server-2", "label": "server-2", "base_url": "http://127.0.0.1:8080", "model": "model", "request_timeout_s": 5, "probe_mode": "off", "context": {"n_ctx": 32768}},
-    {"id": "server-3", "label": "server-3", "base_url": "http://127.0.0.1:8081", "model": "MODEL ", "request_timeout_s": 5, "probe_mode": "off", "context": {"n_ctx": 32768}},
-    {"id": "server-4", "label": "server-4", "base_url": "http://127.0.0.1:8082", "model": "a-real-model", "request_timeout_s": 5, "probe_mode": "off", "context": {"n_ctx": 32768}}
-  ],
-  "agents": [{"name": "server-2", "b": "server-2", "toolset": ["read_file"]}]
-}`
-	if err := os.WriteFile(path, []byte(written), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _, _, err := Load(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	for _, connection := range cfg.Connections {
-		switch connection.ID {
-		case "server-2", "server-3":
-			if connection.Model != "" {
-				t.Errorf("%s still holds %q", connection.ID, connection.Model)
-			}
-		case "server-4":
-			if connection.Model != "a-real-model" {
-				t.Errorf("a real model was migrated away: %q", connection.Model)
-			}
-		}
-	}
-	// And it is gone from the FILE, not only from what was loaded: the next start
-	// must not read it back.
-	saved, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(saved), `"model": "model"`) || strings.Contains(string(saved), `"model": "MODEL "`) {
-		t.Fatalf("the placeholder is still on disk:\n%s", saved)
-	}
-	// One line naming each connection, so the operator can see what changed.
-	notices := strings.Join(cfg.LoadNotices, " | ")
-	for _, want := range []string{"server-2", "server-3"} {
-		if !strings.Contains(notices, want) {
-			t.Errorf("the load notices do not name %s: %q", want, notices)
-		}
-	}
-	if strings.Contains(notices, "server-4") {
-		t.Errorf("the load notices name a connection that was not migrated: %q", notices)
-	}
-	// Reading it again changes nothing and says nothing.
-	again, _, _, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, notice := range again.LoadNotices {
-		if strings.Contains(notice, "server-2") {
-			t.Errorf("the migration ran twice: %q", notice)
-		}
-	}
-}
-
-// (b): "model" is never accepted as a model, in the one place that already says so
-// for an empty one.
 func TestModelIsNeverAModel2nq(t *testing.T) {
 	for _, value := range []string{"", " ", "model", "MODEL", " Model "} {
 		connection := Connection{BaseURL: "http://127.0.0.1:8080", Model: value}
@@ -1650,5 +1086,32 @@ func TestGlobalSkillChoicesMigrateOnceToEveryAgentProfile2u7(t *testing.T) {
 	reloaded, migratedAgain, _, err := Load(path)
 	if err != nil || migratedAgain || reloaded.Agents[0].Skills["alpha"].Enabled || !reloaded.Agents[1].Skills["alpha"].Enabled {
 		t.Fatalf("second load migrated=%t agents=%+v err=%v", migratedAgain, reloaded.Agents, err)
+	}
+}
+
+func TestConfigurationBelowCompatibilityFloorIsRefusedUnchanged2uk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(t.TempDir())
+	cfg.ConfigVersion = 13
+	before, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = append(before, '\n')
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, migrated, created, err := Load(path)
+	const message = "This configuration is from a release too old to update directly. Install v1.60.73 first, then update."
+	if loaded != nil || migrated || created || err == nil || err.Error() != message {
+		t.Fatalf("load = (%+v, %t, %t, %v), want (nil, false, false, %q)", loaded, migrated, created, err, message)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("refused configuration changed\nbefore: %s\nafter: %s", before, after)
 	}
 }

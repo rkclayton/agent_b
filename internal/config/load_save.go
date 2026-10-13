@@ -8,8 +8,11 @@ import (
 	"harness/internal/credential"
 	"os"
 	"path/filepath"
-	"strings"
 )
+
+const MinimumConfigVersion = 14
+const ConfigurationUpgradeBridgeRelease = "v1.60.73"
+const ConfigurationTooOldMessage = "This configuration is from a release too old to update directly. Install " + ConfigurationUpgradeBridgeRelease + " first, then update."
 
 func Load(path string) (*Config, bool, bool, error) {
 	return LoadWithTemplate(path, filepath.Join(filepath.Dir(path), "harness.example.json"))
@@ -57,6 +60,9 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err := json.Unmarshal(data, &metadata); err != nil {
 		return nil, false, created, err
 	}
+	if metadata.ConfigVersion == nil || *metadata.ConfigVersion < MinimumConfigVersion {
+		return nil, false, created, errors.New(ConfigurationTooOldMessage)
+	}
 	if metadata.Run.MaxTurns != nil && *metadata.Run.MaxTurns == 0 {
 		return nil, false, created, fmt.Errorf("run.max_turns: zero is not unlimited; omit it for the default %d or use a positive pathological-case backstop", DefaultMaxTurns)
 	}
@@ -66,49 +72,15 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if metadata.Run.MaxToolCalls != nil && *metadata.Run.MaxToolCalls == 0 {
 		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
-	unstamped := metadata.ConfigVersion == nil
-	if !unstamped && *metadata.ConfigVersion != 2 && *metadata.ConfigVersion != 3 && *metadata.ConfigVersion != 4 && *metadata.ConfigVersion != 5 && *metadata.ConfigVersion != 6 && *metadata.ConfigVersion != 7 && *metadata.ConfigVersion != 8 && *metadata.ConfigVersion != 9 && *metadata.ConfigVersion != 10 && *metadata.ConfigVersion != 11 && *metadata.ConfigVersion != 12 && *metadata.ConfigVersion != 13 && *metadata.ConfigVersion != 14 && *metadata.ConfigVersion != CurrentConfigVersion {
+	if *metadata.ConfigVersion != MinimumConfigVersion && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
 	}
-	migrated, data, err := migrateV1(data)
+	version := *metadata.ConfigVersion
+	connectionKeyMigrated, data, err := migrateConnectionAPIKeys(data)
 	if err != nil {
 		return nil, false, created, err
 	}
-	version := 0
-	if metadata.ConfigVersion != nil {
-		version = *metadata.ConfigVersion
-	}
-	connectionKeyMigrated, data, err := migrateConnectionKey(data)
-	if err != nil {
-		return nil, false, created, err
-	}
-	schemaMigrated, idleTimeoutRemapped, data, err := migrateOperatorIdleTimeout(data, version)
-	if err != nil {
-		return nil, false, created, err
-	}
-	byteWindowMigrated, data, err := migrateByteWindows(data, version)
-	if err != nil {
-		return nil, false, created, err
-	}
-	modelRolesMigrated, data, err := migrateModelConnections(data, version)
-	if err != nil {
-		return nil, false, created, err
-	}
-	agentsMigrated, data, err := migrateAgentObjects(data, version)
-	if err != nil {
-		return nil, false, created, err
-	}
-	connectionModelsMigrated, data, err := migrateConnectionModels(data, version)
-	if err != nil {
-		return nil, false, created, err
-	}
-	webSearchMigrated, data, err := migrateWebSearch(data, version)
-	if err != nil {
-		return nil, false, created, err
-	}
-	// THE PLACEHOLDER LEAVES DISK. Once, named, and recorded by the
-	// config version, so it cannot come back from a load.
-	placeholderCleared, data, err := migrateModelPlaceholder(data, version)
+	schemaMigrated, data, err := migrateSchemaVersion(data, version)
 	if err != nil {
 		return nil, false, created, err
 	}
@@ -124,17 +96,6 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 			cfg.Chat.TextSize = pixels
 			textSizeMigrated = true
 		}
-	}
-	retiredDenyDomainsMigrated := version < 12
-	if retiredDenyDomainsMigrated {
-		retired := map[string]bool{"ipinfo.io": true, "ipapi.co": true, "ip-api.com": true, "ifconfig.me": true, "ipify.org": true, "geojs.io": true, "ipgeolocation.io": true, "icanhazip.com": true}
-		kept := cfg.Tools.Fetch.DenyDomains[:0]
-		for _, domain := range cfg.Tools.Fetch.DenyDomains {
-			if !retired[strings.ToLower(strings.TrimSpace(domain))] {
-				kept = append(kept, domain)
-			}
-		}
-		cfg.Tools.Fetch.DenyDomains = kept
 	}
 	// Operator context is a launch-scoped state, never a startup instruction.
 	cfg.Approval.Unattended = false
@@ -153,10 +114,6 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 			skillsMigrated = true
 		}
 	}
-	builtInAgentMigrated := version < 14 && len(cfg.Agents) > 0 && AgentID(cfg.Agents[0].Name) != "agent_b"
-	if builtInAgentMigrated {
-		cfg.Agents[0].Name = "agent_b"
-	}
 	profilesMigrated := version < 15 && len(cfg.Agents) > 0
 	if profilesMigrated {
 		migrateAgentProfiles(&cfg)
@@ -167,42 +124,18 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	for i := range cfg.Agents {
 		cfg.Agents[i].Toolset = migrateToolset(cfg.Agents[i].Toolset)
 	}
-	approvalDefaultCorrected := unstamped && metadata.Approval.Mode == ApprovalModeMutating
-	if approvalDefaultCorrected {
-		cfg.Approval.Mode = ApprovalModeBoundaryOnly
-	}
 	if err := cfg.Validate(); err != nil {
 		return nil, false, created, err
 	}
 	if err := ResolveConnectionCredentials(&cfg, dataRoot); err != nil {
 		return nil, false, created, err
 	}
-	if migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || builtInAgentMigrated || profilesMigrated || skillsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated || unstamped {
+	if connectionKeyMigrated || schemaMigrated || profilesMigrated || skillsMigrated || textSizeMigrated {
 		if err := cfg.Save(path); err != nil {
 			return nil, false, created, err
 		}
 	}
-	if approvalDefaultCorrected {
-		cfg.LoadNotices = append(cfg.LoadNotices, ApprovalDefaultMigrationNotice)
-	}
-	if idleTimeoutRemapped {
-		cfg.LoadNotices = append(cfg.LoadNotices, OperatorIdleTimeoutMigrationNotice)
-	}
-	if byteWindowMigrated && !unstamped {
-		cfg.LoadNotices = append(cfg.LoadNotices, ByteWindowMigrationNotice)
-	}
-	if modelRolesMigrated && !unstamped {
-		cfg.LoadNotices = append(cfg.LoadNotices, ModelRolesMigrationNotice)
-	}
-	if agentsMigrated && !unstamped {
-		cfg.LoadNotices = append(cfg.LoadNotices, AgentObjectsMigrationNotice)
-	}
-	// one line, naming the connections it cleared. It says which ones
-	// because the user's question was which ones.
-	if len(placeholderCleared) > 0 {
-		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
-	}
-	return &cfg, migrated || connectionKeyMigrated || schemaMigrated || connectionModelsMigrated || byteWindowMigrated || modelRolesMigrated || agentsMigrated || profilesMigrated || skillsMigrated || webSearchMigrated || len(placeholderCleared) > 0 || retiredDenyDomainsMigrated || textSizeMigrated, created, nil
+	return &cfg, connectionKeyMigrated || schemaMigrated || profilesMigrated || skillsMigrated || textSizeMigrated, created, nil
 }
 
 func cloneSkillSettings(source map[string]SkillSetting) map[string]SkillSetting {

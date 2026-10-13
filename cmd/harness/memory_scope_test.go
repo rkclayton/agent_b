@@ -75,7 +75,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if err != nil || strings.Contains(reply, "agent layer") {
 		t.Fatalf("a project fact from a chat working in a plan's repo: %q %v", reply, err)
 	}
-	if notes, _ := manager.Read(repo); !strings.Contains(notes, "the build uses make") {
+	if notes, _ := manager.Read(chatC.MemoryFolder()); !strings.Contains(notes, "the build uses make") {
 		t.Fatalf("the fact did not land in the plan's layer: %q", notes)
 	}
 	if agentNotes, _ := manager.ReadAgent(agentID); strings.Contains(agentNotes, "the build uses make") {

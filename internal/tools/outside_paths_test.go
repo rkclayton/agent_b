@@ -143,14 +143,15 @@ func TestOutsidePathsSeeClimbsFakeExecutablesAndEveryPath(t *testing.T) {
 	}
 }
 
-// Item 2fz, v1.0.0/W1: the routing guard classifies each literal outside path
-// by its statement. Directory changes and listings run; an existing outside
-// read raises the card; a missing one is a plain error; a change of directory
-// followed by a read in the same command is a read.
+// Item 2fz: navigation runs, while an outside read raises the card.
 func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	item := &session.Session{ID: "2fz", Workspace: root}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		source, want string
 	}{
@@ -160,8 +161,8 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 		{`Get-ChildItem -Path C:\Windows`, "run"},
 		{`dir C:\Windows\System32`, "run"},
 		{`pushd C:\Windows`, "run"},
-		{`cd C:\Users\someone\Documents\GitHub\eval-20260310-110411-1120 && C:\Go\bin\go.exe test ./logic -run ^TestTouchedPlanRoots$ -v`, "run"},
-		{`cd /d "acme" 2>nul; C:\Go\bin\go.exe test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`, "run"},
+		{`cd C:\Users\someone\Documents\GitHub\eval-20260310-110411-1120 && "` + executable + `" test ./logic -run ^TestTouchedPlanRoots$ -v`, "run"},
+		{`cd /d "acme" 2>nul; "` + executable + `" test ./logic -run ^TestRetentionPreservesNestedEvidence$ -v`, "run"},
 		{`type C:\Windows\win.ini`, "card"},
 		{`Get-Content -Path C:\Windows\win.ini`, "card"},
 		{`'C:\Windows\win.ini' | Get-Content`, "card"},

@@ -17,10 +17,6 @@ import (
 
 type windowsManager struct{ workDir string }
 
-// New keeps the cross-platform constructor stable. Windows no longer executes
-// the former PowerShell implementation, so the script path is intentionally ignored.
-func New(string) Manager { return NewNative() }
-
 func NewNative() Manager { return &windowsManager{workDir: os.TempDir()} }
 
 func (m *windowsManager) Status(ctx context.Context, account string) (Status, error) {

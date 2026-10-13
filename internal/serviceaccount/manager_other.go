@@ -6,7 +6,6 @@ import "context"
 
 type unsupportedManager struct{}
 
-func New(string) Manager { return unsupportedManager{} }
 func NewNative() Manager { return unsupportedManager{} }
 
 func (unsupportedManager) Status(context.Context, string) (Status, error) {

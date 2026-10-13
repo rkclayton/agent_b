@@ -65,8 +65,7 @@ added). The join begins with one global event whose type is `chat.list.snapshot`
 `{folders:[path...]}`. Later PC folder changes use one constant-size global event of type
 `chat.list.patch`: `{operation:"add",path}`, `{operation:"rename",path,value}`,
 `{operation:"delete",path}`, `{operation:"move",session_id,folder}`, or
-`{operation:"activity",session_id,last_activity}`. While `chat.open` mode is active, creation,
-rename, open/close and run-state changes also use `{operation:"upsert",session:{…list row…}}`. A rename's `value` is the
+`{operation:"activity",session_id,last_activity}`. While `chat.open` mode is active, creation, rename, open/close and run-state changes also use `{operation:"upsert",session:{…list row…}}`. A rename's `value` is the
 new full folder path. These list events use the existing `event` unit and do not alter a chat's
 projection cursor.
 

@@ -129,12 +129,6 @@ func Next(items []Item) (Item, bool) {
 	return Item{}, false
 }
 
-// Remaining reports whether any item is still waiting.
-func Remaining(items []Item) bool {
-	_, ok := Next(items)
-	return ok
-}
-
 // SetMarker rewrites one item's marker in place. It replaces only the first
 // bracket on that exact line, so nothing else in plan.md can move.
 func SetMarker(text string, item Item, marker string) (string, error) {

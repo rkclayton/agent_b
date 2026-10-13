@@ -3,8 +3,6 @@ package worker
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -200,16 +198,6 @@ func (d *Driver) goPlan(parent context.Context, s *session.Session, plan *Plan, 
 		PublishPlanDone(d.bus, s, "", summary.Done, summary.Stuck)
 	}
 	return summary, nil
-}
-
-func plannerNote(planDir, action string) error {
-	file, err := os.OpenFile(filepath.Join(planDir, "NOTES.md"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	_, err = fmt.Fprintln(file, "planner: "+oneLine(action))
-	return err
 }
 
 // Result is the last worker's outcome on a plan, and whether one has finished

@@ -2,8 +2,34 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { requireProductIcon, stagedToRemove, windowsPowerShellEnvironment, workerScratch, workerScratchRoot } from "./stage-candidate.mjs";
+
+const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function iconSizes(bytes) {
+  assert.equal(bytes.readUInt16LE(0), 0);
+  assert.equal(bytes.readUInt16LE(2), 1);
+  const count = bytes.readUInt16LE(4), sizes = [];
+  for (let index = 0; index < count; index++) {
+    const at = 6 + index * 16;
+    sizes.push(bytes[at] || 256);
+  }
+  return sizes;
+}
+
+test("the approved robot icon is copied whole and carries every Windows size 2u5", () => {
+  const design = fs.readFileSync(path.join(repository, "plan", "designs", "2u5", "Agent_b.ico"));
+  assert.deepEqual(iconSizes(design), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
+  assert.deepEqual(fs.readFileSync(path.join(repository, "cmd", "harness", "Agent_b.ico")), design);
+  assert.deepEqual(fs.readFileSync(path.join(repository, "web", "assets", "Agent_b.ico")), design);
+  const mark = Buffer.from(fs.readFileSync(path.join(repository, "plan", "designs", "2u5", "icon-windows.svg.b64"), "utf8"), "base64");
+  assert.deepEqual(fs.readFileSync(path.join(repository, "web", "assets", "mark.svg")), mark);
+  const installer = fs.readFileSync(path.join(repository, "scripts", "install-Agent_b.ps1"), "utf8");
+  assert.equal((installer.match(/ShellIconRefresh\]::SHChangeNotify/g) || []).length, 1);
+  assert.match(installer, /SHChangeNotify\(0x08000000, 0,/);
+});
 
 test("only the three newest staged versions are kept, by version and not by name", () => {
   const names = ["v0.69.0", "v0.70.0", "v0.69.1", "v0.9.0", "v0.10.0", "notes", "v1.0"];

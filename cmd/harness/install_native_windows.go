@@ -68,7 +68,10 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	if nativeTestMode && !strings.HasPrefix(strings.ToLower(plan.Registry), `hkcu:\software\agent_b-installer-test-`) {
 		return false, fmt.Errorf("NativeTestMode registry must be beneath HKCU:\\Software\\Agent_b-Installer-Test-*")
 	}
-	platform := nativeInstallPlatform{shortcut: writeShellLink, register: func(values map[string]any) error { return writeUninstallRegistration(plan.Registry, values) }, secure: secureInstallDirectory}
+	platform := nativeInstallPlatform{shortcut: writeShellLink, register: func(values map[string]any) error { return writeUninstallRegistration(plan.Registry, values) }, secure: secureInstallDirectory, refreshIcons: func() {
+		refreshShellIcons()
+		log.printf("Windows icon cache notified once.")
+	}}
 	policy := effectiveExecutionPolicy()
 	log.printf("execution policy: %s from %s", policy.Policy, policy.Scope)
 	policyPath := filepath.Join(data, "execution-policy.txt")
@@ -139,6 +142,10 @@ func secureInstallDirectory(path, sid string, _ bool) error {
 		return err
 	}
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+}
+func refreshShellIcons() {
+	shell32 := windows.NewLazySystemDLL("shell32.dll")
+	shell32.NewProc("SHChangeNotify").Call(0x08000000, 0, 0, 0)
 }
 func writeUninstallRegistration(path string, values map[string]any) error {
 	path = strings.TrimPrefix(strings.TrimPrefix(path, `HKCU:\`), `HKEY_CURRENT_USER\`)

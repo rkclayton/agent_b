@@ -526,11 +526,12 @@ func TestPerUserInstallIsNativeAndComplete2or(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	links, registration := 0, map[string]any{}
+	links, iconRefreshes, registration := 0, 0, map[string]any{}
 	plan := nativeInstallPlan{Source: source, Application: application, Data: data, Workspace: filepath.Join(data, "scratch"), StartMenu: filepath.Join(data, "start"), SendTo: filepath.Join(data, "sendto"), Version: "1.50.0", OperatorSID: "S-1-5-21-100"}
 	platform := nativeInstallPlatform{
 		shortcut: func(shortcutSpec) error { links++; return nil },
 		register: func(values map[string]any) error { registration = values; return nil },
+		refreshIcons: func() { iconRefreshes++ },
 	}
 	if err := installPerUserNative(plan, platform); err != nil {
 		t.Fatal(err)
@@ -540,8 +541,8 @@ func TestPerUserInstallIsNativeAndComplete2or(t *testing.T) {
 			t.Fatalf("missing %s: %v", relative, err)
 		}
 	}
-	if links != 2 || registration["DisplayVersion"] != "1.50.0" || registration["OperatorSid"] != plan.OperatorSID {
-		t.Fatalf("links=%d registration=%v", links, registration)
+	if links != 2 || iconRefreshes != 1 || registration["DisplayVersion"] != "1.50.0" || registration["OperatorSid"] != plan.OperatorSID {
+		t.Fatalf("links=%d icon refreshes=%d registration=%v", links, iconRefreshes, registration)
 	}
 	config, err := os.ReadFile(filepath.Join(data, "harness.json"))
 	var decoded map[string]any

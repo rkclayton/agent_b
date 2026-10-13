@@ -846,6 +846,15 @@ try {
     if (-not $shortcut.IconLocation.Equals("$expectedIcon,0", [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $expectedIcon -PathType Leaf)) {
         throw 'Shortcut icon does not resolve to the installed Agent_b product icon.'
     }
+    $approvedIcon = Join-Path $repositoryRoot 'plan\designs\2u5\Agent_b.ico'
+    if ((Get-FileHash -LiteralPath $expectedIcon -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $approvedIcon -Algorithm SHA256).Hash) {
+        throw 'The installed product icon is not the approved robot icon.'
+    }
+    $binaryText = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($expectedExe))
+    $iconText = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($approvedIcon))
+    if ($binaryText.IndexOf($iconText, [StringComparison]::Ordinal) -lt 0) {
+        throw 'The built program file does not contain the approved icon bytes.'
+    }
 # Item 2nk (d): EVERY ENTRY POINT IS LAUNCHED, AND NO CONSOLE WINDOW MAY APPEAR.
 #
 # The measurement at W0 found the cause in a place nobody had looked: the Start menu
@@ -1350,6 +1359,9 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     $env:AGENT_B_INSTALL_LOG = $upgradeTranscriptPath
     $env:AGENT_B_INSTALL_NO_PAUSE = '1'
     $env:AGENT_B_INSTALL_NO_BROWSER = '1'
+	$oldIcon = [IO.File]::ReadAllBytes($expectedIcon)
+	$oldIcon[$oldIcon.Length - 1] = $oldIcon[$oldIcon.Length - 1] -bxor 1
+	[IO.File]::WriteAllBytes($expectedIcon, $oldIcon)
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
@@ -1366,6 +1378,10 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     Write-Host 'PASS: an update from a build without agentb.exe installs it, signed and timestamped'
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
     $upgradeTranscript = $strictUtf8.GetString([IO.File]::ReadAllBytes($upgradeTranscriptPath))
+    if ((Get-FileHash -LiteralPath $expectedIcon -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path $repositoryRoot 'plan\designs\2u5\Agent_b.ico') -Algorithm SHA256).Hash -or
+        ([regex]::Matches($upgradeTranscript, 'Windows icon cache notified once\.')).Count -ne 1) {
+        throw 'The update did not restore the approved icon and notify the Windows shell exactly once.'
+    }
     if ($upgradeTranscript.Contains([char]0) -or $upgradeTranscript.Contains([char]0xfffd)) {
         throw 'Running-instance transcript is not one continuous UTF-8 encoding.'
     }

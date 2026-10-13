@@ -1041,6 +1041,21 @@ $estimatedKB = [int][Math]::Ceiling(((Get-ChildItem -LiteralPath $applicationRoo
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name EstimatedSize -Value $estimatedKB -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoModify -Value 1 -PropertyType DWord -Force
 $null = New-ItemProperty -Path $UninstallRegistryPath -Name NoRepair -Value 1 -PropertyType DWord -Force
+
+if (-not ('AgentB.ShellIconRefresh' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace AgentB {
+    public static class ShellIconRefresh {
+        [DllImport("shell32.dll")]
+        public static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+    }
+}
+'@
+}
+[AgentB.ShellIconRefresh]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+Write-Host 'Windows icon cache notified once.'
 foreach ($staleRegistration in $staleRegistrations) {
     if ($legacyMigrationRoot -and -not [string]::IsNullOrWhiteSpace($staleRegistration.InstallLocation) -and
         (Get-FullPath $staleRegistration.InstallLocation).Equals($legacyMigrationRoot, [StringComparison]::OrdinalIgnoreCase)) {

@@ -22,9 +22,10 @@ type shortcutSpec struct {
 }
 
 type nativeInstallPlatform struct {
-	shortcut func(shortcutSpec) error
-	register func(map[string]any) error
-	secure   func(string, string, bool) error
+	shortcut     func(shortcutSpec) error
+	register     func(map[string]any) error
+	secure       func(string, string, bool) error
+	refreshIcons func()
 }
 
 type executionPolicyState struct {
@@ -152,6 +153,9 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 		if err := platform.register(values); err != nil {
 			return fmt.Errorf("Installed apps registration: %w", err)
 		}
+	}
+	if platform.refreshIcons != nil {
+		platform.refreshIcons()
 	}
 	return nil
 }

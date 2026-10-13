@@ -93,22 +93,6 @@ func TestFetchCutsInsteadOfRefusingAndFittingResultIsIdentical2q9(t *testing.T) 
 	}
 }
 
-func TestLastResortCutsTheNewestCurrentResultToItsSavedLine2q9(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Defaults(root)
-	runner := &Runner{cfg: func() config.Config { return cfg }}
-	item := &session.Session{Workspace: root}
-	item.ReplaceMessages([]events.Message{{ID: "user", Role: "user", Content: "task"}, {ID: "old", Role: "tool", Content: strings.Repeat("a", 20000)}, {ID: "new", Role: "tool", Content: strings.Repeat("b", 20000)}})
-	item.SetRunPin("user")
-	if !runner.cutNewestRunningResult(context.Background(), item, &cfg.Connections[0]) {
-		t.Fatal("newest result was not cut")
-	}
-	messages := item.MessagesCopy()
-	if len(messages[1].Content) != 20000 || !strings.Contains(messages[2].Content, "full output saved") || len(messages[2].Content) > 300 {
-		t.Fatalf("old=%d newest=%q", len(messages[1].Content), messages[2].Content)
-	}
-}
-
 func TestSavedToolResultsHoldTwoFullSegments2q9(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, savedToolResultDir)
@@ -245,17 +229,5 @@ func TestFitReadFileWithNoRoomLeftIsNotReturnedWhole(t *testing.T) {
 	}
 	if unknown, _, _, _ := runner.fitWindowResult(context.Background(), item, connection, "read_file", args, original, true, nil, originalTokens, -1, false); unknown != original {
 		t.Fatal("an unknown window must pass the result through")
-	}
-}
-
-func TestContextExhaustedNamesTheReadsItKept(t *testing.T) {
-	item := &session.Session{ID: "s7"}
-	item.ReplaceMessages([]events.Message{
-		{ID: "m-1", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "a", Name: "read_file", Arguments: `{"path":"C:/work/rpg/game.js"}`}, {ID: "b", Name: "read_file", Arguments: `{"path":"map.js"}`}}},
-		{ID: "m-2", Role: "tool", Name: "read_file", ToolCallID: "a", Content: "bytes"},
-		{ID: "m-3", Role: "tool", Name: "read_file", ToolCallID: "b", Content: "[elided: read_file map.js, 900 tokens]", Elided: true},
-	})
-	if got := keptReadsSentence(item); got != "; reads kept verbatim: game.js" {
-		t.Fatalf("sentence=%q", got)
 	}
 }

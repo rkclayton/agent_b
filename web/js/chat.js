@@ -1210,7 +1210,9 @@ function noticeContent(session, entry, actionable) {
   else if (event.type === "compaction") content.textContent = data.trigger === "byte_limit_trim"
     ? `trimmed ${data.trimmed_results || 0} old result(s) · removed ${formatBytes(data.bytes_removed || 0)} · server size limit`
     : data.kind === "fresh"
-      ? `fresh context · ${data.before || 0} → ${data.after || 0} tokens · ${{ byte_limit: "server size limit", message_limit: "server message limit", server_window_refusal: "server refused the window" }[data.trigger] || "window full"} · earlier turns searchable`
+      ? data.fallback_reason
+        ? `Earlier work was put aside without a summary because of ${data.fallback_reason}; the record can be searched with chat_history.`
+        : `fresh context · ${data.before || 0} → ${data.after || 0} tokens · ${{ byte_limit: "server size limit", message_limit: "server message limit", server_window_refusal: "server refused the window", server_refusal: "server refused the request" }[data.trigger] || "window full"} · earlier turns searchable`
 	      : `compacted ${signed((data.after || 0) - (data.before || 0))} tokens · window full · older tool output and file-write bodies stubbed${data.connection_id ? ` via ${data.connection_id}` : ""}`;
   if (event.type === "compaction" && data.trigger !== "byte_limit_trim" && data.before === data.after) content.hidden = true;
   else if (event.type === "workspace.conflict") {

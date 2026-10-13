@@ -138,7 +138,7 @@ const fakeHandler = async (request, response) => {
   }
   if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(); }
   const user = latestUser(body);
-  if (user.includes("Summarize the work so far") || user.includes("Write one short hand-off for a fresh context")) {
+  if (user.includes("Summarize the work so far") || user.includes("Write one short hand-off for a fresh context") || user.includes("Write a compact hand-off using exactly these headings")) {
     const slowAccounting = (body.messages || []).some((message) => String(message.content || "").includes("acceptance: slow accounting"));
     response.setHeader("Content-Type", "application/json");
     const content = slowAccounting && user.includes("Summarize the work so far")
@@ -1157,14 +1157,14 @@ if (realModel) {
   assert.equal(chatGeometry.connection.x - panelGeometry.connection.x, 0);
 	// Agents holds the configurable half. web_search and delegate are deliberately
 	// file-only, but remain observable as the two additional Activity rows.
+  const activityCounts = await page.locator("#panel-tool-counters tr").count();
   assert.equal(await clickText(".settings-nav button", "Profiles"), true);
   await page.locator("#agents-panel").waitFor({ state: "visible" });
   const toolHalves = await page.evaluate(() => ({
     toggles: document.querySelectorAll('#panel-tools input[type="checkbox"]').length,
-    counts: document.querySelectorAll("#panel-tool-counters .panel-line").length,
     agent: !!document.querySelector("#panel-agent option"),
   }));
-	assert.ok(toolHalves.toggles >= 12 && toolHalves.counts === toolHalves.toggles + 2, JSON.stringify(toolHalves));
+	assert.ok(toolHalves.toggles >= 12 && activityCounts === toolHalves.toggles + 2, JSON.stringify({ ...toolHalves, counts: activityCounts }));
   assert.equal(toolHalves.agent, true);
   await page.getByTitle("Close").click();
   await page.locator('.chat-list-row.selected').hover();
@@ -1415,7 +1415,7 @@ if (realModel) {
   await captureWithMasks(page, join(baselineDirectory, "settings.png"));
 	assert.equal(await clickText(".settings-nav button", "Profiles"), true);
 	await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('active')`, "Profiles users drawn");
-	assert.deepEqual(await page.locator(".settings-content .settings-subhead").allInnerTexts(), ["Agent profiles", "Users", "Create user", "Skills", "Import from Hermes"]);
+	assert.deepEqual(await page.locator(".settings-content .settings-subhead").allInnerTexts(), ["Agent profiles"]);
 	assert.equal(await page.locator('#agents-panel [data-field="connection"], #agents-panel [data-field="model"]').count(), 0);
 	await captureWithMasks(page, join(baselineDirectory, "settings-profiles.png"));
 	if (!realModel) {

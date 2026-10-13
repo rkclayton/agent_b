@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"harness/internal/config"
-	contextmgr "harness/internal/context"
 	"harness/internal/delivery"
 	"harness/internal/events"
 	"harness/internal/llm"
@@ -21,52 +20,53 @@ import (
 )
 
 type runState struct {
-	r                                                                        *Runner
-	ctx                                                                      context.Context
-	s                                                                        *session.Session
-	runID                                                                    string
-	runCfg                                                                   config.RunConfig
-	wallExceeded                                                             atomic.Bool
-	cancelWall                                                               context.CancelFunc
-	wallTimer                                                                *time.Timer
-	produced                                                                 map[string]delivery.Source
-	workspaceBefore                                                          map[string]workspaceFileState
-	publishFinalBudget                                                       bool
-	turn, toolCallsUsed                                                      int
-	lengthSeen, malformedToolRetried, answeredThisRun                        bool
-	truncatedToolRetry, retryInstruction                                     string
-	refusedTurn                                                              int
-	readCutShort, accountingRepairTried, templateRetryTried, softLineChecked bool
-	compacted, compactionNoticeSent                                          bool
-	messageLimitRetried, windowRetried, windowSummaryRetried                 bool
-	byteLimitRetries, runMessageLimit, runByteLimit, runWindow               int
-	guards                                                                   *runGuards
-	currentReasoning                                                         map[string]bool
-	connection                                                               *config.Connection
-	windowSource                                                             string
-	contextStop                                                              func(int, string) (string, string, int)
-	client                                                                   *llm.Client
-	enabled                                                                  map[string]bool
-	request                                                                  llm.Request
-	budget                                                                   events.Budget
-	requestEvent                                                             events.Event
-	response                                                                 llm.Response
-	callErr                                                                  error
-	partial                                                                  string
-	answerBegan                                                              bool
-	callCtx                                                                  context.Context
-	answerStarted                                                            time.Time
-	toolCalls, durableToolCalls                                              []events.ToolCall
-	assistant                                                                events.Message
-	results                                                                  []runToolResult
-	toolNames                                                                []string
-	schemas                                                                  []any
-	body                                                                     map[string]any
-	system                                                                   string
-	budgetErr                                                                error
-	budgetBusy                                                               bool
-	pinReady, flightReady, wallReady, deliveryReady                          bool
-	shellReady, fileReady, budgetReady                                       bool
+	r                                                       *Runner
+	ctx                                                     context.Context
+	s                                                       *session.Session
+	runID                                                   string
+	runCfg                                                  config.RunConfig
+	wallExceeded                                            atomic.Bool
+	cancelWall                                              context.CancelFunc
+	wallTimer                                               *time.Timer
+	produced                                                map[string]delivery.Source
+	workspaceBefore                                         map[string]workspaceFileState
+	publishFinalBudget                                      bool
+	turn, toolCallsUsed                                     int
+	lengthSeen, malformedToolRetried, answeredThisRun       bool
+	truncatedToolRetry, retryInstruction                    string
+	refusalSentence                                         string
+	refusalAttempt                                          int
+	refusedTurn                                             int
+	readCutShort, accountingRepairTried, templateRetryTried bool
+	compacted                                               bool
+	runMessageLimit, runByteLimit, runWindow                int
+	guards                                                  *runGuards
+	currentReasoning                                        map[string]bool
+	connection                                              *config.Connection
+	windowSource                                            string
+	contextStop                                             func(int, string) (string, string, int)
+	client                                                  *llm.Client
+	enabled                                                 map[string]bool
+	request                                                 llm.Request
+	budget                                                  events.Budget
+	requestEvent                                            events.Event
+	response                                                llm.Response
+	callErr                                                 error
+	partial                                                 string
+	answerBegan                                             bool
+	callCtx                                                 context.Context
+	answerStarted                                           time.Time
+	toolCalls, durableToolCalls                             []events.ToolCall
+	assistant                                               events.Message
+	results                                                 []runToolResult
+	toolNames                                               []string
+	schemas                                                 []any
+	body                                                    map[string]any
+	system                                                  string
+	budgetErr                                               error
+	budgetBusy                                              bool
+	pinReady, flightReady, wallReady, deliveryReady         bool
+	shellReady, fileReady, budgetReady                      bool
 }
 
 type runToolResult struct {
@@ -289,9 +289,6 @@ func (x *runState) start() runOutcome {
 	x.refusedTurn, x.readCutShort = -1, false
 	x.accountingRepairTried = false
 	x.templateRetryTried = false
-	x.softLineChecked = false
-	x.messageLimitRetried, x.windowRetried, x.windowSummaryRetried = false, false, false
-	x.byteLimitRetries = 0
 	x.runMessageLimit, x.runByteLimit, x.runWindow = 0, 0, 0
 	x.guards = newRunGuards(x.runCfg.CycleWindow)
 	x.currentReasoning = map[string]bool{}
@@ -492,101 +489,27 @@ func (x *runState) buildRequest() runOutcome {
 	return runGoOnOutcome
 }
 func (x *runState) fitWindow() runOutcome {
-	r := x.r
-	if limit := x.connection.Capabilities.ObservedMessageLimit; limit > 0 && len(x.request.Messages) >= limit {
-		if r.compactForMessageLimit(x.ctx, x.s, x.runID, x.connection, limit) {
-			x.compacted = true
-			x.turn--
-			return runAgainOutcome
+	result := x.compactBeforeRequest()
+	if result.Stop != "" {
+		reason := "context_exhausted"
+		if x.refusalSentence != "" {
+			reason = "model_error"
 		}
+		return x.stop(reason, result.Stop, x.turn-1)
 	}
-	// both constraints bind. A body the token budget believes has room
-	// is still refused by a server that counts bytes, so the serialized request
-	// is measured against the limit this connection has been refused by, with
-	// headroom rather than to the byte.
-	if limit := x.connection.Capabilities.ObservedByteLimit; limit > 0 {
-		if size := llm.SerializedBytes(x.connection, x.request, true); size >= byteLimitTarget(limit) {
-			if r.compactForByteLimit(x.ctx, x.s, x.runID, x.connection, limit, x.request) {
-				x.compacted = true
-				x.turn--
-				return runAgainOutcome
-			}
+	if result.Changed {
+		x.compacted = true
+		if x.refusalSentence != "" {
+			x.refusalSentence = ""
 		}
+		x.turn--
+		return runAgainOutcome
 	}
-	// a run's first request gets the projection a later turn gets at
-	// its end, so a restored chat over the soft line compacts before it is
-	// sent instead of after it overflows.
-	if !x.softLineChecked {
-		x.softLineChecked = true
-		if x.budget.Ceiling > 0 && x.budget.UsedEst >= int(float64(x.budget.Ceiling)*r.cfg().Context.SoftPct) {
-			if r.compactAfterTurn(x.ctx, x.s, x.runID, x.turn-1, x.connection, x.currentReasoning) {
-				x.compacted = true
-				x.turn--
-				return runAgainOutcome
-			}
-			if x.budget.UsedEst >= int(float64(x.budget.Ceiling)*r.cfg().Context.SummaryPct) {
-				x.reportCompactionUnavailable()
-			}
-		}
-	}
-	guardUsed := guardedPromptTokens(x.budget)
-	floor := outputFloor(x.connection)
-	if guardUsed+floor > x.budget.NCtx {
-		if r.compactionExhausted(x.s.ID, x.runID) {
-			if r.cutNewestRunningResult(x.ctx, x.s, x.connection) {
-				x.turn--
-				return runAgainOutcome
-			}
-			return x.stop("context_exhausted", fmt.Sprintf("context cannot be reduced further: two compactions in a row freed less than a tenth of what they set out to; prompt count %d (%s) of ceiling %d", guardUsed, budgetCountSource(x.budget), x.budget.Ceiling), x.turn-1)
-		}
-		changed, exhausted := r.compactToFit(x.ctx, x.s, x.runID, x.connection, x.currentReasoning, x.budget)
-		if changed {
-			x.compacted = true
-			x.turn--
-			return runAgainOutcome
-		}
-		if exhausted {
-			x.reportCompactionUnavailable()
-			if r.cutNewestRunningResult(x.ctx, x.s, x.connection) {
-				x.turn--
-				return runAgainOutcome
-			}
-			// Everything outside the running turn is already compacted. The
-			// only thing left to cut is the task itself, and answering some
-			// older message instead is what 2eg was filed for.
-			return x.stop("context_exhausted", fmt.Sprintf("context cannot be reduced further: prompt count %d (%s) + output floor %d exceeds context window %d (%s)%s; nothing outside it is left to compact%s", guardUsed, budgetCountSource(x.budget), floor, x.budget.NCtx, x.windowSource, x.afterCompaction(), keptReadsSentence(x.s)), x.turn-1)
-		}
-		x.reportCompactionUnavailable()
-		return x.stop("context_ceiling", fmt.Sprintf("prompt count %d (%s) leaves less than the %d-token output floor in context window %d (%s)%s", guardUsed, budgetCountSource(x.budget), floor, x.budget.NCtx, x.windowSource, x.afterCompaction()), x.turn-1)
-	}
-	r.bus.Publish(x.requestEvent)
-	r.budget.MarkRequest(x.s.ID, x.budget.UsedEst)
+	x.r.bus.Publish(x.requestEvent)
+	x.r.budget.MarkRequest(x.s.ID, x.budget.UsedEst)
 	return runGoOnOutcome
 }
 
-func (x *runState) afterCompaction() string {
-	if x.compacted {
-		return " after compaction"
-	}
-	return ""
-}
-
-func (x *runState) reportCompactionUnavailable() {
-	if x.compactionNoticeSent {
-		return
-	}
-	reason := "the context summarizer could not produce a usable hand-off"
-	if _, _, ok := contextmgr.FoldSpan(x.s.MessagesCopy(), x.s.RunPin()); !ok {
-		reason = "no earlier context is available before this run's message"
-	} else if x.r.compactionBlocked(x.s.ID, x.runID, x.s.Snapshot().Run.Turn) {
-		reason = "the last compaction did not free enough room"
-	}
-	content := "Context could not be reduced because " + reason + "."
-	message := events.Message{ID: x.r.id("m"), Role: "harness", Category: "history", Content: content, Tokens: estimatedTokenCount(content), Estimated: true, Turn: x.turn}
-	x.s.Append(message)
-	x.r.bus.Publish(events.New(events.MessageAppended, x.s.ID, x.runID, map[string]any{"message": message}))
-	x.compactionNoticeSent = true
-}
 func (x *runState) callModel() runOutcome {
 	return x.callModelStep()
 }
@@ -698,44 +621,32 @@ func (x *runState) callModelStep() runOutcome {
 			// each pass makes the body genuinely smaller -- a cut or
 			// a summary -- so it is retried until nothing is left to cut; the
 			// bound only guards against a server whose limit keeps moving.
-			before := llm.SerializedBytes(x.connection, x.request, true)
-			if x.byteLimitRetries < maxByteLimitRetries && r.compactForByteLimit(x.ctx, x.s, x.runID, x.connection, limit, x.request) {
-				x.byteLimitRetries++
-				x.turn--
-				return runAgainOutcome
-			}
-			return x.stop("model_error", sentence+fmt.Sprintf("; the request was %d bytes and could not be made smaller", before)+largestRequestMessage(x.request), x.turn)
+			x.refusalSentence, x.refusalAttempt = sentence, x.refusalAttempt+1
+			x.turn--
+			return runAgainOutcome
 		}
 		if limit, sentence, matched := messageLimitError(x.callErr); matched {
 			x.runMessageLimit = limit
 			x.connection.Capabilities.ObservedMessageLimit = limit
 			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, fmt.Sprintf("The server refused this run above %d messages: %s. This limit applies only to this run.", limit, sentence))
-			if !x.messageLimitRetried {
-				x.messageLimitRetried = true
-				if r.compactForMessageLimit(x.ctx, x.s, x.runID, x.connection, limit) {
-					x.turn--
-					return runAgainOutcome
-				}
-			}
-			return x.stop("model_error", sentence, x.turn)
+			x.refusalSentence, x.refusalAttempt = sentence, x.refusalAttempt+1
+			x.turn--
+			return runAgainOutcome
 		}
 		// the window is the server's. A refusal that names the
 		// window it allows is learned, and the run compacts to it and retries
 		// once rather than stopping (s48: 33,849 tokens against 32,768).
-		if window, matched := windowLimitError(x.callErr); matched && !x.windowRetried {
-			x.windowRetried = true
+		if window, matched := windowLimitError(x.callErr); matched {
 			x.runWindow = window
 			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, fmt.Sprintf("The server refused this run above a %d-token window. This window applies only to this run.", window))
+			x.refusalSentence, x.refusalAttempt = x.callErr.Error(), x.refusalAttempt+1
 			x.turn--
 			return runAgainOutcome
 		}
-		if tokenWindowRefusal(x.callErr) && !x.windowSummaryRetried {
-			x.windowSummaryRetried = true
-			if r.summarize(withCompactionTrigger(x.ctx, "server_window_refusal"), x.s, x.runID, x.connection) {
-				r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, "The server refused this run for its context window without naming a number; earlier context was summarized for this run's retry.")
-				x.turn--
-				return runAgainOutcome
-			}
+		if tokenWindowRefusal(x.callErr) {
+			x.refusalSentence, x.refusalAttempt = x.callErr.Error(), x.refusalAttempt+1
+			x.turn--
+			return runAgainOutcome
 		}
 		if r.publishModelUnreachable(x.s, x.runID, x.connection, x.callErr) {
 			if !x.answerBegan && !x.answeredThisRun && r.returnMessage != nil && r.returnMessage(x.s, x.runID) {
@@ -1047,7 +958,6 @@ func (x *runState) endTurn() runOutcome {
 	r.stage(x.s, x.runID, x.turn, "compact", func() {
 		// after a refused window the elide runs even on a cold
 		// prefill, so a second refusal means nothing elidable was left.
-		r.compactAfterTurnForcing(x.ctx, x.s, x.runID, x.turn, x.connection, x.currentReasoning, x.refusedTurn == x.turn)
 	})
 	return runGoOnOutcome
 }

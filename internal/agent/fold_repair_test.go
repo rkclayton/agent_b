@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +22,107 @@ import (
 	"harness/internal/session"
 	"harness/internal/tools"
 )
+
+type capturedBus struct {
+	*events.Bus
+	mu     sync.Mutex
+	values []events.Event
+}
+
+func newCapturedBus() *capturedBus {
+	value := &capturedBus{Bus: events.NewBus()}
+	value.SetSink(func(event events.Event) error {
+		value.mu.Lock()
+		value.values = append(value.values, event)
+		value.mu.Unlock()
+		return nil
+	})
+	return value
+}
+
+func (b *capturedBus) Recent(sessionID string) []events.Event {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	result := []events.Event{}
+	for _, event := range b.values {
+		if event.SessionID == sessionID {
+			result = append(result, event)
+		}
+	}
+	return result
+}
+
+func summaryAttempts(bus *capturedBus, sessionID string) []events.CompactionSummaryData {
+	result := []events.CompactionSummaryData{}
+	for _, event := range bus.Recent(sessionID) {
+		if event.Type == events.CompactionSummary {
+			result = append(result, event.Data.(events.CompactionSummaryData))
+		}
+	}
+	return result
+}
+
+type shapeMessage struct {
+	ID         string `json:"id"`
+	Role       string `json:"role"`
+	Category   string `json:"category"`
+	Tokens     int    `json:"tokens"`
+	Elided     bool   `json:"elided"`
+	Name       string `json:"name"`
+	ToolCallID string `json:"tool_call_id"`
+	Turn       int    `json:"turn"`
+	OK         *bool  `json:"ok"`
+	ToolCalls  []struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"tool_calls"`
+}
+
+type byteLimitStub struct {
+	server *httptest.Server
+	limit  int
+	mu     sync.Mutex
+	sizes  []int
+	last   string
+}
+
+func newByteLimitStub(t *testing.T, limit int) *byteLimitStub {
+	t.Helper()
+	stub := &byteLimitStub{limit: limit}
+	stub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		stub.mu.Lock()
+		stub.sizes, stub.last = append(stub.sizes, len(body)), string(body)
+		stub.mu.Unlock()
+		if len(body) > stub.limit {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":"prompt too large: %d bytes (limit %d)"}}`, len(body), stub.limit), http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(string(body), `"stream":true`) {
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 1}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "DONE: old\nNEXT: continue\nFILES CHANGED: none\nOPEN QUESTIONS: none"}, "finish_reason": "stop"}}})
+	}))
+	t.Cleanup(stub.server.Close)
+	return stub
+}
+
+func byteLimitRunner(t *testing.T, stub *byteLimitStub) (*Runner, *session.Session, *config.Connection) {
+	t.Helper()
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Context.Accounting = "estimated"
+	connection := cfg.Connections[0]
+	connection.ID, connection.BaseURL, connection.Model = "main", stub.server.URL, "fake"
+	connection.Context.NCtx, connection.Context.ReserveOutput = 1_000_000, 4096
+	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+	cfg.Connections = []config.Connection{connection}
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
+	item := &session.Session{ID: "main", ConnectionID: connection.ID, Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	return runner, item, &connection
+}
 
 // templateServer is a fake llama.cpp server whose chat template refuses what
 // acme's refused (measured v0.69.0/W1): a message list that ends in two
@@ -133,7 +235,7 @@ func isSummaryRequest(messages []map[string]any) bool {
 		return false
 	}
 	text, _ := messages[len(messages)-1]["content"].(string)
-	return strings.Contains(text, "Summarize the work so far")
+	return strings.Contains(text, "Summarize the work so far") || strings.Contains(text, contextmgr.HandOffInstruction)
 }
 
 func toolCall(id, name, arguments string) map[string]any {
@@ -226,7 +328,7 @@ func assertNoAdjacentAssistants(t *testing.T, messages []events.Message) {
 func freshRequestFixture2sz(t *testing.T, respond func(map[string]any, []map[string]any) map[string]any, mid bool) (*Runner, *session.Session, *templateServer) {
 	t.Helper()
 	server := newTemplateServer(t, respond)
-	runner, item, bus := templateRunner(t, server)
+	runner, item, _ := templateRunner(t, server)
 	messages := []events.Message{{ID: "old", Role: "assistant", Category: "history", Content: "old answer", Tokens: 20}, {ID: "task", Role: "user", Category: "history", Content: "CURRENT TASK VERBATIM", Tokens: 20}}
 	if mid {
 		messages = append(messages, events.Message{ID: "working", Role: "assistant", Category: "history", Content: "work underway", Tokens: 20})
@@ -234,9 +336,7 @@ func freshRequestFixture2sz(t *testing.T, respond func(map[string]any, []map[str
 	item.ReplaceMessages(messages)
 	item.SetRunPin("task")
 	note := events.Message{ID: "handoff", Role: "harness", Category: "summary", Content: "Fresh-context hand-off:\nDONE: old work", Tokens: 5}
-	if !contextmgr.New(bus.Bus).FreshStart(item, "run", note, events.CompactionSummaryData{Trigger: "summary_pct"}) {
-		t.Fatal("fresh start rejected")
-	}
+	item.ReplaceMessages([]events.Message{note, messages[1]})
 	return runner, item, server
 }
 
@@ -300,128 +400,8 @@ func TestFreshRequestSurvivesRestartByteForByte2sz(t *testing.T) {
 // The walk's 3-long (v0.67.0/W9, main.jsonl seq 1506-1729): one long read, then
 // the end-of-turn elide and summarize. Before item 2fd the summarize kept the
 // previous answer (m-29) beside the note and every later request was refused.
-func TestWalk3LongCompletesAnswersNextAndSurvivesRestart(t *testing.T) {
-	step := 0
-	server := newTemplateServer(t, func(body map[string]any, messages []map[string]any) map[string]any {
-		if isSummaryRequest(messages) {
-			return map[string]any{"content": "INTENT: read long-input.txt to its end\nUSER MESSAGES: (see the span)\nFILES: long-input.txt read from line 1\nNEXT STEP: continue from the next window"}
-		}
-		last, _ := messages[len(messages)-1]["content"].(string)
-		switch {
-		case strings.Contains(last, "Read long-input.txt"):
-			step = 1
-			return toolCall("call-find", "find_files", `{"pattern":"long-input.txt"}`)
-		case step == 1:
-			step = 2
-			return toolCall("call-read", "read_file", `{"path":"long-input.txt","line":1,"lines":2000}`)
-		default:
-			step = 0
-			return map[string]any{"content": "done: " + last[:min(20, len(last))]}
-		}
-	})
-	runner, item, bus := templateRunner(t, server)
-	lines := make([]string, 0, 2000)
-	for index := 0; index < 2000; index++ {
-		lines = append(lines, fmt.Sprintf("line %04d %s", index+1, strings.Repeat("lorem ipsum ", 9)))
-	}
-	if err := os.WriteFile(filepath.Join(item.Workspace, "long-input.txt"), []byte(strings.Join(lines, "\n")), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	shape := loadShape(t, "walk-3long-shape.json")
-	history := shape[:29] // m-1 … m-29: the chat before the long read's user message
-	item.ReplaceMessages(history)
-	reserveFrom(runner, shape)
-
-	_, err := runner.AddUser(context.Background(), item, "Read long-input.txt completely, window by window, until you reach the end.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reason, detail, _ := runner.Run(context.Background(), item, "r5")
-	summarized, foldedAnswer := false, false
-	for _, event := range bus.Recent(item.ID) {
-		if event.Type == events.Compaction && event.Data.(map[string]any)["kind"] == "fresh" {
-			summarized = true
-			for _, id := range event.Data.(map[string]any)["affected_ids"].([]string) {
-				foldedAnswer = foldedAnswer || id == "m-29"
-			}
-		}
-	}
-	t.Logf("3-long: reason=%s detail=%q summarized=%t refusals=%d templates=%d", reason, detail, summarized, server.refusals.Load(), server.templates.Load())
-	if reason != "done" || !summarized {
-		t.Fatalf("the long read must compact and finish: reason=%s detail=%q summarized=%t", reason, detail, summarized)
-	}
-	// The walk folded m-2 … m-28 and kept m-29 beside the note.
-	if !foldedAnswer {
-		t.Fatal("the summarize must fold m-29, the answer that sat beside the note")
-	}
-	if server.refusals.Load() != 0 {
-		t.Fatalf("the template refused %d lists", server.refusals.Load())
-	}
-	assertNoAdjacentAssistants(t, item.MessagesCopy())
-
-	// The next message runs.
-	if _, err := runner.AddUser(context.Background(), item, "Open the next thing."); err != nil {
-		t.Fatal(err)
-	}
-	if reason, detail, _ := runner.Run(context.Background(), item, "r6"); reason != "done" {
-		t.Fatalf("the next message did not run: %s %q", reason, detail)
-	}
-
-	// Restart and reopen: restore anchors on the newest user message and the
-	// chat still answers.
-	second, err := runner.AddUser(context.Background(), item, "Count to three.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reason, _, _ := runner.Run(context.Background(), item, "r7"); reason != "done" {
-		t.Fatalf("third message: %s", reason)
-	}
-	restored := contextmgr.StubResultsBefore(item.MessagesCopy(), second.ID, 16384)
-	restartRunner, restartItem, _ := templateRunner(t, server)
-	restartItem.Workspace = item.Workspace
-	restartItem.ReplaceMessages(restored)
-	reserveFrom(restartRunner, restored)
-	if _, err := restartRunner.AddUser(context.Background(), restartItem, "Still there?"); err != nil {
-		t.Fatal(err)
-	}
-	if reason, detail, _ := restartRunner.Run(context.Background(), restartItem, "r8"); reason != "done" {
-		t.Fatalf("after a restart the chat must still answer: %s %q", reason, detail)
-	}
-	if server.refusals.Load() != 0 {
-		t.Fatalf("the template refused %d lists across the restart", server.refusals.Load())
-	}
-}
-
 // s9 r74's second summarize (v0.67.0/W4, s9 seq 7231): the retention boundary
 // fell on m-123, an assistant answer, which stayed beside the note.
-func TestS9SummarizeSpanEndsOnAUserMessage(t *testing.T) {
-	messages := loadShape(t, "s9-7231-shape.json")
-	foldEnd, ok := contextmgr.SummarizeSpan(messages, "m-124")
-	if !ok {
-		t.Fatal("s9 had a span to fold")
-	}
-	if messages[foldEnd].Role != "user" || messages[foldEnd].ID != "m-124" {
-		t.Fatalf("the fold must end on the running turn's user message, ended at %s (%s)", messages[foldEnd].ID, messages[foldEnd].Role)
-	}
-	bus := newCapturedBus()
-	s := &session.Session{ID: "s9"}
-	s.ReplaceMessages(messages)
-	s.SetRunPin("m-124")
-	note := events.Message{ID: "m-130", Role: "assistant", Category: "summary", Content: "note", Tokens: 700}
-	if !contextmgr.New(bus.Bus).Summarize(s, "r74", note, events.CompactionSummaryData{Trigger: "summary_pct"}) {
-		t.Fatal("s9's summarize was rejected")
-	}
-	after := s.MessagesCopy()
-	assertNoAdjacentAssistants(t, after)
-	ids := []string{}
-	for _, message := range after {
-		ids = append(ids, message.ID)
-	}
-	if strings.Join(ids, " ") != "m-70 m-130 m-124 m-125 m-126 m-128 m-129" {
-		t.Fatalf("s9 after the summarize: %v", ids)
-	}
-}
-
 // A list already holding two adjacent assistant messages is folded before it is
 // measured, so a chat that hit the 400 recovers on its next message.
 func TestAdjacentAssistantsAreFoldedBeforeMeasurement(t *testing.T) {

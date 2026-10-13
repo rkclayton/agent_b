@@ -570,11 +570,15 @@ test("fresh context leaves every transcript entry visible and says how much and 
         { type: "user", key: "message:u1", text: "FIRST VISIBLE TURN" },
         { type: "agent", key: "turn:r1:1", text: "SECOND VISIBLE TURN", done: true },
         { type: "notice", key: "event:3", run_id: "r1", event: { seq: 3, type: "compaction", session_id: id, run_id: "r1", data: { kind: "fresh", trigger: "summary_pct", before: 1000, after: 100 } } },
+        ...Array.from({length:18},(_,index)=>({type:index%2?"agent":"user",key:`space-a:${index}`,text:`visible retained row ${index} ${"work ".repeat(12)}`,done:true})),
+        { type: "notice", key: "event:22", run_id: "r2", event: { seq: 22, type: "compaction", session_id: id, run_id: "r2", data: { kind: "fresh", trigger: "summary_pct", fallback_reason: "error", before: 1100, after: 120 } } },
+        ...Array.from({length:18},(_,index)=>({type:index%2?"agent":"user",key:`space-b:${index}`,text:`visible later row ${index} ${"work ".repeat(12)}`,done:true})),
+        { type: "notice", key: "event:41", run_id: "r3", event: { seq: 41, type: "run.stopped", session_id: id, run_id: "r3", data: { reason: "context_exhausted", detail: "newest result is 17000 tokens and does not fit the 16000-token window" } } },
       ], runnable: true, closed: false } },
     connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {},
   };
   for (const width of [304, 1280]) {
-    const context = await browser.newContext({ viewport: { width, height: 700 } });
+    const context = await browser.newContext({ viewport: { width, height: width === 1280 ? 860 : 700 } });
     await context.addInitScript(({ snapshot, id }) => {
       sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: id, surface: { kind: "chat", key: id } }));
       localStorage.setItem("agentb.chat-list", JSON.stringify({ width: 240, hidden: true }));
@@ -598,12 +602,26 @@ test("fresh context leaves every transcript entry visible and says how much and 
     await expect(log).toContainText("FIRST VISIBLE TURN");
     await expect(log).toContainText("SECOND VISIBLE TURN");
     const line = "fresh context · 1000 → 100 tokens · window full · earlier turns searchable";
+    const fallback = "Earlier work was put aside without a summary because of error; the record can be searched with chat_history.";
+    const stopped = "stopped: context exhausted · newest result is 17000 tokens and does not fit the 16000-token window";
     await expect(log).toContainText(line);
+    await expect(log).toContainText(fallback);
+    for (const fold of await page.locator(".chat-step-summary:visible").all()) {
+      if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
+    }
+    await expect(log).toContainText(stopped);
     await expect(log).not.toContainText("Fresh-context hand-off:");
     const notice = log.getByText(line, { exact: true });
     await expect(notice).toBeVisible();
     expect(await notice.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: `test-results/2sz-fresh-${width}.png`, fullPage: true });
+    if (width === 1280) {
+      await mkdir("logs/evidence/rel-1.62.103/captures", {recursive:true});
+      for (const [name,text] of [["compaction-line",line],["compaction-fallback",fallback],["compaction-too-big",stopped]]) {
+        await log.getByText(text,{exact:true}).scrollIntoViewIfNeeded();
+        await page.screenshot({path:`logs/evidence/rel-1.62.103/captures/${name}-1280x860.png`,animations:"disabled"});
+      }
+    }
     await context.close();
   }
 });

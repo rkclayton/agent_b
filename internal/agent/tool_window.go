@@ -117,43 +117,6 @@ func cutResultToTokens(content, note string, limit int, count func(string) int) 
 	return best
 }
 
-// cutNewestRunningResult is the last resort after ordinary compaction has left
-// only the current turn. One newest result becomes its saved-file line, so the
-// next budget pass can continue cutting only as far as necessary.
-func (r *Runner) cutNewestRunningResult(ctx context.Context, s *session.Session, connection *config.Connection) bool {
-	messages := s.MessagesCopy()
-	current := runningTurnIDs(messages, s.RunPin())
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := &messages[index]
-		if message.Role != "tool" || message.Elided || !current[message.ID] {
-			continue
-		}
-		note := ""
-		for _, line := range strings.Split(message.Content, "\n") {
-			if strings.HasPrefix(line, "[tool result cut:") {
-				note = line
-				break
-			}
-		}
-		if note == message.Content {
-			continue
-		}
-		if note == "" {
-			path, offset, err := r.saveToolResult(s, message.Content)
-			if err != nil {
-				note = fmt.Sprintf("[tool result cut: %d bytes; saving the full output failed: %v]", len(message.Content), err)
-			} else {
-				note = fmt.Sprintf("[tool result cut: %d bytes; full output saved at %s; read_file path=%s offset=%d to page it]", len(message.Content), path, path, offset)
-			}
-		}
-		message.Content = note
-		message.Tokens, message.Estimated = r.count(ctx, connection, note)
-		s.ReplaceMessages(messages)
-		return true
-	}
-	return false
-}
-
 // RESULTS ARE CAPPED AT INGEST. Once a connection has refused a
 // request by its size, no single tool result may take more than a quarter of that
 // limit. A windowed tool is answered by the existing retry-smaller path, so the
@@ -182,8 +145,10 @@ func (r *Runner) byteCapResult(name string, args map[string]any, content string,
 		capped["retry_offset"], capped["retry_limit"] = offset, retryLimit
 		return fmt.Sprintf("error: %s returned %d bytes, more than a quarter of this server's %d-byte request limit. Retry %s with the same offset=%d and limit no greater than %d. Do not advance to next_offset until this window is read.", name, len(content), limit, name, offset, retryLimit), false, capped
 	}
-	trimLargest([]*string{&content}, len(content)-capBytes, limit)
-	return content, ok, capped
+	keep := max(0, capBytes-200)
+	head := strings.ToValidUTF8(content[:keep*2/3], "")
+	tail := strings.ToValidUTF8(content[len(content)-(keep-keep*2/3):], "")
+	return head + fmt.Sprintf("\n\n[tool result cut to fit the server's %d-byte request limit]\n\n", limit) + tail, ok, capped
 }
 
 // readCutShortResult ends a read whose next window cannot fit the context a

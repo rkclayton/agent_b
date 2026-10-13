@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -61,9 +60,7 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 	connectionID := strings.TrimSpace(r.URL.Query().Get("connection_id"))
 	switch r.Method {
 	case http.MethodGet:
-		s.measureMu.RLock()
-		state, ok := s.measurements[connectionID]
-		s.measureMu.RUnlock()
+		state, ok := s.pageMeasurements.measurement(connectionID)
 		if !ok {
 			state = measureState{Text: "unmeasured"}
 		}
@@ -81,33 +78,22 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "connection not found", "connection_id")
 			return
 		}
-		s.measureMu.Lock()
-		if s.measurements[connectionID].Running {
-			s.measureMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		state, started := s.pageMeasurements.start(connectionID, cancel, len(measurementBriefs))
+		if !started {
+			cancel()
 			writeError(w, http.StatusConflict, "this connection is already being measured", "connection_id")
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		s.measurements[connectionID] = measureState{Running: true, Text: "brief 0 of " + strconv.Itoa(len(measurementBriefs)), Total: len(measurementBriefs)}
-		s.measureCancels[connectionID] = cancel
-		s.measureMu.Unlock()
 		go s.runEvaluation(ctx, connectionID, *connection)
-		writeJSON(w, http.StatusAccepted, s.measurements[connectionID])
+		writeJSON(w, http.StatusAccepted, state)
 	case http.MethodDelete:
 		if connectionID == "" {
 			writeError(w, http.StatusBadRequest, "connection_id is required", "connection_id")
 			return
 		}
-		s.measureMu.Lock()
-		cancel := s.measureCancels[connectionID]
-		state := s.measurements[connectionID]
-		if cancel != nil && state.Running {
-			state.Text = fmt.Sprintf("stopping after brief %d of %d", state.Processed, state.Total)
-			s.measurements[connectionID] = state
-			cancel()
-		}
-		s.measureMu.Unlock()
-		if cancel == nil || !state.Running {
+		state, stopped := s.pageMeasurements.stop(connectionID)
+		if !stopped {
 			writeError(w, http.StatusConflict, "this connection is not being measured", "connection_id")
 			return
 		}
@@ -120,9 +106,7 @@ func (s *Server) measureConnection(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runEvaluation(ctx context.Context, connectionID string, connection config.Connection) {
 	caps, findings, err := probe.Eval(ctx, &connection)
 	if err != nil {
-		s.measureMu.Lock()
-		delete(s.measureCancels, connectionID)
-		s.measureMu.Unlock()
+		s.pageMeasurements.clearCancel(connectionID)
 		s.setMeasurement(connectionID, measureState{Error: err.Error(), Text: "Eval failed during capability checks"})
 		return
 	}
@@ -150,9 +134,7 @@ func (s *Server) runEvaluation(ctx context.Context, connectionID string, connect
 func (s *Server) runMeasurement(ctx context.Context, connectionID string, connection config.Connection) {
 	started := time.Now()
 	defer func() {
-		s.measureMu.Lock()
-		delete(s.measureCancels, connectionID)
-		s.measureMu.Unlock()
+		s.pageMeasurements.clearCancel(connectionID)
 	}()
 
 	measured, runErr := s.measureArm(ctx, connectionID, connection)
@@ -272,9 +254,7 @@ func validMeasurementCall(calls []llm.ToolCall, brief string) bool {
 }
 
 func (s *Server) setMeasurement(connectionID string, state measureState) {
-	s.measureMu.Lock()
-	s.measurements[connectionID] = state
-	s.measureMu.Unlock()
+	s.pageMeasurements.set(connectionID, state)
 }
 
 func (s *Server) storeMeasurement(connectionID string, result *config.Measurement) error {

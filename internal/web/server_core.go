@@ -80,30 +80,28 @@ type Server struct {
 	mutationToken      string
 	// Item 2mx: submissions already answered, so a phone's retry does not start a
 	// second run.
-	submissions     *idempotentSubmissions
-	operatorState   operatorState
-	browserSession  string
-	openFolder      func(string) error
-	openFile        func(string) error
-	attachmentState attachmentState
-	detectLocal     func(context.Context, string) (any, error)
-	workspaceState  *workspaceinfo.Manager
-	memoryState     *memory.Manager
-	reflection      *reflectionState
-	proposals       *proposalOffers
-	speech          speechProbe
-	speechCommand   func(context.Context, string, ...string) *exec.Cmd
-	modelInstaller  *modelinstall.Manager
-	measureMu       sync.RWMutex
-	measurements    map[string]measureState
-	measureCancels  map[string]context.CancelFunc
-	statsState      *stats.Manager
-	operatorFiles   *operatorfiles.Manager
-	profiles        *profiles.Manager
-	profileChanged  func(string) error
-	fontState       fontState
-	probeMu         sync.Mutex
-	probeCancels    map[string]*probeRun
+	submissions      *idempotentSubmissions
+	operatorState    operatorState
+	browserSession   string
+	openFolder       func(string) error
+	openFile         func(string) error
+	attachmentState  attachmentState
+	detectLocal      func(context.Context, string) (any, error)
+	workspaceState   *workspaceinfo.Manager
+	memoryState      *memory.Manager
+	reflection       *reflectionState
+	proposals        *proposalOffers
+	speech           speechProbe
+	speechCommand    func(context.Context, string, ...string) *exec.Cmd
+	modelInstaller   *modelinstall.Manager
+	pageMeasurements pageMeasurementState
+	statsState       *stats.Manager
+	operatorFiles    *operatorfiles.Manager
+	profiles         *profiles.Manager
+	profileChanged   func(string) error
+	fontState        fontState
+	probeMu          sync.Mutex
+	probeCancels     map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which
 	// is where it stands on the backoff ladder.
 	probeRetries              map[string]int
@@ -113,10 +111,6 @@ type Server struct {
 	healthMu                  sync.Mutex
 	health                    map[string]connectionHealth
 	healthEvery               time.Duration
-	navigationMu              sync.Mutex
-	requestWatchdogAfter      time.Duration
-	requestWatchdogLog        func(string)
-	navigationIDs             map[string]time.Time
 	agentConnectionMu         sync.Mutex
 	agentConnections          map[string]pendingAgentConnection
 	pendingSessionAgents      map[string]string
@@ -162,12 +156,10 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		reachabilityAfter: func(duration time.Duration, fn func()) operatorTimer {
 			return time.AfterFunc(duration, fn)
 		},
-		navigationIDs:             map[string]time.Time{},
+		pageMeasurements:          newPageMeasurementState(),
 		agentConnections:          map[string]pendingAgentConnection{},
 		pendingSessionAgents:      map[string]string{},
 		pendingSessionConnections: map[string]string{},
-		measurements:              map[string]measureState{},
-		measureCancels:            map[string]context.CancelFunc{},
 		attachmentState:           newAttachmentState(),
 		detectLocal: func(ctx context.Context, account string) (any, error) {
 			return detection.Local(ctx, filepath.Join(roots.Application, "scripts", "detect-local-capabilities.ps1"), account)
@@ -422,11 +414,10 @@ func (s *Server) requestWatchdog(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		after := s.requestWatchdogAfter
+		after, record := s.pageMeasurements.watchdog()
 		if after <= 0 {
 			after = appRequestWatchdogDelay
 		}
-		record := s.requestWatchdogLog
 		if record == nil {
 			record = func(value string) { log.Print(value) }
 		}

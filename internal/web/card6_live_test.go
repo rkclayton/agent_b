@@ -34,7 +34,7 @@ func TestCard6MeasurementAgainstALiveModel(t *testing.T) {
 
 	server.runMeasurement(context.Background(), "live", cfg.Connections[0])
 
-	state := server.measurements["live"]
+	state := server.pageMeasurements.measurements["live"]
 	if state.Result == nil {
 		t.Fatalf("no result from a live run: %+v", state)
 	}

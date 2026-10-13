@@ -49,7 +49,7 @@ func TestMeasurementRunsTenBriefsAndPersistsProvenance(t *testing.T) {
 	path := filepath.Join(root, "harness.json")
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runEvaluation(context.Background(), "measured", cfg.Connections[0])
-	state := server.measurements["measured"]
+	state := server.pageMeasurements.measurements["measured"]
 	if state.Error != "" || state.Result == nil || state.Result.Total != 10 || state.Result.BriefsRun != 10 || state.Result.Provenance != measurementProvenance || state.Result.Trials != 1 {
 		t.Fatalf("state=%+v", state)
 	}
@@ -93,8 +93,8 @@ func TestStoppingMeasurementCancelsCurrentBriefAndStoresPartialCount(t *testing.
 	path := filepath.Join(root, "harness.json")
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	server.measurements[connection.ID] = measureState{Running: true, Text: "Starting ten briefs"}
-	server.measureCancels[connection.ID] = cancel
+	server.pageMeasurements.measurements[connection.ID] = measureState{Running: true, Text: "Starting ten briefs"}
+	server.pageMeasurements.cancels[connection.ID] = cancel
 	go server.runMeasurement(ctx, connection.ID, connection)
 	select {
 	case <-reached:
@@ -109,9 +109,9 @@ func TestStoppingMeasurementCancelsCurrentBriefAndStoresPartialCount(t *testing.
 	close(release)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		server.measureMu.RLock()
-		state := server.measurements[connection.ID]
-		server.measureMu.RUnlock()
+		server.pageMeasurements.mu.RLock()
+		state := server.pageMeasurements.measurements[connection.ID]
+		server.pageMeasurements.mu.RUnlock()
 		if !state.Running {
 			if state.Error != "" || state.Result == nil || !state.Result.Stopped || state.Result.BriefsRun != 1 || state.Result.Total != 10 {
 				t.Fatalf("stopped state=%+v", state)
@@ -182,7 +182,7 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runMeasurement(context.Background(), "measured", cfg.Connections[0])
 
-	result := server.measurements["measured"].Result
+	result := server.pageMeasurements.measurements["measured"].Result
 	if result == nil || result.Decision != nil || result.ReasoningOn != nil || result.ReasoningOff != nil || result.Passed != 10 || result.Trials != 1 {
 		t.Fatalf("measurement was not one thinking-free run: %+v", result)
 	}
@@ -231,7 +231,7 @@ func TestAConnectionThatCannotExpressTheSwitchIsNotMeasured2ih(t *testing.T) {
 	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runMeasurement(context.Background(), "plain", cfg.Connections[0])
 
-	result := server.measurements["plain"].Result
+	result := server.pageMeasurements.measurements["plain"].Result
 	if result == nil || result.ReasoningOn != nil || result.ReasoningOff != nil || result.Decision != nil {
 		t.Fatalf("measurement retained reasoning arms: %+v", result)
 	}

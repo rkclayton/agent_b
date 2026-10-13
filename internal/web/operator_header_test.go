@@ -73,8 +73,8 @@ func TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
 	server := New(&cfg, filepath.Join(root, "harness.json"), filepath.Join("..", "..", "web"), RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
-	server.requestWatchdogAfter = 30 * time.Millisecond
-	server.requestWatchdogLog = func(value string) { recorded.WriteString(value) }
+	server.pageMeasurements.requestWatchdogAfter = 30 * time.Millisecond
+	server.pageMeasurements.requestWatchdogLog = func(value string) { recorded.WriteString(value) }
 
 	for _, path := range []string{"/api/config", "/api/events", "/api/speech/stream"} {
 		recorded.Reset()

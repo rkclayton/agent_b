@@ -212,17 +212,5 @@ func validNavigationSuppression(body navigationSuppressionBody) bool {
 }
 
 func (s *Server) claimNavigationID(id string) bool {
-	s.navigationMu.Lock()
-	defer s.navigationMu.Unlock()
-	now := time.Now()
-	for key, seen := range s.navigationIDs {
-		if now.Sub(seen) > 24*time.Hour {
-			delete(s.navigationIDs, key)
-		}
-	}
-	if _, exists := s.navigationIDs[id]; exists {
-		return false
-	}
-	s.navigationIDs[id] = now
-	return true
+	return s.pageMeasurements.claimNavigationID(id)
 }

@@ -46,9 +46,9 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if !chatA.Scratch {
 		t.Fatalf("a new chat must be a scratch chat: %s", chatA.Workspace)
 	}
-	reply, err := remember.Call(context.Background(), chatA, map[string]any{"note": "the walk project's mascot is a heron named Quill", "scope": "repository"})
-	if err != nil || !strings.Contains(reply, "agent layer") {
-		t.Fatalf("a fact from a chat with no project in scope goes to the agent layer, and says so: %q %v", reply, err)
+	reply, err := remember.Call(context.Background(), chatA, map[string]any{"note": "the walk project's mascot is a heron named Quill", "scope": "user"})
+	if err != nil || !strings.Contains(reply, "noted as user") {
+		t.Fatalf("a user fact from a scratch chat goes to the agent layer, and says so: %q %v", reply, err)
 	}
 	if _, err := os.Stat(manager.Path(chatA.Workspace)); !os.IsNotExist(err) {
 		t.Fatalf("the scratch folder got a memory file of its own: %v", err)
@@ -68,15 +68,20 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if written, err := chatC.WriteRoot(filepath.Join(repo, "notes.txt")); err != nil || !session.SamePath(written, repo) {
+	projectNote := filepath.Join(repo, "notes.txt")
+	if written, err := chatC.WriteRoot(projectNote); err != nil || !session.SamePath(written, repo) {
 		t.Fatalf("a write into the plan's repository: %q %v", written, err)
 	}
+	if err := os.WriteFile(projectNote, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chatC.Touch(projectNote)
 	reply, err = remember.Call(context.Background(), chatC, map[string]any{"note": "the build uses make", "scope": "repository"})
 	if err != nil || strings.Contains(reply, "agent layer") {
 		t.Fatalf("a project fact from a chat working in a plan's repo: %q %v", reply, err)
 	}
 	if notes, _ := manager.Read(chatC.MemoryFolder()); !strings.Contains(notes, "the build uses make") {
-		t.Fatalf("the fact did not land in the plan's layer: %q", notes)
+		t.Fatalf("the fact did not land in the plan's layer: reply=%q folder=%q roots=%v notes=%q", reply, chatC.MemoryFolder(), chatC.Snapshot().ProjectRoots, notes)
 	}
 	if agentNotes, _ := manager.ReadAgent(agentID); strings.Contains(agentNotes, "the build uses make") {
 		t.Fatal("the project fact leaked into the agent layer")

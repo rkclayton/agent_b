@@ -56,7 +56,7 @@ func TestOutsideProjectNamedOrWorkedInLoadsRulesAndNotes2tt(t *testing.T) {
 		t.Fatalf("named project=%+v memory=%q folder=%q", snapshot, named.CombinedMemory(), named.MemoryFolder())
 	}
 	worked := newChat()
-	worked.Touch(FileKey(filepath.Join(repo, "file.txt")))
+	worked.Touch(filepath.Join(repo, "file.txt"))
 	if !strings.Contains(worked.Snapshot().ProjectContent, "project fixture rule") || !strings.Contains(worked.CombinedMemory(), "project fixture note") {
 		t.Fatalf("worked project did not load: %+v %q", worked.Snapshot(), worked.CombinedMemory())
 	}

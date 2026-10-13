@@ -61,7 +61,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 			return "", zipErr
 		}
 		if member == "" {
-			s.Touch(session.FileKey(resolved))
+			s.Touch(resolved)
 			return listing, nil
 		}
 		file, present := files[filepath.ToSlash(member)]
@@ -130,7 +130,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 			// Item 2mn (a): the seen-list is keyed by the FILE, the same key the
 			// write coordinator records against, so a read clears a conflict
 			// whichever root either session reached the file through.
-			s.Touch(session.FileKey(resolved))
+			s.Touch(resolved)
 		}
 		return ContentDigestLine(data) + strings.Join(results, "\n\n"), nil
 	}
@@ -138,7 +138,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 	if err != nil {
 		return "", err
 	}
-	s.Touch(session.FileKey(resolved))
+	s.Touch(resolved)
 	return ContentDigestLine(data) + result, nil
 }
 

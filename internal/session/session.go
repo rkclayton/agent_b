@@ -418,7 +418,13 @@ func (s *Session) MemoryProject(name string) (string, []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.ProjectRouting {
-		return s.Workspace, nil
+		if !s.Scratch {
+			return s.Workspace, nil
+		}
+		if len(s.WrittenPlanRepos) == 0 {
+			return "", nil
+		}
+		return s.WrittenPlanRepos[len(s.WrittenPlanRepos)-1], nil
 	}
 	choices := append([]string(nil), s.ProjectRoots...)
 	if len(choices) == 1 && strings.TrimSpace(name) == "" {
@@ -579,7 +585,7 @@ func (s *Session) BeginSubmission() bool {
 func (s *Session) EndSubmission() { s.mu.Lock(); s.submitting--; s.mu.Unlock() }
 func (s *Session) Touch(path string) {
 	s.mu.Lock()
-	s.LastSeen[path] = time.Now().UTC()
+	s.LastSeen[FileKey(path)] = time.Now().UTC()
 	hook := s.ProjectTouch
 	s.mu.Unlock()
 	if hook != nil {

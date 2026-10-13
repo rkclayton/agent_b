@@ -77,7 +77,7 @@ func (c *FileCoordinator) lastWriterNote(s *session.Session, resolved string) st
 func (c *FileCoordinator) record(s *session.Session, resolved string) {
 	// Item 2mn (a): the write is recorded against the FILE. The session's own root
 	// no longer takes part, which is why a shared plan repository is now shared.
-	s.Touch(session.FileKey(resolved))
+	s.Touch(resolved)
 	c.workspaces.RecordWrite(resolved, s.ID)
 	if s.Role != "d" && strings.EqualFold(filepath.Base(resolved), "AGENT_B.md") && filepath.Dir(resolved) == filepath.Clean(s.Workspace) && s.EnsurePlan != nil {
 		s.EnsurePlan(s.Workspace)

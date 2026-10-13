@@ -234,8 +234,8 @@ func (s *Server) SetNotifications(manager notificationManager, store *credential
 }
 func (s *Server) SetUpdater(manager *updater.Manager)                     { s.updater = manager }
 func (s *Server) SetServiceAccountManager(manager serviceaccount.Manager) { s.account = manager }
-func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.protection.hardening = manager }
-func (s *Server) SetSigningManager(manager signing.Manager)               { s.protection.signing = manager }
+func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.setHardeningManager(manager) }
+func (s *Server) SetSigningManager(manager signing.Manager)               { s.setSigningManager(manager) }
 func (s *Server) SetHostWindowAction(action func(string, string) bool)    { s.hostWindowAction = action }
 func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, prompt *agent.PromptRenderer) {
 	s.scheduler = scheduler

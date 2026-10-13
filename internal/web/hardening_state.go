@@ -24,6 +24,10 @@ type hostProtectionState struct {
 
 func (s *Server) hardeningManager() hardening.Manager { return s.protection.hardening }
 
+func (s *Server) setHardeningManager(manager hardening.Manager) { s.protection.hardening = manager }
+
+func (s *Server) setSigningManager(manager signing.Manager) { s.protection.signing = manager }
+
 type hardeningOperation struct {
 	Action     string `json:"action,omitempty"`
 	State      string `json:"state,omitempty"`

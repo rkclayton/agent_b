@@ -60,7 +60,7 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 	if pairedDeviceAuthenticated(r) {
 		source = "phone"
 	}
-	result, err := s.scheduler.SubmitAttachmentsFrom(r.Context(), body.SessionID, body.Text, attachments, source)
+	result, err := s.scheduler.SubmitAttachmentsFromReopening(r.Context(), body.SessionID, body.Text, attachments, source)
 	if err != nil {
 		status := 400
 		if strings.Contains(err.Error(), "in progress") || strings.Contains(err.Error(), "queue full") {

@@ -69,6 +69,44 @@ func buildPlanFixture(t *testing.T, prepare func(repo string)) (*Server, *sessio
 	return server, registry, scheduler, plan, requests
 }
 
+func TestMessageReopensAClosedChatInTheSameRequest2rd(t *testing.T) {
+	server, registry, scheduler, _, _ := buildPlanFixture(t, func(string) {})
+	send := func(name string, phone bool) {
+		item, err := registry.Create(name, "build", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = registry.Close(item.ID); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"session_id":"` + item.ID + `","text":"continue this chat"}`
+		if phone {
+			answer := dispatch(t, server, `{"v":1,"kind":"request","id":"00112233445566778899aabbccddeeff","route":"message","body":`+body+`}`)
+			if answer.Status != http.StatusAccepted {
+				t.Fatalf("phone message = %d %s", answer.Status, answer.Body)
+			}
+		} else {
+			answer := httptest.NewRecorder()
+			server.message(answer, httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(body)))
+			if answer.Code != http.StatusAccepted {
+				t.Fatalf("page message = %d %s", answer.Code, answer.Body.String())
+			}
+		}
+		if item.IsClosed() {
+			t.Fatal("the accepted message left the chat closed")
+		}
+		for deadline := time.Now().Add(5 * time.Second); scheduler.Active(item.ID) && time.Now().Before(deadline); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		messages := item.MessagesCopy()
+		if len(messages) == 0 || messages[0].Content != "continue this chat" {
+			t.Fatalf("message was not accepted in the reopened chat: %+v", messages)
+		}
+	}
+	send("page closed", false)
+	send("phone closed", true)
+}
+
 func TestBuildPlanYesSendsTheOpeningRequestOnce(t *testing.T) {
 	server, registry, scheduler, plan, _ := buildPlanFixture(t, func(string) {})
 	build := func() map[string]any {

@@ -157,17 +157,17 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 	return s.SubmitAttachmentsFrom(ctx, sessionID, text, attachments, "")
 }
 func (s *Scheduler) SubmitAttachmentsFrom(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string) (SubmitResult, error) {
-	item, ok := s.registry.Get(sessionID)
-	if !ok {
-		return SubmitResult{}, fmt.Errorf("session not found")
-	}
-	if item.IsClosed() {
-		return SubmitResult{}, fmt.Errorf("session is closed")
-	}
+	return s.submitAttachmentsFrom(ctx, sessionID, text, attachments, source, false)
+}
+func (s *Scheduler) SubmitAttachmentsFromReopening(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string) (SubmitResult, error) {
+	return s.submitAttachmentsFrom(ctx, sessionID, text, attachments, source, true)
+}
+func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string, reopen bool) (SubmitResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !item.BeginSubmission() {
-		return SubmitResult{}, fmt.Errorf("session is closed")
+	item, err := s.registry.BeginSubmission(sessionID, reopen)
+	if err != nil {
+		return SubmitResult{}, err
 	}
 	defer item.EndSubmission()
 	if s.unreachable[sessionID] {

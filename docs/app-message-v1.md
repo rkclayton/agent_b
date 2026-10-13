@@ -268,7 +268,8 @@ including, explicitly:
 - `POST /api/update` — no install is startable from a device.
 - `POST /api/host-window`, `/api/plans`, `/api/plan/accept`, `/api/plan/marker`, `/api/plan/go`,
   every session-lifecycle route EXCEPT the creation, rename, and delete routes named above — close,
-  reopen, move, archive and the rest remain refused — `/api/notifications`,
+  reopen, move, archive and the rest remain refused. `message` needs no reopen route: sending to a
+  retained closed chat reopens it and accepts the message in that one request — `/api/notifications`,
   `/api/operator-files`, `/api/workspaces` and its policy routes, `/api/standing-grants`.
 - Anything reached by a path rather than a name: there is no generic passthrough, and `route` is
   matched against the closed set above by exact string equality.

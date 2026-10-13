@@ -57,6 +57,11 @@ test("Chat has fence-only copy and documents composer keys", () => {
   assert.match(html, /title="Send · Enter sends · Shift\+Enter newline"/);
 });
 
+test("sending a retained chat is one message request 2rd", () => {
+  assert.doesNotMatch(chat, /session\.closed\)[^;]+\/reopen/);
+  assert.match(chat, /api\("\/api\/message", \{ session_id: session\.id, text, attachments:/);
+});
+
 test("compaction states what was stubbed and marks file-write calls 2tv", () => {
 	assert.match(chat, /older tool output and file-write bodies stubbed/);
 	assert.match(state, /tool_calls\?\.some\(\(call\) => call\.arguments\?\.includes\("\[elided:"\)\)/);

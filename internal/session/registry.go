@@ -1234,6 +1234,30 @@ func (r *Registry) Reopen(id string) error {
 	return nil
 }
 
+// BeginSubmission reserves a submission and, when requested, reopens the chat in
+// the same locked transition. Close therefore cannot slip between reopen and the
+// scheduler taking responsibility for the message.
+func (r *Registry) BeginSubmission(id string, reopen bool) (*Session, error) {
+	s, ok := r.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("session not found")
+	}
+	s.mu.Lock()
+	wasClosed := s.Closed
+	if wasClosed && !reopen {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("session is closed")
+	}
+	s.Closed = false
+	s.submitting++
+	s.mu.Unlock()
+	if wasClosed {
+		s.ReopenNetworkBoundary(NetworkBoundary(r.config()))
+		r.bus.Publish(events.New(events.SessionReopened, id, "", map[string]any{"session_id": id}))
+	}
+	return s, nil
+}
+
 func (r *Registry) Delete(id string) (events.SessionInventory, error) {
 	r.mu.Lock()
 	s, ok := r.sessions[id]

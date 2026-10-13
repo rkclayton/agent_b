@@ -1251,7 +1251,7 @@ function noticeContent(session, entry, actionable) {
 		content.textContent = `shell grant lapsed: ${String(data.rule || "shell").replaceAll("_", " ")}${executable}`;
 	}
 	else if (event.type === "file.grant") content.textContent = `file-tool grant: Run as you · for this ${data.scope === "session" ? "chat" : "run"}`;
-	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat closed" : "run ended"}`;
+	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat ended" : "run ended"}`;
 	else if (event.type === "service.identity_unavailable") {
 		content.textContent = data.message || "Agent_b sets up its service identity now; Windows will ask once";
 		content.classList.add("alarm");
@@ -1529,10 +1529,6 @@ async function submit() {
   const text = input.value.trim();
   if (!text && !queuedAttachments.length) return;
   try {
-    // Item 2gn: a closed chat opened by name is read-only until the operator
-    // sends. Sending reopens it first, through the route the history list
-    // already uses, so the message lands in a chat that is open.
-    if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
 		await api("/api/message", { session_id: session.id, text, attachments: queuedAttachments.map(attachmentMetadata) });
     input.value = "";
     queuedAttachments = [];

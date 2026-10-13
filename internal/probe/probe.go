@@ -268,10 +268,6 @@ func connectionProbeErrorFor(baseURL string, propsErr, modelsErr error) error {
 	return &ConnectionError{Friendly: fmt.Sprintf("Connection to the server at %s failed: %s.", trimmed, firstLine(modelsErr.Error(), "unknown error")), Detail: detail}
 }
 
-func connectionProbeError(propsErr, modelsErr error) error {
-	return connectionProbeErrorFor("the configured base_url", propsErr, modelsErr)
-}
-
 func firstLine(value, fallback string) string {
 	value = strings.TrimSpace(strings.SplitN(value, "\n", 2)[0])
 	if value == "" {

@@ -17,6 +17,7 @@ import (
 // card; the run goes on. The eval's two miss tapes change directory to invented
 // paths; their tool folder is trusted here so the test isolates navigation.
 func TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly

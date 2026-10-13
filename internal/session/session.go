@@ -464,8 +464,7 @@ func (s *Session) RefreshPlanName() {
 }
 
 func pathWithin(root, candidate string) bool {
-	rel, err := filepath.Rel(root, filepath.Clean(candidate))
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	return PathWithin(root, candidate)
 }
 
 // estimateMemoryTokens uses the same four-characters-per-token fallback the

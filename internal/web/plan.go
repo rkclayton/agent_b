@@ -277,7 +277,7 @@ func (s *Server) planDirFor(item *session.Session) (string, error) {
 		return "", err
 	}
 	for _, plan := range plans {
-		if plan.Repo != "" && strings.EqualFold(filepath.Clean(plan.Repo), filepath.Clean(item.Workspace)) {
+		if plan.Repo != "" && session.SamePath(plan.Repo, item.Workspace) {
 			return filepath.Join(s.profileRoot(), "plans", plan.ID), nil
 		}
 	}

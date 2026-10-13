@@ -103,7 +103,7 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Workspace != repo || d.PlanRepo != repo {
+	if !samePath(d.Workspace, repo) || !samePath(d.PlanRepo, repo) {
 		t.Fatalf("plan-selected folder=%q repo=%q", d.Workspace, d.PlanRepo)
 	}
 	// The worker binds to the same plan, and to the repository the plan names:
@@ -112,7 +112,7 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Workspace != repo || c.PlanRepo != repo || c.PlanID != plans[0].ID {
+	if !samePath(c.Workspace, repo) || !samePath(c.PlanRepo, repo) || c.PlanID != plans[0].ID {
 		t.Fatalf("worker folder=%q repo=%q plan=%q", c.Workspace, c.PlanRepo, c.PlanID)
 	}
 	if c.Scratch {

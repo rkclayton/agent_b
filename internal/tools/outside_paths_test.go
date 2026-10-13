@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,10 +13,18 @@ import (
 	"harness/internal/session"
 )
 
+func requireWindowsPathFixture(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("hosted self-skip: requires Windows paths, identity semantics, or PowerShell")
+	}
+}
+
 // Item 2fi, the walk's step 7: with no service identity, run_script and shell
 // cannot read a file outside the folder around the card — a literal outside
 // path raises the same operator decision read_file raises, and holds.
 func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	repo := t.TempDir()
 	cfg := config.Defaults(root)
@@ -51,6 +60,7 @@ func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *te
 }
 
 func TestSkillFolderWritesAreNeverSilent2pe(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace, profile := t.TempDir(), t.TempDir()
 	skillsRoot := filepath.Join(profile, "skills")
 	target := filepath.Join(skillsRoot, "fixture", "SKILL.md")
@@ -110,6 +120,7 @@ func TestOutsidePathCardIsNotRaisedWithTheServiceIdentityOn(t *testing.T) {
 // dressed as an executable, a .bat file's text, and a fourth path behind three
 // all reach the card; a real executable's path still does not.
 func TestOutsidePathsSeeClimbsFakeExecutablesAndEveryPath(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	item := &session.Session{ID: "review", Workspace: root}
 	for _, source := range []string{
@@ -137,6 +148,7 @@ func TestOutsidePathsSeeClimbsFakeExecutablesAndEveryPath(t *testing.T) {
 // read raises the card; a missing one is a plain error; a change of directory
 // followed by a read in the same command is a read.
 func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	item := &session.Session{ID: "2fz", Workspace: root}
 	for _, c := range []struct {
@@ -182,6 +194,7 @@ func TestTheRoutingGuardInterceptsReadsNotDirectoryChanges(t *testing.T) {
 }
 
 func TestTrustedFoldersUseResolvedPaths(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace, trusted := t.TempDir(), t.TempDir()
 	file := filepath.Join(trusted, "child", "note.txt")
 	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
@@ -233,6 +246,7 @@ func TestRelativePathsAndPatternsRaiseNoCard2q3(t *testing.T) {
 }
 
 func TestSearchPatternsAreNotTakenForDrivePaths2ts(t *testing.T) {
+	requireWindowsPathFixture(t)
 	item := &session.Session{ID: "2ts", Workspace: t.TempDir()}
 	for source, want := range map[string]string{`Select-String -Pattern '\d:\d\d:\d\d' notes.txt`: "", `rg "\d\d:\d\d:\d\d" .`: "", `grep -E \d:\d\d:\d\d log.txt`: "", `Select-String '\w:\s' x`: "", `type D:\data\x.txt`: `D:\data\x.txt`, `type "D:\my data\x.txt"`: `D:\my data\x.txt`, `type D:\a\b.txt:zone`: `D:\a\b.txt:zone`, `type \\server\share\x.txt`: `\\server\share\x.txt`, `Select-String -Pattern 'E:\\' x`: `E:\`} {
 		paths := outsideLiteralPaths(source, item)
@@ -245,6 +259,7 @@ func TestSearchPatternsAreNotTakenForDrivePaths2ts(t *testing.T) {
 // Item 2q3 (c): Agent_b's own data and install folders are readable without a
 // card; writing there still asks.
 func TestOwnFoldersReadWithoutACardWriteWithOne2q3(t *testing.T) {
+	requireWindowsPathFixture(t)
 	local := t.TempDir()
 	t.Setenv("LOCALAPPDATA", local)
 	logs := filepath.Join(local, "Agent_b", "logs")
@@ -280,6 +295,7 @@ func TestOwnFoldersReadWithoutACardWriteWithOne2q3(t *testing.T) {
 // Item 2q4 (c): two outside folders under the user's profile are one question
 // about their common parent.
 func TestOutsideFoldersUnderTheProfileAskOnceForTheirParent2q4(t *testing.T) {
+	requireWindowsPathFixture(t)
 	parent := t.TempDir()
 	for _, name := range []string{"a", "b"} {
 		if os.MkdirAll(filepath.Join(parent, name), 0o700) != nil || os.WriteFile(filepath.Join(parent, name, "x.txt"), []byte("x"), 0o600) != nil {
@@ -288,7 +304,7 @@ func TestOutsideFoldersUnderTheProfileAskOnceForTheirParent2q4(t *testing.T) {
 	}
 	source := `Get-Content "` + filepath.Join(parent, "a", "x.txt") + `", "` + filepath.Join(parent, "b", "x.txt") + `"`
 	decision := outsideCommandDecision(source, &session.Session{ID: "c", Workspace: t.TempDir()}, nil)
-	if len(decision.folders) != 1 || !strings.EqualFold(decision.folders[0], parent) {
+	if len(decision.folders) != 1 || !session.SamePath(decision.folders[0], parent) {
 		t.Fatalf("folders = %v, want [%s]", decision.folders, parent)
 	}
 }

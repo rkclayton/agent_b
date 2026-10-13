@@ -15,6 +15,7 @@ import (
 )
 
 func TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash(t *testing.T) {
+	requireWindowsPathFixture(t)
 	stubDir := buildSBXStub(t)
 	statePath := filepath.Join(t.TempDir(), "state")
 	logPath := filepath.Join(t.TempDir(), "calls.log")

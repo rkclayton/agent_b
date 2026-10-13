@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,17 @@ import (
 	"harness/internal/tools"
 )
 
+func requireWindowsPathFixture(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("hosted self-skip: requires Windows paths and PowerShell")
+	}
+}
+
 // With no service split, file tools use the operator's OS reach directly;
 // command tools retain their separately governed outside-path card.
 func TestOutsideReadIdentityChoiceWithNoServiceIdentity(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace, outsideDir := t.TempDir(), t.TempDir()
 	outside := filepath.Join(outsideDir, "win.ini")
 	if err := os.WriteFile(outside, []byte("; for 16-bit app support\n[fonts]\n"), 0o600); err != nil {
@@ -87,6 +96,7 @@ func TestOutsideReadIdentityChoiceWithNoServiceIdentity(t *testing.T) {
 // outside reads and stores no identity grant that would wake up once the
 // service identity is turned on.
 func TestTheOutsideReadCardShowsTheScriptAndItsChatGrantStaysInItsPosture(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace, outsideDir := t.TempDir(), t.TempDir()
 	outside := filepath.Join(outsideDir, "win.ini")
 	if err := os.WriteFile(outside, []byte("; for 16-bit app support\n"), 0o600); err != nil {
@@ -161,6 +171,7 @@ func TestTheOutsideReadCardShowsTheScriptAndItsChatGrantStaysInItsPosture(t *tes
 // script was refused because the folder could not be recorded as trusted. A yes
 // is acted on: the action runs once and the reply says the folder was not kept.
 func TestACardAnsweredFolderRunsItsAction2q3(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace, outsideDir := t.TempDir(), t.TempDir()
 	outside := filepath.Join(outsideDir, "win.ini")
 	if err := os.WriteFile(outside, []byte("; for 16-bit app support\n"), 0o600); err != nil {
@@ -203,6 +214,7 @@ func TestACardAnsweredFolderRunsItsAction2q3(t *testing.T) {
 // runs only that action; Always covers the folder here and in a new chat after a
 // restart.
 func TestTheFolderCardAlwaysOnceNo2q4(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace, logs := t.TempDir(), filepath.Join(t.TempDir(), "logs")
 	if err := os.MkdirAll(logs, 0o700); err != nil || os.WriteFile(filepath.Join(logs, "a.log"), []byte("line from a log\n"), 0o600) != nil {
 		t.Fatal(err)
@@ -247,6 +259,7 @@ func TestTheFolderCardAlwaysOnceNo2q4(t *testing.T) {
 }
 
 func TestMissingOutsidePathAsksThenRunsOrReturnsTheDecline2tc(t *testing.T) {
+	requireWindowsPathFixture(t)
 	workspace := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "absent", "fixture.txt")
 	cfg := config.Defaults(workspace)

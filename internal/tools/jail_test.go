@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"harness/internal/session"
 )
 
 func TestJail(t *testing.T) {
@@ -23,7 +25,7 @@ func TestJail(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, "dir", "x.txt")
 		got, err := Resolve(root, path)
-		if err != nil || got != filepath.Clean(path) {
+		if err != nil || !session.SamePath(got, path) {
 			t.Fatalf("got %q, %v", got, err)
 		}
 	})
@@ -34,7 +36,7 @@ func TestJail(t *testing.T) {
 		}
 		want := filepath.Join(root, "x.txt")
 		got, err := Resolve(root, filepath.Join("dir", "..", "x.txt"))
-		if err != nil || got != want {
+		if err != nil || !session.SamePath(got, want) {
 			t.Fatalf("got %q, %v", got, err)
 		}
 	})

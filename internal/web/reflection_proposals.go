@@ -150,12 +150,8 @@ func planRegistered(item *session.Session, root string) bool {
 	if item == nil || item.PlanRepos == nil {
 		return false
 	}
-	target, err := filepath.Abs(root)
-	if err != nil {
-		return false
-	}
 	for _, repo := range item.PlanRepos() {
-		if existing, err := filepath.Abs(repo); err == nil && strings.EqualFold(existing, target) {
+		if session.SamePath(repo, root) {
 			return true
 		}
 	}

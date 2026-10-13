@@ -5,12 +5,33 @@
 # set. Item 2hw scopes that name to the canonical application root as well as
 # the PID. Only an installer that already selected the exact installed path may
 # opt into the unscoped earlier-version fallback.
+if (-not ('AgentbFinalPath' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class AgentbFinalPath {
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern uint GetFinalPathNameByHandle(SafeFileHandle handle, System.Text.StringBuilder path, uint length, uint flags);
+    public static string Resolve(string path) {
+        using (var handle = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero)) {
+            if (handle.IsInvalid) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            var value = new System.Text.StringBuilder(32768);
+            if (GetFinalPathNameByHandle(handle, value, (uint)value.Capacity, 0) == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return value.ToString().StartsWith(@"\\?\") ? value.ToString().Substring(4) : value.ToString();
+        }
+    }
+}
+'@
+}
+
 function Get-AgentbStopEventName {
     param(
         [Parameter(Mandatory = $true)][string]$ApplicationRoot,
         [Parameter(Mandatory = $true)][int]$ProcessId
     )
-    $canonical = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($ApplicationRoot)).TrimEnd('\').ToUpperInvariant()
+    $expanded = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($ApplicationRoot))
+    $canonical = [AgentbFinalPath]::Resolve($expanded).TrimEnd('\').ToUpperInvariant()
     $sha256 = [Security.Cryptography.SHA256]::Create()
     try { $digest = $sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($canonical)) } finally { $sha256.Dispose() }
     $rootId = -join @($digest[0..11] | ForEach-Object { $_.ToString('x2') })

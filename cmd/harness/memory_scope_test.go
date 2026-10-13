@@ -68,7 +68,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if written, err := chatC.WriteRoot(filepath.Join(repo, "notes.txt")); err != nil || !strings.EqualFold(written, filepath.Clean(repo)) {
+	if written, err := chatC.WriteRoot(filepath.Join(repo, "notes.txt")); err != nil || !session.SamePath(written, repo) {
 		t.Fatalf("a write into the plan's repository: %q %v", written, err)
 	}
 	reply, err = remember.Call(context.Background(), chatC, map[string]any{"note": "the build uses make", "scope": "repository"})

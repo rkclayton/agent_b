@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"harness/internal/session"
 )
 
 const (
@@ -37,11 +39,7 @@ const (
 // different root from addressing the installed product even if it knows the
 // production PID.
 func stopEventName(applicationRoot string, pid int) string {
-	root, err := filepath.Abs(applicationRoot)
-	if err == nil {
-		applicationRoot = root
-	}
-	canonical := strings.ToUpper(filepath.Clean(applicationRoot))
+	canonical := strings.ToUpper(canonicalApplicationRoot(applicationRoot))
 	digest := sha256.Sum256([]byte(canonical))
 	return fmt.Sprintf(`Local\Agent_b-stop-%x-%d`, digest[:12], pid)
 }
@@ -64,11 +62,7 @@ var (
 )
 
 func activateEventName(applicationRoot string, pid int) string {
-	root, err := filepath.Abs(applicationRoot)
-	if err == nil {
-		applicationRoot = root
-	}
-	digest := sha256.Sum256([]byte(strings.ToUpper(filepath.Clean(applicationRoot))))
+	digest := sha256.Sum256([]byte(strings.ToUpper(canonicalApplicationRoot(applicationRoot))))
 	return fmt.Sprintf(`Local\Agent_b-activate-%x-%d`, digest[:12], pid)
 }
 
@@ -85,9 +79,7 @@ func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
 	if json.Unmarshal(data, &marker) != nil || marker.PID <= 0 || strings.TrimSpace(marker.Application) == "" || strings.TrimSpace(marker.Listen) == "" {
 		return 0, false
 	}
-	want, wantErr := filepath.Abs(applicationRoot)
-	got, gotErr := filepath.Abs(marker.Application)
-	if wantErr != nil || gotErr != nil || !strings.EqualFold(filepath.Clean(want), filepath.Clean(got)) || !processRunning(marker.PID, marker.Created) {
+	if !session.SamePath(applicationRoot, marker.Application) || !processRunning(marker.PID, marker.Created) {
 		return 0, false
 	}
 	host, _, err := net.SplitHostPort(marker.Listen)
@@ -145,6 +137,16 @@ func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	return 0, false
+}
+
+func canonicalApplicationRoot(root string) string {
+	if resolved, err := session.RealPath(root); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if absolute, err := filepath.Abs(root); err == nil {
+		return filepath.Clean(absolute)
+	}
+	return filepath.Clean(root)
 }
 
 type wndClassEx struct {

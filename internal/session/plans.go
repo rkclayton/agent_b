@@ -173,5 +173,5 @@ func allocatePlanDir(root string) (string, string, error) {
 }
 
 func samePath(left, right string) bool {
-	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	return SamePath(left, right)
 }

@@ -69,9 +69,10 @@ contracts under `web/js/*.test.mjs`, `tests/disposable-port.test.mjs`, and
 `tests/ci-workflow.test.mjs`. They pin runtime filenames, the stable tool/product vocabulary,
 production-port refusal, and the no-secrets CI boundary.
 
-Hosted Windows excludes `cmd/harness`, `internal/session`, `internal/tools`, and `internal/web`:
-their full package suites require local Windows temp-path identity, ACL behavior, or an adjacent
-WebView2 loader that the hosted runner does not provide. Ubuntu excludes `internal/agent` and
-`internal/tools`, whose tests exercise Windows command and service-identity semantics. The full
-`go test ./...` remains an operator release gate on the target Windows host; CI never reports an
-excluded package as passed.
+Hosted CI runs `go test -json ./...` on both platforms, excludes no package, and prints per-package run, skip, fail, and status counts. These tests self-skip on Ubuntu for the named prerequisite:
+
+| Package | Tests | Unavailable hosted prerequisite |
+| --- | --- | --- |
+| `internal/agent` | `TestAMissingOutsideReadRaisesNoCardAndNeitherDoTheTapes`, `TestOutsideReadIdentityChoiceWithNoServiceIdentity`, `TestTheOutsideReadCardShowsTheScriptAndItsChatGrantStaysInItsPosture`, `TestACardAnsweredFolderRunsItsAction2q3`, `TestTheFolderCardAlwaysOnceNo2q4`, `TestMissingOutsidePathAsksThenRunsOrReturnsTheDecline2tc` | Windows drive and UNC path syntax plus PowerShell |
+| `internal/tools` | `TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity`, `TestSkillFolderWritesAreNeverSilent2pe`, `TestOutsidePathsSeeClimbsFakeExecutablesAndEveryPath`, `TestTheRoutingGuardInterceptsReadsNotDirectoryChanges`, `TestTrustedFoldersUseResolvedPaths`, `TestSearchPatternsAreNotTakenForDrivePaths2ts`, `TestOwnFoldersReadWithoutACardWriteWithOne2q3`, `TestOutsideFoldersUnderTheProfileAskOnceForTheirParent2q4` | Windows drive and UNC path syntax, Windows path identity, and PowerShell |
+| `internal/tools` | `TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash`, `TestShellServiceAccountDisabledDoesNotRaiseIdentityAlarm`, `TestShellStreamsLatestOutputLine2qf`, `TestShellOperatorContextBypassesServiceIdentityAndRaisesPersistentWarning`, `TestShellOperatorOverrideBypassesServiceSpawner`, `TestShellFileRoutingCompoundAllowed`, `TestReadZipSafetyHintsAndSkillImport` | Windows service-identity and command semantics or PowerShell |

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -38,7 +37,7 @@ func TestPlansFolderWriteThroughAJunctionIsRefusedInBothPostures(t *testing.T) {
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, planDir).CombinedOutput(); err != nil {
 		t.Fatalf("the suite's account could not create a junction: %v %s", err, out)
 	}
-	if real, err := session.RealPath(filepath.Join(link, "plan.md")); err != nil || !strings.HasPrefix(strings.ToLower(real), strings.ToLower(plans)+string(filepath.Separator)) {
+	if real, err := session.RealPath(filepath.Join(link, "plan.md")); err != nil || !session.SamePath(filepath.Dir(filepath.Dir(real)), plans) {
 		t.Fatalf("the junction does not resolve into the plans folder: %q %v", real, err)
 	}
 

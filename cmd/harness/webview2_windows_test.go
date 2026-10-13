@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"harness/internal/session"
 )
 
 // repositoryFile walks up from the test's working directory to the repository
@@ -50,7 +52,7 @@ func TestTheWebView2LoaderIsTakenFromTheExecutableDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loader path: %v", err)
 	}
-	if !strings.EqualFold(path, beside) {
+	if !session.SamePath(path, beside) {
 		t.Fatalf("loader path is %q, expected the executable's own directory %q", path, beside)
 	}
 

@@ -188,6 +188,7 @@ func TestShellServiceAccountSpawnFailureRequiresOperatorApproval(t *testing.T) {
 }
 
 func TestShellServiceAccountDisabledDoesNotRaiseIdentityAlarm(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
 	cfg.ServiceAccount.Enabled = false
@@ -226,6 +227,7 @@ func TestShellNonzeroExitIsFailureAndIncludesStderr(t *testing.T) {
 }
 
 func TestShellStreamsLatestOutputLine2qf(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
 	cfg.ServiceAccount.Enabled = false
@@ -262,6 +264,7 @@ func TestShellStreamsLatestOutputLine2qf(t *testing.T) {
 }
 
 func TestShellOperatorContextBypassesServiceIdentityAndRaisesPersistentWarning(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
 	cfg.OperatorContext = true
@@ -396,6 +399,7 @@ func TestShellSpawnFailureDoesNotExecuteOperatorCommand(t *testing.T) {
 }
 
 func TestShellOperatorOverrideBypassesServiceSpawner(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	cfg := config.Defaults(root).Shell
 	cfg.ServiceAccount.Enabled = true
@@ -492,6 +496,7 @@ func quotePowerShellTest(value string) string {
 }
 
 func TestShellFileRoutingCompoundAllowed(t *testing.T) {
+	requireWindowsPathFixture(t)
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "route.txt"), []byte("ROUTE_OK\n"), 0o600); err != nil {
 		t.Fatal(err)

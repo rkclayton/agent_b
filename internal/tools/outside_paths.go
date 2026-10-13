@@ -90,8 +90,7 @@ func outsideLiteralPaths(source string, s *session.Session) []string {
 }
 
 func pathInsideRoot(root, candidate string) bool {
-	relative, err := filepath.Rel(filepath.Clean(root), candidate)
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+	return session.PathWithin(root, candidate)
 }
 
 // outsideReadReason is the card's reason for a command or script that names

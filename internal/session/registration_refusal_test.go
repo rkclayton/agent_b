@@ -22,7 +22,7 @@ func TestRegistrationRefusalJudgesTheResolvedFolder(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if resolved, reason := RegistrationRefusal(plans, repo); reason != "" || !strings.EqualFold(resolved, repo) {
+	if resolved, reason := RegistrationRefusal(plans, repo); reason != "" || !SamePath(resolved, repo) {
 		t.Fatalf("an ordinary repository was refused: %q %q", resolved, reason)
 	}
 	for name, path := range map[string]string{

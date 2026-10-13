@@ -34,6 +34,7 @@ func makeZip(path string, files map[string]string) {
 	}
 }
 func TestReadZipSafetyHintsAndSkillImport(t *testing.T) {
+	requireWindowsPathFixture(t)
 	require := func(ok bool, format string, args ...any) {
 		if !ok {
 			t.Fatalf(format, args...)

@@ -12,6 +12,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/session"
 )
 
 func TestFilesRouteDownloadsWorkspaceBytesAndRefusesJailEscape(t *testing.T) {
@@ -71,7 +72,7 @@ func TestOpenFolderUsesJailResolvedWorkspaceFile(t *testing.T) {
 	authorizeMutation(request, server)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || opened != path {
+	if response.Code != http.StatusOK || !session.SamePath(opened, path) {
 		t.Fatalf("status=%d opened=%q body=%s", response.Code, opened, response.Body)
 	}
 }
@@ -96,7 +97,7 @@ func TestOpenFileOpensDocumentsOnlyInsideTheWorkspace(t *testing.T) {
 		server.Handler().ServeHTTP(response, request)
 		return response.Code
 	}
-	if code := call(`{"path":"report.xlsx"}`); code != http.StatusOK || len(opened) != 1 || opened[0] != filepath.Join(workspace, "report.xlsx") {
+	if code := call(`{"path":"report.xlsx"}`); code != http.StatusOK || len(opened) != 1 || !session.SamePath(opened[0], filepath.Join(workspace, "report.xlsx")) {
 		t.Fatalf("xlsx status=%d opened=%v", code, opened)
 	}
 	if code := call(`{"path":"run.bat"}`); code != http.StatusUnsupportedMediaType || len(opened) != 1 {

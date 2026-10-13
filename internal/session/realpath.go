@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RealPath is where a path lands once the file system resolves every junction,
@@ -36,4 +37,31 @@ func RealPath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(resolved, rest), nil
+}
+
+func SamePath(left, right string) bool {
+	if leftReal, err := RealPath(left); err == nil {
+		left = leftReal
+	}
+	if rightReal, err := RealPath(right); err == nil {
+		right = rightReal
+	}
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func PathWithin(root, candidate string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+		return true
+	}
+	root, err = RealPath(root)
+	if err != nil {
+		return false
+	}
+	candidate, err = RealPath(candidate)
+	if err != nil {
+		return false
+	}
+	rel, err = filepath.Rel(root, candidate)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }

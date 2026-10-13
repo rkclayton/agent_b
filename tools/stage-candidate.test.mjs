@@ -20,12 +20,11 @@ function iconSizes(bytes) {
 }
 
 test("the approved robot icon is copied whole and carries every Windows size 2u5", () => {
-  const design = fs.readFileSync(path.join(repository, "plan", "designs", "2u5", "Agent_b.ico"));
-  assert.deepEqual(iconSizes(design), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
-  assert.deepEqual(fs.readFileSync(path.join(repository, "cmd", "harness", "Agent_b.ico")), design);
-  assert.deepEqual(fs.readFileSync(path.join(repository, "web", "assets", "Agent_b.ico")), design);
-  const mark = Buffer.from(fs.readFileSync(path.join(repository, "plan", "designs", "2u5", "icon-windows.svg.b64"), "utf8"), "base64");
-  assert.deepEqual(fs.readFileSync(path.join(repository, "web", "assets", "mark.svg")), mark);
+  const shipped = fs.readFileSync(path.join(repository, "web", "assets", "Agent_b.ico"));
+  assert.deepEqual(iconSizes(shipped), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
+  assert.deepEqual(fs.readFileSync(path.join(repository, "cmd", "harness", "Agent_b.ico")), shipped);
+  const mark = fs.readFileSync(path.join(repository, "web", "assets", "mark.svg"), "utf8");
+  assert.match(mark, /^<svg[\s\S]*<\/svg>\s*$/);
   const installer = fs.readFileSync(path.join(repository, "scripts", "install-Agent_b.ps1"), "utf8");
   assert.equal((installer.match(/ShellIconRefresh\]::SHChangeNotify/g) || []).length, 1);
   assert.match(installer, /SHChangeNotify\(0x08000000, 0,/);

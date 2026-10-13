@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"log"
+	"sync"
 
 	"harness/internal/broker"
 	"harness/internal/events"
@@ -53,20 +54,34 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 	device := "broker:" + hex.EncodeToString(pairing.DeviceKeyID)
 	ctx, stop := context.WithCancel(context.Background())
 	var client *broker.Client
+	live := newPhoneStreamState()
 	client = broker.NewClient(c.identity, pairing, c.dial, func(_ []byte, plaintext []byte) []byte {
 		if c.deliverMirrorResponse(plaintext) {
 			return nil
 		}
-		answer := server.DispatchAppMessage(device, plaintext)
+		answer := server.dispatchAppMessage(device, plaintext, live)
+		prepared := live.preparedAnswer()
 		parts, err := appSplit(answer, appUnitMax)
-		if err != nil || len(parts) == 1 {
+		if err != nil {
+			if prepared {
+				live.cancelPrepared()
+			}
 			return answer
 		}
-		// A response over the unit budget goes as parts, like any downstream unit.
+		if len(parts) == 1 && !prepared {
+			return answer
+		}
 		for _, part := range parts {
-			if err := client.Deliver(part); err != nil {
+			if err = client.Deliver(part); err != nil {
+				if prepared {
+					live.cancelPrepared()
+				}
 				log.Printf("broker: a response part was not sent: %v", err)
+				return nil
 			}
+		}
+		if prepared {
+			live.activate()
 		}
 		return nil
 	})
@@ -75,6 +90,7 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		server.app.Link(message) // item 2q7 (c): its shape only
 	})
 	client.OnConnected(func(connection context.Context) {
+		live.reset()
 		c.mu.Lock()
 		c.lastRefusal = ""
 		if c.deviceSnapshots == nil {
@@ -82,7 +98,7 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		}
 		resume := c.deviceSnapshots
 		c.mu.Unlock()
-		server.streamUnitsToDeviceResuming(connection, client, resume)
+		server.streamUnitsToDeviceOpening(connection, client, resume, live)
 	})
 	client.OnRefused(func(code, detail string) {
 		outcome := "refused by the broker — " + code + ": " + detail
@@ -110,27 +126,118 @@ func (c *BrokerClient) stopSessionLocked() {
 	c.client, c.stopSession = nil, nil
 }
 
-// streamToDevice is the tailnet client's view, unit by unit: a snapshot of every
-// session on connect, then its projection patches and the global durable events,
-// until the connection ends. A device that sees a gap resyncs by cursor.
-// deviceSink is the part of the broker client the stream uses.
+// streamToDevice sends the bounded join, global events, and either the legacy
+// all-chat patch stream or the chat.open selection. A gap resyncs by cursor.
 type deviceSink interface {
 	Deliver(plaintext []byte) error
 }
 
+type phoneStreamState struct {
+	mu       sync.Mutex
+	epoch    uint64
+	mode     byte // zero: released phone; one: answer in progress; two: one live chat
+	session  string
+	cursor   projection.Cursor
+	prepared bool
+	ready    chan struct{}
+}
+
+func newPhoneStreamState() *phoneStreamState { return &phoneStreamState{} }
+func (p *phoneStreamState) reset() {
+	p.mu.Lock()
+	if p.mode == 1 {
+		close(p.ready)
+	}
+	p.epoch++
+	p.mode, p.session, p.cursor, p.prepared, p.ready = 0, "", projection.Cursor{}, false, nil
+	p.mu.Unlock()
+}
+func (p *phoneStreamState) begin(session string) uint64 {
+	p.mu.Lock()
+	if p.mode == 1 {
+		close(p.ready)
+	}
+	p.epoch++
+	p.mode, p.session, p.cursor, p.prepared, p.ready = 1, session, projection.Cursor{}, false, make(chan struct{})
+	epoch := p.epoch
+	p.mu.Unlock()
+	return epoch
+}
+func (p *phoneStreamState) prepare(epoch uint64, cursor projection.Cursor) {
+	p.mu.Lock()
+	if p.epoch == epoch && p.mode == 1 {
+		p.cursor, p.prepared = cursor, true
+	}
+	p.mu.Unlock()
+}
+func (p *phoneStreamState) abortUnlessPrepared(epoch uint64) {
+	p.mu.Lock()
+	if p.epoch == epoch && !p.prepared {
+		close(p.ready)
+		p.mode, p.ready = 0, nil
+	}
+	p.mu.Unlock()
+}
+func (p *phoneStreamState) preparedAnswer() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.prepared && p.mode == 1
+}
+func (p *phoneStreamState) opened() bool    { p.mu.Lock(); defer p.mu.Unlock(); return p.mode != 0 }
+func (p *phoneStreamState) cancelPrepared() { p.reset() }
+func (p *phoneStreamState) activate() {
+	p.mu.Lock()
+	if p.prepared && p.mode == 1 {
+		p.mode, p.prepared = 2, false
+		close(p.ready)
+		p.ready = nil
+	}
+	p.mu.Unlock()
+}
+func (p *phoneStreamState) accept(patch projection.Patch) bool {
+	for {
+		p.mu.Lock()
+		if p.mode == 0 {
+			p.mu.Unlock()
+			return true
+		}
+		if patch.SessionID != p.session || p.session == "" {
+			p.mu.Unlock()
+			return false
+		}
+		if p.mode == 1 {
+			ready := p.ready
+			p.mu.Unlock()
+			<-ready
+			continue
+		}
+		if !patch.Transient && patch.Cursor.Generation == p.cursor.Generation && patch.Cursor.Offset <= p.cursor.Offset {
+			p.mu.Unlock()
+			return false
+		}
+		p.cursor = patch.Cursor
+		p.mu.Unlock()
+		return true
+	}
+}
+
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
-	s.streamToDeviceWithPushes(ctx, client, nil)
+	s.streamToDeviceWithPushes(ctx, client, nil, nil)
 }
 
 func (s *Server) streamUnitsToDevice(ctx context.Context, client deviceSink) {
-	s.streamToDeviceWithPushes(ctx, client, nil)
+	s.streamToDeviceWithPushes(ctx, client, nil, nil)
 }
 
 func (s *Server) streamUnitsToDeviceResuming(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot) {
-	s.streamToDeviceWithPushes(ctx, client, resume)
+	s.streamToDeviceWithPushes(ctx, client, resume, nil)
 }
 
-func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot) {
+func (s *Server) streamUnitsToDeviceOpening(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot, live *phoneStreamState) {
+	s.streamToDeviceWithPushes(ctx, client, resume, live)
+}
+
+func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot, live *phoneStreamState) {
 	raw, unsubscribeRaw := s.bus.Subscribe()
 	defer unsubscribeRaw()
 	var sent int64
@@ -197,8 +304,16 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			if !ok {
 				return
 			}
-			send(map[string]any{"v": 1, "kind": "patch", "data": patch})
-			if current, found := s.projector.CurrentSnapshot()[patch.SessionID]; found {
+			current, found := s.projector.CurrentSnapshot()[patch.SessionID]
+			if live != nil && live.opened() && found {
+				if row := phoneChatListPatch(current, patch); row != nil {
+					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", row)})
+				}
+			}
+			if live == nil || live.accept(patch) {
+				send(map[string]any{"v": 1, "kind": "patch", "data": patch})
+			}
+			if found {
 				activity := latestTurnActivityPatch(current, patch)
 				if activity != "" && activity != activities[patch.SessionID] {
 					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", map[string]any{"operation": "activity", "session_id": patch.SessionID, "last_activity": activity})})
@@ -224,4 +339,24 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			return
 		}
 	}
+}
+
+func phoneChatListPatch(current projection.Snapshot, patch projection.Patch) map[string]any {
+	listChange := false
+	for _, operation := range patch.Operations {
+		switch operation.Path {
+		case "/complete", "/id", "/label", "/agent_id", "/connection_id", "/agent_name", "/b_connection", "/role", "/created_at", "/run", "/queued_messages", "/runnable", "/not_runnable_reason", "/closed":
+			listChange = true
+		}
+	}
+	if !listChange {
+		return nil
+	}
+	return map[string]any{"operation": "upsert", "session": map[string]any{
+		"id": current.ID, "label": current.Label, "agent_id": current.AgentID,
+		"connection_id": current.ConnectionID, "agent_name": current.AgentName,
+		"b_connection": current.BConnection, "role": current.Role, "created_at": current.CreatedAt,
+		"run": current.Run, "queued_messages": current.QueuedMessages, "runnable": current.Runnable,
+		"not_runnable_reason": current.NotRunnableReason, "closed": current.Closed,
+	}}
 }

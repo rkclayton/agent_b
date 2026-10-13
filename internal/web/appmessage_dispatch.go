@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+
+	"harness/internal/projection"
 )
 
 type pairedDeviceContextKey struct{}
@@ -47,6 +49,7 @@ var appMessageRoutes = map[string]struct {
 	"state":             {http.MethodGet, "/api/state"},
 	"resync":            {http.MethodGet, "/api/state"},
 	"chat.create":       {http.MethodPost, "/api/sessions"},
+	"chat.open":         {http.MethodPost, ""},
 	"chat.rename":       {http.MethodPost, "/api/sessions/"},
 	"chat.delete":       {http.MethodDelete, "/api/sessions/"},
 	"chat.history":      {http.MethodGet, "/api/sessions/"},
@@ -75,6 +78,10 @@ type appResponseUnit struct {
 // returns an error: a refusal is a response with a status, because the phone is owed an
 // answer for every id it sent.
 func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
+	return s.dispatchAppMessage(deviceID, unit, nil)
+}
+
+func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStreamState) []byte {
 	var request appRequestUnit
 	if err := json.Unmarshal(unit, &request); err != nil {
 		return s.appProblem("", http.StatusBadRequest, "the unit is not valid JSON")
@@ -87,6 +94,9 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 			return s.appProblem(request.ID, http.StatusNotImplemented, "this desktop does not publish the route "+request.Route)
 		}
 		return s.dispatchMirror(request)
+	}
+	if request.Route == "chat.open" {
+		return s.dispatchChatOpen(request, live)
 	}
 	route, known := appMessageRoutes[request.Route]
 	if !known {
@@ -187,6 +197,79 @@ func (s *Server) DispatchAppMessage(deviceID string, unit []byte) []byte {
 	return s.serveAsPhone(deviceID, request, route.method, path, body)
 }
 
+func (s *Server) dispatchChatOpen(request appRequestUnit, live *phoneStreamState) []byte {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(request.Body, &fields); err != nil {
+		return s.appProblem(request.ID, http.StatusBadRequest, "the chat.open body is not an object")
+	}
+	for name := range fields {
+		if name != "session_id" && name != "have" {
+			return s.appProblem(request.ID, http.StatusBadRequest, "chat.open carries session_id and have only; it does not carry "+name)
+		}
+	}
+	var sessionID string
+	if json.Unmarshal(fields["session_id"], &sessionID) != nil || strings.ContainsAny(sessionID, "/\\?#%") {
+		return s.appProblem(request.ID, http.StatusBadRequest, "chat.open needs a valid session_id")
+	}
+	epoch := uint64(0)
+	if live != nil {
+		epoch = live.begin(sessionID)
+		defer live.abortUnlessPrepared(epoch)
+	}
+	answer := map[string]any{"session_id": sessionID}
+	if sessionID == "" {
+		answer["patches"], answer["cursor"] = []projection.Patch{}, projection.Cursor{}
+		if live != nil {
+			live.prepare(epoch, projection.Cursor{})
+		}
+		return s.appResponse(request.ID, http.StatusOK, answer)
+	}
+	if s.projector == nil || s.writers == nil {
+		return s.appProblem(request.ID, http.StatusNotFound, "chat not found")
+	}
+	sessions := s.projector.CurrentSnapshot()
+	current, found := sessions[sessionID]
+	source, durable := s.writers.SessionCursors()[sessionID]
+	if !found || !durable {
+		return s.appProblem(request.ID, http.StatusNotFound, "chat not found")
+	}
+	s.decorateChatList(sessions)
+	bounded := s.firstScreenSessions(map[string]projection.Snapshot{sessionID: sessions[sessionID]}, sessionID)[sessionID]
+	var have *projection.Cursor
+	if raw, present := fields["have"]; present && string(raw) != "null" {
+		have = &projection.Cursor{}
+		var cursorFields map[string]json.RawMessage
+		if json.Unmarshal(raw, have) != nil || json.Unmarshal(raw, &cursorFields) != nil || have.Generation == "" || have.Offset < 0 {
+			return s.appProblem(request.ID, http.StatusBadRequest, "chat.open have needs generation and offset")
+		}
+		for name := range cursorFields {
+			if name != "generation" && name != "offset" {
+				return s.appProblem(request.ID, http.StatusBadRequest, "chat.open have carries generation and offset only")
+			}
+		}
+	}
+	if have != nil && have.Generation == current.Cursor.Generation && have.Offset <= current.Cursor.Offset {
+		base, err := projection.ProjectFileState(source.Path, have.Offset)
+		if err == nil && base.Cursor == *have {
+			end, patches, tailErr := projection.ProjectTailPatches(source.Path, have.Offset, base)
+			patchBytes, _ := json.Marshal(patches)
+			snapshotBytes, _ := json.Marshal(bounded)
+			if tailErr == nil && end.Cursor == current.Cursor && len(patchBytes) < len(snapshotBytes) {
+				answer["patches"], answer["cursor"] = patches, current.Cursor
+				if live != nil {
+					live.prepare(epoch, current.Cursor)
+				}
+				return s.appResponse(request.ID, http.StatusOK, answer)
+			}
+		}
+	}
+	answer["snapshot"] = bounded
+	if live != nil {
+		live.prepare(epoch, current.Cursor)
+	}
+	return s.appResponse(request.ID, http.StatusOK, answer)
+}
+
 func (s *Server) serveAsPhone(deviceID string, request appRequestUnit, method, path string, body json.RawMessage) []byte {
 	reader := strings.NewReader("")
 	if len(body) > 0 && method != http.MethodGet {
@@ -219,10 +302,5 @@ func (s *Server) appMessageHandler() http.Handler {
 }
 
 func (s *Server) appProblem(id string, status int, detail string) []byte {
-	body, _ := json.Marshal(map[string]string{"error": detail})
-	out, err := json.Marshal(appResponseUnit{V: 1, Kind: "response", ID: id, Status: status, Body: body})
-	if err != nil {
-		return []byte(fmt.Sprintf(`{"v":1,"kind":"response","id":%q,"status":500}`, id))
-	}
-	return out
+	return s.appResponse(id, status, map[string]string{"error": detail})
 }

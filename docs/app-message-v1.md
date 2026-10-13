@@ -57,9 +57,7 @@ the first time it must.
 ```
 
 `data` is the envelope the tailnet client already receives, byte-for-byte after JSON re-encoding.
-A device's view through the broker is therefore identical to its view over the tailnet, route by
-route: the same `snapshot` on connect, the same `projection.patch` stream after it, the same cursor
-semantics, the same `projection_stale` and `complete` flags.
+A released device's view through the broker remains identical to its view over the tailnet: the same join snapshots and every later patch. After a device uses `chat.open`, the rules below narrow that connection to the newest opened chat while preserving the same cursor semantics.
 
 Each chat snapshot also carries `folder` (the slash-separated path below the PC's Chats root, or
 `""` at the root) and `last_activity` (RFC3339Nano, the time its newest projected chat entry was
@@ -67,7 +65,8 @@ added). The join begins with one global event whose type is `chat.list.snapshot`
 `{folders:[path...]}`. Later PC folder changes use one constant-size global event of type
 `chat.list.patch`: `{operation:"add",path}`, `{operation:"rename",path,value}`,
 `{operation:"delete",path}`, `{operation:"move",session_id,folder}`, or
-`{operation:"activity",session_id,last_activity}`. A rename's `value` is the
+`{operation:"activity",session_id,last_activity}`. While `chat.open` mode is active, creation,
+rename, open/close and run-state changes also use `{operation:"upsert",session:{…list row…}}`. A rename's `value` is the
 new full folder path. These list events use the existing `event` unit and do not alter a chat's
 projection cursor.
 
@@ -139,6 +138,7 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
 | `chat.create` | `POST /api/sessions` | `{label?,agent_id?,connection_id?}` — connection selection added 2026-09-30; agent selection added 2026-10-09 |
+| `chat.open` | open one chat's phone stream | `{session_id,have?}` — added 2026-10-13 |
 | `chat.history` | `GET /api/sessions/{session_id}/history` | `{session_id,before?}` — 50 older entries at a time |
 | `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
 | `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
@@ -163,6 +163,8 @@ names the chat as it names any unlabelled one.
 `chat.history` carries a session id and an optional exclusive `before` index. It returns at most
 50 chat entries plus `{start,before,total}`. Omitting `before` returns the newest page; passing the
 returned `start` walks toward the first entry without transferring the rest of the retained store.
+
+`chat.open` accepts `have:{generation,offset}` when the phone holds that chat. It answers `200` with either `{session_id,snapshot}` (the newest page) or `{session_id,patches:[…],cursor}` (every change after `have`). Patches are used only for the current generation, a cursor not ahead, and a smaller encoding than the snapshot; otherwise it snapshots. From the answer cursor onward only the newest opened chat's content patches are live; `{session_id:""}` makes none live. Other chats still send list activity, run state, rename, move, delete and creation. A device that never sends `chat.open` keeps the join, resume and all-chat patch stream unchanged.
 
 `chat.rename` and `chat.delete` call the same handlers as the PC. Rename therefore applies the
 same label validation and retained-folder rename. Delete performs 2py's one act: it stops a running

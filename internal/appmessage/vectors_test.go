@@ -336,7 +336,7 @@ func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) 
 	file, document := load(t)
 
 	// The closed set, exactly.
-	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take", "chat.rename", "chat.delete"}
+	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take", "chat.rename", "chat.delete", "chat.open"}
 	if len(file.Routes) != len(want) {
 		t.Fatalf("the route set is %v, want %v", file.Routes, want)
 	}

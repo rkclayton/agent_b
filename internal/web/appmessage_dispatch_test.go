@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -319,6 +320,150 @@ func TestPhoneRenameAndDeleteUseTheDesktopHandlers2qk(t *testing.T) {
 		if response.Status != http.StatusNotImplemented {
 			t.Errorf("route %q = %d, want 501", route, response.Status)
 		}
+	}
+}
+
+func TestChatOpenAnswersOnlyWhatThePhoneLacks2rf(t *testing.T) {
+	server := measuredServer(t, 1, 100)
+	before := server.projector.CurrentSnapshot()["chat-0"]
+	for index := 0; index < 10; index++ {
+		server.bus.Publish(events.New(events.SessionRenamed, "chat-0", "run", map[string]any{"label": fmt.Sprintf("tail-%d", index)}))
+	}
+	open := func(id string, body any) appResponseUnit {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dispatch(t, server, `{"v":1,"kind":"request","id":"`+id+`","route":"chat.open","body":`+string(encoded)+`}`)
+	}
+	decode := func(answer appResponseUnit) map[string]json.RawMessage {
+		if answer.Status != http.StatusOK {
+			t.Fatalf("chat.open = %d %s", answer.Status, answer.Body)
+		}
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(answer.Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	if body := decode(open("open-page", map[string]any{"session_id": "chat-0"})); len(body["snapshot"]) == 0 || len(body["patches"]) != 0 {
+		t.Fatalf("no-have answer = %s", open("open-page-again", map[string]any{"session_id": "chat-0"}).Body)
+	}
+	current := server.projector.CurrentSnapshot()["chat-0"]
+	if body := decode(open("current", map[string]any{"session_id": "chat-0", "have": current.Cursor})); string(body["patches"]) != "[]" {
+		t.Fatalf("current cursor answer = %s", body["patches"])
+	}
+	tail := decode(open("tail", map[string]any{"session_id": "chat-0", "have": before.Cursor}))
+	var patches []projection.Patch
+	if err := json.Unmarshal(tail["patches"], &patches); err != nil || len(patches) != 10 {
+		t.Fatalf("ten-event tail = %d patches (%v): %s", len(patches), err, tail["patches"])
+	}
+	applied, expected, err := projection.ProjectTailPatches(server.writers.SessionCursors()["chat-0"].Path, before.Cursor.Offset, before)
+	if err != nil || !reflect.DeepEqual(patches, expected) || !reflect.DeepEqual(applied, current) {
+		t.Fatalf("phone-applied tail differs from the PC snapshot: %v", err)
+	}
+	if body := decode(open("wrong-generation", map[string]any{"session_id": "chat-0", "have": projection.Cursor{Generation: "other", Offset: before.Cursor.Offset}})); len(body["snapshot"]) == 0 {
+		t.Fatalf("wrong generation answer = %v", body)
+	}
+	if body := decode(open("ahead", map[string]any{"session_id": "chat-0", "have": projection.Cursor{Generation: current.Cursor.Generation, Offset: current.Cursor.Offset + 1}})); len(body["snapshot"]) == 0 {
+		t.Fatalf("ahead answer = %v", body)
+	}
+	for index := 0; index < 100; index++ {
+		server.bus.Publish(events.New(events.MessageAppended, "chat-0", "run", map[string]any{"message": map[string]any{
+			"id": fmt.Sprintf("far-%d", index), "role": "assistant", "content": strings.Repeat("far", 40),
+		}}))
+	}
+	if body := decode(open("far", map[string]any{"session_id": "chat-0", "have": before.Cursor})); len(body["snapshot"]) == 0 {
+		t.Fatalf("large tail did not choose the smaller snapshot: %v", body)
+	}
+	preRestart := server.projector.CurrentSnapshot()["chat-0"].Cursor
+	restarted := projection.NewStore()
+	if _, err := restarted.Snapshot(server.writers.SessionCursors()); err != nil {
+		t.Fatal(err)
+	}
+	server.SetProjection(restarted, server.writers)
+	if body := decode(open("restart", map[string]any{"session_id": "chat-0", "have": preRestart})); string(body["patches"]) != "[]" {
+		t.Fatalf("pre-restart cursor answer = %s", body["patches"])
+	}
+}
+
+func TestChatOpenMakesOnlyThatChatLive2rf(t *testing.T) {
+	server := measuredServer(t, 2, 100)
+	live, device := newPhoneStreamState(), &recordingDevice{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { server.streamUnitsToDeviceOpening(ctx, device, nil, live); close(done) }()
+	defer func() { cancel(); <-done }()
+	device.waitFor(t, "the second chat join", func(unit map[string]any) bool { return unit["kind"] == "snapshot" && unit["session_id"] == "chat-1" })
+	answer := server.dispatchAppMessage("device-1", []byte(`{"v":1,"kind":"request","id":"open","route":"chat.open","body":{"session_id":"chat-1"}}`), live)
+	if !live.preparedAnswer() {
+		t.Fatalf("open answer = %s", answer)
+	}
+	live.activate()
+	device.mu.Lock()
+	device.units = nil
+	device.mu.Unlock()
+	server.bus.Publish(events.New(events.RunStarted, "chat-0", "busy", map[string]any{"run_id": "busy"}))
+	for index := 0; index < 60; index++ {
+		server.bus.Publish(events.New(events.MessageAppended, "chat-0", "busy", map[string]any{"message": map[string]any{
+			"id": fmt.Sprintf("busy-%d", index), "role": "assistant", "content": "busy transcript must not cross",
+		}}))
+	}
+	device.waitFor(t, "the busy chat row state", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		row, _ := payload["session"].(map[string]any)
+		run, _ := row["run"].(map[string]any)
+		return data["type"] == events.ChatListPatch && payload["operation"] == "upsert" && row["id"] == "chat-0" && run["status"] == "running"
+	})
+	time.Sleep(100 * time.Millisecond)
+	device.mu.Lock()
+	afterBytes := 0
+	for _, unit := range device.units {
+		encoded, _ := appCanonical(unit)
+		afterBytes += len(encoded)
+		data, _ := unit["data"].(map[string]any)
+		if unit["kind"] == "patch" && data["session_id"] == "chat-0" {
+			device.mu.Unlock()
+			t.Fatal("the unopened busy chat sent transcript patches")
+		}
+	}
+	device.mu.Unlock()
+	t.Logf("2rf ten-minute stand-in after chat.open: %d bytes (before 999521)", afterBytes)
+	server.bus.Publish(events.New(events.MessageAppended, "chat-1", "open", map[string]any{"message": map[string]any{"id": "open-1", "role": "assistant", "content": "open chat"}}))
+	device.waitFor(t, "the opened chat patch", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "patch" && data["session_id"] == "chat-1"
+	})
+	server.dispatchAppMessage("device-1", []byte(`{"v":1,"kind":"request","id":"none","route":"chat.open","body":{"session_id":""}}`), live)
+	live.activate()
+	device.mu.Lock()
+	device.units = nil
+	device.mu.Unlock()
+	server.bus.Publish(events.New(events.MessageAppended, "chat-1", "open", map[string]any{"message": map[string]any{"id": "none-1", "role": "assistant", "content": "none"}}))
+	time.Sleep(100 * time.Millisecond)
+	device.mu.Lock()
+	defer device.mu.Unlock()
+	for _, unit := range device.units {
+		if unit["kind"] == "patch" {
+			t.Fatal("chat.open with an empty session left a live chat")
+		}
+	}
+}
+
+func TestAChangeLandingDuringChatOpenIsSentOnce2rf(t *testing.T) {
+	live := newPhoneStreamState()
+	epoch := live.begin("chat-1")
+	patch := projection.Patch{SessionID: "chat-1", PreviousCursor: projection.Cursor{Generation: "one", Offset: 1}, Cursor: projection.Cursor{Generation: "one", Offset: 2}}
+	result := make(chan bool, 1)
+	go func() { result <- live.accept(patch) }()
+	live.prepare(epoch, patch.PreviousCursor)
+	live.activate()
+	if !<-result || live.accept(patch) {
+		t.Fatal("the patch concurrent with chat.open was missed or accepted twice")
+	}
+	if !newPhoneStreamState().accept(patch) {
+		t.Fatal("a released phone no longer receives the legacy patch stream")
 	}
 }
 

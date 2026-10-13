@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$releaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
+$releaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'compaction-proof', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
 $releaseClock = [Diagnostics.Stopwatch]::StartNew()
 $releaseStepStarted = 0L
 function Complete-ReleaseStep([string]$Name) {
@@ -103,6 +103,10 @@ if ($signingExit -ne 0) { throw "DEPLOY REFUSED: release signing is not availabl
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }
 Complete-ReleaseStep 'build-sign-release-key'
 }
+
+& node (Join-Path $repository 'tools\compaction-proof.mjs') --mode gate --source $repository --record (Join-Path $repository 'tests\compaction-proof.json') --app (Join-Path $candidate 'Agent_b.exe')
+if ($LASTEXITCODE -ne 0) { throw 'BUILT, NOT RELEASED: compaction is not proved' }
+Complete-ReleaseStep 'compaction-proof'
 
 # Item 2t5: the setup's outer signature being Valid does not prove that its
 # embedded payload carries the pinned release key. Ask the staged product's

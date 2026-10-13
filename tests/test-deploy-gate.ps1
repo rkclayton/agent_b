@@ -5,13 +5,16 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $deploy = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-release.ps1')
-$expectedReleaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
+$expectedReleaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'compaction-proof', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
 $stepMatch = [regex]::Match($deploy, '(?s)\$releaseSteps\s*=\s*@\((?<steps>.*?)\)')
 if (-not $stepMatch.Success) { throw 'Deploy does not declare its release-tier step list.' }
 $actualReleaseSteps = @([regex]::Matches($stepMatch.Groups['steps'].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
 if (($actualReleaseSteps -join '|') -cne ($expectedReleaseSteps -join '|')) { throw "Release tier differs: $($actualReleaseSteps -join ', ')" }
 foreach ($forbidden in @('layout-gate.mjs', '--candidate $candidate', 'test-signing-key-policies.ps1')) {
     if ($deploy -match [regex]::Escape($forbidden)) { throw "Deploy still runs non-release step $forbidden." }
+}
+foreach ($required in @('tools\compaction-proof.mjs', 'tests\compaction-proof.json', 'BUILT, NOT RELEASED: compaction is not proved')) {
+    if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy is missing compaction proof contract: $required" }
 }
 $verify = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\sign-release.ps1')

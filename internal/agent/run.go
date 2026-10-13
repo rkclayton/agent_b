@@ -125,18 +125,6 @@ func (r *Runner) refreshAgent(s *session.Session) (*config.Connection, bool) {
 	return connection, true
 }
 
-func (r *Runner) agentConnection(agent *config.Agent, role string) (*config.Connection, bool) {
-	connection, ok := r.connection(agent.ConnectionFor(role))
-	if !ok {
-		return nil, false
-	}
-	resolved := *connection
-	if model := strings.TrimSpace(agent.Model); model != "" {
-		resolved.SelectModel(model, 0)
-	}
-	return &resolved, true
-}
-
 func (r *Runner) currentConnection(s *session.Session) (*config.Connection, bool) {
 	return r.connection(s.Snapshot().ConnectionID)
 }
@@ -2519,8 +2507,6 @@ func requestTokenLimit(p *config.Connection, budget events.Budget, promptTokens 
 func outputFloor(p *config.Connection) int {
 	return min(minimumOutputFloor, p.Context.NCtx)
 }
-func roughBodyTokens(body any) int { return int(math.Ceil(float64(jsonSize(body)) / 3.6)) }
-func jsonSize(value any) int       { data, _ := json.Marshal(value); return len(data) }
 func nullable(value int) any {
 	if value < 0 {
 		return nil
@@ -2535,14 +2521,6 @@ func preview(value string) string {
 		return string(runes[:500]) + "…"
 	}
 	return value
-}
-func appendUnique(values []string, value string) []string {
-	for _, v := range values {
-		if v == value {
-			return values
-		}
-	}
-	return append(values, value)
 }
 
 // truncationDetail names the cap the answer hit, its value and where it is set,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -574,38 +573,4 @@ func (r *Runner) compactionExhausted(sessionID, runID string) bool {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.weak >= 2
-}
-
-var orderIDPattern = regexp.MustCompile("Order ID: `([^`]+)`")
-
-// restatement is what follows every summary (item 2q5 (c)): his last message, the
-// order it names, and the files changed so far, so the run that resumes from the
-// note knows what it was asked and what it has done.
-func restatement(records []events.Message) string {
-	last, files, seen := "", []string{}, map[string]bool{}
-	for _, message := range records {
-		if message.Role == "user" && message.Category == "history" && !message.Elided {
-			last = message.Content
-		}
-		for _, call := range message.ToolCalls {
-			var args struct {
-				Path string `json:"path"`
-			}
-			if (call.Name == "write_file" || call.Name == "edit_file") && json.Unmarshal([]byte(call.Arguments), &args) == nil && args.Path != "" && !seen[args.Path] {
-				seen[args.Path] = true
-				files = append(files, args.Path)
-			}
-		}
-	}
-	if runes := []rune(last); len(runes) > 4000 {
-		last = string(runes[:4000]) + " …"
-	}
-	lines := []string{"LAST USER MESSAGE: " + last}
-	if order := orderIDPattern.FindStringSubmatch(last); order != nil {
-		lines = append(lines, "ORDER: "+order[1])
-	}
-	if len(files) > 0 {
-		lines = append(lines, "FILES CHANGED: "+strings.Join(files, ", "))
-	}
-	return strings.Join(lines, "\n")
 }

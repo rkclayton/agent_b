@@ -22,14 +22,6 @@ type Replay struct {
 	Archives map[string]*events.HistoryArchive
 }
 
-// LoadReplayStates is LoadReplay for a caller that wants the sessions and
-// their archives but no patches — startup's retained-chat restore. It is the
-// difference between 96.6 s and a few seconds on the operator's journals
-// (item 2gm): the patch per record is quadratic in the chat's length.
-func LoadReplayStates(paths []string) (*Replay, error) {
-	return loadReplay(paths, false)
-}
-
 func LoadReplay(paths []string) (*Replay, error) {
 	return loadReplay(paths, true)
 }

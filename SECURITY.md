@@ -342,7 +342,9 @@ so an agent default can tighten approval but can never loosen it.
 
 Agent_b has two user-facing prompts. **Allow this** governs a risky action under `approval.mode` or a trusted repository policy:
 the shipped `boundary-only` default runs tools without generic pre-execution confirmation, `mutating` pauses `write_file`, `edit_file`, `shell`,
-and `run_script`, and `all` pauses every tool call. **Run as you** governs every need for the operator's Windows identity: configured operator commands,
+`run_script`, and every `call_service` method except GET and HEAD, and `all` pauses every tool call. A service with
+`require_confirmation:true` always raises **Allow this** before its call in any mode; unattended and scheduled runs decline it without sending.
+**Run as you** governs every need for the operator's Windows identity: configured operator commands,
 built-in file operations outside the service account's reach, and operator-only interpreters. Every card offers **Yes, for this chat**, **Just once**,
 and **No**; when the request has an exact repo, folder, connector, or host subject it also offers **Always allow this exact scope**.
 That choice writes a grant under the active profile in the operator-owned data root, survives restarts and updates,

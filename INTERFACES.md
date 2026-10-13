@@ -278,7 +278,8 @@ Documented empty/no-match results are successful outcomes.
   bounded by that service's `max_body_kb`, and returns only `{path,bytes,sha256,content_type}`; an over-limit or credential-reflecting response leaves no file.
   An imported operation may request one content type its 200 response declares, which becomes `Accept`. Continuing with `next_offset` repeats the request.
   Authorization values and bearer tokens never enter durable events, History, flow, or returned content.
-  `require_confirmation:true` is parsed and logged but intentionally has no effect in this release.
+  `require_confirmation:true` requires approval before every call. In `mutating` approval mode, every method except GET and HEAD requires the same card;
+  in `all`, every call does. The card names the service, method and path or imported operation, and unattended or scheduled runs refuse it without sending.
   A connector may import an OpenAPI 3.0/3.1 JSON document through the same connector proposal (`entry.openapi {document,operations}`);
   the harness fetches it once, the approval card lists the operations it would enable and what the document says its own auth wants,
   and approval keeps the document as a snapshot under the operator data root with its SHA-256. Such a connector answers ONLY its enabled operations:

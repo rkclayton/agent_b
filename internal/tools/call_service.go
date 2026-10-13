@@ -251,10 +251,26 @@ func (c *CallService) setServicesLocked(services map[string]config.Service) {
 	for name, service := range services {
 		service.AllowedMethods = append([]string(nil), service.AllowedMethods...)
 		c.services[name] = service
-		if service.RequireConfirmation {
-			log.Printf("call_service: service=%q require_confirmation=true is recorded but not enforced in this release", name)
+	}
+}
+
+func (c *CallService) PolicyApprovalRequired(mode string, args map[string]any) bool {
+	name, _ := requiredString(args, "service")
+	service, registered := c.service(name)
+	if registered && service.RequireConfirmation {
+		return true
+	}
+	if mode != config.ApprovalModeMutating {
+		return false
+	}
+	method, _ := requiredString(args, "method")
+	if registered && service.OpenAPI != nil {
+		if rewritten, err := c.operationArgs(name, service, args); err == nil {
+			method, _ = requiredString(rewritten, "method")
 		}
 	}
+	method = strings.ToUpper(method)
+	return method != "" && method != http.MethodGet && method != http.MethodHead
 }
 
 func (c *CallService) Call(ctx context.Context, item *session.Session, args map[string]any) (string, error) {

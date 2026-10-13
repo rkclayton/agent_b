@@ -346,23 +346,28 @@ func TestCallServiceExecArgvParsingDoesNotUseShellSyntax(t *testing.T) {
 	}
 }
 
-func TestCallServiceRequireConfirmationIsLoggedButNotEnforced(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
+func TestCallServiceRequireConfirmationIsAQuietPolicyFlag2rh(t *testing.T) {
 	var output strings.Builder
 	previous := log.Writer()
 	log.SetOutput(&output)
 	defer log.SetOutput(previous)
-	service := testService(server.URL, "none")
+	service := testService("http://127.0.0.1:1", "none")
 	service.RequireConfirmation = true
 	tool := NewCallService(map[string]config.Service{"flagged": service})
-	if !strings.Contains(output.String(), `service="flagged" require_confirmation=true`) || !strings.Contains(output.String(), "not enforced") {
+	if output.Len() != 0 {
 		t.Fatalf("log=%q", output.String())
 	}
-	if _, err := tool.Call(context.Background(), &session.Session{}, map[string]any{"service": "flagged", "method": "GET", "path": "allowed"}); err != nil {
-		t.Fatalf("reserved flag was enforced: %v", err)
+	if !tool.PolicyApprovalRequired(config.ApprovalModeBoundaryOnly, map[string]any{"service": "flagged", "method": "GET", "path": "allowed"}) {
+		t.Fatal("flagged service did not require approval")
+	}
+	plain := NewCallService(map[string]config.Service{"plain": testService("http://127.0.0.1:1", "none")})
+	for _, method := range []string{"GET", "HEAD"} {
+		if plain.PolicyApprovalRequired(config.ApprovalModeMutating, map[string]any{"service": "plain", "method": method, "path": "allowed"}) {
+			t.Fatalf("%s required approval", method)
+		}
+	}
+	if !plain.PolicyApprovalRequired(config.ApprovalModeMutating, map[string]any{"service": "plain", "method": "POST", "path": "allowed"}) {
+		t.Fatal("POST did not require approval")
 	}
 }
 

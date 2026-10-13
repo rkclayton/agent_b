@@ -28,6 +28,9 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 	switch eventType {
 	case ApprovalRequired:
 		name := textValue(data["name"], "This action")
+		if args, ok := data["args"].(map[string]any); ok {
+			name = textValue(args["approval_action"], name)
+		}
 		if data["kind"] == "cycle" || name == "run.cycle" {
 			return HumanNotice{
 				Happened:      "The same action and result repeated without progress.",

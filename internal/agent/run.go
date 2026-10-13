@@ -571,6 +571,9 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	cfg := r.cfg()
 	eventArgs := sanitizedToolArguments(name, args)
+	if name == "call_service" {
+		eventArgs["approval_action"] = callServiceApprovalAction(args)
+	}
 	path, _ := args["path"].(string)
 	skillRead := (name == "read_file" || name == "list_dir" || name == "search" || name == "search_text" || name == "find_files") && s.IsSkillPath(path)
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
@@ -678,6 +681,8 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		if !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
 			decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 		}
+	} else if !r.hasPolicyChatGrant(s.ID, name) && r.tools.PolicyApprovalRequired(name, r.gate.modeFor(s), args) {
+		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if r.hasPolicyChatGrant(s.ID, name) {
 		// The operator already allowed this policy-governed action for the chat.
 	} else {
@@ -827,6 +832,16 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	outcome.Metadata = withHarnessNote(outcome.Metadata, "user-identity override was attempted but failed")
 	outcome.Content = withModelNote(outcome.Content, "user-identity override was attempted but failed")
 	return outcome
+}
+
+func callServiceApprovalAction(args map[string]any) string {
+	service, _ := args["service"].(string)
+	method, _ := args["method"].(string)
+	path, _ := args["path"].(string)
+	if operation, _ := args["operation"].(string); strings.TrimSpace(operation) != "" {
+		return fmt.Sprintf("Service %s operation %s", service, operation)
+	}
+	return fmt.Sprintf("Service %s %s %s", service, strings.ToUpper(method), path)
 }
 
 func rememberEchoesPreviousTool(s *session.Session, args map[string]any) bool {

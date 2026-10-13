@@ -114,6 +114,74 @@ func TestGateRequiredMatrix(t *testing.T) {
 	}
 }
 
+func TestCallServiceApprovalPolicy2rh(t *testing.T) {
+	var calls atomic.Int32
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer service.Close()
+	makeRunner := func(mode string, confirm, unattended bool) *Runner {
+		cfg := config.Defaults(t.TempDir())
+		cfg.Approval.Mode = mode
+		cfg.Approval.Unattended = unattended
+		cfg.Services["depot"] = config.Service{BaseURL: service.URL, Auth: "none", AllowedMethods: []string{"GET", "POST"}, TimeoutS: 5, MaxBodyKB: 64, RequireConfirmation: confirm}
+		return NewRunner(events.NewBus(), toolpkg.New(toolpkg.NewCallService(cfg.Services)), nil, nil, func() config.Config { return cfg })
+	}
+	runCard := func(mode, method, decision string, confirm bool) toolpkg.CallOutcome {
+		runner := makeRunner(mode, confirm, false)
+		stream, stop := runner.bus.Subscribe()
+		defer stop()
+		item := &session.Session{ID: method + decision, Role: "b", ToolsEnabled: map[string]bool{"call_service": true}, Run: session.RunState{Status: "running"}}
+		done := make(chan toolpkg.CallOutcome, 1)
+		go func() {
+			done <- runner.executeTool(context.Background(), item, "run", "call", "call_service", map[string]any{"service": "depot", "method": method, "path": "check"})
+		}()
+		event := <-stream
+		data := event.Data.(map[string]any)
+		if event.Type != events.ApprovalRequired || data["name"] != "call_service" || data["args"].(map[string]any)["service"] != "depot" || calls.Load() != 0 {
+			t.Fatalf("event=%+v calls=%d", event, calls.Load())
+		}
+		if human := data["human"].(events.HumanNotice); !strings.Contains(human.Happened, "Service depot "+method+" check") {
+			t.Fatalf("human=%+v", human)
+		}
+		if err := runner.Gate().Decide(item.ID, "call", decision); err != nil {
+			t.Fatal(err)
+		}
+		<-stream
+		return <-done
+	}
+	if outcome := runCard(config.ApprovalModeBoundaryOnly, "GET", "once", true); !outcome.OK || calls.Load() != 1 {
+		t.Fatalf("approved=%+v calls=%d", outcome, calls.Load())
+	}
+	calls.Store(0)
+	if outcome := runCard(config.ApprovalModeBoundaryOnly, "GET", "deny", true); outcome.OK || !strings.Contains(outcome.Content, "denied") || calls.Load() != 0 {
+		t.Fatalf("denied=%+v calls=%d", outcome, calls.Load())
+	}
+	if outcome := runCard(config.ApprovalModeMutating, "POST", "once", false); !outcome.OK {
+		t.Fatalf("post=%+v", outcome)
+	}
+	calls.Store(0)
+	runner := makeRunner(config.ApprovalModeMutating, false, false)
+	item := &session.Session{ID: "get", Role: "b", ToolsEnabled: map[string]bool{"call_service": true}}
+	if outcome := runner.executeTool(context.Background(), item, "run", "get", "call_service", map[string]any{"service": "depot", "method": "GET", "path": "check"}); !outcome.OK || calls.Load() != 1 {
+		t.Fatalf("get=%+v calls=%d", outcome, calls.Load())
+	}
+	calls.Store(0)
+	if outcome := runCard(config.ApprovalModeAll, "GET", "once", false); !outcome.OK {
+		t.Fatalf("all=%+v", outcome)
+	}
+	for _, unattended := range []*session.Session{{ID: "worker", Role: "c"}, {ID: "scheduled", Role: "b", Origin: "scheduled"}} {
+		calls.Store(0)
+		runner := makeRunner(config.ApprovalModeBoundaryOnly, true, unattended.Role == "c")
+		unattended.ToolsEnabled = map[string]bool{"call_service": true}
+		outcome := runner.executeTool(context.Background(), unattended, "run", "call", "call_service", map[string]any{"service": "depot", "method": "GET", "path": "check"})
+		if outcome.OK || calls.Load() != 0 || len(unattended.BoundaryHits()) != 1 {
+			t.Fatalf("%s outcome=%+v calls=%d hits=%v", unattended.ID, outcome, calls.Load(), unattended.BoundaryHits())
+		}
+	}
+}
+
 func TestCanceledApprovalPublishesDismissedDecision(t *testing.T) {
 	bus := events.NewBus()
 	eventCh, unsubscribe := bus.Subscribe()

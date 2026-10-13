@@ -88,7 +88,21 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 		}
 		return data, <-done
 	}
-	card, detail := offer(source, "report-kit", "approve")
+	chat.Append(events.Message{Role: "assistant", Content: "Add " + source + " as a skill\n\nThis line is not last."})
+	if detail, err := server.Proposal(context.Background(), chat, "run"); err != nil || detail != "" {
+		t.Fatalf("middle sentence raised a proposal: %q %v", detail, err)
+	}
+	chat.Append(events.Message{Role: "assistant", Content: "I wrote the requested skill.\n\nAdd " + source + " as a skill"})
+	eventsCh, unsubscribe := bus.Subscribe()
+	done := make(chan string, 1)
+	go func() { detail, _ := server.Proposal(context.Background(), chat, "run"); done <- detail }()
+	event := <-eventsCh
+	data := event.Data.(map[string]any)
+	if err := runner.Gate().Decide(chat.ID, "skill-proposal-report-kit", "approve"); err != nil {
+		t.Fatal(err)
+	}
+	unsubscribe()
+	card, detail := data, <-done
 	if card["name"] != "Add skill report-kit?" || !strings.Contains(card["args"].(map[string]any)["skill_md"].(string), "Builds invented") || detail != "skill report-kit added" {
 		t.Fatalf("card=%+v detail=%q", card, detail)
 	}
@@ -111,7 +125,7 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("---\nname: BAD\ndescription: invalid\n---\n"), 0o600)
 	missing := filepath.Join(t.TempDir(), "missing")
 	_ = os.MkdirAll(missing, 0o700)
-	for path, want := range map[string]string{missing: "SKILL.md is missing", bad: "name must be", source: "already exists"} {
+	for path, want := range map[string]string{missing: "SKILL.md is missing", bad: "name must be"} {
 		chat.Append(events.Message{Role: "assistant", Content: "Add " + path + " as a skill"})
 		got, err := server.Proposal(context.Background(), chat, "run")
 		if err != nil || !strings.Contains(got, want) {
@@ -119,9 +133,105 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 		}
 	}
 	prompt, _ := os.ReadFile(filepath.Join("..", "..", "prompts", "system.md"))
-	line := "To add a folder or zip as a skill, reply exactly “Add <absolute path> as a skill”; Agent_b will show its existing skill card."
+	line := "To add a folder or ZIP as a skill, end with its own line: “Add <absolute path> as a skill”; Agent_b shows the skill card."
 	if !strings.Contains(string(prompt), line) || len(strings.Fields(line)) > 40 {
 		t.Fatalf("missing or long prompt rule")
+	}
+	writeSkill, _ := os.ReadFile(filepath.Join("..", "skills", "included", "write-skill", "SKILL.md"))
+	if !strings.HasSuffix(strings.TrimSpace(string(writeSkill)), "`Add <absolute path> as a skill`") {
+		t.Fatalf("write-skill does not end by sending its folder to the card")
+	}
+}
+
+func TestChatSkillProposalReplacesAUserSkillButNeverAnIncludedSkill2u9(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Skills = map[string]config.SkillSetting{"report-kit": {Enabled: false, Source: "old"}}
+	configPath := filepath.Join(root, "harness.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatal(err)
+	}
+	stored := filepath.Join(root, "skills", "report-kit")
+	if err := os.MkdirAll(stored, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stored, "SKILL.md"), []byte("---\nname: report-kit\ndescription: Old description.\n---\nold\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stored, "old-only.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "replacement")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: report-kit\ndescription: New description.\n---\nnew\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "new-only.txt"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	server := New(&cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
+	runner := agent.NewRunner(bus, tools.New(), nil, cfg.Connection, server.ConfigSnapshot)
+	server.SetRuntime(nil, runner, nil)
+	chat := &session.Session{ID: "chat", Role: "b", Workspace: t.TempDir()}
+	offer := func(decision string) (map[string]any, string) {
+		chat.Append(events.Message{Role: "assistant", Content: "Ready.\n\nAdd " + source + " as a skill"})
+		eventsCh, unsubscribe := bus.Subscribe()
+		defer unsubscribe()
+		done := make(chan string, 1)
+		go func() { detail, _ := server.Proposal(context.Background(), chat, "run"); done <- detail }()
+		event := <-eventsCh
+		data := event.Data.(map[string]any)
+		if err := runner.Gate().Decide(chat.ID, "skill-proposal-report-kit", decision); err != nil {
+			t.Fatal(err)
+		}
+		return data, <-done
+	}
+	before, _ := os.ReadFile(filepath.Join(stored, "SKILL.md"))
+	card, detail := offer("deny")
+	afterDecline, _ := os.ReadFile(filepath.Join(stored, "SKILL.md"))
+	if card["name"] != "Replace skill report-kit?" || detail != "skill proposal declined" || string(afterDecline) != string(before) {
+		t.Fatalf("card=%+v detail=%q", card, detail)
+	}
+	_, detail = offer("approve")
+	after, _ := os.ReadFile(filepath.Join(stored, "SKILL.md"))
+	if detail != "skill report-kit replaced" || !strings.Contains(string(after), "New description") || cfg.Skills["report-kit"].Enabled {
+		t.Fatalf("detail=%q skill=%q setting=%+v", detail, after, cfg.Skills["report-kit"])
+	}
+	if _, err := os.Stat(filepath.Join(stored, "old-only.txt")); !os.IsNotExist(err) {
+		t.Fatalf("old file remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stored, "new-only.txt")); err != nil {
+		t.Fatalf("new file missing: %v", err)
+	}
+
+	included := filepath.Join(root, "skills", ".included", "write-skill")
+	if err := os.MkdirAll(included, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(included, "SKILL.md"), []byte("---\nname: write-skill\ndescription: Included.\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shipped := filepath.Join(t.TempDir(), "write-skill")
+	if err := os.MkdirAll(shipped, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shipped, "SKILL.md"), []byte("---\nname: write-skill\ndescription: Replacement.\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chat.Append(events.Message{Role: "assistant", Content: "Add " + shipped + " as a skill"})
+	if got, err := server.Proposal(context.Background(), chat, "run"); err != nil || got != "skill proposal refused: included skill \"write-skill\" cannot be replaced" {
+		t.Fatalf("included=%q %v", got, err)
+	}
+
+	for _, role := range []string{"c", "e"} {
+		chat.Role = role
+		chat.Append(events.Message{Role: "assistant", Content: "Add " + source + " as a skill"})
+		if got, err := server.Proposal(context.Background(), chat, "run"); err != nil || got != "" {
+			t.Fatalf("role %s raised proposal: %q %v", role, got, err)
+		}
 	}
 }
 

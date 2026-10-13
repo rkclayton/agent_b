@@ -31,9 +31,10 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 				t.Fatal(err)
 			}
 			line := "Add " + repo + " as a plan"
+			answer := "I found the repository.\n\n" + line
 			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
-				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": line}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5}})
+				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": answer}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5}})
 				fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 			}))
 			defer model.Close()
@@ -90,7 +91,7 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 			if (registrations == 1) != tc.wantRegistered {
 				t.Fatalf("run=%s registrations=%d", result, registrations)
 			}
-			if messages := item.MessagesCopy(); messages[len(messages)-1].Content != line {
+			if messages := item.MessagesCopy(); messages[len(messages)-1].Content != answer {
 				t.Fatalf("the line must stay in the transcript above the card: %+v", messages[len(messages)-1])
 			}
 		})
@@ -100,5 +101,17 @@ func TestModelProposedPlanRegistrationRaisesTheOperatorsCard(t *testing.T) {
 func TestAModelLineInsideProseRaisesNothing(t *testing.T) {
 	if _, ok := requestedPlanPath("Sure — you could say: Add C:\repo as a plan"); ok {
 		t.Fatal("a sentence that merely contains the line must not register")
+	}
+	if got, ok := requestedPlanPath("I found the repository.\n\nAdd C:\\repo as a plan"); !ok || got != `C:\repo` {
+		t.Fatalf("last line did not register: %q %v", got, ok)
+	}
+	if _, ok := requestedPlanPath("Add C:\\repo as a plan\n\nThis line follows it."); ok {
+		t.Fatal("a sentence before the last line registered")
+	}
+	runner := &Runner{}
+	for _, role := range []string{"c", "e"} {
+		if handled, _ := runner.handleModelPlanProposal(context.Background(), &session.Session{Role: role}, "run", "Add C:\\repo as a plan"); handled {
+			t.Fatalf("role %s raised a plan proposal", role)
+		}
 	}
 }

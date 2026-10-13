@@ -74,6 +74,17 @@ test("pending cards consume the shared human sentence order", () => {
 	assert.equal(wording.detail, "note.txt");
 });
 
+test("skill proposal cards show the proposed skill and its files in technical detail", () => {
+	const wording = approvalText({
+		name: "Replace skill report-kit?",
+		args: { skill_md: "---\nname: report-kit\ndescription: New acceptance skill.\n---", files: ["SKILL.md", "guide.md"], warnings: ["review guide"] },
+		human: { happened: "Replace skill report-kit? needs your approval before it can continue.", harness_action: "The harness paused.", question: "Allow this action?" },
+	});
+	assert.match(wording.detail, /New acceptance skill/);
+	assert.match(wording.detail, /Files:\n  SKILL\.md\n  guide\.md/);
+	assert.match(wording.detail, /Warnings:\n  review guide/);
+});
+
 test("every resolved approval is one decided line and never a pending card", () => {
 	const document = {
 		createTextNode: (text) => ({ text }),

@@ -166,6 +166,9 @@ func pathInfoMissing(path string) bool {
 }
 
 func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID string) (string, error) {
+	if role := chat.Snapshot().Role; role == "c" || role == "e" {
+		return "", nil
+	}
 	messages := chat.MessagesCopy()
 	if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
 		if source, ok := requestedSkillPath(messages[len(messages)-1].Content); ok {
@@ -186,7 +189,8 @@ func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID stri
 var addSkillPattern = regexp.MustCompile(`(?i)^\s*add\s+(.+?)\s+as\s+a\s+skill[.!]?\s*$`)
 
 func requestedSkillPath(text string) (string, bool) {
-	match := addSkillPattern.FindStringSubmatch(strings.TrimSpace(text))
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	match := addSkillPattern.FindStringSubmatch(strings.TrimSpace(lines[len(lines)-1]))
 	if len(match) != 2 {
 		return "", false
 	}
@@ -201,29 +205,53 @@ func (s *Server) proposeSkill(ctx context.Context, chat *session.Session, runID,
 	item, body, files, err := skills.InspectSource(source, s.cfg.Tools.Attachments.MaxBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "skill proposal refused: SKILL.md is missing", nil
+			return fmt.Sprintf("skill proposal refused: %s: SKILL.md is missing", displaySkillPath(source)), nil
 		}
-		return "skill proposal refused: " + err.Error(), nil
+		return fmt.Sprintf("skill proposal refused: %s: %s", displaySkillPath(source), err), nil
 	}
 	if !item.Valid {
-		return "skill proposal refused: " + item.Reason, nil
+		return fmt.Sprintf("skill proposal refused: %s: %s", displaySkillPath(source), item.Reason), nil
 	}
-	if _, err := os.Stat(filepath.Join(s.profileRoot(), "skills", item.Name)); !os.IsNotExist(err) {
-		return fmt.Sprintf("skill proposal refused: skill %q already exists", item.Name), nil
+	root := filepath.Join(s.profileRoot(), "skills")
+	if _, err := os.Stat(filepath.Join(root, ".included", item.Name)); !os.IsNotExist(err) {
+		if err != nil {
+			return fmt.Sprintf("skill proposal refused: included skill %q could not be checked: %s", item.Name, err), nil
+		}
+		return fmt.Sprintf("skill proposal refused: included skill %q cannot be replaced", item.Name), nil
+	}
+	_, statErr := os.Stat(filepath.Join(root, item.Name))
+	replacing := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return "skill proposal refused: " + statErr.Error(), nil
 	}
 	args := map[string]any{"skill_md": body, "files": files, "warnings": item.Warnings}
-	approved, err := s.runner.Gate().WaitPolicyRequired(ctx, chat, runID, "skill-proposal-"+item.Name, "Add skill "+item.Name+"?", args)
+	cardName := "Add skill " + item.Name + "?"
+	if replacing {
+		cardName = "Replace skill " + item.Name + "?"
+	}
+	approved, err := s.runner.Gate().WaitPolicyRequired(ctx, chat, runID, "skill-proposal-"+item.Name, cardName, args)
 	if err != nil || !approved {
 		if err != nil {
 			return "", err
 		}
 		return "skill proposal declined", nil
 	}
-	setting, err := skills.Import(filepath.Join(s.profileRoot(), "skills"), source, s.cfg.Tools.Attachments.MaxBytes)
+	wasEnabled := true
+	s.mu.RLock()
+	if configured, ok := s.cfg.Skills[item.Name]; ok {
+		wasEnabled = configured.Enabled
+	}
+	s.mu.RUnlock()
+	var setting skills.Setting
+	if replacing {
+		setting, err = replaceSkill(root, source, item.Name, s.cfg.Tools.Attachments.MaxBytes)
+	} else {
+		setting, err = skills.Import(root, source, s.cfg.Tools.Attachments.MaxBytes)
+	}
 	if err != nil {
 		return "", err
 	}
-	setting.Enabled, setting.Source = true, "added in chat from "+source
+	setting.Enabled, setting.Source = wasEnabled, "added in chat from "+source
 	s.mu.Lock()
 	if s.cfg.Skills == nil {
 		s.cfg.Skills = map[string]config.SkillSetting{}
@@ -234,7 +262,34 @@ func (s *Server) proposeSkill(ctx context.Context, chat *session.Session, runID,
 	if err != nil {
 		return "", err
 	}
+	if replacing {
+		return "skill " + item.Name + " replaced", nil
+	}
 	return "skill " + item.Name + " added", nil
+}
+
+func replaceSkill(root, source, name string, max int64) (skills.Setting, error) {
+	stage, err := os.MkdirTemp(root, ".replace-"+name+"-")
+	if err != nil {
+		return skills.Setting{}, err
+	}
+	defer os.RemoveAll(stage)
+	setting, err := skills.Import(stage, source, max)
+	if err != nil {
+		return skills.Setting{}, err
+	}
+	destination := filepath.Join(root, name)
+	backup := filepath.Join(stage, ".previous")
+	if err = os.Rename(destination, backup); err != nil {
+		return skills.Setting{}, err
+	}
+	if err = os.Rename(filepath.Join(stage, name), destination); err != nil {
+		if restoreErr := os.Rename(backup, destination); restoreErr != nil {
+			return skills.Setting{}, fmt.Errorf("replace failed: %v; restoring previous skill failed: %v", err, restoreErr)
+		}
+		return skills.Setting{}, err
+	}
+	return setting, nil
 }
 
 func (s *Server) Read(path string) {

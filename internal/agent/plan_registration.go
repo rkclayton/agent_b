@@ -12,7 +12,8 @@ import (
 var addPlanPattern = regexp.MustCompile(`(?i)^\s*add\s+(.+?)\s+as\s+a\s+plan[.!]?\s*$`)
 
 func requestedPlanPath(text string) (string, bool) {
-	match := addPlanPattern.FindStringSubmatch(text)
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	match := addPlanPattern.FindStringSubmatch(strings.TrimSpace(lines[len(lines)-1]))
 	if len(match) != 2 {
 		return "", false
 	}
@@ -44,7 +45,7 @@ func (r *Runner) handlePlanRegistration(ctx context.Context, item *session.Sessi
 // so the card says the model proposed it. Registration only; the worker never
 // proposes, and b's read-only relation to plan files is unchanged.
 func (r *Runner) handleModelPlanProposal(ctx context.Context, item *session.Session, runID, content string) (bool, string) {
-	if item.Snapshot().Role == "c" {
+	if role := item.Snapshot().Role; role == "c" || role == "e" {
 		return false, ""
 	}
 	path, requested := requestedPlanPath(strings.TrimSpace(content))

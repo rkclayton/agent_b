@@ -61,6 +61,14 @@ function importedOperations(data) {
 	].join("\n");
 }
 
+function skillProposalDetail(args = {}) {
+	if (!args.skill_md) return "";
+	const lines = [args.skill_md];
+	if (Array.isArray(args.files) && args.files.length) lines.push("", "Files:", ...args.files.map((file) => `  ${file}`));
+	if (Array.isArray(args.warnings) && args.warnings.length) lines.push("", "Warnings:", ...args.warnings.map((warning) => `  ${warning}`));
+	return lines.join("\n");
+}
+
 export function approvalText(data = {}) {
 	const human = data.human && typeof data.human === "object" ? data.human : null;
 	const imported = boundCredential(data) + importedOperations(data);
@@ -74,9 +82,9 @@ export function approvalText(data = {}) {
 		request: human.happened,
 		reason: `${human.harness_action} If declined, the action will not run.`,
 		question: data.standing_grant ? `Affected ${data.standing_grant.kind}: ${data.standing_grant.subject}` : (human.question || ""),
-		detail: imported
+		detail: skillProposalDetail(data.args) || (imported
 			? imported + JSON.stringify(data.args.connector, null, 2)
-			: (data.args?.path ?? data.args?.command ?? data.args?.source ?? data.args?.pattern ?? ""),
+			: (data.args?.path ?? data.args?.command ?? data.args?.source ?? data.args?.pattern ?? "")),
 	};
 	const boundary = typeof data.boundary_escape === "boolean"
 		? data.boundary_escape
@@ -115,7 +123,7 @@ export function approvalText(data = {}) {
 		title: "Allow this",
 		request: `${data.name || "This operation"} is restricted by your approval rules.`,
 		reason: "It will run only after your decision.",
-		detail: value,
+		detail: skillProposalDetail(data.args) || value,
 	};
 }
 

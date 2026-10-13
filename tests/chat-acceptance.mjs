@@ -33,6 +33,8 @@ let modelPort;
 let planningBriefOriginal = "";
 let releaseQueue = null;
 let releaseBusy = null;
+let replacementSkillSource = "";
+let invalidSkillSource = "";
 let slowAccountingArmed = false;
 const slowAccountingTrace = [];
 const notificationPosts = [];
@@ -201,6 +203,9 @@ const fakeHandler = async (request, response) => {
 		if (!hasToolAfterLatestUser(body)) return watchCall("watch-run", "cronjob", { action: "run", job_id: user.split("acceptance: run watch job ")[1].trim() });
 		return stream(response, { content: "WATCH JOB STARTED" });
 	}
+	if (user.includes("acceptance: replace skill proposal")) return stream(response, { content: `I wrote the replacement skill.\n\nAdd ${replacementSkillSource} as a skill` });
+	if (user.includes("acceptance: invalid skill proposal")) return stream(response, { content: `This folder is ready to inspect.\n\nAdd ${invalidSkillSource} as a skill` });
+	if (user.includes("acceptance: read invalid skill reason")) return stream(response, { content: joined.includes("skill proposal refused:") && joined.includes("SKILL.md is missing") ? "INVALID SKILL REASON SEEN" : "INVALID SKILL REASON MISSING" });
   // Item 2fg: the walk's step 3 — a 60 s tool the operator stops.
   if (user.includes("acceptance: stop mid tool") && !hasToolAfterLatestUser(body)) {
     return stream(response, { tool_calls: [{ index: 0, id: "stop-mid-tool", type: "function", function: { name: "shell", arguments: JSON.stringify({ command: "Start-Sleep -Seconds 60; Write-Output walk-slept", timeout_s: 120 }) } }] }, "tool_calls");
@@ -600,6 +605,7 @@ const config = {
   shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
+if (args["2u9-only"] === "true") config.skills = { "report-kit": { enabled: false, source: "acceptance fixture" } };
 if (args["seed-profile"]) config.profiles = { active: args["seed-profile"], names: [args["seed-profile"]] };
 await writeFile(join(args.data, "harness.json"), JSON.stringify(config, null, 2));
 app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: appEnvironment });
@@ -915,6 +921,54 @@ if (realModel) {
   record("new-chat");
 
   const fixtureSessionID = sessionID;
+	if (args["2u9-only"] === "true") {
+		const stored = join(profileData, "skills", "report-kit");
+		replacementSkillSource = join(bound, "replacement-skill");
+		invalidSkillSource = join(bound, "not-a-skill");
+		await mkdir(stored, { recursive: true });
+		await writeFile(join(stored, "SKILL.md"), "---\nname: report-kit\ndescription: Old acceptance skill.\n---\nold\n");
+		await writeFile(join(stored, "old-only.txt"), "old\n");
+		await mkdir(replacementSkillSource, { recursive: true });
+		await mkdir(invalidSkillSource, { recursive: true });
+		await writeFile(join(replacementSkillSource, "SKILL.md"), "---\nname: report-kit\ndescription: New acceptance skill.\n---\nnew\n");
+		await writeFile(join(replacementSkillSource, "new-only.txt"), "new\n");
+		await page.setViewportSize({ width: 1280, height: 860 });
+		await setTask("acceptance: invalid skill proposal");
+		const refused = await waitEvent(sessionID, (event) => event.type === "message.appended" && event.data?.message?.role === "harness" && String(event.data.message.content || "").includes("SKILL.md is missing"), "invalid skill refusal");
+		assert.match(refused.data.message.content, new RegExp(invalidSkillSource.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+		assert.equal(await page.locator("#chat-pending-approval .approval-card").count(), 0);
+		await setTask("acceptance: read invalid skill reason");
+		await waitProjectedChatText(sessionID, "INVALID SKILL REASON SEEN", "invalid skill reason reached next request");
+		const before = await readFile(join(stored, "SKILL.md"), "utf8");
+		await setTask("acceptance: replace skill proposal");
+		const required = await waitEvent(sessionID, (event) => event.type === "approval.required" && event.data?.name === "Replace skill report-kit?", "replace skill card");
+		const card = page.locator("#chat-pending-approval .approval-card");
+		await card.waitFor({ state: "visible" });
+		assert.match(await card.innerText(), /Replace skill report-kit\?/);
+		await card.locator("summary", { hasText: "Technical detail" }).click();
+		assert.match(await card.innerText(), /New acceptance skill/);
+		assert.equal(await readFile(join(stored, "SKILL.md"), "utf8"), before, "skill changed before approval");
+		for (const size of [{ width: 304, height: 254 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }]) {
+			await page.setViewportSize(size);
+			const layout = await card.evaluate((node) => {
+				const box = node.getBoundingClientRect();
+				const horizontal = [...document.querySelectorAll("*")].filter((item) => item.checkVisibility?.() && item.scrollWidth > item.clientWidth + 1 && /^(auto|scroll|overlay)$/.test(getComputedStyle(item).overflowX)).map((item) => item.id || item.className || item.tagName);
+				return { left: box.left, right: box.right, width: innerWidth, cardHorizontal: node.scrollWidth > node.clientWidth + 1, horizontal };
+			});
+			assert.ok(layout.left >= 0 && layout.right <= layout.width + 1 && !layout.cardHorizontal && layout.horizontal.length === 0, JSON.stringify({ size, layout }));
+		}
+		await page.setViewportSize({ width: 1280, height: 860 });
+		await mkdir(join(args.evidence, "captures"), { recursive: true });
+		await captureWithMasks(page, join(args.evidence, "captures", "skill-replace-card.png"));
+		await clickPendingApproval("Just once", required.data.call_id);
+		await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data?.reason === "done", "replace skill run done");
+		assert.match(await readFile(join(stored, "SKILL.md"), "utf8"), /New acceptance skill/);
+		await assert.rejects(stat(join(stored, "old-only.txt")));
+		assert.equal(await readFile(join(stored, "new-only.txt"), "utf8"), "new\n");
+		assert.equal((await json(`http://127.0.0.1:${appPort}/api/config`)).skills["report-kit"].enabled, false);
+		record("last-line-skill-replace-card-2u9");
+		process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+	}
 	if (args["w6-only"] === "true") {
 		const bulkBusy = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 		const beforeBulk = await state(), bulkCount = Object.keys(beforeBulk.sessions).length;

@@ -14,6 +14,7 @@ param(
     [switch]$W6Only,
     [switch]$W7Only,
 	[switch]$TwoRVOnly,
+	[switch]$TwoU9Only,
 	[switch]$CronOnly,
     [switch]$ExpectStableShell,
     [ValidateSet('true', 'false')]
@@ -132,6 +133,7 @@ try {
         if ($W6Only) { $arguments += @('--w6-only', 'true') }
         if ($W7Only) { $arguments += @('--w7-only', 'true') }
 		if ($TwoRVOnly) { $arguments += @('--2rv-only', 'true') }
+		if ($TwoU9Only) { $arguments += @('--2u9-only', 'true') }
 		if ($CronOnly) { $arguments += @('--cron-only', 'true') }
         if (-not [string]::IsNullOrWhiteSpace($seedProfile)) { $arguments += @('--seed-profile', $seedProfile) }
         & (Get-Command node.exe -ErrorAction Stop).Source @arguments

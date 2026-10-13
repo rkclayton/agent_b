@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
@@ -395,13 +394,4 @@ func (m *Manager) Rename(from, to string) error {
 		return nil
 	}
 	return err
-}
-func Percentile(values []int64, percentile float64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
-	copy := append([]int64(nil), values...)
-	sort.Slice(copy, func(i, j int) bool { return copy[i] < copy[j] })
-	index := int(float64(len(copy)-1) * percentile)
-	return copy[index]
 }

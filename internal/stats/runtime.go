@@ -249,14 +249,6 @@ func (t *RunTally) Observe(kind, sessionID, runID, ts string, data map[string]an
 	return nil
 }
 
-// Forget drops a run the tally will never see stopped, so a long-lived process
-// does not accumulate one accumulator per abandoned run.
-func (t *RunTally) Forget(sessionID, runID string) {
-	t.mu.Lock()
-	delete(t.runs, sessionID+"\x00"+runID)
-	t.mu.Unlock()
-}
-
 func (a *runAccumulator) finish(stoppedAt time.Time) RunOutcome {
 	out := a.out
 	began := a.queuedAt

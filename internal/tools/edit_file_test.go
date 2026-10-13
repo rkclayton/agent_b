@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -521,4 +522,148 @@ func TestWriteFileByteIdenticalContentIsUnchanged(t *testing.T) {
 	if _, ok := workspaces.LastWriter(filepath.Join(root, "same.txt")); ok {
 		t.Fatal("unchanged write was recorded as a mutation")
 	}
+}
+
+func TestFileToolRunUndoRestoresSkipsAndRemoves2rk(t *testing.T) {
+	root := t.TempDir()
+	store := NewFileUndoStore(filepath.Join(root, "data"))
+	coordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, events.NewBus())
+	coordinator.SetUndoStore(store)
+	write, edit := NewWriteFile(coordinator), NewEditFile(coordinator)
+	item := testSession(root, "chat", "Chat")
+	item.Run = session.RunState{Status: "running", RunID: "run-one"}
+	first, second, third := filepath.Join(root, "first.txt"), filepath.Join(root, "second.txt"), filepath.Join(root, "third.txt")
+	if err := os.WriteFile(first, []byte("first before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := edit.Call(context.Background(), item, map[string]any{"path": first, "old_string": "before", "new_string": "after"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := write.Call(context.Background(), item, map[string]any{"path": second, "content": "second after"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := write.Call(context.Background(), item, map[string]any{"path": third, "content": "created"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.Undo(item.ID, item.Run.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(first); string(got) != "first before" {
+		t.Fatalf("first=%q", got)
+	}
+	if got, _ := os.ReadFile(second); string(got) != "second before" {
+		t.Fatalf("second=%q", got)
+	}
+	if _, err := os.Stat(third); !os.IsNotExist(err) {
+		t.Fatalf("created file remains: %v", err)
+	}
+	if len(result.Restored) != 3 || len(result.Skipped) != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+
+	item.Run.RunID = "run-two"
+	if _, err := write.Call(context.Background(), item, map[string]any{"path": first, "content": "run two first"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := write.Call(context.Background(), item, map[string]any{"path": second, "content": "run two second"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("changed by hand"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = store.Undo(item.ID, item.Run.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(first); string(got) != "first before" {
+		t.Fatalf("first after partial undo=%q", got)
+	}
+	if got, _ := os.ReadFile(second); string(got) != "changed by hand" {
+		t.Fatalf("hand change overwritten=%q", got)
+	}
+	if len(result.Restored) != 1 || len(result.Skipped) != 1 || !strings.Contains(result.Skipped[0], "second.txt") {
+		t.Fatalf("partial result=%+v", result)
+	}
+}
+
+func TestFileUndoStoreBoundsAnd512KiBWriteCost2rk(t *testing.T) {
+	root := t.TempDir()
+	store := NewFileUndoStore(filepath.Join(root, "data"))
+	store.maxBytes = 16 << 20
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { now = now.Add(time.Second); return now }
+	coordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, events.NewBus())
+	coordinator.SetUndoStore(store)
+	write := NewWriteFile(coordinator)
+	item := testSession(root, "bounded", "Bounded")
+	payload := strings.Repeat("x", 512<<10)
+	measurePath := filepath.Join(root, "measure.txt")
+	if err := os.WriteFile(measurePath, []byte(strings.Repeat("m", 512<<10)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	measureStarted := time.Now()
+	if err := store.Prepare(item.ID, "measure", measurePath, "measure.txt"); err != nil {
+		t.Fatal(err)
+	}
+	snapshotDuration := time.Since(measureStarted)
+	started := time.Now()
+	for index := 0; index < 21; index++ {
+		item.Run = session.RunState{Status: "running", RunID: fmt.Sprintf("run-%02d", index)}
+		path := filepath.Join(root, fmt.Sprintf("file-%02d.txt", index))
+		if err := os.WriteFile(path, []byte(strings.Repeat("y", 512<<10)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := write.Call(context.Background(), item, map[string]any{"path": path, "content": payload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	duration := time.Since(started)
+	sessionRoot := filepath.Join(store.root, "file-undo", safeStoreName(item.ID))
+	runs, err := os.ReadDir(sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 20 {
+		t.Fatalf("kept %d runs", len(runs))
+	}
+	var bytes int64
+	_ = filepath.Walk(filepath.Join(store.root, "file-undo"), func(_ string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			bytes += info.Size()
+		}
+		return nil
+	})
+	if bytes > store.maxBytes || fileUndoBytes != 256<<20 {
+		t.Fatalf("stored=%d test-bound=%d product-bound=%d", bytes, store.maxBytes, fileUndoBytes)
+	}
+	capStore := NewFileUndoStore(filepath.Join(root, "cap-data"))
+	capStore.maxBytes = 1 << 20
+	capCoordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, events.NewBus())
+	capCoordinator.SetUndoStore(capStore)
+	capWrite := NewWriteFile(capCoordinator)
+	for index := 0; index < 3; index++ {
+		item.Run.RunID = fmt.Sprintf("cap-%d", index)
+		path := filepath.Join(root, fmt.Sprintf("cap-%d.txt", index))
+		if err := os.WriteFile(path, []byte(strings.Repeat("z", 512<<10)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := capWrite.Call(context.Background(), item, map[string]any{"path": path, "content": payload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var capped int64
+	_ = filepath.Walk(filepath.Join(capStore.root, "file-undo"), func(_ string, info os.FileInfo, err error) error {
+		if err == nil && info != nil && !info.IsDir() {
+			capped += info.Size()
+		}
+		return nil
+	})
+	if capped > capStore.maxBytes {
+		t.Fatalf("cap stored=%d bound=%d", capped, capStore.maxBytes)
+	}
+	t.Logf("keeping one 512 KiB preimage took %s; 21 complete writes took %s; retained runs=%d bytes=%d", snapshotDuration, duration, len(runs), bytes)
 }

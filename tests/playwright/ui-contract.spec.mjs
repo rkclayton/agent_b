@@ -650,6 +650,9 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     { type: "tool", key: "retry-succeeded", run_id: runID, name: "shell", args: { command: "git stash pop --index synthetic-extra" }, result: { ok: true, ms: 18 }, content: "synthetic success" },
     { type: "agent", key: "narration-two", run_id: runID, text: "Verified the rebuilt output.", reasoning: "Read the synthetic verification result.", reasoningTokens: 11, done: true, thinkingMS: 55 },
     { type: "tool", key: "final-tool", run_id: runID, name: "read_file", args: { path: "C:\\synthetic\\evidence\\result.txt" }, result: { ok: true, ms: 8 }, content: "synthetic proof" },
+    { type: "tool", key: "edit-first", run_id: runID, name: "edit_file", args: { path: "C:\\synthetic\\first.txt" }, result: { ok: true, ms: 4 }, content: "changed" },
+    { type: "tool", key: "write-second", run_id: runID, name: "write_file", args: { path: "C:\\synthetic\\second.txt" }, result: { ok: true, ms: 5 }, content: "changed" },
+    { type: "tool", key: "write-third", run_id: runID, name: "write_file", args: { path: "C:\\synthetic\\third.txt" }, result: { ok: true, ms: 6 }, content: "created" },
     { type: "tool", key: "todo-current", run_id: runID, name: "todo", args: { items: [{ text: "Inspect inputs", status: "done" }, { text: "Run checks", status: "doing" }, { text: "Write report", status: "pending" }] }, result: { ok: true, ms: 1 }, content: "task list updated" },
     { type: "agent", key: "final-answer", run_id: runID, text: "The synthetic release proof is complete.", done: true },
   ];
@@ -688,10 +691,14 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   const finished = await open("idle", "finished-2ql.test");
   const worked = finished.page.locator(".chat-work-summary");
   await expect(worked).toHaveCount(1);
-  await expect(worked).toContainText(/Worked .* · 2 steps ▸/);
+  await expect(worked).toContainText(/Worked .* · 2 steps .*▸/);
   await expect(finished.page.getByText("The synthetic release proof is complete.")).toBeVisible();
   await expect(finished.page.getByText("Checked the build inputs.")).toHaveCount(0);
   await expect(finished.page.locator("#chat-status-line")).toHaveCount(0);
+  await expect(finished.page.locator(".chat-work-summary")).toContainText("3 files · file tools only");
+  await expect(finished.page.getByRole("button", { name: "Undo file changes" })).toHaveCount(1);
+  await mkdir("logs/evidence/rel-1.62.36/captures", { recursive: true });
+  await finished.page.screenshot({ path: "logs/evidence/rel-1.62.36/captures/undo-file-changes-1280x860.png", fullPage: true });
   await expect(finished.page.locator(".chat-todo")).toHaveCount(1);
   await expect(finished.page.locator(".chat-todo-row")).toHaveText(["✓ Inspect inputs", "→ Run checks", "· Write report"]);
   await mkdir("logs/evidence/rel-1.62.35/captures", { recursive: true });
@@ -732,6 +739,12 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     await finished.page.screenshot({ path: `logs/evidence/rel-1.62.33/2sl-mixed-${width}-${pixels}px.png`, fullPage: true });
   }
   await expect(finished.page.locator(".chat-response-author")).toHaveCount(0); await finished.context.close();
+
+  const shellOnly = snapshot("idle"); shellOnly.sessions[id].chat = [replay[0], replay[1], replay[2], replay.at(-1)]; shellOnly.sessions[id].cursor.offset = 4;
+  const shellPage = await open("idle", "shell-only-2rk.test", shellOnly);
+  await expect(shellPage.page.locator(".chat-work-undo")).toHaveCount(0);
+  await expect(shellPage.page.locator(".chat-work-summary")).not.toContainText("file tools only");
+  await shellPage.context.close();
 
   const askState = snapshot("running");
   askState.sessions[id].pending_approval = { type: "notice", key: "ask-card", event: { type: "approval.required", data: { call_id: "ask-1", name: "ask", kind: "question", question: "Which result should be kept?", choices: ["First", "Second", "Both"] } } };

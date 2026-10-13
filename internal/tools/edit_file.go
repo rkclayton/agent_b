@@ -179,8 +179,14 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	if err != nil {
 		return fail(err)
 	}
+	if err := e.coordinator.prepareUndo(s, resolved); err != nil {
+		return fail(err)
+	}
 	if err := AtomicReplace(tempPath, resolved); err != nil {
 		return fail(err)
+	}
+	if err := e.coordinator.commitUndo(s, resolved); err != nil {
+		return fail(fmt.Errorf("record undo state: %w", err))
 	}
 	commitState(true)
 	e.coordinator.record(s, resolved)

@@ -16,10 +16,25 @@ type FileCoordinator struct {
 	workspaces *session.WorkspaceRegistry
 	label      func(string) string
 	bus        *events.Bus
+	undo       *FileUndoStore
 }
 
 func NewFileCoordinator(workspaces *session.WorkspaceRegistry, label func(string) string, bus *events.Bus) *FileCoordinator {
 	return &FileCoordinator{workspaces: workspaces, label: label, bus: bus}
+}
+func (c *FileCoordinator) SetUndoStore(store *FileUndoStore) { c.undo = store }
+func (c *FileCoordinator) prepareUndo(s *session.Session, resolved string) error {
+	if c == nil || c.undo == nil {
+		return nil
+	}
+	runID := s.Snapshot().Run.RunID
+	return c.undo.Prepare(s.ID, runID, resolved, workspaceRel(s.Workspace, resolved))
+}
+func (c *FileCoordinator) commitUndo(s *session.Session, resolved string) error {
+	if c == nil || c.undo == nil {
+		return nil
+	}
+	return c.undo.Commit(s.ID, s.Snapshot().Run.RunID, resolved)
 }
 func cleanRel(path string) string { return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path))) }
 func workspaceRel(workspace, resolved string) string {
@@ -204,8 +219,14 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err != nil {
 		return fail(err)
 	}
+	if err := w.coordinator.prepareUndo(s, resolved); err != nil {
+		return fail(err)
+	}
 	if err := AtomicReplace(tempPath, resolved); err != nil {
 		return fail(err)
+	}
+	if err := w.coordinator.commitUndo(s, resolved); err != nil {
+		return fail(fmt.Errorf("record undo state: %w", err))
 	}
 	commitState(true)
 	w.coordinator.record(s, resolved)

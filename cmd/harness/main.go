@@ -434,6 +434,9 @@ func main() {
 	}
 	workspaces := session.NewWorkspaceRegistry()
 	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
+	fileUndo := tools.NewFileUndoStore(paths.Data)
+	coordinator.SetUndoStore(fileUndo)
+	web.SetFileUndoStore(fileUndo)
 	// the store is pinned to the service account it holds the
 	// password for, so a machine-scoped blob's access list can name that account
 	// and the read-side check can insist on it.
@@ -592,6 +595,7 @@ func main() {
 		writers, projector = nextWriters, nextProjector
 		workspaceManager = nextWorkspaceManager
 		operatorFiles.SetRoot(nextRoot, nextLogDir)
+		fileUndo.SetRoot(nextRoot)
 		if ensureErr := operatorFiles.Ensure(); ensureErr != nil {
 			return ensureErr
 		}

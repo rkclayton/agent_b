@@ -611,7 +611,7 @@ function renderResponse(session, entry) {
     if (final.steps.length) work.push({ ...final, key: `${final.key}:steps`, prose: null });
     const todos = work.flatMap((block) => block.steps.filter((item) => item?.type === "tool" && item.name === "todo"));
     work = work.map((block) => ({ ...block, steps: block.steps.filter((item) => item?.name !== "todo") })).filter((block) => block.prose || block.steps.length);
-    const nodes = work.length ? [renderFinishedWork(session, view, entry.key, work)] : [];
+    const nodes = work.length ? [renderFinishedWork(session, view, entry.key, entry.run_id, work)] : [];
     if (todos.length) {
       const todo = { key: `${entry.key}:todo`, prose: null, steps: [todos.at(-1)] };
       usedBlocks.add(todo.key);
@@ -630,7 +630,7 @@ function renderResponse(session, entry) {
   return view.row;
 }
 
-function renderFinishedWork(session, view, responseKey, blocks) {
+function renderFinishedWork(session, view, responseKey, runID, blocks) {
   const key = `${responseKey}:worked`;
   if (!view.work) {
     const root = document.createElement("div");
@@ -640,16 +640,25 @@ function renderFinishedWork(session, view, responseKey, blocks) {
     head.className = "chat-work-summary";
     const rows = document.createElement("div");
     rows.className = "chat-work-rows";
-    root.append(head, rows);
+    const controls = document.createElement("div"); controls.className = "chat-work-controls"; controls.append(head);
+    root.append(controls, rows);
     head.onclick = () => { touched.add(key); expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
-    view.work = { root, head, rows };
+    view.work = { root, head, rows, controls };
   }
   const open = expanded.has(key);
   const items = blocks.flatMap((block) => block.steps);
   const duration = responseSummary(items).duration;
   const steps = blocks.filter((block) => block.prose).length || blocks.length;
   setAttribute(view.work.head, "aria-expanded", String(open));
-  setText(view.work.head, `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"} ${open ? "▾" : "▸"}`);
+  const changed = new Set(items.filter((item) => item?.type === "tool" && ["write_file", "edit_file"].includes(item.name) && item.result?.ok === true).map((item) => item.args?.path).filter(Boolean));
+  setText(view.work.head, `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}${changed.size ? ` · ${changed.size} file${changed.size === 1 ? "" : "s"} · file tools only` : ""} ${open ? "▾" : "▸"}`);
+  if (changed.size && !view.work.undo) {
+    const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-work-undo"; undo.textContent = "Undo file changes";
+    undo.onclick = async () => { if (!confirm("Undo file changes from this run? File tools only.")) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
+    view.work.undo = undo; view.work.controls.append(undo);
+  }
+  if (view.work.undo) view.work.undo.hidden = !changed.size;
+  if (view.work.result) { if (!view.work.outcome) { view.work.outcome = document.createElement("span"); view.work.outcome.className = "chat-work-undo-result"; view.work.controls.append(view.work.outcome); } setText(view.work.outcome, view.work.result); }
   reconcileChildren(view.work.rows, open ? blocks.map((block) => renderResponseBlock(session, view, block, false, { forceOpen: true, movedPast: true })) : []);
   return view.work.root;
 }

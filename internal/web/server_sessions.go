@@ -653,6 +653,9 @@ func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, err
 	// DELETE DELETES. No export is written; what was said is gone, and
 	// every client — the paired phone included — is told so it drops its copy.
 	inventory, err := s.registry.Delete(id)
+	if err == nil && s.fileUndo != nil {
+		err = s.fileUndo.DeleteChat(id)
+	}
 	if err == nil && scratch && withinRoot(filepath.Join(s.profileRoot(), "chats"), workspace) {
 		err = os.RemoveAll(workspace)
 	}

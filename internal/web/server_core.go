@@ -105,6 +105,7 @@ type Server struct {
 	hostWindowAction   func(string, string) bool
 	startedAt          string
 	chatState          chatState
+	fileUndo           *tools.FileUndoStore
 }
 
 const appRequestWatchdogDelay = 30 * time.Second
@@ -468,6 +469,7 @@ func (s *Server) routes() http.Handler {
 	// one read a voice assistant can speak, for a run it just started.
 	mux.HandleFunc("/api/runs/", s.replayGuard(s.runBrief))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
+	mux.HandleFunc("/api/file-undo", s.replayGuard(s.undoFileChanges))
 	mux.HandleFunc("/api/host-window", s.replayGuard(s.hostWindow))
 	mux.HandleFunc("/api/sign-in-start", s.replayGuard(s.signInStart))
 	// the composer microphone asks the host what it can do.

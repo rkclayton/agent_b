@@ -23,6 +23,51 @@ func TestNotRunnableAlwaysHasAReason2qr(t *testing.T) {
 	}
 }
 
+func TestOutsideProjectNamedOrWorkedInLoadsRulesAndNotes2tt(t *testing.T) {
+	base := t.TempDir()
+	chat, repo := filepath.Join(base, "chat"), filepath.Join(base, "project")
+	for _, dir := range []string{chat, filepath.Join(repo, ".git")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("project fixture rule"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(chat)
+	cfg.Shell.TrustedFolders = []config.TrustedFolder{{Path: repo}}
+	r := NewRegistry(events.NewBus(), nil, nil, 1, func() config.Config { return cfg })
+	newChat := func() *Session {
+		item := &Session{ID: "project", Workspace: chat, LastSeen: map[string]time.Time{}, LoadFolderMemory: func(folder string) (string, string, error) {
+			if !SamePath(folder, repo) {
+				t.Fatalf("loaded memory for %q, want %q", folder, repo)
+			}
+			return "project fixture note", filepath.Join(repo, ".agentb", "NOTES.md"), nil
+		}}
+		r.configureProjects(item)
+		return item
+	}
+	named := newChat()
+	named.TouchMentionedProjects("work in " + repo)
+	if snapshot := named.Snapshot(); !strings.Contains(snapshot.ProjectContent, "project fixture rule") || !strings.Contains(named.CombinedMemory(), "project fixture note") || !SamePath(named.MemoryFolder(), repo) {
+		t.Fatalf("named project=%+v memory=%q folder=%q", snapshot, named.CombinedMemory(), named.MemoryFolder())
+	}
+	worked := newChat()
+	worked.Touch(FileKey(filepath.Join(repo, "file.txt")))
+	if !strings.Contains(worked.Snapshot().ProjectContent, "project fixture rule") || !strings.Contains(worked.CombinedMemory(), "project fixture note") {
+		t.Fatalf("worked project did not load: %+v %q", worked.Snapshot(), worked.CombinedMemory())
+	}
+	cfg.Shell.TrustedFolders = nil
+	untrusted := newChat()
+	untrusted.TouchMentionedProjects("work in " + repo)
+	if untrusted.Snapshot().ProjectContent != "" || strings.Contains(untrusted.CombinedMemory(), "project fixture note") {
+		t.Fatalf("untrusted named project loaded: %+v %q", untrusted.Snapshot(), untrusted.CombinedMemory())
+	}
+}
+
 // The run loop re-binds a session to its agent on every turn. It must re-bind
 // to the connection that role runs on: a worker created on the c connection was
 // switched to b on its first turn, so the real Go ran on the wrong model.

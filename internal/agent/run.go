@@ -558,8 +558,9 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			systemBase := r.prompt.RenderSkillParts(connection, s, toolNames, "", "")
 			systemProject := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, "")
 			systemSkills := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills)
-			systemWorkspaceMemory := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills, s.MemoryBlock, "")
-			system = r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
+			workspaceMemory := s.WorkspaceMemory()
+			systemWorkspaceMemory := r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills, workspaceMemory, "")
+			system = r.prompt.RenderSkillParts(connection, s, toolNames, s.ProjectBlock, skills, workspaceMemory, s.AgentMemoryBlock, s.MachineMemoryBlock)
 			messages := []llm.Message{}
 			requestRecords := make([]events.Message, 0, len(records))
 			current := runningTurnIDs(records, s.RunPin())
@@ -605,7 +606,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			if readCutShort {
 				request.ToolChoice = "none"
 			}
-			budget, budgetErr = r.budget.MeasureWithBusy(ctx, connection, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(connection, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
+			budget, budgetErr = r.budget.MeasureWithBusy(ctx, connection, s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(connection, s, enabled, workspaceMemory), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 				budgetBusy = true
 				r.bus.Publish(events.New(events.ModelBusy, s.ID, runID, map[string]any{"host": modelHost(connection), "detail": err.Error()}))
 			})
@@ -2119,8 +2120,9 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 		skillsBlock = r.skills.Index()
 	}
 	skillsSystem := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock)
-	workspaceMemory := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, s.MemoryBlock, "")
-	system := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, s.MemoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
+	memoryBlock := s.WorkspaceMemory()
+	workspaceMemory := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock, "")
+	system := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
 	// As the run's own assembly does, harness abort records lead the list: a
 	// system-role record mid-history is refused by chat templates (item 2fg).
 	all := s.MessagesCopy()
@@ -2145,7 +2147,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 		messages = append(messages, converted)
 	}
 	messages, records, _ = normalizeAdjacentAssistants(messages, records)
-	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemSkills: skillsSystem, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, s.MemoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
+	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemSkills: skillsSystem, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, memoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
 }
 
 func (r *Runner) withoutToolSystems(p *config.Connection, s *session.Session, enabled map[string]bool, memory string) map[string]string {

@@ -159,6 +159,7 @@ type Snapshot struct {
 	ProjectContent    string                     `json:"project_content"`
 	ProjectFiles      []string                   `json:"project_files"`
 	ProjectNotes      []string                   `json:"project_notes"`
+	ProjectRoots      []string                   `json:"project_roots,omitempty"`
 	PendingRepoPolicy *workspaceinfo.PolicyState `json:"pending_repo_policy,omitempty"`
 	RepoPolicy        *workspaceinfo.PolicyState `json:"repo_policy,omitempty"`
 	Run               Run                        `json:"run"`
@@ -438,6 +439,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 			}
 			next.ProjectFiles = appendUniqueStrings(next.ProjectFiles, stringSlice(data["files"])...)
 			next.ProjectNotes = append(next.ProjectNotes, stringSlice(data["notes"])...)
+			next.ProjectRoots = appendUniqueStrings(next.ProjectRoots, stringSlice(data["roots"])...)
 		}
 	case events.PolicyApproved:
 		var policy workspaceinfo.PolicyState
@@ -1121,6 +1123,7 @@ type seed struct {
 	ProjectContent       string                     `json:"project_content"`
 	ProjectFiles         []string                   `json:"project_files"`
 	ProjectNotes         []string                   `json:"project_notes"`
+	ProjectRoots         []string                   `json:"project_roots,omitempty"`
 	PendingRepoPolicy    *workspaceinfo.PolicyState `json:"pending_repo_policy,omitempty"`
 	RepoPolicy           *workspaceinfo.PolicyState `json:"repo_policy,omitempty"`
 	Run                  Run                        `json:"run"`
@@ -1165,7 +1168,7 @@ func (value *seed) UnmarshalJSON(data []byte) error {
 func (value seed) snapshot(cursor Cursor) Snapshot {
 	return Snapshot{
 		SchemaVersion: SchemaVersion, Cursor: cursor, Complete: true,
-		ID: value.ID, Label: value.Label, AgentID: value.AgentID, ConnectionID: value.ConnectionID, AgentName: value.AgentName, BConnection: value.BConnection, Role: firstString(value.Role, "b"), PlanID: value.PlanID, PlanName: value.PlanName, PlanDir: value.PlanDir, PlanRepo: value.PlanRepo, CreatedAt: value.CreatedAt, Closed: value.Closed, NamePinned: value.NamePinned, Origin: value.Origin, Owner: value.Owner, Workspace: value.Workspace, WorkspaceDir: firstString(value.WorkspaceDir, value.Workspace), WorkspaceMissing: value.WorkspaceMissing, Scratch: value.Scratch, ProjectContent: value.ProjectContent, ProjectFiles: append([]string(nil), value.ProjectFiles...), ProjectNotes: append([]string(nil), value.ProjectNotes...), PendingRepoPolicy: value.PendingRepoPolicy, RepoPolicy: value.RepoPolicy,
+		ID: value.ID, Label: value.Label, AgentID: value.AgentID, ConnectionID: value.ConnectionID, AgentName: value.AgentName, BConnection: value.BConnection, Role: firstString(value.Role, "b"), PlanID: value.PlanID, PlanName: value.PlanName, PlanDir: value.PlanDir, PlanRepo: value.PlanRepo, CreatedAt: value.CreatedAt, Closed: value.Closed, NamePinned: value.NamePinned, Origin: value.Origin, Owner: value.Owner, Workspace: value.Workspace, WorkspaceDir: firstString(value.WorkspaceDir, value.Workspace), WorkspaceMissing: value.WorkspaceMissing, Scratch: value.Scratch, ProjectContent: value.ProjectContent, ProjectFiles: append([]string(nil), value.ProjectFiles...), ProjectNotes: append([]string(nil), value.ProjectNotes...), ProjectRoots: append([]string(nil), value.ProjectRoots...), PendingRepoPolicy: value.PendingRepoPolicy, RepoPolicy: value.RepoPolicy,
 		Run: value.Run, Tools: cloneTools(value.Tools), Messages: cloneMessages(value.Messages), Budget: value.Budget,
 		QueuedMessages: value.QueuedMessages, QueuedMessageIDs: append([]string(nil), value.QueuedMessageIDs...), Runnable: value.Runnable, NotRunnableReason: value.NotRunnableReason,
 		MemoryPath: value.MemoryPath, MemoryContent: value.MemoryContent, AgentMemoryPath: value.AgentMemoryPath, AgentMemoryContent: value.AgentMemoryContent, LogPath: value.LogPath,
@@ -1185,7 +1188,7 @@ func diff(before, after Snapshot) Patch {
 	}{
 		{"complete", before.Complete, after.Complete}, {"id", before.ID, after.ID}, {"label", before.Label, after.Label},
 		{"agent_id", before.AgentID, after.AgentID}, {"connection_id", before.ConnectionID, after.ConnectionID}, {"agent_name", before.AgentName, after.AgentName},
-		{"b_connection", before.BConnection, after.BConnection}, {"role", before.Role, after.Role}, {"plan_id", before.PlanID, after.PlanID}, {"plan_name", before.PlanName, after.PlanName}, {"plan_dir", before.PlanDir, after.PlanDir}, {"plan_repo", before.PlanRepo, after.PlanRepo}, {"created_at", before.CreatedAt, after.CreatedAt}, {"workspace", before.Workspace, after.Workspace}, {"workspace_dir", before.WorkspaceDir, after.WorkspaceDir}, {"workspace_missing", before.WorkspaceMissing, after.WorkspaceMissing}, {"scratch", before.Scratch, after.Scratch}, {"project_content", before.ProjectContent, after.ProjectContent}, {"project_files", before.ProjectFiles, after.ProjectFiles}, {"project_notes", before.ProjectNotes, after.ProjectNotes}, {"pending_repo_policy", before.PendingRepoPolicy, after.PendingRepoPolicy}, {"repo_policy", before.RepoPolicy, after.RepoPolicy},
+		{"b_connection", before.BConnection, after.BConnection}, {"role", before.Role, after.Role}, {"plan_id", before.PlanID, after.PlanID}, {"plan_name", before.PlanName, after.PlanName}, {"plan_dir", before.PlanDir, after.PlanDir}, {"plan_repo", before.PlanRepo, after.PlanRepo}, {"created_at", before.CreatedAt, after.CreatedAt}, {"workspace", before.Workspace, after.Workspace}, {"workspace_dir", before.WorkspaceDir, after.WorkspaceDir}, {"workspace_missing", before.WorkspaceMissing, after.WorkspaceMissing}, {"scratch", before.Scratch, after.Scratch}, {"project_content", before.ProjectContent, after.ProjectContent}, {"project_files", before.ProjectFiles, after.ProjectFiles}, {"project_notes", before.ProjectNotes, after.ProjectNotes}, {"project_roots", before.ProjectRoots, after.ProjectRoots}, {"pending_repo_policy", before.PendingRepoPolicy, after.PendingRepoPolicy}, {"repo_policy", before.RepoPolicy, after.RepoPolicy},
 		{"tools", before.Tools, after.Tools}, {"messages", before.Messages, after.Messages}, {"budget", before.Budget, after.Budget},
 		{"queued_messages", before.QueuedMessages, after.QueuedMessages}, {"queued_message_ids", before.QueuedMessageIDs, after.QueuedMessageIDs}, {"runnable", before.Runnable, after.Runnable},
 		{"not_runnable_reason", before.NotRunnableReason, after.NotRunnableReason}, {"memory_path", before.MemoryPath, after.MemoryPath},

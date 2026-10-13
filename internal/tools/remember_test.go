@@ -78,6 +78,41 @@ func TestRepositoryNoteLivesInGitignoredRepoAndLoadsOnlyThere2qj(t *testing.T) {
 	}
 }
 
+func TestRepositoryNoteUsesTheChatProjectAndRefusesAmbiguity2tt(t *testing.T) {
+	remember, _, item, base := memoryTools(t)
+	first, second := filepath.Join(base, "first-project"), filepath.Join(base, "second-project")
+	for _, root := range []string{first, second} {
+		if err := os.MkdirAll(filepath.Join(root, ".git", "info"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	item.ProjectRouting, item.ProjectRoots, item.Run.LastRunID = true, []string{first}, "r1"
+	sharedBefore, _ := os.ReadFile(remember.memory.TargetPath(item.AgentID))
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": "fixture project fact", "scope": "repository"}); err != nil || !strings.HasPrefix(result, "ok:") {
+		t.Fatalf("one project=%q %v", result, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(first, ".agentb", "NOTES.md")); err != nil || !strings.Contains(string(data), "fixture project fact") {
+		t.Fatalf("project notes=%q %v", data, err)
+	}
+	if sharedAfter, _ := os.ReadFile(remember.memory.TargetPath(item.AgentID)); string(sharedAfter) != string(sharedBefore) {
+		t.Fatalf("shared notes changed: before=%q after=%q", sharedBefore, sharedAfter)
+	}
+	item.ProjectRoots, item.Run.LastRunID = []string{first, second}, "r2"
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": "ambiguous fact", "scope": "repository"}); err != nil || !strings.Contains(result, first) || !strings.Contains(result, second) {
+		t.Fatalf("ambiguous=%q %v", result, err)
+	}
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": "chosen fact", "scope": "repository", "project": filepath.Base(second)}); err != nil || !strings.HasPrefix(result, "ok:") {
+		t.Fatalf("chosen=%q %v", result, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(second, ".agentb", "NOTES.md")); err != nil || !strings.Contains(string(data), "chosen fact") {
+		t.Fatalf("chosen notes=%q %v", data, err)
+	}
+	item.ProjectRoots, item.Run.LastRunID = nil, "r3"
+	if result, err := remember.Call(context.Background(), item, map[string]any{"note": "nowhere fact", "scope": "repository"}); err != nil || !strings.Contains(result, "no project is in scope") {
+		t.Fatalf("no project=%q %v", result, err)
+	}
+}
+
 func TestRememberAllowanceGrowsWithTurnsAndRefusalIsNotOK2qj(t *testing.T) {
 	remember, _, item, _ := memoryTools(t)
 	item.Run.LastRunID, item.Run.Turn, item.ToolsEnabled = "r30", 30, map[string]bool{"remember": true}
@@ -221,8 +256,9 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	// Item 2kt: the description states the durable/transient boundary before a
 	// call and names the cost of falling through to the agent layer. Item 2jf
 	// rewrote it to carry scope, replaces and the per-run cap, which is why the
-	// number moved -- and the pin is why the move had to be deliberate. 2qj: 427 to 436.
-	const wantDelta = 480
+	// number moved -- and the pin is why the move had to be deliberate. 2tt adds
+	// project selection and 2tu documents distinctive fragment replacement.
+	const wantDelta = 613
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

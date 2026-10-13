@@ -98,7 +98,7 @@ func (r *Runner) trySummary(ctx context.Context, s *session.Session, runID strin
 }
 
 func (r *Runner) summaryMessages(connection *config.Connection, s *session.Session) []llm.Message {
-	messages := []llm.Message{{Role: llm.RoleSystem, Content: r.prompt.Render(connection, s, r.tools.Names(s.EnabledTools()), s.MemoryBlock)}}
+	messages := []llm.Message{{Role: llm.RoleSystem, Content: r.prompt.Render(connection, s, r.tools.Names(s.EnabledTools()), s.WorkspaceMemory())}}
 	records := s.MessagesCopy()
 	for _, message := range records {
 		if !message.Elided && isHarnessAbortRecord(message) {

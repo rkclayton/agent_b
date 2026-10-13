@@ -16,6 +16,7 @@ import (
 	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/memory"
 	workspaceinfo "harness/internal/workspace"
 )
 
@@ -258,7 +259,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		ID: saved.ID, Label: saved.Label, AgentID: config.AgentID(agent.Name), ConnectionID: connectionID,
 		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
-		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...),
+		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...), ProjectRoots: append([]string(nil), saved.ProjectRoots...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
 		Closed: saved.Closed, NamePinned: saved.NamePinned, Origin: saved.Origin, Owner: saved.Owner, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
@@ -277,7 +278,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		s.MediaCapabilitiesSet = true
 	}
 	if r.workspaces != nil && !s.WorkspaceMissing {
-		s.ProjectTouch = r.projectTouch(s)
+		r.configureProjects(s)
 	}
 	s.EnsurePlan = r.ensurePlanHook(s)
 	r.sessions[s.ID] = s
@@ -490,7 +491,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	settings := r.config()
 	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
-		session.ProjectTouch = r.projectTouch(session)
+		r.configureProjects(session)
 	}
 	session.EnsurePlan = r.ensurePlanHook(session)
 	session.Messages = []events.Message{}
@@ -578,19 +579,68 @@ func (r *Registry) projectTouch(item *Session) func(string) {
 	return func(relative string) {
 		snapshot := item.Snapshot()
 		root := snapshot.WorkspaceDir
-		target := filepath.Join(root, relative)
+		target := filepath.FromSlash(relative)
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(root, target)
+		}
 		info, statErr := os.Stat(target)
 		if statErr == nil && !info.IsDir() {
 			target = filepath.Dir(target)
 		}
-		addition, loadErr := workspaceinfo.LoadInstructions(root, target)
+		project := memory.RepoRoot(target)
+		if project == "" {
+			project = target
+		}
+		addition, loadErr := workspaceinfo.LoadInstructions(project, "")
 		if loadErr != nil {
 			r.bus.Publish(events.New(events.Error, item.ID, "", map[string]any{"where": "project_instructions", "message": loadErr.Error()}))
 			return
 		}
-		if item.AppendProject(addition.Block, addition.Files, addition.Notes) {
-			r.bus.Publish(events.New(events.ProjectInstructions, item.ID, "", map[string]any{"block": addition.Block, "files": addition.Files, "tokens": addition.Tokens, "notes": addition.Notes, "lazy": true}))
+		memoryBlock := ""
+		if item.LoadFolderMemory != nil {
+			memoryBlock, _, _ = item.LoadFolderMemory(project)
 		}
+		newRoot := item.appendProjectRoot(project, memoryBlock)
+		if item.AppendProject(addition.Block, addition.Files, addition.Notes) || newRoot {
+			r.bus.Publish(events.New(events.ProjectInstructions, item.ID, "", map[string]any{"block": addition.Block, "files": addition.Files, "tokens": addition.Tokens, "notes": addition.Notes, "roots": item.Snapshot().ProjectRoots, "lazy": true}))
+		}
+	}
+}
+
+func (r *Registry) configureProjects(item *Session) {
+	item.ProjectRouting = true
+	item.ProjectTouch = r.projectTouch(item)
+	workspaceProject := memory.RepoRoot(item.Workspace)
+	if len(item.ProjectRoots) == 0 {
+		if workspaceProject != "" {
+			item.ProjectRoots = append(item.ProjectRoots, workspaceProject)
+		}
+	}
+	if item.LoadFolderMemory != nil {
+		for _, root := range item.ProjectRoots {
+			if workspaceProject != "" && SamePath(root, workspaceProject) {
+				continue
+			}
+			if block, _, err := item.LoadFolderMemory(root); err == nil && block != "" {
+				item.ProjectMemoryBlocks = append(item.ProjectMemoryBlocks, block)
+			}
+		}
+	}
+	item.ProjectAllowed = func(path string) bool {
+		if r.config == nil {
+			return false
+		}
+		real, err := RealPath(path)
+		if err != nil {
+			return false
+		}
+		for _, entry := range r.config().Shell.TrustedFolders {
+			trusted, trustErr := RealPath(entry.Path)
+			if trustErr == nil && PathWithin(trusted, real) {
+				return true
+			}
+		}
+		return false
 	}
 }
 func (r *Registry) DenyRepoPolicy(sessionID string) error {

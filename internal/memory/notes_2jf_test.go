@@ -136,6 +136,48 @@ func TestAReplaceRemovesTheOldNoteInTheSameWrite2jf(t *testing.T) {
 	}
 }
 
+func TestARecognisableFragmentReplacesExactlyOneLongNote2tu(t *testing.T) {
+	long := "Distinct opening sentence. " + strings.Repeat("ordinary filler words ", 25) + "unique middle phrase for correction " + strings.Repeat("more filler words ", 25) + "Distinct closing sentence."
+	for _, fragment := range []string{"distinct opening sentence", "UNIQUE   middle phrase", "distinct closing sentence"} {
+		manager, path := writer(t)
+		if _, err := manager.WriteNote(path, Write{Note: long, Scope: "repository"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.WriteNote(path, Write{Note: "corrected fact", Scope: "repository", Replaces: fragment}); err != nil {
+			t.Fatalf("fragment %q: %v", fragment, err)
+		}
+		notes, _ := manager.Notes(path)
+		if len(notes) != 1 || notes[0].Text != "corrected fact" {
+			t.Fatalf("fragment %q left %+v", fragment, notes)
+		}
+		archive, _ := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + "-replaced.md")
+		if !strings.Contains(string(archive), "Distinct opening sentence") {
+			t.Fatalf("fragment %q archive=%q", fragment, archive)
+		}
+	}
+}
+
+func TestAReplacementFragmentMustNameOnlyOneNote2tu(t *testing.T) {
+	manager, path := writer(t)
+	for _, note := range []string{"Alpha project uses shared phrase for builds", "Beta project uses shared phrase for tests"} {
+		if _, err := manager.WriteNote(path, Write{Note: note, Scope: "repository"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, _ := os.ReadFile(path)
+	_, err := manager.WriteNote(path, Write{Note: "replacement", Scope: "repository", Replaces: "shared phrase"})
+	if !errors.Is(err, ErrNoteNotFound) || !strings.Contains(err.Error(), "Alpha project") || !strings.Contains(err.Error(), "Beta project") {
+		t.Fatalf("ambiguous error=%v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("ambiguous replacement changed the layer")
+	}
+	_, err = manager.WriteNote(path, Write{Note: "replacement", Scope: "repository", Replaces: "not present"})
+	if !errors.Is(err, ErrNoteNotFound) || !strings.Contains(err.Error(), "Alpha project") || !strings.Contains(err.Error(), "Beta project") {
+		t.Fatalf("missing error=%v", err)
+	}
+}
+
 // (d): the budget is on the FILE and a write that would exceed it is REFUSED
 // with what to do. Item 2eb trimmed on the way in, so the file grew forever and
 // the operator never met the limit; the harness never trims now.

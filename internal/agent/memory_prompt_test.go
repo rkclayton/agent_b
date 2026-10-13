@@ -265,3 +265,33 @@ func TestRepositoryInstructionsAreCurrentAndWholeOnEveryRun2q0(t *testing.T) {
 		t.Fatalf("over the bound the request lacks its counted prefix or pointer: %.300s", third[strings.Index(third, "REPOSITORY"):])
 	}
 }
+
+func TestTrustedOutsideProjectRulesAndNotesReachTheNextRecordedRequest2tt(t *testing.T) {
+	stub := newByteLimitStub(t, 1<<30)
+	runner, item, _ := byteLimitRunner(t, stub)
+	runner.prompt = &PromptRenderer{text: "system\n{{project}}\n{{memory}}"}
+	repo := filepath.Join(t.TempDir(), "fixture-project")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("outside project fixture rule"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item.ProjectRouting = true
+	item.ProjectAllowed = func(path string) bool { return session.SamePath(path, repo) }
+	item.ProjectTouch = func(string) {
+		loaded, err := workspace.LoadInstructions(repo, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		item.ProjectBlock, item.ProjectFiles, item.ProjectRoots = loaded.Block, loaded.Files, []string{repo}
+		item.ProjectMemoryBlocks = []string{"outside project fixture note"}
+	}
+	item.Append(events.Message{ID: "u1", Role: "user", Content: "work in " + repo, Category: "history"})
+	if reason, detail, _ := runner.Run(context.Background(), item, "r1"); reason != "done" {
+		t.Fatalf("run=%s %s", reason, detail)
+	}
+	if !strings.Contains(stub.last, "outside project fixture rule") || !strings.Contains(stub.last, "outside project fixture note") {
+		t.Fatalf("request lacks project context: %s", stub.last)
+	}
+}

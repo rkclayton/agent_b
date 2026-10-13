@@ -52,7 +52,7 @@ func (r *Remember) SetPlanner(planner *memory.PlannerNotes) { r.planner = planne
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), environment (about this machine), or planner (local product feedback). If it supersedes a note, pass that note's text as replaces and it is removed in the same write. Two notes, plus one per 25 turns (six maximum), per run; a full layer refuses the write. Never save command output, tool results, transient state, or anything already recorded by this chat."
+	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), environment (about this machine), or planner (local product feedback). For more than one project, pass project as its folder or name. If it supersedes a note, pass a distinctive part of that note as replaces; it is removed only when the part names one note in this layer. Two notes, plus one per 25 turns (six maximum), per run; a full layer refuses the write. Never save command output, tool results, transient state, or anything already recorded by this chat."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
@@ -61,6 +61,7 @@ func (*Remember) Schema() map[string]any {
 			"note":     map[string]any{"type": "string"},
 			"scope":    map[string]any{"type": "string", "enum": []string{"user", "repository", "environment", "planner"}},
 			"replaces": map[string]any{"type": "string"},
+			"project":  map[string]any{"type": "string"},
 		},
 		"required": []string{"note", "scope"},
 	}
@@ -122,18 +123,18 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	}
 	target, fell := layerFor(scope), ""
 	path := ""
-	if r.memory.TargetPath(s.AgentID) != r.memory.SharedPath() {
+	if target == "agent" && r.memory.TargetPath(s.AgentID) != r.memory.SharedPath() {
 		target, path = "agent", r.memory.TargetPath(s.AgentID)
 	}
 	if target == "folder" && path == "" {
-		// Item 2fh, kept: a scratch chat has no folder layer. A project fact with
-		// no project in scope goes to the agent layer, and says so.
-		if folder := s.MemoryFolder(); folder != "" {
-			path = r.memory.Path(folder)
-		} else {
-			target = "agent"
-			fell = " No project was in scope, so it went to the agent layer, which every chat of this agent loads."
+		folder, choices := s.MemoryProject(stringValue(args["project"], ""))
+		if folder == "" {
+			if len(choices) == 0 {
+				return "error: repository note refused: no project is in scope", nil
+			}
+			return "error: repository note refused: name one project: " + strings.Join(choices, ", "), nil
 		}
+		path = r.memory.Path(folder)
 	}
 	if target == "agent" {
 		path = r.memory.TargetPath(s.AgentID)

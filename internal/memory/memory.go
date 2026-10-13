@@ -614,23 +614,37 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 	// behind would grow the file it was meant to hold steady.
 	var archived string
 	if replaced := strings.TrimSpace(write.Replaces); replaced != "" {
-		kept := make([]string, 0, len(lines))
-		found := false
-		for _, line := range lines {
-			if !found && strings.EqualFold(noteTextOf(line), replaced) {
-				oldScope := parseNote(line).Scope
-				if oldScope != write.Scope {
-					return false, fmt.Errorf("%w: existing note is %s; new note is %s", ErrScopeMismatch, scopeName(oldScope), scopeName(write.Scope))
-				}
-				found = true
-				archived = line
-				continue
+		query := normalizedWords(replaced)
+		matches := []int{}
+		for index, line := range lines {
+			if strings.Contains(normalizedWords(noteTextOf(line)), query) {
+				matches = append(matches, index)
 			}
-			kept = append(kept, line)
 		}
-		if !found {
-			return false, fmt.Errorf("%w: %q", ErrNoteNotFound, replaced)
+		if len(matches) != 1 {
+			shown := matches
+			kind := "matched more than one note"
+			if len(matches) == 0 {
+				shown = make([]int, len(lines))
+				for index := range lines {
+					shown[index] = index
+				}
+				kind = "matched no note"
+			}
+			previews := make([]string, 0, len(shown))
+			for _, index := range shown {
+				previews = append(previews, firstNoteWords(noteTextOf(lines[index]), 8))
+			}
+			return false, fmt.Errorf("%w: %q %s; notes: %s", ErrNoteNotFound, replaced, kind, strings.Join(previews, "; "))
 		}
+		matched := matches[0]
+		oldScope := parseNote(lines[matched]).Scope
+		if oldScope != write.Scope {
+			return false, fmt.Errorf("%w: existing note is %s; new note is %s", ErrScopeMismatch, scopeName(oldScope), scopeName(write.Scope))
+		}
+		archived = lines[matched]
+		kept := append([]string(nil), lines[:matched]...)
+		kept = append(kept, lines[matched+1:]...)
 		lines = kept
 	}
 	lines = append(lines, formatNote(note, write))
@@ -654,6 +668,17 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 		return false, appendReplacement(path, archived, write)
 	}
 	return false, nil
+}
+
+func normalizedWords(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), " "))
+}
+func firstNoteWords(value string, count int) string {
+	words := strings.Fields(value)
+	if len(words) > count {
+		words = words[:count]
+	}
+	return strings.Join(words, " ")
 }
 
 func scopeName(value string) string {

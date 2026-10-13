@@ -775,3 +775,56 @@ func TestNonfatalHandshakeErrorKeepsBackoff2rb(t *testing.T) {
 		t.Fatalf("status=%+v", status)
 	}
 }
+
+func TestReconnectBackoffStartsOverAfterEstablishedSession2un(t *testing.T) {
+	backoff := time.Second
+	for range 10 {
+		backoff = nextReconnectBackoff(backoff, true)
+		if backoff != time.Second {
+			t.Fatalf("established-session backoff=%s", backoff)
+		}
+	}
+	backoff = time.Second
+	for _, want := range []time.Duration{2, 4, 8, 16, 32, 32, 32, 32, 32, 32} {
+		backoff = nextReconnectBackoff(backoff, false)
+		if backoff != want*time.Second {
+			t.Fatalf("consecutive-refusal backoff=%s want=%s", backoff, want*time.Second)
+		}
+	}
+}
+
+func TestRetainedDeliveriesStayWithinSixteenMiB2un(t *testing.T) {
+	client := NewClient(Identity{}, Pairing{}, nil, nil)
+	if err := client.Deliver(make([]byte, 1<<20)); err == nil || client.PendingBytes() != 0 {
+		t.Fatalf("absent phone retained chat contents: err=%v bytes=%d", err, client.PendingBytes())
+	}
+	unit := make([]byte, 1<<20)
+	client.mu.Lock()
+	for index := 0; index < 200; index++ {
+		id := []byte(fmt.Sprintf("%016d", index))
+		client.retainPendingLocked(&Delivery{MessageID: id, Plaintext: append([]byte(nil), unit...)})
+	}
+	client.mu.Unlock()
+	if got := client.PendingBytes(); got > 16<<20 {
+		t.Fatalf("retained bytes=%d", got)
+	}
+	if got := client.Pending(); got != 16 {
+		t.Fatalf("retained units=%d want=16 newest units", got)
+	}
+}
+
+func TestMissingResendAnswersExpiredAndKeepsSession2un(t *testing.T) {
+	transport := newScriptedBroker(t, Identity{}, Identity{}, Pairing{})
+	client := NewClient(Identity{}, Pairing{}, nil, nil)
+	if err := client.resend("00112233445566778899aabbccddeeff", transport); err != nil {
+		t.Fatal(err)
+	}
+	frame := transport.next(t)
+	if frame.Type != FrameError {
+		t.Fatalf("missing resend answer=0x%02x", frame.Type)
+	}
+	var problem errorPayload
+	if err := DecodeInto(frame.Payload, &problem); err != nil || problem.Code != "delivery_expired" || problem.Fatal {
+		t.Fatalf("problem=%+v err=%v", problem, err)
+	}
+}

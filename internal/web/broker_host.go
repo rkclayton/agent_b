@@ -73,6 +73,8 @@ type BrokerClient struct {
 	deviceSnapshots map[string]projection.Snapshot
 }
 
+const mirrorTakeTimeout = 15 * time.Second
+
 func (c *BrokerClient) RequestMirrorTake(ctx context.Context, chatID string, afterSeq int) error {
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
@@ -97,12 +99,20 @@ func (c *BrokerClient) RequestMirrorTake(ctx context.Context, chatID string, aft
 	if err := client.Deliver(unit); err != nil {
 		return err
 	}
+	return waitForMirrorTake(ctx, answer, mirrorTakeTimeout)
+}
+
+func waitForMirrorTake(ctx context.Context, answer <-chan appResponseUnit, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case response := <-answer:
 		if response.Status != http.StatusOK {
 			return fmt.Errorf("phone refused ownership: %s", response.Body)
 		}
 		return nil
+	case <-timer.C:
+		return errors.New("the phone did not answer within 15 seconds")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

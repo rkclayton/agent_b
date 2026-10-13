@@ -59,6 +59,7 @@ type Delivery struct {
 	Plaintext []byte
 	Counter   uint64
 	Epoch     uint32
+	Queued    bool
 }
 
 // Status is what Settings shows. Item 2kq (e).
@@ -83,13 +84,15 @@ type Client struct {
 	handle   func(messageID []byte, plaintext []byte) []byte
 	now      func() time.Time
 
-	mu        sync.Mutex
-	status    Status
-	session   *Session
-	transport Transport
-	sendCount uint64
-	epoch     uint32
-	pending   map[string]*Delivery
+	mu           sync.Mutex
+	status       Status
+	session      *Session
+	transport    Transport
+	sendCount    uint64
+	epoch        uint32
+	pending      map[string]*Delivery
+	pendingOrder []string
+	pendingBytes int
 	// handled remembers request ids already executed, so a RESEND after a reconnect
 	// delivers the same answer instead of running the work twice. Item 2kq (c)'s
 	// deduplication at the execution boundary.
@@ -109,6 +112,8 @@ type Client struct {
 }
 
 const maxPendingPushes = 128
+const maxPendingBytes = 16 << 20
+const maxPendingDeliveries = 2048
 
 func (c *Client) OnHolding(holding func(context.Context)) { c.holding = holding }
 
@@ -261,6 +266,7 @@ func (c *Client) Run(ctx context.Context) error {
 		wasConnected := c.status.State == "holding" || c.status.State == "phone connected"
 		c.mu.Unlock()
 		if wasConnected {
+			backoff = time.Second
 			c.recordEvent("disconnected reason=" + c.safeReason(err))
 		}
 		var problem *Problem
@@ -303,11 +309,19 @@ func (c *Client) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-time.After(backoff):
 		}
-		if backoff < 30*time.Second {
-			backoff *= 2
-		}
+		backoff = nextReconnectBackoff(backoff, false)
 	}
 	return ctx.Err()
+}
+
+func nextReconnectBackoff(previous time.Duration, established bool) time.Duration {
+	if established {
+		return time.Second
+	}
+	if previous < 30*time.Second {
+		return min(previous*2, 32*time.Second)
+	}
+	return previous
 }
 
 func (c *Client) once(ctx context.Context) error {
@@ -672,11 +686,20 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 			c.mu.Lock()
-			delete(c.pending, ack.MessageID)
+			c.removePendingLocked(ack.MessageID)
 			c.mu.Unlock()
 		case FrameQueued:
 			// The device is offline; the broker holds an intent. The plaintext stays
 			// retained here until an ACK or a RESEND.
+			var queued idOnlyFrame
+			if err := DecodeInto(frame.Payload, &queued); err != nil {
+				return err
+			}
+			c.mu.Lock()
+			if delivery := c.pending[queued.MessageID]; delivery != nil {
+				delivery.Queued = true
+			}
+			c.mu.Unlock()
 		case FrameResend:
 			var resend idOnlyFrame
 			if err := DecodeInto(frame.Payload, &resend); err != nil {
@@ -691,7 +714,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 			c.mu.Lock()
-			delete(c.pending, expired.MessageID)
+			c.removePendingLocked(expired.MessageID)
 			c.mu.Unlock()
 		case FramePing:
 			var ping struct {
@@ -818,7 +841,7 @@ func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
 	epoch := c.epoch
 	c.sendCount++
 	if session != nil {
-		c.pending[hexID(messageID)] = &Delivery{MessageID: messageID, Plaintext: plaintext, Counter: counter, Epoch: epoch}
+		c.retainPendingLocked(&Delivery{MessageID: messageID, Plaintext: plaintext, Counter: counter, Epoch: epoch})
 	}
 	c.mu.Unlock()
 	if session == nil {
@@ -858,7 +881,11 @@ func (c *Client) resend(messageID string, transport Transport) error {
 	delivery, ok := c.pending[messageID]
 	c.mu.Unlock()
 	if !ok {
-		return nil
+		out, err := Encode(FrameError, errorPayload{Code: "delivery_expired", Detail: "the retained delivery is no longer available"})
+		if err != nil {
+			return err
+		}
+		return transport.Send(out)
 	}
 	raw, err := hex.DecodeString(messageID)
 	if err != nil {
@@ -889,6 +916,49 @@ func (c *Client) Pending() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.pending)
+}
+
+func (c *Client) PendingBytes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pendingBytes
+}
+
+func (c *Client) removePendingLocked(id string) {
+	if delivery := c.pending[id]; delivery != nil {
+		c.pendingBytes -= len(delivery.Plaintext)
+		delete(c.pending, id)
+	}
+	for index, pendingID := range c.pendingOrder {
+		if pendingID == id {
+			c.pendingOrder = append(c.pendingOrder[:index], c.pendingOrder[index+1:]...)
+			return
+		}
+	}
+}
+
+func (c *Client) retainPendingLocked(delivery *Delivery) {
+	id := hexID(delivery.MessageID)
+	if current := c.pending[id]; current != nil {
+		current.Counter, current.Epoch = delivery.Counter, delivery.Epoch
+		return
+	}
+	for c.pendingBytes+len(delivery.Plaintext) > maxPendingBytes || len(c.pending) >= maxPendingDeliveries {
+		evicted := false
+		for _, oldest := range c.pendingOrder {
+			if candidate := c.pending[oldest]; candidate != nil && !candidate.Queued {
+				c.removePendingLocked(oldest)
+				evicted = true
+				break
+			}
+		}
+		if !evicted {
+			return
+		}
+	}
+	c.pending[id] = delivery
+	c.pendingOrder = append(c.pendingOrder, id)
+	c.pendingBytes += len(delivery.Plaintext)
 }
 
 var errOpeningUndeliverable = errors.New("broker: session opening recipient absent")

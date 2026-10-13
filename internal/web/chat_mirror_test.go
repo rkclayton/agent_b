@@ -64,6 +64,20 @@ func mirroredEvent(chatID, kind string, data any) map[string]any {
 	return map[string]any{"ts": time.Now().UTC().Format(time.RFC3339Nano), "run_id": "", "type": kind, "data": data}
 }
 
+func TestMirrorTakeWithoutPhoneAnswerEndsAtFifteenSeconds2un(t *testing.T) {
+	if mirrorTakeTimeout != 15*time.Second {
+		t.Fatalf("mirror timeout=%s", mirrorTakeTimeout)
+	}
+	started := time.Now()
+	err := waitForMirrorTake(context.Background(), make(chan appResponseUnit), 15*time.Millisecond)
+	if err == nil || err.Error() != "the phone did not answer within 15 seconds" {
+		t.Fatalf("timeout error=%v", err)
+	}
+	if elapsed := time.Since(started); elapsed < 15*time.Millisecond || elapsed > time.Second {
+		t.Fatalf("timeout elapsed=%s", elapsed)
+	}
+}
+
 func TestMirrorAppliesFiveEventsFilesAndGapRecovery2oo(t *testing.T) {
 	server, registry, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()

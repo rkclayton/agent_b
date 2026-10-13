@@ -184,22 +184,15 @@ func (s *Server) setOrQueueSessionAgent(sessionID, agentID string) bool {
 	if err := s.registry.SetAgent(sessionID, agentID); err == nil {
 		return false
 	}
-	s.agentConnectionMu.Lock()
-	s.pendingSessionAgents[sessionID] = agentID
-	s.agentConnectionMu.Unlock()
+	s.pendingConnections.queueSessionAgent(sessionID, agentID)
 	return true
 }
 
 func (s *Server) applyPendingSessionAgents() {
-	s.agentConnectionMu.Lock()
-	pending := s.pendingSessionAgents
-	s.pendingSessionAgents = map[string]string{}
-	s.agentConnectionMu.Unlock()
+	pending := s.pendingConnections.takeSessionAgents()
 	for sessionID, agentID := range pending {
 		if err := s.registry.SetAgent(sessionID, agentID); err != nil {
-			s.agentConnectionMu.Lock()
-			s.pendingSessionAgents[sessionID] = agentID
-			s.agentConnectionMu.Unlock()
+			s.pendingConnections.queueSessionAgent(sessionID, agentID)
 		}
 	}
 }
@@ -208,22 +201,15 @@ func (s *Server) setOrQueueSessionConnection(sessionID, connectionID string) boo
 	if err := s.registry.SetConnection(sessionID, connectionID); err == nil {
 		return false
 	}
-	s.agentConnectionMu.Lock()
-	s.pendingSessionConnections[sessionID] = connectionID
-	s.agentConnectionMu.Unlock()
+	s.pendingConnections.queueSessionConnection(sessionID, connectionID)
 	return true
 }
 
 func (s *Server) applyPendingSessionConnections() {
-	s.agentConnectionMu.Lock()
-	pending := s.pendingSessionConnections
-	s.pendingSessionConnections = map[string]string{}
-	s.agentConnectionMu.Unlock()
+	pending := s.pendingConnections.takeSessionConnections()
 	for sessionID, connectionID := range pending {
 		if err := s.registry.SetConnection(sessionID, connectionID); err != nil {
-			s.agentConnectionMu.Lock()
-			s.pendingSessionConnections[sessionID] = connectionID
-			s.agentConnectionMu.Unlock()
+			s.pendingConnections.queueSessionConnection(sessionID, connectionID)
 		}
 	}
 }

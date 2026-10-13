@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"harness/internal/config"
@@ -15,6 +16,49 @@ type pendingAgentConnection struct {
 	From        string `json:"from"`
 	To          string `json:"to"`
 	RequestedAt string `json:"requested_at"`
+}
+
+type pendingAgentConnectionState struct {
+	mu                 sync.Mutex
+	agents             map[string]pendingAgentConnection
+	sessionAgents      map[string]string
+	sessionConnections map[string]string
+}
+
+func newPendingAgentConnectionState() pendingAgentConnectionState {
+	return pendingAgentConnectionState{
+		agents:             map[string]pendingAgentConnection{},
+		sessionAgents:      map[string]string{},
+		sessionConnections: map[string]string{},
+	}
+}
+
+func (s *pendingAgentConnectionState) queueSessionAgent(sessionID, agentID string) {
+	s.mu.Lock()
+	s.sessionAgents[sessionID] = agentID
+	s.mu.Unlock()
+}
+
+func (s *pendingAgentConnectionState) takeSessionAgents() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.sessionAgents
+	s.sessionAgents = map[string]string{}
+	return pending
+}
+
+func (s *pendingAgentConnectionState) queueSessionConnection(sessionID, connectionID string) {
+	s.mu.Lock()
+	s.sessionConnections[sessionID] = connectionID
+	s.mu.Unlock()
+}
+
+func (s *pendingAgentConnectionState) takeSessionConnections() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.sessionConnections
+	s.sessionConnections = map[string]string{}
+	return pending
 }
 
 // Item 2ln (a): the route takes a ROLE. [[2iq]] built the Agents table in v1.16.0
@@ -66,10 +110,10 @@ var (
 )
 
 func (s *Server) agentConnectionChanges() map[string]pendingAgentConnection {
-	s.agentConnectionMu.Lock()
-	defer s.agentConnectionMu.Unlock()
-	result := make(map[string]pendingAgentConnection, len(s.agentConnections))
-	for id, change := range s.agentConnections {
+	s.pendingConnections.mu.Lock()
+	defer s.pendingConnections.mu.Unlock()
+	result := make(map[string]pendingAgentConnection, len(s.pendingConnections.agents))
+	for id, change := range s.pendingConnections.agents {
 		result[id] = change
 	}
 	return result
@@ -89,12 +133,12 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 		return
 	}
 	if body.Action == "cancel" {
-		s.agentConnectionMu.Lock()
-		change, exists := s.agentConnections[agentID]
+		s.pendingConnections.mu.Lock()
+		change, exists := s.pendingConnections.agents[agentID]
 		if exists {
-			delete(s.agentConnections, agentID)
+			delete(s.pendingConnections.agents, agentID)
 		}
-		s.agentConnectionMu.Unlock()
+		s.pendingConnections.mu.Unlock()
 		if !exists {
 			writeError(w, http.StatusNotFound, "no pending connection change", "agent_id")
 			return
@@ -153,9 +197,9 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 		return
 	}
 	if body.ConnectionID == agent.B {
-		s.agentConnectionMu.Lock()
-		change, pending := s.agentConnections[agentID]
-		s.agentConnectionMu.Unlock()
+		s.pendingConnections.mu.Lock()
+		change, pending := s.pendingConnections.agents[agentID]
+		s.pendingConnections.mu.Unlock()
 		if pending {
 			writeJSON(w, http.StatusAccepted, map[string]any{"status": "pending", "change": change})
 			return
@@ -164,9 +208,9 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 		return
 	}
 	change := pendingAgentConnection{AgentID: agentID, Role: roleB, From: agent.B, To: body.ConnectionID, RequestedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	s.agentConnectionMu.Lock()
-	s.agentConnections[agentID] = change
-	s.agentConnectionMu.Unlock()
+	s.pendingConnections.mu.Lock()
+	s.pendingConnections.agents[agentID] = change
+	s.pendingConnections.mu.Unlock()
 	s.bus.Publish(events.New(events.AgentConnectionChange, "", "", map[string]any{"status": "pending", "change": change}))
 	if s.tryAgentIdle != nil {
 		s.tryAgentIdle(agentID)
@@ -212,12 +256,12 @@ func (s *Server) writeAgentRole(agentID, role, connectionID string) error {
 }
 
 func (s *Server) applyPendingAgentConnection(agentID string) {
-	s.agentConnectionMu.Lock()
-	change, exists := s.agentConnections[agentID]
+	s.pendingConnections.mu.Lock()
+	change, exists := s.pendingConnections.agents[agentID]
 	if exists {
-		delete(s.agentConnections, agentID)
+		delete(s.pendingConnections.agents, agentID)
 	}
-	s.agentConnectionMu.Unlock()
+	s.pendingConnections.mu.Unlock()
 	if !exists {
 		return
 	}
@@ -260,9 +304,9 @@ func (s *Server) applyPendingAgentConnection(agentID string) {
 }
 
 func (s *Server) restorePendingAgentConnection(change pendingAgentConnection) {
-	s.agentConnectionMu.Lock()
-	if _, replaced := s.agentConnections[change.AgentID]; !replaced {
-		s.agentConnections[change.AgentID] = change
+	s.pendingConnections.mu.Lock()
+	if _, replaced := s.pendingConnections.agents[change.AgentID]; !replaced {
+		s.pendingConnections.agents[change.AgentID] = change
 	}
-	s.agentConnectionMu.Unlock()
+	s.pendingConnections.mu.Unlock()
 }

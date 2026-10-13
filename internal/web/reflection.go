@@ -103,8 +103,9 @@ func (s *Server) reflectionNow() *reflectionState {
 
 // reflectionLoop watches for closed runs and runs the fuller pass on the tick.
 func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
-	channel, unsubscribe := s.bus.Subscribe()
-	defer unsubscribe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	channel := s.bus.Listen(ctx, "reflection")
 	if tick <= 0 {
 		tick = 24 * time.Hour
 	}
@@ -114,7 +115,10 @@ func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
 		select {
 		case <-state.stop:
 			return
-		case event := <-channel:
+		case event, ok := <-channel:
+			if !ok {
+				return
+			}
 			if event.Type != events.RunStopped {
 				continue
 			}

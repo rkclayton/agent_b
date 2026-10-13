@@ -604,7 +604,18 @@ func (c *Client) dropSession() {
 
 func (c *Client) startConnected(ctx context.Context) context.CancelFunc {
 	session, stop := context.WithCancel(ctx)
-	go c.connected(session)
+	go func() {
+		c.connected(session)
+		if session.Err() != nil {
+			return
+		}
+		c.mu.Lock()
+		transport := c.transport
+		c.mu.Unlock()
+		if transport != nil {
+			_ = transport.Close(1011, "event listener dropped")
+		}
+	}()
 	return stop
 }
 

@@ -238,7 +238,7 @@ func (s *Server) streamUnitsToDeviceOpening(ctx context.Context, client deviceSi
 }
 
 func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink, resume map[string]projection.Snapshot, live *phoneStreamState) {
-	raw, unsubscribeRaw := s.bus.Subscribe()
+	raw, dropped, unsubscribeRaw := s.bus.ListenUntilDrop("phone")
 	defer unsubscribeRaw()
 	var sent int64
 	send := func(unit map[string]any) {
@@ -300,6 +300,8 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 	}
 	for {
 		select {
+		case <-dropped:
+			return
 		case patch, ok := <-patches:
 			if !ok {
 				return

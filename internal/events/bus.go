@@ -1,6 +1,8 @@
 package events
 
 import (
+	"context"
+	"log"
 	"sync"
 )
 
@@ -9,6 +11,8 @@ type Bus struct {
 	publishMu     sync.Mutex
 	seq           int64
 	subscribers   map[int]chan Event
+	dropped       map[int]chan struct{}
+	listenerNames map[int]string
 	next          int
 	sink          func(Event) error
 	durableSink   func(Event) (LogCursor, error)
@@ -29,7 +33,9 @@ type Bus struct {
 // SetObserver installs the flight recorder's hook (item 2pw).
 func (b *Bus) SetObserver(observe func(Event)) { b.mu.Lock(); b.observe = observe; b.mu.Unlock() }
 
-func NewBus() *Bus                            { return &Bus{subscribers: map[int]chan Event{}} }
+func NewBus() *Bus {
+	return &Bus{subscribers: map[int]chan Event{}, dropped: map[int]chan struct{}{}, listenerNames: map[int]string{}}
+}
 func (b *Bus) SetSink(sink func(Event) error) { b.mu.Lock(); b.sink = sink; b.mu.Unlock() }
 func (b *Bus) SetDurableSink(sink func(Event) (LogCursor, error), appended func(Event, LogCursor), failed func(Event, error)) {
 	b.mu.Lock()
@@ -49,8 +55,11 @@ func (b *Bus) Publish(event Event) Event {
 	b.publishMu.Lock()
 	published, dropped := b.publish(event, true)
 	b.publishMu.Unlock()
-	for _, id := range dropped {
-		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": id, "reason": "overflow", "action": "resubscribe"}))
+	for _, subscriber := range dropped {
+		if subscriber.name != "" {
+			log.Printf("event listener %q dropped: queue overflow; resubscribing", subscriber.name)
+		}
+		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": subscriber.id, "reason": "overflow", "action": "resubscribe"}))
 	}
 	if published.Type == RunStarted || published.Type == RunQueued {
 		clock := New(ToolProgress, published.SessionID, published.RunID, map[string]any{"run_started": true})
@@ -77,12 +86,21 @@ func (b *Bus) PublishTransient(event Event) Event {
 	if sink != nil {
 		sink(published)
 	}
-	for _, id := range dropped {
-		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": id, "reason": "overflow", "action": "resubscribe"}))
+	for _, subscriber := range dropped {
+		if subscriber.name != "" {
+			log.Printf("event listener %q dropped: queue overflow; resubscribing", subscriber.name)
+		}
+		b.Publish(New(SubscriberDropped, "", "", map[string]any{"subscriber_id": subscriber.id, "reason": "overflow", "action": "resubscribe"}))
 	}
 	return published
 }
-func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
+
+type droppedSubscriber struct {
+	id   int
+	name string
+}
+
+func (b *Bus) publish(event Event, writeSink bool) (Event, []droppedSubscriber) {
 	b.mu.Lock()
 	enrich := b.enrich
 	b.mu.Unlock()
@@ -121,7 +139,7 @@ func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 	} else if sinkErr != nil && appendError != nil {
 		appendError(event, sinkErr)
 	}
-	dropped := make([]int, 0)
+	dropped := make([]droppedSubscriber, 0)
 	for _, subscriber := range subscribers {
 		b.mu.Lock()
 		current, ok := b.subscribers[subscriber.id]
@@ -133,8 +151,14 @@ func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 		case current <- event:
 		default:
 			delete(b.subscribers, subscriber.id)
+			drop := b.dropped[subscriber.id]
+			delete(b.dropped, subscriber.id)
 			close(current)
-			dropped = append(dropped, subscriber.id)
+			if drop != nil {
+				close(drop)
+			}
+			dropped = append(dropped, droppedSubscriber{id: subscriber.id, name: b.listenerNames[subscriber.id]})
+			delete(b.listenerNames, subscriber.id)
 		}
 		b.mu.Unlock()
 	}
@@ -149,14 +173,78 @@ func (b *Bus) publish(event Event, writeSink bool) (Event, []int) {
 	return event, dropped
 }
 func (b *Bus) Subscribe() (chan Event, func()) {
+	ch, _, unsubscribe := b.subscribe("")
+	return ch, unsubscribe
+}
+
+func (b *Bus) subscribe(name string) (chan Event, <-chan struct{}, func()) {
 	b.mu.Lock()
 	id := b.next
 	b.next++
 	ch := make(chan Event, 128)
+	dropped := make(chan struct{})
 	b.subscribers[id] = ch
+	b.dropped[id] = dropped
+	b.listenerNames[id] = name
 	b.mu.Unlock()
 	var once sync.Once
-	return ch, func() { once.Do(func() { b.mu.Lock(); delete(b.subscribers, id); b.mu.Unlock() }) }
+	return ch, dropped, func() {
+		once.Do(func() {
+			b.mu.Lock()
+			delete(b.subscribers, id)
+			delete(b.dropped, id)
+			delete(b.listenerNames, id)
+			b.mu.Unlock()
+		})
+	}
+}
+
+// Listen keeps a named process listener subscribed. If its fixed 128-event bus
+// queue overflows, queued events are abandoned and a fresh subscription is made;
+// events are never replayed or reordered.
+func (b *Bus) Listen(ctx context.Context, name string) <-chan Event {
+	out := make(chan Event, 128)
+	in, dropped, unsubscribe := b.subscribe(name)
+	go func() {
+		defer close(out)
+		for ctx.Err() == nil {
+			for {
+				select {
+				case <-ctx.Done():
+					unsubscribe()
+					return
+				case <-dropped:
+					unsubscribe()
+					goto resubscribe
+				case event, ok := <-in:
+					if !ok {
+						unsubscribe()
+						goto resubscribe
+					}
+					select {
+					case out <- event:
+					case <-dropped:
+						unsubscribe()
+						goto resubscribe
+					case <-ctx.Done():
+						unsubscribe()
+						return
+					}
+				}
+			}
+		resubscribe:
+			if ctx.Err() == nil {
+				in, dropped, unsubscribe = b.subscribe(name)
+			}
+		}
+	}()
+	return out
+}
+
+// ListenUntilDrop is for a listener whose owning connection must be ended on
+// overflow. The caller resubscribes by establishing that connection again.
+func (b *Bus) ListenUntilDrop(name string) (chan Event, <-chan struct{}, func()) {
+	return b.subscribe(name)
 }
 
 func (b *Bus) SubscriberCount() int {

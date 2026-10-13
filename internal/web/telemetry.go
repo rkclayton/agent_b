@@ -74,7 +74,8 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 	if sender == nil {
 		return
 	}
-	channel, unsubscribe := s.bus.Subscribe()
+	listenerContext, unsubscribe := context.WithCancel(context.Background())
+	channel := s.bus.Listen(listenerContext, "telemetry")
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {

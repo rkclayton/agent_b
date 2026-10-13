@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -113,7 +114,7 @@ type Manager struct {
 
 func New(dataRoot string, registry *session.Registry, bus *events.Bus) *Manager {
 	m := &Manager{dir: filepath.Join(dataRoot, "stats"), registry: registry, bus: bus, runs: map[string]*run{}, ledgers: map[string]*Ledger{}}
-	ch, _ := bus.Subscribe()
+	ch := bus.Listen(context.Background(), "activity totals")
 	go func() {
 		for event := range ch {
 			m.record(event)

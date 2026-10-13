@@ -169,9 +169,9 @@ func (m *Manager) Start(ctx context.Context) {
 		m.mu.Unlock()
 		return
 	}
-	stream, unsubscribe := m.bus.Subscribe()
 	workerContext, cancel := context.WithCancel(ctx)
-	m.started, m.unsub, m.cancel = true, unsubscribe, cancel
+	stream := m.bus.Listen(workerContext, "notifications")
+	m.started, m.unsub, m.cancel = true, nil, cancel
 	m.mu.Unlock()
 	jobs := make(chan events.Event, 128)
 	go func() {

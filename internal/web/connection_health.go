@@ -35,9 +35,8 @@ func (s *Server) StartConnectionHealth(ctx context.Context) {
 	if every <= 0 {
 		every = connectionHealthEvery
 	}
-	changes, unsubscribe := s.bus.Subscribe()
+	changes := s.bus.Listen(ctx, "connection health")
 	go func() {
-		defer unsubscribe()
 		ticker := time.NewTicker(every)
 		defer ticker.Stop()
 		for {

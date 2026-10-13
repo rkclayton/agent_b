@@ -333,8 +333,7 @@ func (d *Driver) verify(ctx context.Context, s *session.Session, job session.Wor
 // the worker never decides for itself that acceptance passed.
 func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Outcome {
 	job := s.WorkerJob()
-	stream, release := d.bus.Subscribe()
-	defer release()
+	stream := d.bus.Listen(ctx, "worker")
 
 	runID, err := d.submit.Submit(ctx, s.ID, item.Text)
 	if err != nil {

@@ -111,14 +111,12 @@ func run(options cli.Options) int {
 		return 2
 	}
 
-	// The terminal is the approver, unless nothing may ask.
-	channel, unsubscribe := bus.Subscribe()
-	defer unsubscribe()
-	approver := cli.NewApprover(os.Stdin, os.Stderr, runner.Gate().Decide)
-	renderer := cli.NewRenderer(os.Stdout, os.Stderr, options)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	// The terminal is the approver, unless nothing may ask.
+	channel := bus.Listen(ctx, "terminal")
+	approver := cli.NewApprover(os.Stdin, os.Stderr, runner.Gate().Decide)
+	renderer := cli.NewRenderer(os.Stdout, os.Stderr, options)
 
 	runID := "r1"
 	started := time.Now()

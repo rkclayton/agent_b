@@ -1,7 +1,11 @@
 package events
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"log"
+	"strings"
 	"testing"
 	"time"
 )
@@ -201,5 +205,79 @@ func TestSubscriberCountTracksSubscribeAndUnsubscribe(t *testing.T) {
 	unsubscribeSecond()
 	if got := bus.SubscriberCount(); got != 0 {
 		t.Fatalf("final subscriber count = %d", got)
+	}
+}
+
+func TestNamedListenersRecoverAfterOverflow2um(t *testing.T) {
+	bus := NewBus()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	streams := map[string]<-chan Event{}
+	for _, name := range []string{"terminal", "scheduled runs", "operator files", "worker", "notifications", "activity totals", "connection health", "reflection", "telemetry"} {
+		streams[name] = bus.Listen(ctx, name)
+	}
+	for index := 0; index < 1000; index++ {
+		bus.Publish(New(ModelDelta, "main", "flood", map[string]any{"text": "x"}))
+	}
+	time.Sleep(5 * time.Second) // every consumer remains held while its bus queue overflows
+	deadline := time.Now().Add(time.Second)
+	for bus.SubscriberCount() != len(streams) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	post := bus.Publish(New(RunStopped, "main", "after", map[string]any{"reason": "done"}))
+	for name, stream := range streams {
+		deadline := time.After(time.Second)
+		for {
+			select {
+			case got := <-stream:
+				if got.Seq == post.Seq {
+					goto reached
+				}
+			case <-deadline:
+				t.Fatalf("%s did not receive the post-flood event", name)
+			}
+		}
+	reached:
+	}
+}
+
+func TestNamedListenerDropLogsItsNameOnce2um(t *testing.T) {
+	var output bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(old)
+	bus := NewBus()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_ = bus.Listen(ctx, "notifications")
+	deadline := time.Now().Add(time.Second)
+	for bus.SubscriberCount() != 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	for index := 0; index < 1000 && !strings.Contains(output.String(), "notifications"); index++ {
+		bus.Publish(New(ModelDelta, "main", "flood", map[string]any{"text": "x"}))
+	}
+	if got := strings.Count(output.String(), `event listener "notifications" dropped`); got != 1 {
+		t.Fatalf("named drop log count=%d log=%q", got, output.String())
+	}
+}
+
+func TestConnectionListenerSignalsOverflow2um(t *testing.T) {
+	bus := NewBus()
+	stream, dropped, unsubscribe := bus.ListenUntilDrop("phone")
+	defer unsubscribe()
+	for index := 0; index < 1000; index++ {
+		bus.Publish(New(ModelDelta, "main", "flood", map[string]any{"text": "x"}))
+	}
+	select {
+	case <-dropped:
+	case <-time.After(time.Second):
+		t.Fatal("phone listener did not signal its dropped connection")
+	}
+	for range 128 {
+		<-stream
+	}
+	if _, ok := <-stream; ok {
+		t.Fatal("phone stream remained connected after overflow")
 	}
 }

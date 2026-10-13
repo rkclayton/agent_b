@@ -75,8 +75,7 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 		fmt.Fprintf(&prompt, "%s\n\n", body)
 	}
 	prompt.WriteString(job.Prompt)
-	stream, unsubscribe := r.bus.Subscribe()
-	defer unsubscribe()
+	stream := r.bus.Listen(ctx, "scheduled runs")
 	result, err := r.scheduler.Submit(ctx, item.ID, prompt.String())
 	if err != nil {
 		return cron.Result{Failed: true, Failure: err.Error()}

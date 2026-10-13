@@ -650,6 +650,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     { type: "tool", key: "retry-succeeded", run_id: runID, name: "shell", args: { command: "git stash pop --index synthetic-extra" }, result: { ok: true, ms: 18 }, content: "synthetic success" },
     { type: "agent", key: "narration-two", run_id: runID, text: "Verified the rebuilt output.", reasoning: "Read the synthetic verification result.", reasoningTokens: 11, done: true, thinkingMS: 55 },
     { type: "tool", key: "final-tool", run_id: runID, name: "read_file", args: { path: "C:\\synthetic\\evidence\\result.txt" }, result: { ok: true, ms: 8 }, content: "synthetic proof" },
+    { type: "tool", key: "todo-current", run_id: runID, name: "todo", args: { items: [{ text: "Inspect inputs", status: "done" }, { text: "Run checks", status: "doing" }, { text: "Write report", status: "pending" }] }, result: { ok: true, ms: 1 }, content: "task list updated" },
     { type: "agent", key: "final-answer", run_id: runID, text: "The synthetic release proof is complete.", done: true },
   ];
   const snapshot = (status) => {
@@ -691,6 +692,10 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(finished.page.getByText("The synthetic release proof is complete.")).toBeVisible();
   await expect(finished.page.getByText("Checked the build inputs.")).toHaveCount(0);
   await expect(finished.page.locator("#chat-status-line")).toHaveCount(0);
+  await expect(finished.page.locator(".chat-todo")).toHaveCount(1);
+  await expect(finished.page.locator(".chat-todo-row")).toHaveText(["✓ Inspect inputs", "→ Run checks", "· Write report"]);
+  await mkdir("logs/evidence/rel-1.62.35/captures", { recursive: true });
+  await finished.page.screenshot({ path: "logs/evidence/rel-1.62.35/captures/todo-1280x860.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2ql-s56-finished.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2qm-idle.png", fullPage: true });
   await worked.click();
@@ -727,6 +732,15 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     await finished.page.screenshot({ path: `logs/evidence/rel-1.62.33/2sl-mixed-${width}-${pixels}px.png`, fullPage: true });
   }
   await expect(finished.page.locator(".chat-response-author")).toHaveCount(0); await finished.context.close();
+
+  const askState = snapshot("running");
+  askState.sessions[id].pending_approval = { type: "notice", key: "ask-card", event: { type: "approval.required", data: { call_id: "ask-1", name: "ask", kind: "question", question: "Which result should be kept?", choices: ["First", "Second", "Both"] } } };
+  const askPage = await open("running", "ask-2rj.test", askState);
+  await expect(askPage.page.getByText("Which result should be kept?")).toBeVisible();
+  await expect(askPage.page.locator(".approval-actions button")).toHaveText(["First", "Second", "Both", "Send"]);
+  await expect(askPage.page.locator('.approval-actions input[placeholder="Your answer"]')).toBeVisible();
+  await askPage.page.screenshot({ path: "logs/evidence/rel-1.62.35/captures/ask-1280x860.png", fullPage: true });
+  await askPage.context.close();
 
   const live = await open("running", "live-2ql.test");
   await expect(live.page.locator(".chat-work-summary")).toHaveCount(0);

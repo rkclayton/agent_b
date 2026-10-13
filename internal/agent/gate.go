@@ -35,6 +35,7 @@ type StandingGrant struct {
 }
 type approvalSignal struct {
 	decision string
+	answer   string
 	logged   bool
 }
 type approvalScopeKind int
@@ -45,6 +46,7 @@ const (
 	approvalFileScopes
 	approvalPolicyScopes
 	approvalCycle
+	approvalQuestion
 )
 
 type Gate struct {
@@ -63,6 +65,21 @@ type Gate struct {
 	standingMu   sync.Mutex
 	// how long a card waits for an answer before it is refused.
 	unansweredAfter time.Duration
+}
+
+func (g *Gate) WaitQuestion(ctx context.Context, s *session.Session, runID, callID, question string, choices []string) (string, error) {
+	args := map[string]any{"question": question, "choices": choices}
+	if g.unattended(s) {
+		g.refuseUnattended(s, runID, callID, boundaryPolicy, "ask", args)
+		return "No one is here to answer. Decide yourself and say what you decided.", nil
+	}
+	g.sequenceMu.Lock()
+	wait, cleanup := g.beginWait(s, runID, callID, approvalQuestion, StandingGrant{})
+	wait.name = "ask"
+	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, map[string]any{"call_id": callID, "name": "ask", "kind": "question", "question": question, "choices": choices, "boundary_escape": false})))
+	g.sequenceMu.Unlock()
+	defer cleanup()
+	return g.awaitDecision(ctx, s, runID, callID, wait)
 }
 
 func NewGate(bus *events.Bus, cfg func() config.Config) *Gate {
@@ -332,7 +349,11 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 		break
 	}
 	if !signal.logged {
-		g.publishDecision(wait, signal.decision)
+		decision := signal.decision
+		if wait.scopeKind == approvalQuestion && signal.answer != "" {
+			decision = "answered"
+		}
+		g.publishDecision(wait, decision)
 	}
 	// Every path out of a wait takes the model slot back before the run goes
 	// on, the superseded one included (cold review).
@@ -349,6 +370,9 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 		state.Status = "running"
 		s.SetRun(state)
 	}
+	if wait.scopeKind == approvalQuestion && signal.answer != "" {
+		return signal.answer, nil
+	}
 	return signal.decision, nil
 }
 
@@ -359,6 +383,28 @@ func (g *Gate) publishDecision(wait *approvalWait, decision string) {
 }
 func (g *Gate) Decide(sessionID, callID, decision string) error {
 	return g.DecideWith(sessionID, callID, decision, nil)
+}
+
+func (g *Gate) AnswerQuestion(sessionID, callID, answer string) error {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || len([]rune(answer)) > 4000 {
+		return fmt.Errorf("answer must be 1 to 4000 characters")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	wait, ok := g.waiting[approvalKey(sessionID, callID)]
+	if !ok {
+		return fmt.Errorf("approval not found")
+	}
+	if wait.scopeKind != approvalQuestion {
+		return fmt.Errorf("approval is not a question")
+	}
+	if wait.decided {
+		return fmt.Errorf("approval already decided")
+	}
+	wait.decided = true
+	wait.decision <- approvalSignal{decision: "answered", answer: answer}
+	return nil
 }
 
 func (g *Gate) DecideWith(sessionID, callID, decision string, before func()) error {

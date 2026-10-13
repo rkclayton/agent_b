@@ -191,8 +191,8 @@ Reapply and verify Host protections on an existing hardened installation before 
 
 The registry sends enabled tools in this stable order (registered in `cmd/harness/main.go`, dispatched by `internal/tools/registry.go`): `read_file`,
 `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, `call_service`, `delegate`,
-`chat_history`, `cronjob`, `image`. The internal-service caller remains position 12; `delegate` remains at 13;
- the read-only `chat_history` remains at 14, `cronjob` remains at 15, and `image` is appended at 16, while every older tool retains its relative position.
+`chat_history`, `cronjob`, `image`, `todo`, `ask`. The internal-service caller remains position 12; `delegate` remains at 13;
+the read-only `chat_history` remains at 14, `cronjob` remains at 15, `image` remains at 16, and `todo` and `ask` are appended at 17 and 18, while every older tool retains its relative position.
 Tool errors normally enter model context with an `error:` prefix and always produce `tool.result.ok:false`;
 a stale-view or routing refusal may instead start with `note:` while remaining an unsuccessful, unexecuted outcome.
 Documented empty/no-match results are successful outcomes.
@@ -309,6 +309,8 @@ Documented empty/no-match results are successful outcomes.
   other outcomes retain a named chat under `Scheduled` and use existing run-finished notices.
   `deliver` is retained for Hermes compatibility but does not change delivery.
 - `image {description,pictures?,size?,count?}` calls `POST /v1/images/generations`, or multipart `POST /v1/images/edits` when workspace pictures are supplied. It uses `images.connection`, falling back to the asking chat's connection, and omits `model` when `images.model` is empty. `count` is one to four and no run may save more than eight pictures. Inline base64 and returned-address results are saved in the chat folder; the configured key is sent only to the connection host and never follows a returned address. A missing endpoint, refused key, refused description, timeout, or run limit is one line. The tool is offered when a named image connection exists or the asking connection's Test found the image calls.
+- `todo {items:[{text,status}]}` replaces the chat's one visible task-list block. It accepts at most 20 items, text is at most 120 characters, and status is `pending`, `doing`, or `done`. Only the latest list arguments remain in the next model request.
+- `ask {question,choices?}` pauses an attended run for a typed answer or one of up to four 60-character choices. Worker and scheduled runs immediately receive `No one is here to answer. Decide yourself and say what you decided.` instead of pausing.
 
 ## Events
 
@@ -593,8 +595,8 @@ approval registers exactly as the operator's sentence does, a decline registers 
   then receives the session scratch/retained root followed by only plan repositories selected by file operations in that run.
   An absent or signed-out `sbx` keeps the stored switch off and exposes the reason in state. If an enabled sandbox stops,
   the switch is saved off before ordinary shell falls back and the result begins with that disclosure;
-  `run_script` bash refuses because it has no host fallback. The registry is sixteen tools; `delegate` follows the twelve-tool 2ho order,
-  `chat_history` follows `delegate`, `cronjob` follows it, and `image` is last.
+  `run_script` bash refuses because it has no host fallback. The registry is eighteen tools; `delegate` follows the twelve-tool 2ho order,
+  `chat_history` follows `delegate`, `cronjob` follows it, `image` follows it, and `todo` then `ask` are last.
 - `POST /api/shell-credential {action:store,password}` writes a user-scoped DPAPI blob; `{action:test}` attempts a no-op service-account process;
   `{action:clear}` removes it. Responses and events expose status only, never the password.
 - `GET /api/service-account` inspects the configured local account without elevation through the Windows account APIs.
@@ -617,7 +619,7 @@ approval registers exactly as the operator's sentence does, a decline registers 
   An active same-session run returns 409 when queue depth is zero, and a full configured queue returns 409.
   `POST /api/stop {session_id?,all?}` holds queued messages until the operator's next message releases them in order.
   `POST /api/tools/{name} {session_id,enabled}` takes effect on the next request.
-  `POST /api/approve {session_id,call_id,decision:approve|once|session|folder|deny}` resolves the existing card;
+  `POST /api/approve {session_id,call_id,decision?:approve|once|session|folder|deny,answer?:string}` resolves the existing card; `answer` supplies a choice or typed answer for an `ask` card;
   `folder` exists only on an outside-folder boundary and persists every folder named by that card, while `approve` records the card's exact repo, folder,
   connector, or host subject as a profile-scoped standing grant when one is present. An unknown call is 404.
   The state snapshot lists those exact grants as `standing_grants`; `POST /api/standing-grants {id}` revokes one.
@@ -657,7 +659,7 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
   file tools impersonate that account and Windows ACLs decide reach. With it disabled, file tools use the non-elevated operator's OS reach;
   plan ownership and repository-policy immutability remain enforced in both postures.
 - Tool order is `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`,
-  `call_service`, `delegate`, `chat_history`, `cronjob`, `image`. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
+  `call_service`, `delegate`, `chat_history`, `cronjob`, `image`, `todo`, `ask`. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
   their model-visible descriptions tell callers to pass a returned `next_offset` as `offset`. Before any tool result is appended,
   the room remaining before the output reserve is divided among every result still in that call batch.
   A result larger than its share is cut to a UTF-8-safe head and tail, remains successful or failed as the tool reported it, and names the byte size,

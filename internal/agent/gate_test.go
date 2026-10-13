@@ -208,6 +208,57 @@ func TestCanceledApprovalPublishesDismissedDecision(t *testing.T) {
 	}
 }
 
+func TestAskPausesForTypedOrChoiceAnswerAndNeverPausesUnattended2rj(t *testing.T) {
+	for _, answer := range []string{"typed answer", "Second"} {
+		bus := events.NewBus()
+		stream, stop := bus.Subscribe()
+		cfg := config.Defaults(t.TempDir())
+		runner := NewRunner(bus, toolpkg.New(toolpkg.NewAsk()), nil, nil, func() config.Config { return cfg })
+		s := &session.Session{ID: strings.ReplaceAll(answer, " ", "-"), Role: "b", ToolsEnabled: map[string]bool{"ask": true}, Run: session.RunState{Status: "running"}}
+		done := make(chan toolpkg.CallOutcome, 1)
+		go func() {
+			done <- runner.executeTool(context.Background(), s, "run", "ask-1", "ask", map[string]any{"question": "Pick one", "choices": []any{"First", "Second"}})
+		}()
+		event := <-stream
+		data := event.Data.(map[string]any)
+		if event.Type != events.ApprovalRequired || data["kind"] != "question" || data["question"] != "Pick one" {
+			t.Fatalf("question event=%+v", event)
+		}
+		if err := runner.Gate().AnswerQuestion(s.ID, "ask-1", answer); err != nil {
+			t.Fatal(err)
+		}
+		<-stream
+		if outcome := <-done; !outcome.OK || outcome.Content != answer {
+			t.Fatalf("answer=%q outcome=%+v", answer, outcome)
+		}
+		stop()
+	}
+	for _, s := range []*session.Session{{ID: "worker", Role: "c"}, {ID: "scheduled", Role: "b", Origin: "scheduled"}} {
+		cfg := config.Defaults(t.TempDir())
+		cfg.Approval.Unattended = true
+		runner := NewRunner(events.NewBus(), toolpkg.New(toolpkg.NewAsk()), nil, nil, func() config.Config { return cfg })
+		s.ToolsEnabled = map[string]bool{"ask": true}
+		outcome := runner.executeTool(context.Background(), s, "run", "ask-1", "ask", map[string]any{"question": "Pick one"})
+		if !outcome.OK || outcome.Content != "No one is here to answer. Decide yourself and say what you decided." || len(s.BoundaryHits()) != 1 {
+			t.Fatalf("%s outcome=%+v hits=%v", s.ID, outcome, s.BoundaryHits())
+		}
+	}
+}
+
+func TestLatestTodoListAppearsOnceInTheNextModelContext2rj(t *testing.T) {
+	records := []events.Message{
+		{ID: "old", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "one", Name: "todo", Arguments: `{"items":[{"text":"old","status":"done"}]}`}}},
+		{ID: "new", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "two", Name: "todo", Arguments: `{"items":[{"text":"current","status":"doing"}]}`}}},
+	}
+	filtered := latestTodoOnly(records)
+	if filtered[0].ToolCalls[0].Arguments != `{}` || !strings.Contains(filtered[1].ToolCalls[0].Arguments, "current") {
+		t.Fatalf("filtered=%+v", filtered)
+	}
+	if !strings.Contains(records[0].ToolCalls[0].Arguments, "old") {
+		t.Fatal("durable records were mutated")
+	}
+}
+
 func TestNewApprovalSupersedesExistingSessionDecision(t *testing.T) {
 	bus := events.NewBus()
 	eventCh, unsubscribe := bus.Subscribe()

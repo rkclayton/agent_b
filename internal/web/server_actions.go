@@ -137,6 +137,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 		CallID    string `json:"call_id"`
 		Decision  string `json:"decision"`
+		Answer    string `json:"answer"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -157,7 +158,14 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		}
 		before = func() { s.setOperatorContext(true, "enabled from shell approval card", 0) }
 	}
-	if err := s.runner.Gate().DecideWith(body.SessionID, body.CallID, body.Decision, before); err != nil {
+	var err error
+	if strings.TrimSpace(body.Answer) != "" {
+		err = s.runner.Gate().AnswerQuestion(body.SessionID, body.CallID, body.Answer)
+		body.Decision = "answered"
+	} else {
+		err = s.runner.Gate().DecideWith(body.SessionID, body.CallID, body.Decision, before)
+	}
+	if err != nil {
 		status := 400
 		if strings.Contains(err.Error(), "not found") {
 			status = 404

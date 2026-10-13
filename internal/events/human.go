@@ -39,6 +39,9 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 				Actions:       []string{"Continue", "Stop"},
 			}
 		}
+		if data["kind"] == "question" {
+			return HumanNotice{Happened: textValue(data["question"], "Agent_b asked a question."), HarnessAction: "The harness paused the run until you answer."}
+		}
 		happened := fmt.Sprintf("%s needs your approval before it can continue.", name)
 		// A card that crosses the folder or identity boundary says why
 		// (cold review: the reason was only in collapsed detail).

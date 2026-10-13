@@ -73,6 +73,9 @@ type alwaysAvailable interface{ AlwaysAvailable() bool }
 type policyApprovalTool interface {
 	PolicyApprovalRequired(string, map[string]any) bool
 }
+type questionTool interface {
+	Question(map[string]any) (string, []string, error)
+}
 
 func toolAvailable(tool Tool, enabled map[string]bool) bool {
 	if available, ok := tool.(alwaysAvailable); ok && available.AlwaysAvailable() {
@@ -107,6 +110,16 @@ func (r *Registry) PreflightServiceIdentity() error {
 func (r *Registry) PolicyApprovalRequired(name, mode string, args map[string]any) bool {
 	tool, ok := r.byName[name].(policyApprovalTool)
 	return ok && tool.PolicyApprovalRequired(mode, args)
+}
+func (r *Registry) Question(s *session.Session, name string, args map[string]any) (string, []string, error) {
+	if r.byName[name] == nil || !toolAvailable(r.byName[name], s.EnabledTools()) {
+		return "", nil, fmt.Errorf("tool %s is not available", name)
+	}
+	tool, ok := r.byName[name].(questionTool)
+	if !ok {
+		return "", nil, fmt.Errorf("tool %s is not a question tool", name)
+	}
+	return tool.Question(args)
 }
 func (r *Registry) Names(enabled map[string]bool) []string {
 	out := []string{}

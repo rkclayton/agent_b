@@ -99,10 +99,9 @@ func AgentID(name string) string {
 	return strings.Trim(id, "-")
 }
 
-// delegate follows the twelve established tools; every older tool
-// keeps its relative position.
+// New tools append; every older tool keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image", "todo", "ask"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration

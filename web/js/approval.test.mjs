@@ -140,3 +140,17 @@ function fakeDocument() {
 test("a card nobody answered says it was refused after 10 minutes", () => {
   assert.equal(approvalDecisionText("unanswered"), "not answered — refused after 10 minutes");
 });
+
+test("a question card offers choices and a typed answer", () => {
+	const decided = [];
+	const card = createApprovalCard(fakeDocument(), { event: { data: { kind: "question", call_id: "ask-1", question: "Choose", choices: ["One", "Two", "Three"] } } }, {
+		decide: (...args) => decided.push(args),
+	});
+	const actions = card.children.at(-1);
+	assert.equal(actions.children.length, 5);
+	actions.children[1].onclick();
+	const input = actions.children[3], send = actions.children[4];
+	input.value = "typed answer";
+	send.onclick();
+	assert.deepEqual(decided, [["ask-1", "", "Two"], ["ask-1", "", "typed answer"]]);
+});

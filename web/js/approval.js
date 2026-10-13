@@ -72,6 +72,7 @@ function skillProposalDetail(args = {}) {
 export function approvalText(data = {}) {
 	const human = data.human && typeof data.human === "object" ? data.human : null;
 	const imported = boundCredential(data) + importedOperations(data);
+	if (data.kind === "question") return { title: "Question", request: data.question || "Agent_b asked a question.", reason: "The run is waiting for your answer.", detail: "" };
 	if (data.args?.outside_folder_card) {
 		const value = data.args?.path ?? data.args?.command ?? data.args?.source ?? "", folders = data.args.outside_folders || [];
 		const named = folders.length > 1 ? `\n${folders.join("\n")}` : ` ${folders[0] || value}`;
@@ -156,6 +157,7 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	}
 	const content = document.createElement("section");
 	content.className = "approval-card chat-approval";
+	if (data.kind === "question") content.classList.add("question");
 	if (data.boundary_escape) content.classList.add("alarm");
 	const title = document.createElement("span");
 	title.textContent = wording.title;
@@ -189,6 +191,17 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	if (!options.replay && options.decide) {
 		const actions = document.createElement("div");
 		actions.className = "approval-actions";
+		if (data.kind === "question") {
+			for (const choice of data.choices || []) {
+				const button = document.createElement("button"); button.type = "button"; button.textContent = choice;
+				button.onclick = () => options.decide(data.call_id, "", choice); actions.append(button);
+			}
+			const answer = document.createElement("input"); answer.type = "text"; answer.maxLength = 4000; answer.placeholder = "Your answer";
+			const send = document.createElement("button"); send.type = "button"; send.textContent = "Send";
+			send.onclick = () => { if (answer.value.trim()) options.decide(data.call_id, "", answer.value.trim()); };
+			answer.onkeydown = (event) => { if (event.key === "Enter") send.click(); };
+			actions.append(answer, send); content.append(actions); return content;
+		}
 		for (const [decision, label] of approvalChoices(data)) {
 			const button = document.createElement("button");
 			button.type = "button";

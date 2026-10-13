@@ -123,3 +123,21 @@ func TestRenamedToolsRegisterExposeSchemasAndExecute(t *testing.T) {
 		}
 	}
 }
+
+func TestTodoAndAskValidateTheirBoundedContracts2rj(t *testing.T) {
+	todo := NewTodo()
+	if got, err := todo.Call(context.Background(), nil, map[string]any{"items": []any{map[string]any{"text": "Ship it", "status": "doing"}}}); err != nil || got != "task list updated" {
+		t.Fatalf("todo result=%q err=%v", got, err)
+	}
+	if _, err := todo.Call(context.Background(), nil, map[string]any{"items": []any{map[string]any{"text": strings.Repeat("x", 121), "status": "pending"}}}); err == nil {
+		t.Fatal("todo accepted overlong text")
+	}
+	ask := NewAsk()
+	question, choices, err := ask.Question(map[string]any{"question": "Choose", "choices": []any{"One", "Two"}})
+	if err != nil || question != "Choose" || !reflect.DeepEqual(choices, []string{"One", "Two"}) {
+		t.Fatalf("question=%q choices=%v err=%v", question, choices, err)
+	}
+	if _, _, err := ask.Question(map[string]any{"question": "Choose", "choices": []any{"1", "2", "3", "4", "5"}}); err == nil {
+		t.Fatal("ask accepted five choices")
+	}
+}

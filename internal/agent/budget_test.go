@@ -18,7 +18,25 @@ import (
 	"harness/internal/llm"
 	"harness/internal/projection"
 	"harness/internal/session"
+	toolpkg "harness/internal/tools"
 )
+
+func TestTodoAndAskSchemaCostsOn32KConnection2rj(t *testing.T) {
+	registry := toolpkg.New(toolpkg.NewTodo(), toolpkg.NewAsk())
+	enabled := map[string]bool{"todo": true, "ask": true}
+	connection := config.Defaults(t.TempDir()).Connections[0]
+	connection.Context.NCtx = 32768
+	connection.Capabilities.Tokenize = false
+	item := &session.Session{ID: "schema-costs", SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{Accounting: "estimated"}, budgetInput{SystemBase: "system", System: "system", Schemas: registry.Schemas(enabled), AllSchemas: registry.AllSchemas()}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budget.NCtx != 32768 || budget.ToolSchemaTokens["todo"] <= 0 || budget.ToolSchemaTokens["ask"] <= 0 {
+		t.Fatalf("budget=%+v", budget)
+	}
+	t.Logf("32k estimated isolated schema tokens: todo=%d ask=%d", budget.ToolSchemaTokens["todo"], budget.ToolSchemaTokens["ask"])
+}
 
 func TestBudgetAccountsFetchedResultsSeparately(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())

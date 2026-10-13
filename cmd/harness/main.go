@@ -519,6 +519,8 @@ func main() {
 		tools.NewChatHistory(func() tools.ChatHistoryReader { return writers }),
 		tools.NewCronjob(cronManager),
 		imageTool,
+		tools.NewTodo(),
+		tools.NewAsk(),
 	)
 	// the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.

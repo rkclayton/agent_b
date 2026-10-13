@@ -607,9 +607,17 @@ function renderResponse(session, entry) {
   const foldFinished = finalIndex >= 0 && blocks.some((block, index) => index !== finalIndex && (block.prose || block.steps.length));
   if (foldFinished) {
     const final = blocks[finalIndex];
-    const work = blocks.filter((_, index) => index !== finalIndex);
+    let work = blocks.filter((_, index) => index !== finalIndex);
     if (final.steps.length) work.push({ ...final, key: `${final.key}:steps`, prose: null });
-    const nodes = [renderFinishedWork(session, view, entry.key, work), renderResponseBlock(session, view, { ...final, steps: [] }, false, { final: true })];
+    const todos = work.flatMap((block) => block.steps.filter((item) => item?.type === "tool" && item.name === "todo"));
+    work = work.map((block) => ({ ...block, steps: block.steps.filter((item) => item?.name !== "todo") })).filter((block) => block.prose || block.steps.length);
+    const nodes = work.length ? [renderFinishedWork(session, view, entry.key, work)] : [];
+    if (todos.length) {
+      const todo = { key: `${entry.key}:todo`, prose: null, steps: [todos.at(-1)] };
+      usedBlocks.add(todo.key);
+      nodes.push(renderResponseBlock(session, view, todo, false, { forceOpen: true }));
+    }
+    nodes.push(renderResponseBlock(session, view, { ...final, steps: [] }, false, { final: true }));
     reconcileChildren(view.rows, nodes);
   } else {
     reconcileChildren(view.rows, blocks.map((block, index) => renderResponseBlock(session, view, block, active, {
@@ -864,6 +872,12 @@ function renderResponseToolGroup(session, view, group, recovered = false) {
 function renderResponseItem(session, view, item, key, forceToolOpen = false, recovered = false) {
   if (!item || typeof item !== "object") throw new Error("entry is missing or is not an object");
   if (!item.key) throw new Error("entry key is missing");
+	if (item.type === "tool" && item.name === "todo") {
+		let todo = view.items.get(key);
+		if (!todo) { const root = document.createElement("div"); root.className = "chat-todo"; todo = { root }; view.items.set(key, todo); }
+		const rows = (item.args?.items || []).map((task) => { const row = document.createElement("div"); row.className = `chat-todo-row ${task.status || "pending"}`; row.textContent = `${task.status === "done" ? "✓" : task.status === "doing" ? "→" : "·"} ${task.text || ""}`; return row; });
+		reconcileChildren(todo.root, rows); return todo.root;
+	}
   let itemView = view.items.get(key);
   if (item.type === "notice") {
     const fingerprint = JSON.stringify(item);
@@ -1289,7 +1303,7 @@ function noticeContent(session, entry, actionable) {
 	else if (event.type === "approval.required") {
 		return createApprovalCard(document, entry, {
 			replay: store.replay,
-			decide: actionable ? (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) : null,
+			decide: actionable ? (callID, decision, answer) => api("/api/approve", { session_id: session.id, call_id: callID, decision, answer }) : null,
 		});
   }
   if (entryRole(entry) === "c") {
@@ -1446,13 +1460,13 @@ function renderComposer(session) {
 	const approvalNodes = [];
 	if (session?.pending_approval) approvalNodes.push(cachedComposerApproval(`session:${session.id}`, session.pending_approval, () => createApprovalCard(document, session.pending_approval, {
 		replay: store.replay,
-		decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }),
+		decide: (callID, decision, answer) => api("/api/approve", { session_id: session.id, call_id: callID, decision, answer }),
 	})));
 	else if (session?.pending_repo_policy) approvalNodes.push(cachedComposerApproval(`policy:${session.id}`, session.pending_repo_policy, () => createPolicyCard(session)));
 	if (worker) approvalNodes.push(cachedComposerApproval(`worker:${worker.id}`, worker.pending_approval, () => createApprovalCard(document, worker.pending_approval, {
 		replay: store.replay,
 		author: agentAuthor(worker, "c"),
-		decide: (callID, decision) => api("/api/approve", { session_id: worker.id, call_id: callID, decision }),
+		decide: (callID, decision, answer) => api("/api/approve", { session_id: worker.id, call_id: callID, decision, answer }),
 	})));
 	reconcileChildren(pendingApproval, approvalNodes);
 	for (const key of composerApprovalViews.keys()) if (!approvalNodes.includes(composerApprovalViews.get(key).node)) composerApprovalViews.delete(key);

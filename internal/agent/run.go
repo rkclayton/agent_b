@@ -618,6 +618,17 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		}
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: identity})
 	}
+	if name == "ask" {
+		question, choices, err := r.tools.Question(s, name, args)
+		if err != nil {
+			return tools.CallOutcome{Content: "error: " + err.Error()}
+		}
+		answer, err := r.gate.WaitQuestion(ctx, s, runID, callID, question, choices)
+		if err != nil {
+			return tools.CallOutcome{Content: "error: question canceled"}
+		}
+		return tools.CallOutcome{Content: answer, OK: true}
+	}
 	decision := "approve"
 	var gateErr error
 	proposedConnector, connectorChange, connectorErr := tools.ParseConnectorChange(args)

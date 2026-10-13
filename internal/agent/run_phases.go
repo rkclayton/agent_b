@@ -367,7 +367,7 @@ func (x *runState) turnBoundary() runOutcome {
 func (x *runState) buildRequest() runOutcome {
 	r := x.r
 	r.stage(x.s, x.runID, x.turn, "assemble", func() {
-		records := x.s.MessagesCopy()
+		records := latestTodoOnly(x.s.MessagesCopy())
 		skills := ""
 		if r.skills != nil {
 			skills = r.skills.Index(x.s.AgentID)
@@ -491,6 +491,36 @@ func (x *runState) buildRequest() runOutcome {
 		return x.stop("model_error", "budget accounting: "+x.budgetErr.Error(), x.turn-1)
 	}
 	return runGoOnOutcome
+}
+
+// latestTodoOnly keeps every durable message intact while ensuring that the
+// model request carries only the current task list. Earlier calls remain as
+// visible history, but their arguments no longer repeat superseded list data.
+func latestTodoOnly(records []events.Message) []events.Message {
+	latestMessage, latestCall := -1, -1
+	for i := range records {
+		for j := range records[i].ToolCalls {
+			if records[i].ToolCalls[j].Name == "todo" {
+				latestMessage, latestCall = i, j
+			}
+		}
+	}
+	if latestMessage < 0 {
+		return records
+	}
+	result := append([]events.Message(nil), records...)
+	for i := range result {
+		if len(result[i].ToolCalls) == 0 {
+			continue
+		}
+		result[i].ToolCalls = append([]events.ToolCall(nil), result[i].ToolCalls...)
+		for j := range result[i].ToolCalls {
+			if result[i].ToolCalls[j].Name == "todo" && (i != latestMessage || j != latestCall) {
+				result[i].ToolCalls[j].Arguments = `{}`
+			}
+		}
+	}
+	return result
 }
 func (x *runState) fitWindow() runOutcome {
 	result := x.compactBeforeRequest()

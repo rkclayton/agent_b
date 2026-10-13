@@ -219,7 +219,17 @@ func projectToolCallEvent(next Snapshot, record Record, data map[string]any) Sna
 	next.Activity.StateStartedAt = eventMillis(record.Event)
 	next.Activity.ActiveTool = stringValue(data["name"])
 	args := mapValue(data["args"])
-	next.Chat = appendChat(next.Chat, ChatEntry{Type: "tool", Key: "tool:" + stringValue(data["call_id"]), CallID: stringValue(data["call_id"]), Name: stringValue(data["name"]), Args: &args})
+	entry := ChatEntry{Type: "tool", Key: "tool:" + stringValue(data["call_id"]), CallID: stringValue(data["call_id"]), Name: stringValue(data["name"]), Args: &args}
+	if entry.Name == "todo" {
+		kept := make([]ChatEntry, 0, len(next.Chat))
+		for _, existing := range next.Chat {
+			if existing.Name != "todo" {
+				kept = append(kept, existing)
+			}
+		}
+		next.Chat = kept
+	}
+	next.Chat = appendChat(next.Chat, entry)
 	return next
 }
 

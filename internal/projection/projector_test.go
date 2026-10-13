@@ -275,6 +275,23 @@ func TestEmptyToolArgumentsRemainAnObjectInProjectedJSON(t *testing.T) {
 	}
 }
 
+func TestTodoToolCallReplacesItsOneVisibleChatBlock2rj(t *testing.T) {
+	state := seeded(t)
+	for index, text := range []string{"old", "current"} {
+		var err error
+		state, _, err = Next(state, Record{Cursor: Cursor{Generation: "todo.events", Offset: int64(index + 1)}, Event: events.Event{
+			Seq: int64(index + 1), SessionID: "main", RunID: "run", Type: events.ToolCallEvent,
+			Data: map[string]any{"call_id": fmt.Sprintf("todo-%d", index), "name": "todo", "args": map[string]any{"items": []any{map[string]any{"text": text, "status": "doing"}}}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(state.Chat) != 1 || state.Chat[0].Name != "todo" || state.Chat[0].CallID != "todo-1" || !strings.Contains(fmt.Sprint(*state.Chat[0].Args), "current") {
+		t.Fatalf("chat=%+v", state.Chat)
+	}
+}
+
 func TestAbortAndRetryEventsAreVisibleHarnessNotices(t *testing.T) {
 	state := seeded(t)
 	for index, eventType := range []string{events.ModelRetry, events.RunAborted} {

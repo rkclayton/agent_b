@@ -51,13 +51,16 @@ func applyDefaults(c *Config) {
 	legacyFull := FullToolset()[:12]
 	previousFull := FullToolset()[:13]
 	priorCurrent := FullToolset()[:14]
+	beforeTodoAsk := FullToolset()[:15]
 	for index := range c.Agents {
 		if equalStrings(c.Agents[index].Toolset, legacyFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob", "image")
+			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob", "image", "todo", "ask")
 		} else if equalStrings(c.Agents[index].Toolset, previousFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob", "image")
+			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob", "image", "todo", "ask")
 		} else if equalStrings(c.Agents[index].Toolset, priorCurrent) {
-			c.Agents[index].Toolset = append(append([]string(nil), priorCurrent...), "image")
+			c.Agents[index].Toolset = append(append([]string(nil), priorCurrent...), "image", "todo", "ask")
+		} else if equalStrings(c.Agents[index].Toolset, beforeTodoAsk) {
+			c.Agents[index].Toolset = append(append([]string(nil), beforeTodoAsk...), "todo", "ask")
 		}
 	}
 	if c.ConfigVersion == 0 {

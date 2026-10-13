@@ -49,6 +49,9 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	if len(records) <= 7 {
 		return false
 	}
+	if !r.compact.CanFreshStart(s) {
+		return false
+	}
 	// Item 2q1: no model is asked to summarize a span that is not there. s51 sent
 	// C and then B, about thirty seconds, to be told there was nothing to fold.
 	if _, _, ok := contextmgr.FoldSpan(records, s.RunPin()); !ok {

@@ -494,7 +494,6 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 		}
 		if r.takeQueued != nil {
 			r.takeQueued(s, runID)
-			s.SetRunPin(session.RunPinFromTail(s.MessagesCopy()))
 		}
 		turn++
 		connection, ok = r.currentConnection(s)

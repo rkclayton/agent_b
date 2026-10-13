@@ -2,12 +2,146 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/session"
 )
+
+// Item 2u8: a turn boundary may take another user message into the run, but it
+// never changes which message began the task the run is answering.
+func TestRunPinStaysOnTheFirstUserMessageAcrossTenTurns2u8(t *testing.T) {
+	for _, queued := range []bool{false, true} {
+		t.Run(fmt.Sprintf("queued_%t", queued), func(t *testing.T) {
+			turn := 0
+			pins, roles := []string{}, []string{}
+			var itemPin func() string
+			var itemMessages func() []events.Message
+			server := newTemplateServer(t, func(body map[string]any, _ []map[string]any) map[string]any {
+				if stream, _ := body["stream"].(bool); !stream {
+					return map[string]any{"content": "summary"}
+				}
+				messages := itemMessages()
+				pin := itemPin()
+				pins = append(pins, pin)
+				role := "missing"
+				for _, message := range messages {
+					if message.ID == pin {
+						role = message.Role
+					}
+				}
+				roles = append(roles, role)
+				turn++
+				if turn < 10 {
+					return toolCall(fmt.Sprintf("read-%d", turn), "read_file", `{"path":"part.txt"}`)
+				}
+				return map[string]any{"content": "done"}
+			})
+			runner, item, _ := templateRunnerReserve(t, server, 1024)
+			itemPin = item.RunPin
+			itemMessages = item.MessagesCopy
+			if err := os.WriteFile(filepath.Join(item.Workspace, "part.txt"), []byte("part"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			message, err := runner.AddUser(context.Background(), item, "first task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			boundary := 0
+			runner.SetQueuedBoundary(func(s *session.Session, _ string) {
+				boundary++
+				if queued && boundary == 4 {
+					s.Append(events.Message{ID: "queued", Role: "user", Category: "history", Content: "queued detail"})
+				}
+			})
+			if reason, detail, _ := runner.Run(context.Background(), item, "run"); reason != "done" {
+				t.Fatalf("run=%s %q", reason, detail)
+			}
+			if len(pins) != 10 {
+				t.Fatalf("observed %d pins: %v", len(pins), pins)
+			}
+			for index := range pins {
+				if pins[index] != message.ID || roles[index] != "user" {
+					t.Fatalf("turn %d pin=%q role=%q, want %q user", index+1, pins[index], roles[index], message.ID)
+				}
+			}
+		})
+	}
+}
+
+func TestFreshStartKeepsAQueuedUserMessageWhole2u8(t *testing.T) {
+	mainServer := newSummaryServer(t, "short summary")
+	runner, item, _, _ := compactionRunner(t, mainServer, nil, 32768)
+	item.Append(events.Message{ID: "task", Role: "user", Category: "history", Content: "first task"})
+	item.Append(events.Message{ID: "work", Role: "assistant", Category: "history", Content: "working"})
+	item.Append(events.Message{ID: "queued", Role: "user", Category: "history", Content: "queued detail"})
+	item.SetRunPin("task")
+	if !runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
+		t.Fatal("summary was not accepted")
+	}
+	messages := item.MessagesCopy()
+	if len(messages) != 3 || messages[1].ID != "task" || messages[1].Content != "first task" || messages[2].ID != "queued" || messages[2].Content != "queued detail" {
+		t.Fatalf("fresh context=%+v", messages)
+	}
+}
+
+func TestSummaryIsNotRequestedWhenFreshStartCannotLand2u8(t *testing.T) {
+	mainServer := newSummaryServer(t, "unused")
+	runner, item, _, _ := compactionRunner(t, mainServer, nil, 32768)
+	item.Append(events.Message{ID: "tool-pin", Role: "tool", Category: "results", Content: "result"})
+	item.SetRunPin("tool-pin")
+	if runner.summarize(context.Background(), item, "run", connectionForRunner(runner, "main")) {
+		t.Fatal("summary unexpectedly landed")
+	}
+	if calls := mainServer.chatCalls.Load(); calls != 0 {
+		t.Fatalf("summary requests=%d, want 0", calls)
+	}
+}
+
+func TestEightTurnRecordedReplayCompactsAndShrinksTheNextRequest2u8(t *testing.T) {
+	turn, summaries := 0, 0
+	requestBytes := []int{}
+	server := newTemplateServer(t, func(body map[string]any, messages []map[string]any) map[string]any {
+		if stream, _ := body["stream"].(bool); !stream {
+			summaries++
+			return map[string]any{"content": "DONE: read the parts\nNEXT: answer\nFILES CHANGED: none\nOPEN QUESTIONS: none"}
+		}
+		encoded, _ := json.Marshal(messages)
+		requestBytes = append(requestBytes, len(encoded))
+		turn++
+		if turn <= 8 {
+			reply := toolCall(fmt.Sprintf("read-%d", turn), "read_file", `{"path":"part.txt"}`)
+			reply["content"] = strings.Repeat("work", 3000)
+			return reply
+		}
+		return map[string]any{"content": "done"}
+	})
+	runner, item, bus := templateRunnerReserve(t, server, 8192)
+	if err := os.WriteFile(filepath.Join(item.Workspace, "part.txt"), []byte("part"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.AddUser(context.Background(), item, "read all eight parts and answer"); err != nil {
+		t.Fatal(err)
+	}
+	if reason, detail, _ := runner.Run(context.Background(), item, "run"); reason != "done" {
+		t.Fatalf("run=%s %q", reason, detail)
+	}
+	attempts := summaryAttempts(bus, item.ID)
+	if summaries != 1 || len(attempts) != 1 || attempts[0].Outcome != "accepted" || len(requestBytes) < 9 {
+		t.Fatalf("summaries=%d attempts=%+v request_bytes=%v", summaries, attempts, requestBytes)
+	}
+	before, after := requestBytes[len(requestBytes)-2], requestBytes[len(requestBytes)-1]
+	t.Logf("2u8 replay: summary_requests=%d outcome=%s request_bytes=%d->%d", summaries, attempts[0].Outcome, before, after)
+	if after >= before {
+		t.Fatalf("next request did not shrink: %d -> %d", before, after)
+	}
+}
 
 // Item 2qh: the hand-off has four fixed fields while the task stays outside it.
 func TestSummaryPromptBuildsFreshHandOffAndKeepsTaskVerbatim(t *testing.T) {

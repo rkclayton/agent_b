@@ -450,12 +450,7 @@ func (c *Compactor) Summarize(s *session.Session, runID string, summary events.M
 	return true
 }
 
-// FreshStart replaces every model-context message except the running task's
-// leading user block with one hand-off. The durable journal and projected chat
-// are event history, so they remain intact and searchable.
-func (c *Compactor) FreshStart(s *session.Session, runID string, summary events.Message, source events.CompactionSummaryData) bool {
-	messages := s.MessagesCopy()
-	pin := s.RunPin()
+func freshStartParts(messages []events.Message, pin string) ([]events.Message, []string, string) {
 	if pin == "" {
 		for index := len(messages) - 1; index >= 0; index-- {
 			if messages[index].Role == "user" {
@@ -465,31 +460,48 @@ func (c *Compactor) FreshStart(s *session.Session, runID string, summary events.
 		}
 	}
 	if len(messages) <= 1 || pin == "" || !pinPresent(messages, pin) {
-		source.Outcome = "rejected"
-		source.Reason = "running task is not pinned"
-		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
-		return false
+		return nil, nil, "running task is not pinned"
 	}
 	start := pinIndex(messages, pin)
-	end := start
-	for end < len(messages) && messages[end].Role == "user" {
-		end++
+	if messages[start].Role != "user" {
+		return nil, nil, "running task has no user messages"
 	}
-	if end == start {
-		source.Outcome = "rejected"
-		source.Reason = "running task has no user messages"
-		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
-		return false
-	}
-	out := append([]events.Message{summary}, messages[start:end]...)
-	affected := make([]string, 0, len(messages)-len(out)+1)
+	kept := make([]events.Message, 0, len(messages)-start)
+	affected := make([]string, 0, len(messages)-1)
 	for index, message := range messages {
-		if index < start || index >= end {
+		if index >= start && message.Role == "user" {
+			kept = append(kept, message)
+		} else {
 			affected = append(affected, message.ID)
 		}
 	}
+	if len(affected) == 0 {
+		return nil, nil, "nothing outside the running task left to summarize"
+	}
+	return kept, affected, ""
+}
+
+// CanFreshStart settles known applicability before the summarizer is called.
+func (c *Compactor) CanFreshStart(s *session.Session) bool {
+	_, _, reason := freshStartParts(s.MessagesCopy(), s.RunPin())
+	return reason == ""
+}
+
+// FreshStart replaces every model-context message except every user message in
+// the running task with one hand-off. The journal and projected chat remain
+// intact and searchable.
+func (c *Compactor) FreshStart(s *session.Session, runID string, summary events.Message, source events.CompactionSummaryData) bool {
+	messages := s.MessagesCopy()
+	kept, affected, reason := freshStartParts(messages, s.RunPin())
+	if reason != "" {
+		source.Outcome = "rejected"
+		source.Reason = reason
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+		return false
+	}
+	out := append([]events.Message{summary}, kept...)
 	before, after := tokenSum(messages), tokenSum(out)
-	if len(affected) == 0 || after >= before {
+	if after >= before {
 		source.Outcome = "rejected"
 		source.Reason = "hand-off did not reduce session context"
 		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))

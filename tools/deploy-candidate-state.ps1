@@ -113,3 +113,27 @@ function Remove-MatchingStagedCandidate {
     Remove-TreeWithinAllowedRoots -Path $Candidate -AllowedRoots @($CandidatesRoot) -Purpose "restage $ExpectedTag"
     Write-Host "STALE CANDIDATE REMOVED: $ExpectedTag"
 }
+
+function Invoke-AgentBShortReleaseRun {
+    param(
+        [Parameter(Mandatory = $true)][string]$CandidateDirectory,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit,
+        [scriptblock]$Runner
+    )
+    $root = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-release-short-' + [Guid]::NewGuid().ToString('N'))
+    try {
+        $data = Join-Path $root 'data'; $workspace = Join-Path $root 'workspace'; $evidence = Join-Path $root 'evidence'
+        $null = New-Item -ItemType Directory -Path $data, $workspace
+        if ($Runner) {
+            $result = & $Runner $CandidateDirectory $data $workspace $evidence $ExpectedCommit
+        } else {
+            $arguments = @((Join-Path (Split-Path -Parent $PSScriptRoot) 'tests\chat-acceptance.mjs'), '--app', $CandidateDirectory, '--data', $data, '--workspace', $workspace, '--evidence', $evidence, '--expected-commit', $ExpectedCommit, '--expected-dirty', 'false', '--headless', 'true', '--release-short', 'true')
+            $output = @(& node @arguments 2>&1); $result = [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
+            $output | Write-Host
+        }
+        if ([int]$result.ExitCode -ne 0) { throw "SHORT RUN REFUSED: $($result.Output)" }
+        return 'SHORT RELEASE RUN: passed'
+    } finally {
+        if (Test-Path -LiteralPath $root) { Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'short release run cleanup' }
+    }
+}

@@ -5,8 +5,13 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $deploy = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-release.ps1')
-foreach ($required in @('logs\evidence', 'Get-ChildItem', '"*-$Tag"', 'layout-final\layout-report.json')) {
-    if ($deploy -notmatch [regex]::Escape($required)) { throw "A resumed release cannot find its retained layout report: missing $required" }
+$expectedReleaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
+$stepMatch = [regex]::Match($deploy, '(?s)\$releaseSteps\s*=\s*@\((?<steps>.*?)\)')
+if (-not $stepMatch.Success) { throw 'Deploy does not declare its release-tier step list.' }
+$actualReleaseSteps = @([regex]::Matches($stepMatch.Groups['steps'].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+if (($actualReleaseSteps -join '|') -cne ($expectedReleaseSteps -join '|')) { throw "Release tier differs: $($actualReleaseSteps -join ', ')" }
+foreach ($forbidden in @('layout-gate.mjs', '--candidate $candidate', 'test-signing-key-policies.ps1')) {
+    if ($deploy -match [regex]::Escape($forbidden)) { throw "Deploy still runs non-release step $forbidden." }
 }
 $verify = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\sign-release.ps1')
@@ -16,6 +21,10 @@ if ($sign -notmatch 'NotAfter -le \[DateTime\]::Now\.AddDays\(30\)' -or $sign -n
 $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\stage-candidate.mjs')
 $candidateState = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $installerMatrix = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'test-installer.ps1')
+$apart = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\run-apart.ps1')
+foreach ($required in @('clock-timed-tests', 'long-packaged-chat-run', 'installer-matrix', 'TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc', 'TestWatchCoalescesBurstAndStillNoticesOneChange', 'TestCallServiceExecCredentialSuccessBearerAndCacheExpiry', 'TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt', 'test-chat-acceptance.ps1', 'test-installer.ps1', 'ConvertTo-Json')) {
+    if ($apart -notmatch [regex]::Escape($required)) { throw "The apart command is missing $required." }
+}
 $repository = Split-Path -Parent $PSScriptRoot
 $ownedCheck = Join-Path $repository 'tools\owned-check.ps1'
 if (-not (Test-Path -LiteralPath $ownedCheck -PathType Leaf)) { throw 'The shared owned-things check is missing.' }
@@ -82,7 +91,7 @@ foreach ($required in @('release.json', 'setup_sha256', 'webview2_loader', 'rele
 }
 if ($deploy -match 'someone/agent_b') { throw 'Deploy still holds the stand-in repository.' }
 if ($deploy -match '--notes\s+"Agent_b') { throw 'Deploy still publishes a placeholder release body.' }
-foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'test-signing-key-policies.ps1')) {
+foreach ($required in @('$commitExit', '$headExit', '$statusExit', 'run list', 'privacy-gate.mjs')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy entry point does not preserve host repair $required." }
 }
 if ($deploy -match 'rev-parse[^\r\n]*\|\s*Select-Object') {
@@ -116,6 +125,18 @@ if ($candidateState -notmatch 'function Invoke-AgentBInstallerQuestion' -or
     $deploy -notmatch 'Invoke-AgentBInstallerQuestion' -or
     $installerMatrix -notmatch 'Invoke-AgentBInstallerQuestion') {
     throw 'The deploy and its test-signed candidate must use one waited installer question; direct GUI output capture is not proof.'
+}
+$shortRun = $deploy.IndexOf('Invoke-AgentBShortReleaseRun')
+if ($candidateState -notmatch 'function Invoke-AgentBShortReleaseRun' -or $shortRun -lt 0 -or $shortRun -gt $tagPush) {
+    throw 'The signed-build short run must hold publication when it fails.'
+}
+foreach ($failure in @('candidate did not start', 'stand-in model did not answer')) {
+    try {
+        Invoke-AgentBShortReleaseRun -CandidateDirectory $repository -ExpectedCommit ('a' * 40) -Runner { @{ ExitCode = 1; Output = $failure } }
+        throw "The short run published after: $failure"
+    } catch {
+        if ($_.Exception.Message -notmatch 'SHORT RUN REFUSED' -or $_.Exception.Message -notmatch [regex]::Escape($failure)) { throw }
+    }
 }
 if ($deploy -notmatch 'Remove-MatchingStagedCandidate' -or $deploy -notmatch 'signing-report\.json') {
     throw 'Deploy does not report/recover a matching stale candidate or relay the signing identity.'

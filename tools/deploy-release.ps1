@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$releaseSteps = @('hosted-ci-green', 'privacy-scan', 'update-source', 'build-sign-release-key', 'installer-key-question', 'signed-build-short-run', 'publish', 'public-installer-answer')
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 & (Join-Path $repository 'tools\owned-check.ps1')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -14,22 +15,8 @@ $notesPath = Join-Path (Join-Path $repository 'release-notes') "$Tag.md"
 $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 . (Join-Path $repository 'scripts\removal-guard.ps1')
 . (Join-Path $PSScriptRoot 'deploy-candidate-state.ps1')
-if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
-    throw "DEPLOY REFUSED: release notes are missing: $notesPath"
-}
-# Item 2n9 (d) and its @verify: the notes gate runs HERE, before staging and before
-# anything is signed or published, so a note written to the wrong reader stops the
-# release instead of being discovered on the releases page afterwards.
-& node (Join-Path $repository 'tools\check-release-notes.mjs') $notesPath
-if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the release notes do not pass the notes gate; see the lines above." }
-# Item 2o5 (e): no client name in the tracked tree, these notes or the published
-# release pages. The deny-list is the operator's, outside the repository, named by
-# AGENTB_CLIENT_TERMS; without it the release does not run.
-$agentBHome = [Environment]::GetEnvironmentVariable('AGENTB_HOME', 'User')
-if ([string]::IsNullOrWhiteSpace($agentBHome)) { $agentBHome = Join-Path $env:USERPROFILE '.agentb' }
-$env:AGENTB_CLIENT_TERMS = Join-Path $agentBHome 'client-terms.txt'
-& node (Join-Path $repository 'tools\check-client-terms.mjs') --releases $notesPath
-if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the client-terms gate did not pass (exit $LASTEXITCODE); see the lines above." }
+$gh = Get-Command gh.exe -ErrorAction SilentlyContinue
+if (-not $gh) { throw 'DEPLOY REFUSED: GitHub CLI is unavailable; hosted CI cannot be proved.' }
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -41,6 +28,23 @@ $commitExit = $LASTEXITCODE
 $commit = [string]($commitOutput | Select-Object -First 1)
 if ($commitExit -ne 0 -or $commit.Trim() -notmatch '^[0-9a-fA-F]{40}$') { throw "DEPLOY REFUSED: tag $Tag does not resolve to a commit." }
 $commit = $commit.Trim().ToLowerInvariant()
+$ciOutput = @(& $gh.Source run list --commit $commit --workflow unit --limit 20 --json headSha,status,conclusion 2>&1)
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: hosted CI lookup exited $LASTEXITCODE." }
+$ciRuns = @((($ciOutput -join "`n") | ConvertFrom-Json))
+if (@($ciRuns | Where-Object { $_.headSha -ceq $commit -and $_.status -ceq 'completed' -and $_.conclusion -ceq 'success' }).Count -eq 0) {
+    throw "DEPLOY REFUSED: hosted CI is not green on $commit."
+}
+Write-Host "HOSTED CI: green on $commit"
+if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "DEPLOY REFUSED: release notes are missing: $notesPath" }
+& node (Join-Path $repository 'tools\check-release-notes.mjs') $notesPath
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the release notes do not pass the notes gate; see the lines above." }
+$agentBHome = [Environment]::GetEnvironmentVariable('AGENTB_HOME', 'User')
+if ([string]::IsNullOrWhiteSpace($agentBHome)) { $agentBHome = Join-Path $env:USERPROFILE '.agentb' }
+$env:AGENTB_CLIENT_TERMS = Join-Path $agentBHome 'client-terms.txt'
+& node (Join-Path $repository 'tools\check-client-terms.mjs') --releases $notesPath
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the client-terms gate did not pass (exit $LASTEXITCODE); see the lines above." }
+& node (Join-Path $repository 'tools\privacy-gate.mjs')
+if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the privacy scan did not pass (exit $LASTEXITCODE); see the lines above." }
 if ($ResumeStagedCandidate) {
     Assert-RetainedStagedCandidate -Candidate $candidate -ExpectedTag $Tag -ExpectedCommit $commit
     Write-Host "RESUMED CANDIDATE: retained signed $Tag at $commit; staging, signing, and completed gates were not repeated"
@@ -55,30 +59,12 @@ $statusExit = $LASTEXITCODE
 if ($statusExit -ne 0) { throw "DEPLOY REFUSED: git status exited $statusExit." }
 if ($statusOutput.Count) { throw 'DEPLOY REFUSED: the repository is dirty.' }
 
-# Every changed page is measured and looked at before release work stages bytes.
-# The report is order evidence, deliberately outside the tracked tree; a release
-# without that evidence is not allowed to infer that a page looks right.
-$layoutReport = [Environment]::GetEnvironmentVariable('AGENTB_LAYOUT_REPORT', 'Process')
-if ([string]::IsNullOrWhiteSpace($layoutReport)) {
-    $evidenceRoot = Join-Path $repository 'logs\evidence'
-    $retainedReports = @($(Get-ChildItem -LiteralPath $evidenceRoot -Directory -Filter "*-$Tag" -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'layout-final\layout-report.json' } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }))
-    if ($retainedReports.Count -eq 1) { $layoutReport = $retainedReports[0] }
-}
-if ([string]::IsNullOrWhiteSpace($layoutReport) -or -not (Test-Path -LiteralPath $layoutReport -PathType Leaf)) {
-    throw "DEPLOY REFUSED: retain one completed layout report under logs\evidence\<date>-$Tag\layout-final\layout-report.json or set AGENTB_LAYOUT_REPORT."
-}
-& node (Join-Path $repository 'tests\layout-gate.mjs') --release-check $layoutReport
-if ($LASTEXITCODE -ne 0) { throw 'DEPLOY REFUSED: a measured page failed its layout or written look; see the lines above.' }
-
 & node (Join-Path $repository 'tools\check-invariants.mjs') --release-source $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: the candidate's update source is not usable." }
 
 if (Test-Path -LiteralPath $candidate) {
     Remove-MatchingStagedCandidate -Candidate $candidate -CandidatesRoot (Join-Path $repository 'candidates') -ExpectedTag $Tag
 }
-
-& $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tests\test-signing-key-policies.ps1')
-if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: signing key policy check exited $LASTEXITCODE." }
 
 & node (Join-Path $repository 'tools\stage-candidate.mjs') --tag $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate staging exited $LASTEXITCODE." }
@@ -103,9 +89,6 @@ if (Test-Path -LiteralPath $signingReport -PathType Leaf) {
 }
 if ($signingExit -ne 0) { throw "DEPLOY REFUSED: release signing is not available to this ordinary console; run the recorded one-time key grant first." }
 
-& node (Join-Path $repository 'tools\check-invariants.mjs') --candidate $candidate
-if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: a product invariant was missing, skipped, not exercised, or failed." }
-
 & $windowsPowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repository 'tools\verify-deploy-candidate.ps1') -CandidateDirectory $candidate -ExpectedTag $Tag -ExpectedCommit $commit
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited $LASTEXITCODE." }
 }
@@ -122,6 +105,8 @@ if ($questionExit -ne 0 -or $questionLine -notmatch 'payload signature: AgentB r
     throw "DEPLOY REFUSED: staged installer is not accepted by its own pinned-key question: $questionLine"
 }
 Write-Host "INSTALLER ACCEPTANCE: $questionLine"
+
+Invoke-AgentBShortReleaseRun -CandidateDirectory $candidate -ExpectedCommit $commit | Write-Host
 
 $manifest = Get-Content -Raw -LiteralPath (Join-Path $candidate 'candidate-final.json') | ConvertFrom-Json
 $releaseManifest = [ordered]@{
@@ -152,12 +137,6 @@ if ($originExit -ne 0 -or $origin.Trim() -notmatch '^(?:https://github\.com/|git
 $repositoryName = [string]$Matches.repository
 $createLine = "gh release create $Tag --repo $repositoryName --verify-tag --title `"Agent_b $Tag`" --notes-file `"$notesPath`""
 $uploadLine = "gh release upload $Tag `"$setupPath`" `"$releaseManifestPath`" --repo $repositoryName --clobber"
-$gh = Get-Command gh.exe -ErrorAction SilentlyContinue
-if (-not $gh) {
-    Write-Host "PUBLISH CARD: $createLine"
-    Write-Host "PUBLISH CARD: $uploadLine"
-    throw 'DEPLOY REFUSED: GitHub CLI is unavailable; the release assets remain staged locally.'
-}
 & git -C $repository push origin $Tag
 if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: release tag push exited $LASTEXITCODE." }
 & $gh.Source release create $Tag --repo $repositoryName --verify-tag --title "Agent_b $Tag" --notes-file $notesPath

@@ -52,7 +52,7 @@ test("a clean fixture passes every rule", () => {
   assert.deepEqual(auditLayoutSnapshot(clean()), []);
 });
 
-test("a release report names page size rule and element before staging", () => {
+test("layout evidence stays with a page change rather than the release tier", () => {
   const directory = mkdtempSync(join(tmpdir(), "agentb-layout-refusal-"));
   const report = join(directory, "report.json");
   writeFileSync(report, JSON.stringify({ results: [{ page: "Connections", size: "minimum", blocking: true, failures: [{ rule: "L1", element: "model", detail: "cut" }] }], reviews: [] }));
@@ -60,6 +60,5 @@ test("a release report names page size rule and element before staging", () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /LAYOUT REFUSED: Connections minimum L1 model/);
   const deploy = readFileSync(resolve("tools/deploy-release.ps1"), "utf8");
-  assert.ok(deploy.indexOf("layout-gate.mjs") >= 0, "deploy has no layout gate");
-  assert.ok(deploy.indexOf("layout-gate.mjs") < deploy.indexOf("stage-candidate.mjs"), "layout gate runs after staging");
+  assert.equal(deploy.indexOf("layout-gate.mjs"), -1, "deploy still reruns the change-tier layout gate");
 });

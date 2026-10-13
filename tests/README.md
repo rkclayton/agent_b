@@ -5,15 +5,15 @@ the order's evidence directory and are never committed.
 
 ## Change to gate map
 
-At W0, match changed paths to this table. `always` rows run for every order; a release order runs
-every row. A skipped row is reported as `skipped by map`, never silently omitted. The evidence
+At W0, match changed paths to this table. `always` rows run for every order. A release runs only
+the release-tier table below; the apart command runs once after publication. A skipped row is reported as `skipped by map`, never silently omitted. The evidence
 column names the recent order in which that path class exercised or failed the gate; where no
 path-specific failure exists, the gate remains `always`.
 
 | Gate | Trigger paths | Evidence |
 | --- | --- | --- |
 | Plan lint and reconciliation | `always`; `PLAN.md`, `plan/**`, `tools/plan-*` | rel-1.7.2 plan reconciliation; catalogue failures are otherwise easy to defer |
-| Product invariants | `always`; `node tools/check-invariants.mjs --candidate CANDIDATE` on every release commit | Twelve operator decisions; every named proof must run and may not skip or report `not exercised` |
+| Product invariants | `always`; source proofs run in the package/Node suites, signed-build proofs in the installer matrix, clock proof apart, privacy and update-source proofs at release | Fourteen operator decisions; every named proof retains its assertions |
 | Order policy | `always`; `node tools/order-policy.mjs <order-evidence.json>` | The enforceable standing rules are fields in one order record; 27 planted negatives prove that each refusal fires |
 | Go vet | `always` | rel-1.7.2; no path-specific failure history, so always-run |
 | Production-incarnation guard | `always`, around every non-installer suite | build-1.8a/2ix W0 inventory |
@@ -36,8 +36,7 @@ path-specific failure exists, the gate remains `always`.
 
 | Gate | Entry point | Proves | Needs |
 | --- | --- | --- | --- |
-| Go unit and build-tag suites | Workflow package lists in `.github/workflows/ci.yml` | Runner-compatible product packages compile and unit contracts hold | Go 1.24+; see exclusions below |
-| Product invariants | `node tools/check-invariants.mjs --candidate CANDIDATE` | Every line of `INVARIANTS.md` has an existing green proof and a per-id run record | Signed disposable candidate; invisible desktop, no operator desktop |
+| Go unit and build-tag suites | `go test -json ./...` in `.github/workflows/ci.yml` | Every package compiles and each runner prints per-package run, skip, fail and status counts | Go 1.24+; individual unavailable tests self-skip below |
 | Go vet | `go vet ./...` | Standard static checks pass | Go 1.24+ |
 | Event race gate | `go test -race ./internal/events` | Event publication and subscriber shutdown are race-safe | Race-capable Go runner |
 | Node unit suites | `node tests/run-node-tests.mjs` | Browser, plan-tool, helper, and workflow contracts hold | Node 24; no model or network |
@@ -49,7 +48,7 @@ path-specific failure exists, the gate remains `always`.
 | Playwright | `npm run test:ui` | Connection editor and UI browser flows | npm dependencies and Edge; disposable roots |
 | Chat acceptance and screenshots | `powershell -File tests/test-chat-acceptance.ps1` | Headless end-to-end chat and the 12 canonical surfaces | Edge; disposable install; no real model unless explicitly requested. **ONE RUN AT A TIME.** Two acceptance runs sharing a machine change how the compositor paints the window's caption control — rel-1.22.0 measured four pixels across five settings frames, entirely spurious, and re-declared a baseline from the wrong run because of it. Wait for one to finish before starting the next, and capture from the DEFAULT evidence directory (rel-1.22.0 refuted the claim that `-EvidenceDirectory` changes rendered paths, but the captures the gate compares should still come from one place) |
 | Screenshot comparison | `node tests/screenshot-gate.mjs BASELINE CANDIDATE` | Pixels are exact, declared-mask-only, or explained rounding | Two capture directories |
-| Layout and written look | `node tests/layout-gate.mjs --capture EXE --evidence DIR`, then `node tests/layout-gate.mjs --release-check DIR/layout-report.json` | L1–L6 at 304 x 254, 1280 x 860 and 1920 x 1080, plus five answered visual-review questions for every capture | Headless Edge; disposable root; `AGENTB_LAYOUT_REPORT` names the completed report before release staging |
+| Layout and written look | `node tests/layout-gate.mjs --capture EXE --evidence DIR`, then `node tests/layout-gate.mjs --release-check DIR/layout-report.json` | L1–L6 at 304 x 254, 1280 x 860 and 1920 x 1080, plus five answered visual-review questions for every changed page | Headless Edge; disposable root; change tier only |
 | Installer matrix | `powershell -File tests/test-installer.ps1` | Candidate identity, single-file install, upgrades, rollback, launch, exact runtime ship list, and installed payload signatures after install/update | Windows; disposable roots; local test-signing identity |
 | Capability acceptance | `go test ./internal/tools -run TestCapabilitySuiteLiveServiceSplit` | Service-account and operator capability routing | Windows host policy and disposable configuration |
 | Deploy gate | `powershell -File tests/test-deploy-gate.ps1` | Staging/signing/deploy ordering and manifest refusal | Windows; disposable fixtures, no publication |
@@ -58,6 +57,27 @@ path-specific failure exists, the gate remains `always`.
 | Release signing | `pwsh -File tests/test-release-signing.ps1` | Test certificates and signing policy behave as contracted | **PowerShell 7 (pwsh)** — it reports its verdict with `X509ChainTrustMode`, a .NET Core-only type, and refuses to start under Windows PowerShell 5.1 rather than working and then failing on the report (item 2m3); Windows certificate stores; disposable test identity |
 | Replay acceptance | `node tests/chat-replay-acceptance.mjs ...` | Recorded sessions render without a model | Disposable app/data roots and a replay tape |
 | Connection replay | `node tests/connection-replay-fixture.mjs --app CANDIDATE` (add `--negative-control` for the altered-projection proof, `--chats DIR` for the production-sized arm) | Legacy connection data projects without loss, on a bounded fixture the gate owns | A candidate application root; no copy of the operator's profile |
+
+## Release and apart tiers
+
+The release tier is: hosted CI green on the commit; privacy scan; update-source check; build and sign with the release key; installer pinned-key question; one signed-build short run (start, page, stand-in answer, Settings); publish; public installer answer. `powershell -File tools/run-apart.ps1 -Tag vX.Y.Z` runs the four clock-timed tests, long packaged chat run, and installer matrix once each after publication, without retry, and writes `logs/evidence/apart-vX.Y.Z.json`.
+
+| Invariant | Tier and proof |
+| --- | --- |
+| I1 | Apart: installer matrix's signed one-window proof |
+| I2 | Change/hosted CI: folder-language browser tests |
+| I3 | Change/hosted CI: control-plane Go tests |
+| I4 | Release: client-terms and privacy scans |
+| I5 | Change/hosted CI: commit-identity and product-language tests |
+| I6 | Change/hosted CI: Settings density and row-action tests |
+| I7 | Change/hosted CI: unattended and scheduled-run Go tests |
+| I8 | Change/hosted CI: shell layout contract; changed pages also run the layout gate |
+| I9 | Change/hosted CI: hidden-process source contract |
+| I10 | Change/hosted CI plus release: elevation/signing tests and signed-candidate verification |
+| I11 | Change/hosted CI: telemetry-off and crash-shape tests |
+| I12 | Apart: bounded-path and clock-timed tests, including the retained growth assertion |
+| I13 | Release: full privacy scan |
+| I14 | Release: tagged update-source check |
 
 Privacy fixtures use only these stand-ins: user `someone` (or `someone-else`), machine/connection `Local PC` with id `local-pc`, LAN `192.168.1.10/24`, host `192.168.1.10`, shared-range address `100.64.0.10`, project `acme` at `C:\work\acme`, and email `someone@example.org`. Scripts discover their own directory and never name a drive.
 | Onboarding | `node tests/onboarding-acceptance.mjs ...` | Setup sequence and local capability choices | Running disposable harness and Edge |

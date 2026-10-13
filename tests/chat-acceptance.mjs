@@ -710,6 +710,21 @@ if (!realModel) {
 }
 record("open-chat");
 
+if (args["release-short"] === "true") {
+  const sessionID = await page.locator(".chat-list-row.selected").getAttribute("data-session");
+  assert.ok(sessionID, "short run has no selected chat");
+  await setTask("release short run");
+  await waitProjectedChatText(sessionID, "Acceptance response.", "stand-in model answer", 20000);
+  record("short-run-answer");
+  await openSettings();
+  await page.locator("#settings-page").waitFor({ state: "visible" });
+  record("short-run-settings-open");
+  await writeFile(join(args.evidence, "result.json"), JSON.stringify({ scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID }, null, 2));
+  process.stdout.write(`SHORT RELEASE RUN PASS ${Date.now() - startedAt} ms\n`);
+  await edgeContext.close(); terminateChildren(); await Promise.all(children.map((child) => waitForChildExit(child))); await stopFake();
+  process.exit(0);
+}
+
 if (args["cron-only"] === "true") {
 	const created = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 	const send = async (text) => {

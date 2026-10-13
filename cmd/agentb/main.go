@@ -1,6 +1,6 @@
 // Command agentb runs one task in the current directory from a prompt.
 //
-// Item 2iz. It is the ENGINE without the app: the same configuration, the same
+// It is the ENGINE without the app: the same configuration, the same
 // connections and credentials, the same tools and the same jail, and none of
 // the web server, the window, reflection, the updater, signing or
 // notifications. That last claim is asserted by a test over `go list -deps`
@@ -53,7 +53,7 @@ func run(options cli.Options) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	// Item 2iz (e): the run is journaled beside the work, in the folder's own
+	// the run is journaled beside the work, in the folder's own
 	// .agentb/, in the journal's schema — so the app's replay and `--replay`
 	// read one file rather than two formats.
 	local := filepath.Join(workspace, ".agentb")
@@ -164,7 +164,7 @@ func loadConfig(options cli.Options) (config.Config, error) {
 	if err := config.ResolveConnectionCredentials(&cfg, filepath.Dir(path)); err != nil {
 		return cfg, err
 	}
-	// Item 5f: unattended is the existing rule, reached from a flag rather than
+	// unattended is the existing rule, reached from a flag rather than
 	// reimplemented.
 	if options.Unattended {
 		cfg.Approval.Unattended = true
@@ -226,7 +226,7 @@ func buildTools(cfg config.Config, bus *events.Bus, registry *session.Registry, 
 	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
 	fileIdentity := tools.NewFileIdentity(credentials)
 	shellTool := tools.NewShell(cfg.Shell)
-	// Item 2iz (e): the memory layers are READ-ONLY unless --memory is given. A
+	// the memory layers are READ-ONLY unless --memory is given. A
 	// one-shot task in somebody's repository should not quietly change what the
 	// agent remembers everywhere else -- so without the flag the remember tool is
 	// simply not registered, which is an absence rather than a flag a later

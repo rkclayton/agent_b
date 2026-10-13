@@ -25,7 +25,7 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	// Item 2mx: A SUBMIT THAT CAN BE REPEATED. Siri retries on a flaky network, and a
+	// A SUBMIT THAT CAN BE REPEATED. Siri retries on a flaky network, and a
 	// retried request that starts a SECOND run is worse than one that fails. The key is a
 	// header, so the body shape is unchanged for every existing caller.
 	key := idempotencyKeyOf(r)
@@ -392,7 +392,7 @@ func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"agent_id": agentID, "workspace": workspace, "agent_entries": agentEntries, "workspace_entries": workspaceEntries})
 }
 
-// Item 2o9: START WHEN I SIGN IN is Windows' own switch. The one entry is a per-user
+// START WHEN I SIGN IN is Windows' own switch. The one entry is a per-user
 // Run value that Settings -> Apps -> Startup lists as Agent_b and can turn off; this
 // reads and writes that same entry, so the two switches never disagree. On, it starts
 // exactly as the Start-menu shortcut does: through the hidden host, with its window.
@@ -429,7 +429,7 @@ func (s *Server) signInStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": enabled})
 }
 
-// Item 2o9: the start-at-sign-in entry. The key paths are variables only so tests
+// the start-at-sign-in entry. The key paths are variables only so tests
 // can point them at a scratch key; nothing else changes them.
 const signInValue = "Agent_b"
 

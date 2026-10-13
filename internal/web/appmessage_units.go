@@ -1,8 +1,8 @@
 package web
 
-// Item 2o7: the units of `agentb-app-message-v1` (docs/app-message-v1.md), the
+// the units of `agentb-app-message-v1` (docs/app-message-v1.md), the
 // plaintext inside the broker's CIPHERTEXT. The normative vectors live in
-// internal/appmessage/testdata, which stays a specification (item 2ml (g)); the
+// internal/appmessage/testdata, which stays a specification ); the
 // encoding here is held to their exact bytes by this package's tests.
 
 import (

@@ -1,6 +1,6 @@
-// The Plan (item 2fc): every plan in a flyout, one plan's raw plan.md and its numbers.
+// The Plan: every plan in a flyout, one plan's raw plan.md and its numbers.
 //
-// Item 2no: IT IS A SETTINGS SECTION NOW, NOT A PAGE. It used to own a document -- it
+// IT IS A SETTINGS SECTION NOW, NOT A PAGE. It used to own a document -- it
 // called initShell for the whole window, read the address for its state, rewrote that
 // address as the selection moved, subscribed to the bus at import and never
 // unsubscribed, and started a thirty-second timer nothing ever cleared. All of that is
@@ -82,7 +82,7 @@ function resolveFromSession() {
   const planID = store.sessions[fromSession]?.plan_id;
   fromSession = "";
   const target = planID && plans.some((plan) => plan.id === planID) ? planID : plans[0]?.id;
-  // Item 2gi: resolving the session is also a render. Handing a target that
+  // resolving the session is also a render. Handing a target that
   // equals the current selection to select() would return before drawing
   // anything, and with no plans at all the target is undefined — the two
   // paths that left the page showing neither the list nor its empty state.
@@ -96,7 +96,7 @@ async function loadPlans() {
   plansLoaded = true;
   if (fromSession) {
     resolveFromSession();
-    // Item 2gi: the selection needs the snapshot, but the list does not. If the
+    // the selection needs the snapshot, but the list does not. If the
     // snapshot has not arrived — or never does, because its fetch failed — the
     // page still draws the list or its empty state rather than waiting blank.
     if (fromSession) { renderList(); if (!selected) renderEmpty(); return; }
@@ -109,7 +109,7 @@ async function loadPlans() {
 }
 
 function select(id) {
-  // Item 2gi: with nothing to select the page still renders — the list or its
+  // with nothing to select the page still renders — the list or its
   // empty state on the left, the empty pane on the right. `select(undefined)`
   // used to return before any render, which is how a Plan page opened from a
   // chat bound to no plan showed an entirely blank surface.
@@ -121,7 +121,7 @@ function select(id) {
   }
   if (id === selected) return;
   selected = id;
-  // Item 2no (a): no address change beyond what other sections do. Choosing a plan
+  // no address change beyond what other sections do. Choosing a plan
   // used to rewrite the document's address to /plan?plan=<id>; the selection is this
   // section's state, and Settings' own `#settings/plan` is the address.
   renderList();
@@ -242,7 +242,7 @@ async function renderGo() {
   await renderDone();
 }
 
-// Item 2bq: the plan lint's findings, one line under the header. An error is
+// the plan lint's findings, one line under the header. An error is
 // why Go refuses; warnings (an item with no verifier) change nothing.
 export function lintLine(diagnostics = []) {
   if (!diagnostics.length) return { text: "", error: false };
@@ -314,7 +314,7 @@ roots.form.addEventListener("submit", async (event) => {
     roots.path.value = "";
     await loadPlans();
     select(result.plan.id);
-    // Item 2q0: a repository with a planner's queue skips the brief; its chat opens idle.
+    // a repository with a planner's queue skips the brief; its chat opens idle.
     if (result.planner_queue) { buildFor = result.plan.id; planningBrief = { purpose: "", done: "", do_not_touch: "" }; return void startPlanning(); }
     buildFor = "";
     roots.build.hidden = true;
@@ -361,7 +361,7 @@ async function startPlanning() {
   try {
     const agentID = store.sessions[store.selection.session_id]?.agent_id || "";
     const result = await api("/api/plans/build", { plan_id: buildFor, agent_id: agentID, brief: planningBrief });
-    // v0.70.1 overrule: Yes is the consent, so the server sends the fixed
+    // overrule: Yes is the consent, so the server sends the fixed
     // opening request to a new planning chat. A chat already under way is only
     // opened, with the request left in its composer.
     if (!result.sent && result.draft) { try { sessionStorage.setItem(`agentb.draft.${result.session_id}`, result.draft); } catch { /* the chat opens empty */ } }

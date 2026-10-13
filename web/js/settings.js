@@ -27,7 +27,7 @@ const draftKinds = new Map();
 const errors = new Map();
 const detailTexts = new Map();
 let errorPanel = "";
-// Item 2nb (c): the connections whose model the operator chose to type by hand. Not a
+// the connections whose model the operator chose to type by hand. Not a
 // draft, because a draft is a configuration path and this is a choice about the
 // control rather than a value to save.
 const typedModels = new Set();
@@ -44,12 +44,12 @@ let serviceAccountStatus = { loaded: false, supported: true, exists: false, admi
 let serviceAccountBusy = false;
 let serviceAccountMessage = "";
 let serviceAccountSteps = [];
-// Item 2np (b): the log path is SECONDARY TEXT under the one sentence, not a second
+// the log path is SECONDARY TEXT under the one sentence, not a second
 // message and not a paragraph of its own.
 let serviceAccountLog = "";
-// Item 2kq (b) and (e): the broker's own state, refreshed while the sheet is open.
+// the broker's own state, refreshed while the sheet is open.
 let brokerStatus = {};
-// Item 2nv (c): the credential listing. It carries names, origins and dates and never a
+// the credential listing. It carries names, origins and dates and never a
 // value, because the endpoint that answers it has none to give.
 let credentialList = [];
 let credentialMessage = "";
@@ -77,7 +77,7 @@ const settingMenus = new WeakMap();
 // The view another document was on when it sent us here; "" when the sheet was
 // opened from inside this one, where it closes onto the chat beneath it.
 let openedFrom = "";
-// Item 2no (d) and (e): true when this document was opened AT the Plan — /plan,
+// true when this document was opened AT the Plan — /plan,
 // ?from=plan, or #settings/plan.
 let planRequestedByAddress = false;
 let hardeningConnectionID = "";
@@ -88,10 +88,10 @@ let workspaceState = [];
 let operatorFileState = { attachment_files: 0, attachment_bytes: 0, instruction_found: [] };
 const connectionList = () => Array.isArray(store.connections) ? store.connections : [];
 
-// Item 2gk: Agents and Activity are where the page that used to stand on its
+// Agents and Activity are where the page that used to stand on its
 // own now lives. They come first because they are what the operator opened
 // that page to read.
-// Item 2ni (a): and the Plan is one of them, its own top-level entry, third:
+// and the Plan is one of them, its own top-level entry, third:
 // "why is plan a chat tab on the left side? ... i decided i think i want it under
 // settings, as its own top level item please implement." It comes after the two
 // the operator opened this sheet to read and before the machine settings, which is
@@ -108,7 +108,7 @@ const sectionLabels = [
   ["about", "About"],
 ];
 
-// Item 2hb (v1.2.4): `entry` is what the address asked for, read once by
+// `entry` is what the address asked for, read once by
 // workspace.js before the shell rewrote it. `entry.from` is the view another
 // document was on when it opened Settings, and closing returns there.
 export function initSettings(entry = {}) {
@@ -130,7 +130,7 @@ export function initSettings(entry = {}) {
 			event.target.click();
 			return;
 		}
-		// Item 2l4 (c): Escape answers the popover first, and cancels it.
+		// Escape answers the popover first, and cancels it.
 		if (event.key === "Escape" && open && errorPanel) { errorPanel = ""; render(); return; }
 		if (event.key === "Escape" && open && confirmPending) { cancelConfirmation(); return; }
 		if (event.key === "Escape" && open) void leaveSettingsForChat();
@@ -166,7 +166,7 @@ export function initSettings(entry = {}) {
       const path = event.target.dataset.path;
       drafts.set(path, event.target.value);
       draftKinds.set(path, event.target.dataset.kind || "text");
-      // Item 2l6 (b): typing is not committing. The draft is held so the field
+      // typing is not committing. The draft is held so the field
       // keeps what is typed, and blur applies it; a setting that waits for an
       // explicit save says so now, and the rest say nothing until they apply.
       appliedSettings.delete(path);
@@ -177,14 +177,14 @@ export function initSettings(entry = {}) {
   });
   subscribe((_state, event) => {
 	if (event.type === "notification.changed") notificationStatus = event.data || notificationStatus;
-    // Item 2nb (b) and (i): the walk reports each address as it lands, and the sheet
+    // the walk reports each address as it lands, and the sheet
     // shows it in the one waiting element, determinate: addresses tried of the total,
     // with the line naming the address in hand and what it found.
     if (event.type === "connection.discovering") {
       const connectionID = event.data?.connection_id || "";
       probeMessages.set(connectionID, {
         ...(probeMessages.get(connectionID) || {}),
-        // Item 2nn (c): the line names the PHASE, not the raw verdict. One step per
+        // the line names the PHASE, not the raw verdict. One step per
         // address when no port was typed, counted, so the bar is determinate.
         walking: {
           line: probePhaseLine(event.data),
@@ -249,7 +249,7 @@ export function openSettings(section = "") {
   if (section === "plan") planRequestedByAddress = true;
   open = true;
   lastFocus = document.activeElement;
-  // Item 2gk: app.css dresses this sheet and the two panels it adopts, and
+  // app.css dresses this sheet and the two panels it adopts, and
   // nothing else on screen, so it is switched on with the sheet.
   setSheetStyles(true);
   document.body.classList.add("settings-open");
@@ -287,7 +287,7 @@ export function closeSettings(surface = "chat") {
   // inside a hidden surface where the next render would wipe them.
   returnAdoptedPanels();
   unmountPanels();
-  // Item 2no (b): closing the sheet is leaving the section, so the Plan stops too.
+  // closing the sheet is leaving the section, so the Plan stops too.
   unmountPlan();
   setSheetStyles(false);
   sheet.hidden = true;
@@ -299,11 +299,11 @@ export function closeSettings(surface = "chat") {
   returnFocus?.focus();
   requestAnimationFrame(() => returnFocus?.focus());
   navigationSurfaceReady(surface, store);
-  // Item 2hb: Settings closes to the view it opened from. From inside this
+  // Settings closes to the view it opened from. From inside this
   // document that is the chat, which is already beneath it; from Plan it is
   // another document, so closing goes back rather than leaving the operator
   // somewhere he never asked for.
-  // Item 2no (d): there is no Plan document to go back to any more — `from=plan` and
+  // there is no Plan document to go back to any more — `from=plan` and
   // `/plan` both land on this sheet's Plan section, and closing it returns to the chat
   // beneath like every other section.
   openedFrom = "";
@@ -320,7 +320,7 @@ async function leaveSettingsForChat() {
 	// The question is save-or-discard, not stay-or-leave: either answer honors
 	// the requested Chat navigation. A failed save is already rendered by the
 	// settings save path and does not trap the operator on this surface.
-	// (e): nothing else can be lost by navigating away, because nothing else is
+	// nothing else can be lost by navigating away, because nothing else is
 	// pending — every other setting applied when it was set.
 	if (pendingExplicitSaves().length && (globalThis.confirm?.("Save unsaved settings before returning to Chat?") ?? false)) {
 		for (const path of pendingExplicitSaves()) await saveSettings(path);
@@ -344,7 +344,7 @@ function render() {
     // The two adopted panels are drawn by app.js, not here: this leaves the
     // seat and the nodes are moved into it below.
     activity: () => '<div data-adopt="activity-panel"></div>',
-    // Item 2ni (a) and (b): the Plan page is its own document, so the entry NAVIGATES
+    // the Plan page is its own document, so the entry NAVIGATES
     // there and this body is only what is shown when it cannot. The availability rule
     // that used to decide whether the tab existed decides that and nothing else: the
     // entry is always here.
@@ -362,7 +362,7 @@ function render() {
     session: () => renderSecurityPage("session", active, settingsPageContext(active)),
   };
   const label = sectionLabels.find(([id]) => id === activeSection)?.[1] || "Settings";
-  // Item 2gk: an adopted panel is put back in its source holder before the
+  // an adopted panel is put back in its source holder before the
   // sheet is rewritten. Assigning innerHTML destroys whatever is inside, and
   // the panels are the only nodes here that cannot be rebuilt from a string.
   returnAdoptedPanels();
@@ -401,7 +401,7 @@ function render() {
     settingMenus.set(anchor, registerMenu(menu, { anchor, onClose: () => anchor.setAttribute("aria-expanded", "false") }));
   }
   if (activeSection === "chats" && !fontsLoaded) void refreshFonts(false);
-  // Item 2nn (c): THE BAR, NOT THE WORD. Test showed the bare text "testing" on the
+  // THE BAR, NOT THE WORD. Test showed the bare text "testing" on the
   // control and, unless the walk happened to emit events, nothing else — "there are
   // still no loading bars. i hit test and it just says testing and goes back to that
   // port". The element goes INSIDE the control that was pressed, with the phase line,
@@ -419,7 +419,7 @@ function render() {
     if (!walking) continue;
     seat.replaceChildren(waitElement(document, { line: walking.line, processed: walking.processed, total: walking.total }));
   }
-  // Item 2nh (a): the same element in the About page's update row, determinate while
+  // the same element in the About page's update row, determinate while
   // the download is the stage in hand — the release manifest names the size, so the
   // bytes are real — and indeterminate for every stage that reports no fraction.
   for (const seat of sheet.querySelectorAll("[data-update-wait]")) {
@@ -431,7 +431,7 @@ function render() {
       total: total > 0 ? total : null,
     }));
   }
-  // Item 2nn (b): a Save control is only ever as live as the drafts, and the
+  // a Save control is only ever as live as the drafts, and the
   // markup is written before this render knows them, so the same refresh that
   // typing calls runs here too.
   refreshSaveControls();
@@ -456,7 +456,7 @@ async function refreshFonts(refresh) {
   } catch { fontsLoaded = true; }
 }
 
-// Item 2nc (c), corrected at rel-1.31.0 by item 2mo's journey walking it: the rect
+// corrected at by the journey walking it: the rect
 // was captured AT THE CLICK and the render that follows moves the page — the armed
 // row grows, a refusal appears — so on a scrolled sheet the question opened 400px
 // below the control it belonged to and off the bottom of the screen. Measured:
@@ -480,12 +480,12 @@ function placeConfirmPopover() {
   popover.style.left = `${Math.round(Math.max(8, left))}px`;
 }
 
-// Item 2gk: the two panels are MOVED between their source holder and the open
+// the two panels are MOVED between their source holder and the open
 // sheet. Moving rather than copying is the whole point — the nodes carry
 // the listeners app.js set, and the renderers write into them by id, so a rebuilt
 // copy would be a second, dead set of controls.
 function setSheetStyles(on) {
-  // Item 2no: plan.css dresses the Plan section now, so it is switched on with the
+  // plan.css dresses the Plan section now, so it is switched on with the
   // sheet beside app.css rather than linked by a document of its own.
   for (const id of ["panel-styles", "plan-styles"]) {
     const styles = document.getElementById(id);
@@ -511,7 +511,7 @@ function adoptPanels() {
   // into nodes nobody can see, once per event.
   if (sheet.querySelector("#agents-panel, #activity-panel")) mountPanels();
   else unmountPanels();
-  // Item 2no (b): the Plan keeps its own state the way the other sections keep
+  // the Plan keeps its own state the way the other sections keep
   // theirs — its subscriber and its timer run while it is on screen and stop when it
   // is not.
   if (sheet.querySelector("#plan-panel")) mountPlan();
@@ -552,7 +552,7 @@ function controlKey(node) {
   return node.id || node.dataset?.path || [node.dataset?.action, node.dataset?.id || node.dataset?.setupAction].filter(Boolean).join(":") || node.getAttribute?.("aria-label") || "";
 }
 
-// Item 2ly (c): the surface says WHICH SCOPE it is, once per group rather than
+// the surface says WHICH SCOPE it is, once per group rather than
 // once per row — an operator must never have to guess whether a change follows
 // them to another profile. A machine-wide page is NOT marked: the absence is the
 // statement, and marking both would be noise on every row of every page.
@@ -564,18 +564,18 @@ function controlKey(node) {
 //
 // These three, and why: Chats carries chat, run, context and reflection (it
 // composes the Run and Context pages into itself); Agents carries agents;
-// Notifications carries notifications. The first list rel-1.20.0 shipped named
+// Notifications carries notifications. The first list shipped named
 // "sessions" and "memory" instead -- two entries of the content map that are NOT
 // in sectionLabels and so cannot be the active section at all -- and left Agents
 // and Notifications, which an operator reaches from the nav, saying nothing. The
 // test was written second and found it.
 export const perProfileSections = new Set(["chats", "profiles", "notifications"]);
 
-// Item 2ni (b): the AVAILABILITY RULE, moved with the Plan and not widened. It is
+// the AVAILABILITY RULE, moved with the Plan and not widened. It is
 // the rule the tab carried: the Plan is offered on a planner chat, or when no
 // separate d connection is configured at all. It decides what the section SHOWS.
 // probePhaseLine turns one discovery attempt into the phase the operator is waiting
-// through, in item 2nn (c)'s words: connecting, then listing, then reading. The raw
+// through, in the words: connecting, then listing, then reading. The raw
 // verdict stays in the note the result renders; a bar says what is happening NOW.
 function probePhaseLine(data) {
   const address = data?.base_url || "the address";
@@ -593,7 +593,7 @@ function planAvailable() {
   return session.role === "d" || !String(configured?.d || "").trim();
 }
 
-// Items 2le and 2lm, kept by 2ni: THE OPERATOR'S OWN PREPARED ARTWORK STAYS, and it
+// kept by 2ni: THE OPERATOR'S OWN PREPARED ARTWORK STAYS, and it
 // moves with the Plan. "i want this to be the new plan icon … maintain the color of
 // the icon itself" — the same three files at the same drawn 12px, beside the nav
 // entry now that the tab it sat in is gone. The size set is not optional: his own
@@ -604,22 +604,22 @@ function sectionChip(id) {
 }
 
 function planSection() {
-  // Item 2no (a) and (b): the Plan is DRAWN HERE, in the pane, exactly as Agents and
+  // the Plan is DRAWN HERE, in the pane, exactly as Agents and
   // Activity are — the same adoption, the same container, the same nav selection. It
   // used to navigate to a document of its own, which is the transition he watched
   // glitch.
-  // (e): the entry exists either way; this is the one line that says why the document
+  // the entry exists either way; this is the one line that says why the document
   // is not here, in the words of the thing to do about it.
-  // The address asking for the Plan is the operator asking for it. Before item 2no
+  // The address asking for the Plan is the operator asking for it. Before
   // the rule gated the nav ENTRY's content and never the document: /plan rendered the
   // Plan whatever chat was selected. That stays true — what the rule still decides is
   // what the entry shows when he arrives at it from the nav on a chat that cannot
-  // plan (item 2ni (b), kept by 2no (e)).
+  // plan, kept by 2no (e)).
   if (planAvailable() || planRequestedByAddress) return '<div data-adopt="plan-panel"></div>';
   return `<p class="settings-plan-note">Assign a planner in Profiles to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
 }
 
-// Item 2ni: hiding the Plan hides its ENTRY, which is the user's own choice
+// hiding the Plan hides its ENTRY, which is the user's own choice
 // from Settings > Chats. The availability rule never removes an entry (2ni (b));
 // only this does.
 function navSections() { return sectionLabels; }
@@ -660,13 +660,13 @@ function subhead(label, hint = "") {
   return `<div class="settings-subhead"${hint ? ` title="${attr(hint)}"` : ""}>${html(label)}</div>`;
 }
 
-// Item 2l1 (a5) and (a6): the one action proposes what it learned as SOFT values
+// the one action proposes what it learned as SOFT values
 // in the fields — context size, output reserve, reasoning cap, effort and whether
 // thinking is supported — and proposes into a field the operator has NOT changed,
 // so pressing it again is safe and nothing typed is overwritten. (a3): a server
 // offering exactly one model has it selected. Nothing here saves.
-// Item 2nb (d): the label follows the model when the operator has not named the
-// connection himself (which is item 2mh (a)'s rule), and the values Test learned are
+// the label follows the model when the operator has not named the
+// connection himself the rule), and the values Test learned are
 // re-proposed for the model now chosen.
 function fillFromPickedModel(id, model) {
   const connection = connectionList().find((x) => x.id === id);
@@ -705,7 +705,7 @@ function applyProposedValues(id, discovered) {
     draftKinds.set(prefix + path, kind);
     proposedFields.add(prefix + path);
   };
-  // (a3): the previously selected model STAYS selected when it is still offered —
+  // the previously selected model STAYS selected when it is still offered —
   // a saved, working model is never replaced by the server listing, which would
   // silently rewrite a display name to a path and undo a tested connection. Only
   // an empty field is filled, and only when the server offers exactly one model.
@@ -722,7 +722,7 @@ function applyProposedValues(id, discovered) {
     propose("reasoning.max_tokens", proposed.reasoning_max_tokens, "number", connection.reasoning?.max_tokens);
   }
   if (Array.isArray(proposed.valid_efforts) && proposed.effort) propose("reasoning.effort", proposed.effort, "text", "");
-  // Item 2mh (a): and the NAME, when the user has not given one. "server-2"
+  // and the NAME, when the user has not given one. "server-2"
   // identifies nothing; the model it serves does. The same untouched rule as
   // fillFromPickedModel — never typed here, and still the id the Add button
   // generated — so pressing Test again never overwrites a name he chose.
@@ -755,18 +755,18 @@ function applyRecommendedValues(id, answer) {
 }
 
 const proposedFields = new Set();
-// Item 2l6 (b): which rows have just taken effect, so the row can say so.
+// which rows have just taken effect, so the row can say so.
 const appliedSettings = new Map();
 const actionDrafts = new Map();
 let hermesPreview = null;
 let hermesReport = null;
-// Item 2l4: one anchored confirmation for every remove control. The operator:
+// one anchored confirmation for every remove control. The operator:
 // "the delete function the confirm is goofy dont change buttons like that in the
 // same place, little pop up is fine very minimalistic." The two-click protocol the
 // handlers already use is unchanged — the popover IS the second click — so every
 // control that arms gets this behaviour without its handler being touched.
 let confirmPending = null;
-// Item 2l5 uses the same floppy for a connection's save; one glyph, one meaning.
+// uses the same floppy for a connection's save; one glyph, one meaning.
 const saveGlyph = "<svg viewBox=\"0 0 16 16\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M2 2h9l3 3v9H2V2Zm2 1v4h6V3H4Zm1 7h6v3H5v-3Z\"/></svg>";
 
 function current(path, fallback) {
@@ -796,7 +796,7 @@ function errorMarkup(message, key, className = "field-error") {
   return `<p class="${attr(className)}">${html(firstSentence(full))} <button type="button" class="error-details-link" data-action="error-details" data-detail-key="${attr(key)}">details</button></p>`;
 }
 
-// Item 2l6 (a) and (c): the settings that need a COMPLETE value before they mean
+// the settings that need a COMPLETE value before they mean
 // anything keep an explicit save. A half-typed path is a different location, and a
 // half-typed comma list silently narrows or widens a guard. Everything else in the
 // inventory is a bounded number, a toggle or a choice from a fixed list, and applies
@@ -813,7 +813,7 @@ function pendingExplicitSaves() {
 // selection, never per keystroke. An invalid value does not apply: the server says
 // which field and why, that sits beside the field, and the stored value is left
 // alone because nothing else was sent.
-// Item 2px (c): opening Edit or adding a connection lists the server's models in the
+// opening Edit or adding a connection lists the server's models in the
 // background from the address as typed; the picker fills when they arrive. A server
 // that cannot list leaves the typed-name field, with no failure shown.
 async function listConnectionModels(id) {
@@ -834,7 +834,7 @@ async function listConnectionModels(id) {
 async function saveConnection(id) {
   const prefix = `connections.${id}.`;
   if (![...drafts.keys()].some((path) => path.startsWith(prefix))) return;
-  // Item 2px (g): a typed reserve the window cannot hold is lowered on Save, and the
+  // a typed reserve the window cannot hold is lowered on Save, and the
   // field says so in one line instead of the Save being refused.
   const reservePath = `${prefix}context.reserve_output`;
   const typedReserve = drafts.has(reservePath) ? Number(drafts.get(reservePath)) : 0;
@@ -861,7 +861,7 @@ async function applySetting(path) {
 
 function field(path, label, control, alarm = false, hint = "") {
   const problem = issue(path);
-  // (b): the row shows it took effect. (c): a setting that waits for an explicit
+  // the row shows it took effect. (c): a setting that waits for an explicit
   // save says so, with the save beside it rather than across the whole sheet.
   const state = problem ? "" : appliedSettings.has(path)
     ? '<span class="setting-applied" aria-live="polite">applied</span>'
@@ -889,7 +889,7 @@ function textarea(path, label, value, hint = "") {
   return field(path, label, `<textarea class="setting-input" rows="8" data-path="${attr(path)}" data-kind="text">${html(current(path, value))}</textarea>`, false, hint);
 }
 
-// Item 2nb (f): THE KEY IS NEVER TEXT ON THE PAGE. The field used to be rendered with
+// THE KEY IS NEVER TEXT ON THE PAGE. The field used to be rendered with
 // the server's mask as its VALUE, so the placeholder for a stored key was a string in
 // an input that could be submitted, shown, copied or half-edited. The field is empty
 // now, a note beside it says a key is stored, and what "show" reveals is only what was
@@ -951,7 +951,7 @@ async function click(event) {
   const id = button.dataset.id;
   if (action === "confirm-cancel") return void cancelConfirmation();
   if (action === "confirm-proceed") return void proceedWithConfirmation();
-  // Item 2l4: a control that arms does not rewrite itself; it raises the popover.
+  // a control that arms does not rewrite itself; it raises the popover.
   // Anything already confirming is answered, not re-armed.
   const armedBefore = armed.size;
   const wasPending = confirmPending;
@@ -978,7 +978,7 @@ function removalQuestion(button) {
   return String(label).replace(/^Confirm\s+/i, "").trim() || "this";
 }
 
-// Item 2nc (c): THE POPOVER ANCHORS TO ITS CONTROL, in the settings scroller's own
+// THE POPOVER ANCHORS TO ITS CONTROL, in the settings scroller's own
 // coordinate space rather than the viewport's. It was fixed to the viewport and its
 // position captured once, so scrolling the sheet left the question floating away from
 // the control that raised it. The rect is the scroller's content space now, and it is
@@ -1001,7 +1001,7 @@ function rectOf(button) {
 
 function cancelConfirmation(redraw = true) {
   if (!confirmPending) return;
-  // (c): cancel leaves everything as it was, including the arming.
+  // cancel leaves everything as it was, including the arming.
   armed.clear();
   confirmPending = null;
   if (redraw) render();
@@ -1071,10 +1071,10 @@ async function runAction(event, button, action, id) {
 		catch (error) { errors.set("chat_root", error.message); render(); }
 		return;
 	}
-  // Item 2l6 (c): the save that belongs to one setting, beside it.
+  // the save that belongs to one setting, beside it.
   if (action === "save-setting") return void applySetting(button.dataset.savePath);
   if (action === "settings-section") {
-    // Item 2no (a): every section is drawn in the pane, the Plan included. This used
+    // every section is drawn in the pane, the Plan included. This used
     // to be location.assign('/plan...') — a page navigation dressed as a section.
     activeSection = id;
     if (id === "skills") skillAgent = button.dataset.skillProfile || skillAgent || store.sessions?.[store.active]?.agent_id || "";
@@ -1244,7 +1244,7 @@ async function runAction(event, button, action, id) {
     drafts.set(path, value);
     draftKinds.set(path, action === "config-toggle" ? "boolean" : "text");
     settingsSaveAlarm = false;
-    // Item 2l6 (b): a toggle or a selection IS the commit — there is nothing more
+    // a toggle or a selection IS the commit — there is nothing more
     // to type, so it applies now.
     if (needsExplicitSave(path)) {
       settingsSaveMessage = "Unsaved — use the save beside the setting";
@@ -1253,7 +1253,7 @@ async function runAction(event, button, action, id) {
     render();
     return void applySetting(path);
   }
-  // Item 2mf (e): SETTINGS BRINGS A HIDDEN SURFACE BACK. This is the promise the
+  // SETTINGS BRINGS A HIDDEN SURFACE BACK. This is the promise the
   // hide confirmation makes in the strip, so it belongs to that item rather than
   // to a follow-up. The stored value is the list of hidden names, so a switch
   // here adds or removes one name and saves the whole list; the surface itself
@@ -1274,7 +1274,7 @@ async function runAction(event, button, action, id) {
     const pendingPrefix = `connections.${id}.`;
     const connection = connectionList().find((x) => x.id === id);
     if (connection) connection._probing = true;
-    // (c): visible within the same frame as the click. The line names the address it
+    // visible within the same frame as the click. The line names the address it
     // is connecting to before any request has answered, and the walk's own events
     // replace it as they land.
     const typedAddress = current(`connections.${id}.base_url`, connection?.base_url || "") || "the address";
@@ -1287,11 +1287,11 @@ async function runAction(event, button, action, id) {
         api_key: current(`${pendingPrefix}api_key`, ""),
         request_timeout_s: Number(current(`${pendingPrefix}request_timeout_s`, connection?.request_timeout_s || 0)) || 0,
       });
-      // Item 2nn (a): THE ADDRESS FIELD IS HIS. A host typed with no port comes back
+      // THE ADDRESS FIELD IS HIS. A host typed with no port comes back
       // as "port_required" with what each port answered, and NOTHING is written into
       // the field — the note names the ports and he adds the one he wants. The only
       // value Test still proposes into base_url is a PATH on the port he typed
-      // himself (item 2l1's path discovery, which 2nb (c)-(h) keeps), never another
+      // himself -(h) keeps), never another
       // port: that is what put :11434 in his field after he typed the bare address.
       // The walk is finished the moment Test answers, however it answered.
       probeMessages.set(id, { ...(probeMessages.get(id) || {}), walking: null });
@@ -1380,7 +1380,7 @@ async function runAction(event, button, action, id) {
 	if (action === "test-shell-credential") return shellCredentialAction("test");
 	if (action === "clear-shell-credential") return shellCredentialAction("clear");
 	if (action === "setup-service-account") return setupServiceAccount();
-	// Item 2np (a): THE TOGGLE IS THE SETUP. It used to be a Save draft, and saving it
+	// THE TOGGLE IS THE SETUP. It used to be a Save draft, and saving it
 	// was refused by the server — "turn on the service identity with its Security setup
 	// flow so the account and credential are tested first" — which pointed the user
 	// at a panel rather than doing the thing he had just asked for. Switching it on runs
@@ -1414,7 +1414,7 @@ async function runAction(event, button, action, id) {
 		return render();
 	}
 	if (action === "refresh-service-account") return refreshServiceAccountStatus();
-	// Item 2kq (b): pairing a phone is three presses — Pair, compare, They match — and
+	// pairing a phone is three presses — Pair, compare, They match — and
 	// each one is an action rather than a setting, because none of them is a value.
 	if (action === "broker-pair" || action === "broker-confirm" || action === "broker-revoke" || action === "broker-cancel") {
 		const verb = { "broker-pair": "pair", "broker-confirm": "confirm", "broker-revoke": "revoke", "broker-cancel": "cancel" }[action];
@@ -1437,7 +1437,7 @@ async function runAction(event, button, action, id) {
 		if (verb === "pair" || verb === "confirm") watchBrokerPairing();
 		return render();
 	}
-	// Item 2nv (c): adding a credential is a masked field that never echoes, and removing
+	// adding a credential is a masked field that never echoes, and removing
 	// one is immediate. The value goes straight to the endpoint and is never held in the
 	// page's state, so a re-render cannot put it back on the screen.
 	if (action === "credential-add") {
@@ -1532,7 +1532,7 @@ async function runAction(event, button, action, id) {
 		catch (error) { signInStart = { ...signInStart, busy: false, error: error.message }; }
 		return render();
 	}
-	// Item 2mv: the export is a plain read, saved through the browser. No new probe,
+	// the export is a plain read, saved through the browser. No new probe,
 	// no elevation, and the file is already redacted by the time it arrives here.
 	if (action === "export-diagnostics") {
 		try {
@@ -1586,7 +1586,7 @@ async function refreshMeasurement(id) {
   }
 }
 
-// Item 2ns (b) and 2oe: pairing and phone presence both change independently of a press.
+// pairing and phone presence both change independently of a press.
 // Keep watching for the whole time Settings is open so an absent phone becomes present,
 // or a live phone becomes absent, without a reload.
 let brokerWatch = null;
@@ -1897,7 +1897,7 @@ async function change(event) {
     }
     return;
   }
-  // Item 2nb (c): the one explicit way out of the dropdown, for a server that cannot
+  // the one explicit way out of the dropdown, for a server that cannot
   // enumerate its models. Choosing it turns the control into a field and saves
   // nothing by itself.
   if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value === "__type__") {
@@ -1915,7 +1915,7 @@ async function change(event) {
     await refreshHardeningStatus();
     return;
   }
-  // Item 2nb (d): PICKING A MODEL FILLS THE REST. Until now Test filled the fields and
+  // PICKING A MODEL FILLS THE REST. Until now Test filled the fields and
   // picking a different model from the list left them describing the one Test happened
   // to try. Nothing here is typed by the operator and nothing here saves.
   if (event.target.matches('.setting-input[data-path$=".model"]') && event.target.value && event.target.value !== "__type__") {
@@ -1996,7 +1996,7 @@ async function saveSettings(pathPrefix = "") {
     if (changedPaths.some((path) => path === "shell.service_account.account" || path === "shell.service_account.domain"))
       await refreshServiceAccountStatus();
   } catch (error) {
-    // Item 2po (a): an exact field refusal belongs only under that field. The row is
+    // an exact field refusal belongs only under that field. The row is
     // expanded so the field is visible; group failures have their own section seat.
     // Drafts stay untouched, so a refused save keeps everything he typed.
     errors.set(error.field || "config", error.message);
@@ -2028,7 +2028,7 @@ async function addConnection() {
   expanded.clear();
   expanded.add(id);
   try {
-    // Item 2nb (h) and (c): a new connection carries NO address and NO model. The old
+    // a new connection carries NO address and NO model. The old
     // defaults were a guess and a placeholder: 127.0.0.1:8000 is not where his server
     // is, and the literal "model" reached save and was refused elsewhere with wording
     // he could not act on. Empty fields with placeholders say what to do instead.
@@ -2079,11 +2079,11 @@ async function removeConnection(id) {
     errors.delete(`connections.${id}`);
     armed.delete(key);
   } catch (error) {
-    // Item 2mb (c): USE THE FIELD THE SERVER SENT. It is what lets the refusal
+    // USE THE FIELD THE SERVER SENT. It is what lets the refusal
     // land on the row that was clicked; a handler that discards it is how the
     // message went missing. The per-row key stays as the fallback, so a refusal
     // from an older build still lands where the operator is looking.
-    // Item 2nc (a): the row is EXPANDED when a refusal lands, so the reason and the
+    // the row is EXPANDED when a refusal lands, so the reason and the
     // fields it is about are on screen together. (d): after Remove there are exactly
     // two outcomes, and both are visible in this render — the row gone, or the refusal
     // on it. An unchanged screen is not one of them.

@@ -13,7 +13,7 @@ import (
 // literalAbsolutePath finds Windows absolute paths written literally in a
 // command or script: a drive path or a UNC path, up to a quote, whitespace or a
 // shell separator. A UNC server name starts with a letter or digit and is
-// followed by one separator and a share (item 2q3): `'\\.git\\'` and
+// followed by one separator and a share: `'\\.git\\'` and
 // `'\\bTODO\\b'` are regex escapes, not servers.
 var literalAbsolutePath = regexp.MustCompile(`(?i)(?:\b[a-z]:[\\/]|\\\\[a-z0-9][a-z0-9._$-]*[\\/][^\\/"'\x60\s])[^"'\x60\s;|<>()\[\]{},]*`)
 
@@ -50,9 +50,9 @@ func windowsCouldOpenLiteral(candidate string) bool {
 
 // outsideLiteralPaths lists the absolute paths a command or script names that
 // lie outside the chat's own folder and the plan repositories it may work in
-// (item 2fi). An executable's path is not a file the script reads, so a path
+//. An executable's path is not a file the script reads, so a path
 // to an .exe that exists as a file is left alone; .cmd and .bat are text a
-// script can read and are not (v0.69.0/W12 cold review: "win.ini .exe" and
+// script can read and are not (cold review: "win.ini .exe" and
 // "id_rsa#.exe" rode that exemption). Paths built at runtime are not seen:
 // with no service identity this is the card's ergonomics, not a boundary.
 func outsideLiteralPaths(source string, s *session.Session) []string {

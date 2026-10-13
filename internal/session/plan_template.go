@@ -12,7 +12,7 @@ import (
 
 // PlanChanged, when set, hears every new plan ("plan.created") and every
 // rewrite of an existing plan.md ("plan.updated") with the plan's folder
-// (item 2bq). The web server publishes these as events so every open page
+//. The web server publishes these as events so every open page
 // follows a plan the moment it changes, whichever route changed it.
 var PlanChanged func(kind, planDir string)
 
@@ -23,7 +23,7 @@ func notifyPlan(kind, planDir string) {
 }
 
 // seededRules are the harness's own rules for any plan; nothing in them is
-// taken from the plan's repository (item 2bq).
+// taken from the plan's repository.
 var seededRules = []string{
 	"Discovery before repair: establish the cause with a measurement before changing anything.",
 	"Name a hypothesis so it can be refuted, label it inferred, and say what would kill it.",
@@ -32,7 +32,7 @@ var seededRules = []string{
 }
 
 // PlanTemplate is a new plan's plan.md: the five sections of the harness's own
-// PLAN.md (item 2bq). The first heading stays the plan's display name, and no
+// PLAN.md. The first heading stays the plan's display name, and no
 // line is a marker, so the worker finds no item until one is written.
 func PlanTemplate(name, repo string) string {
 	var b strings.Builder

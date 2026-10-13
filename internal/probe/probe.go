@@ -495,7 +495,7 @@ func availability(value bool) string {
 	return "unavailable"
 }
 
-// probeToolCalls is item 2px (h): judged fairly and says why. Thinking is off, so a
+// probeToolCalls is judged fairly and says why. Thinking is off, so a
 // thinking model does not spend the answer before it calls, and the wait allows a
 // cold load. With no model chosen no request is sent at all.
 func probeToolCalls(ctx context.Context, connection *config.Connection) (bool, string) {
@@ -515,7 +515,7 @@ func probeToolCalls(ctx context.Context, connection *config.Connection) (bool, s
 }
 
 // toolProbeTimeout allows a cold load of a large local model before its first
-// token; 20 s did not (item 2px (h)).
+// token; 20 s did not ).
 var toolProbeTimeout = 120 * time.Second
 
 // toolCallCause is why a tool probe found no usable call, in one word, or "".

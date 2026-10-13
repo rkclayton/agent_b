@@ -50,13 +50,13 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 	running := s.worker != nil && s.worker.Running(target.ID)
 	items := worker.Parse(text)
 	refusal := planRefusal(planDir)
-	// Item 2bq: the plan lint runs before Go; an error refuses it and every
+	// the plan lint runs before Go; an error refuses it and every
 	// finding is drawn on the panel.
 	diagnostics := worker.Lint(planDir)
 	if refusal == "" {
 		refusal = worker.Refusal(diagnostics)
 	}
-	// Item 2fc: Go refuses while the worker's model is at its limit, rather
+	// Go refuses while the worker's model is at its limit, rather
 	// than queueing the worker behind a planner or a chat on that connection.
 	if refusal == "" && !running {
 		refusal = s.workerConnectionBusy(target.AgentID)

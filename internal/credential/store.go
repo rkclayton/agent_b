@@ -11,7 +11,7 @@ import (
 
 const FileName = ".agentb-shell-credential.dpapi"
 
-// Item 2li (a): the machine-scoped service credential is a SEPARATE FILE, not a
+// the machine-scoped service credential is a SEPARATE FILE, not a
 // flag inside the existing one. A DPAPI blob does not say which scope wrote it
 // without reading its master-key GUID, and the scope decides whether the ACL
 // check applies -- so the scope is the filename, which cannot be misread.
@@ -32,7 +32,7 @@ var credentialName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 var (
 	ErrNotStored   = errors.New("credential is not stored")
 	ErrUnsupported = errors.New("credential storage is supported only on Windows")
-	// Item 2li (b): a machine-scoped blob whose ACL no longer holds is refused
+	// a machine-scoped blob whose ACL no longer holds is refused
 	// rather than used. It is decryptable by anything on the machine, so the ACL
 	// is the whole of its protection, and a widened one means the secret should be
 	// treated as reachable rather than as still secret.
@@ -43,7 +43,7 @@ var (
 type Status struct {
 	Stored   bool   `json:"stored"`
 	StoredAt string `json:"stored_at"`
-	// Item 2li (e): Settings must read a machine-provisioned identity as ready
+	// Settings must read a machine-provisioned identity as ready
 	// without offering to redo it, which it cannot do unless it can see which
 	// scope answered. Empty when nothing is stored.
 	Scope string `json:"scope,omitempty"`
@@ -227,7 +227,7 @@ func (s *Store) WriteMachine(password []byte) error {
 // cleanup, the rollback after a failed setup -- speaks for one user; a machine
 // credential an administrator provisioned for everyone on the endpoint is not
 // theirs to delete, and deleting it would take the service identity away from
-// every other user of that machine. Item 2li (f) removes it, through the same
+// every other user of that machine. removes it, through the same
 // elevated tool that wrote it.
 // ClearMachine removes the machine-scoped blob. It is the in-process half of
 // (f) and has no caller in the running product: an administrator removes the
@@ -256,7 +256,7 @@ func (s *Store) Clear() error {
 }
 
 // readPath prefers what this user stored for themselves, then the legacy name,
-// then the machine-scoped blob. Item 2li (e): the operator's own path is
+// then the machine-scoped blob. the operator's own path is
 // unchanged -- a user-scoped credential they provisioned still answers first --
 // and a user who has none, which is every user on a machine-provisioned fleet
 // endpoint, falls through to the machine blob.

@@ -19,7 +19,7 @@ func pairedDeviceAuthenticated(r *http.Request) bool {
 	return ok
 }
 
-// Item 2kq (c): THE DISPATCHER.
+// THE DISPATCHER.
 //
 // Every route docs/app-message-v1.md names is served by calling THE SAME HANDLER the
 // local page calls. There is no second implementation of anything: a unit arrives over
@@ -32,7 +32,7 @@ func pairedDeviceAuthenticated(r *http.Request) bool {
 // device never learns one.
 // Authority on this transport is the pairing, and revoking it ends every request.
 //
-// A CONTROL-PLANE PATH under item 2jy: this runs in the harness process, and no tool
+// A CONTROL-PLANE PATH under this runs in the harness process, and no tool
 // process is anywhere near it or the session it answers.
 
 // appMessageRoutes is the closed set. A route name is not a URL path, so a device cannot

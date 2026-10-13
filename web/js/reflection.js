@@ -1,4 +1,4 @@
-// Item 17-i: the reflection section, now on Settings under Activity (2gk).
+// the reflection section, now on Settings under Activity (2gk).
 // Read-only text - the latest overview and the latest tool-candidate report -
 // fetched when that section opens and again after a run closes. It adds no
 // control.
@@ -45,7 +45,7 @@ export async function loadReflection(fetcher = fetch, doc = globalThis.document)
   return answer;
 }
 
-// Item 2mw (a): ONE ROW PER NOTE REFLECTION WROTE, with the controls that make it the
+// ONE ROW PER NOTE REFLECTION WROTE, with the controls that make it the
 // operator's. Reflection used to be read-only text, so a correction it found stayed
 // "unconfirmed" forever and carried that word into every prompt that loaded it.
 //
@@ -128,7 +128,7 @@ export async function loadReflectionNotes(fetcher = fetch, doc = globalThis.docu
   return answer;
 }
 
-// Item 2mw (a) and (c): the four controls. Confirm and Restore are one request each.
+// The four controls make Confirm and Restore one request each.
 // Edit turns the row's text into a field and confirms the operator's words with it.
 // Delete asks first, because it is the only one of the four that loses something -
 // and even then it is restorable, which the confirmation says.

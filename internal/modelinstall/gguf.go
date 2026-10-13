@@ -24,7 +24,7 @@ type GGUFMetadata struct {
 	HeadCountKV   uint64
 	KeyLength     uint64
 	ValueLength   uint64
-	// Item 2ih (a): the model's parameter count, from general.parameter_count.
+	// the model's parameter count, from general.parameter_count.
 	// It is OPTIONAL: not every GGUF carries it and an API connection has no
 	// artifact at all, so zero means unknown and no size default is applied
 	// rather than a wrong one being guessed.

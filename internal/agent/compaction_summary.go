@@ -26,7 +26,7 @@ const compactionEvidenceEnd = "[END COMPACTION EVIDENCE]"
 
 const compactionNoteHeaderPrefix = "Progress note (auto-summary of "
 
-// Item 2qh: the model writes only the bounded hand-off. FreshStart preserves the
+// the model writes only the bounded hand-off. FreshStart preserves the
 // current task's user messages itself and drops every previous hand-off.
 const compactionInstruction = "Write one short hand-off for a fresh context under these headings exactly:\n" +
 	"DONE: completed work and verified findings.\n" +
@@ -51,12 +51,12 @@ func (r *Runner) summarize(ctx context.Context, s *session.Session, runID string
 	if !r.compact.CanFreshStart(s) {
 		return false
 	}
-	// Item 2q1: no model is asked to summarize a span that is not there. s51 sent
+	// no model is asked to summarize a span that is not there. s51 sent
 	// C and then B, about thirty seconds, to be told there was nothing to fold.
 	if _, _, ok := contextmgr.FoldSpan(records, s.RunPin()); !ok {
 		return false
 	}
-	// Item 2q5 (a): ONE SUMMARIZER, the chat's own connection, as every other
+	// ONE SUMMARIZER, the chat's own connection, as every other
 	// harness does. The agent's C connection (a small local model on another
 	// server) is never asked to summarize; its other uses are unchanged.
 	accepted, _ := r.trySummary(ctx, s, runID, main, main, "b", "", 0, false)
@@ -132,7 +132,7 @@ func (r *Runner) summaryMessages(connection *config.Connection, s *session.Sessi
 }
 
 // summaryRequestMessages makes the summary request a request like any other
-// (item 2o8 (b)). It is normalized at the one boundary every request uses: the
+// ). It is normalized at the one boundary every request uses: the
 // journal's harness notes are not roles a server's template knows, and the
 // user's 408,109-byte stop was exactly this request refused as "Unexpected
 // message role". And it is measured against the connection's byte limit and
@@ -195,7 +195,7 @@ func compactionNoteHeader(s *session.Session) string {
 	return fmt.Sprintf("%sturns %d-%d):\n", compactionNoteHeaderPrefix, low, high)
 }
 
-// carryLimitBytes is what item 2mm (c) bounds the carried block by: a quarter of the
+// carryLimitBytes is what bounds the carried block by: a quarter of the
 // connection's context, in bytes at this product's usual 3.6 bytes per token. A
 // window that cannot say how big it is gets a fixed 24 KB, which is far more than
 // any span of user messages measured on the user's own chats — the largest
@@ -393,7 +393,7 @@ func summaryEvidenceAppendix(records []events.Message) string {
 		if call.Name != "" {
 			name = call.Name
 		}
-		// Item 2q1 (e): a note names files and states facts; it never carries a
+		// a note names files and states facts; it never carries a
 		// file body, and its excerpts of other results total 400 characters.
 		excerpt := ""
 		if message.Category != "files" {
@@ -499,7 +499,7 @@ func nullableInt(value int) *int {
 	return &value
 }
 
-// runCompaction is one chat's compaction memory for its current run (item 2q1
+// runCompaction is one chat's compaction memory for its current run
 // (c) and (d)): the summarizers that failed in it, and the weak compactions.
 type runCompaction struct {
 	mu          sync.Mutex
@@ -534,7 +534,7 @@ func (r *Runner) summarizerFailed(sessionID, runID, connectionID string, mark bo
 	return state.failed[connectionID]
 }
 
-// Item 2q5 (b): a masking pass clears to half the ceiling in one go, so it fires
+// a masking pass clears to half the ceiling in one go, so it fires
 // rarely, and the newest results within 30% of the ceiling are never masked.
 const (
 	elideTargetPct = .50
@@ -544,7 +544,7 @@ const (
 func maskKeep(budget events.Budget) int { return int(float64(budget.Ceiling) * maskKeepPct) }
 
 // compactionBlocked reports whether a weak compaction already ran in this turn
-// (item 2q1 (d)): it is not tried again until the run has moved on.
+// ): it is not tried again until the run has moved on.
 func (r *Runner) compactionBlocked(sessionID, runID string, turn int) bool {
 	state := r.compactionState(sessionID, runID)
 	state.mu.Lock()

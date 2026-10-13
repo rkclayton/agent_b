@@ -18,7 +18,7 @@ func verifySetupSignature(ctx context.Context, path string) error {
 }
 
 // inspectAuthenticode asks Windows PowerShell what it thinks of the file and
-// takes the answer from a report file, not from the console. Item 2lb: the
+// takes the answer from a report file, not from the console. the
 // console is where banners, warnings and module-load errors go, and the updater
 // must be able to tell "the signature is bad" from "I could not look".
 func inspectAuthenticode(ctx context.Context, path string) inspection {

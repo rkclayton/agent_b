@@ -11,7 +11,7 @@ import (
 	"harness/internal/session"
 )
 
-// The plain proposal form (item 2fk), for a planner model that drifts from the
+// The plain proposal form, for a planner model that drifts from the
 // fenced block: a line that is exactly "Proposals:" followed by numbered lines
 //
 //  1. add: <the new plan line>
@@ -219,7 +219,7 @@ func indexOfLine(lines []string, line string) int {
 
 // planProposalsFor parses a model turn's proposals: the fenced block first, and
 // for a design session bound to a plan, the plain "Proposals:" form when the
-// turn carried no fenced block (item 2fk).
+// turn carried no fenced block.
 func planProposalsFor(s *session.Session, content string) (string, []events.PlanProposal) {
 	visible, proposals := parsePlanProposals(content)
 	if len(proposals) > 0 || s.Role != "d" || s.PlanDir == "" {

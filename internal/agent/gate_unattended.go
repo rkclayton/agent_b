@@ -7,7 +7,7 @@ import (
 	"harness/internal/session"
 )
 
-// Item 5f (v1.2.5): unattended means NOTHING ASKS.
+// unattended means NOTHING ASKS.
 //
 // Two settings that are deliberately independent. WHO RUNS IT is the service
 // account or the operator ("Run as you"), and that is about identity. DOES IT

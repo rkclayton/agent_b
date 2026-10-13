@@ -154,7 +154,7 @@ func (r *Runner) cutNewestRunningResult(ctx context.Context, s *session.Session,
 	return false
 }
 
-// Item 2o8 (c): RESULTS ARE CAPPED AT INGEST. Once a connection has refused a
+// RESULTS ARE CAPPED AT INGEST. Once a connection has refused a
 // request by its size, no single tool result may take more than a quarter of that
 // limit. A windowed tool is answered by the existing retry-smaller path, so the
 // model re-reads in pieces; any other result keeps its head and tail.
@@ -187,7 +187,7 @@ func (r *Runner) byteCapResult(name string, args map[string]any, content string,
 }
 
 // readCutShortResult ends a read whose next window cannot fit the context a
-// second time running (item 2fv): the compaction between the two refusals has
+// second time running: the compaction between the two refusals has
 // had its chance, so rather than retry until the run stops for tool errors,
 // the harness ends the read and the model answers from what it has read. The
 // result is a note, not an error, and the run's next requests carry no tools.

@@ -12,10 +12,10 @@ import (
 	"rsc.io/qr"
 )
 
-// Item 2kq (b) and (e): the three things Settings asks the product about the broker —
+// the three things Settings asks the product about the broker —
 // what the connection is doing, start a pairing, and revoke one.
 //
-// A CONTROL-PLANE SURFACE, under item 2jy. These handlers are reached from the loopback
+// A CONTROL-PLANE SURFACE, under These handlers are reached from the loopback
 // page like every other Settings action; no tool process is anywhere near them, and no
 // broker credential is ever in a response.
 
@@ -51,7 +51,7 @@ func (s *Server) brokerHost() BrokerHost {
 	return s.broker
 }
 
-// Item 2nu (b): NO ADDRESS LEAVES THE PROCESS. The page cannot show, edit or leak what it
+// NO ADDRESS LEAVES THE PROCESS. The page cannot show, edit or leak what it
 // is never sent, so the status says what the connection is doing and nothing about where.
 type brokerStatusResponse struct {
 	broker.Status
@@ -69,7 +69,7 @@ func (s *Server) brokerStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	response.Status = host.Status()
 	if offer, ok := host.PairingOffer(); ok {
-		// Item 2ns (b): while a code is LIVE the page gets the link as a QR code. It is
+		// while a code is LIVE the page gets the link as a QR code. It is
 		// built here, for this response, and kept nowhere: (c) says the link is never
 		// stored and never logged, and a value that exists only in one response body
 		// cannot be either.
@@ -116,7 +116,7 @@ func (s *Server) brokerAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	case "cancel":
-		// Item 2nz (a): the operator taking the square away, which is one of the two
+		// the operator taking the square away, which is one of the two
 		// things that end a pairing. It is the same control as Pair, which reads Cancel
 		// while one is under way — not a new one.
 		if err := host.CancelPairing(); err != nil {

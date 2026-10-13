@@ -12,7 +12,7 @@ import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
 const agentKey = (agent) => { const name = String(agent?.name || "").trim().toLowerCase(); return name === "agent_b" ? name : name.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); };
-// Item 2gk (v1.2.3): a chat had two sides and the shell remembered which one
+// a chat had two sides and the shell remembered which one
 // you were last on. There is one side now, so there is nothing to remember and
 // nothing to flip to.
 
@@ -34,7 +34,7 @@ function createShell(options = {}) {
   if (!root) return null;
   let page = options.page || root.dataset.page || "chat";
   root.replaceChildren();
-  // Item 2mf (b): the document loaded ON a surface, so the selection says which
+  // the document loaded ON a surface, so the selection says which
   // one. A chat page leaves the chat selection alone; a static surface records
   // itself, which is how its tab knows it is the selected one after a reload.
   const loaded = surfaceForPage(page, store.selection.session_id);
@@ -134,7 +134,7 @@ function createShell(options = {}) {
     control.append(glyph);
     windowControls.append(control);
   }
-  // Item 2px (f): the chat's connection lamp, from the one health state.
+  // the chat's connection lamp, from the one health state.
   const sessionLamp = node("span", "shell-session-lamp");
   right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls);
   root.append(left, right);
@@ -147,7 +147,7 @@ function createShell(options = {}) {
     windowTitle.hidden = available + .5 < context.measureText(productTitle.textContent).width;
   };
   new ResizeObserver(fitWindowTitle).observe(left);
-  // Item 2gh: Escape dismisses the open menu and the arrow keys move through
+  // Escape dismisses the open menu and the arrow keys move through
   // its entries. Measured before the change, Escape did nothing and no key
   // reached the entries, although each one was already a focusable button.
   // Focus is not taken when the menu opens — that would move the operator's
@@ -223,14 +223,14 @@ function createShell(options = {}) {
     return session?.run?.status === "running" || session?.run?.status === "stopping";
   }
 
-  // Item 2ni: THE PLAN IS NOT A TAB ANY MORE, so the strip's static-surface pass,
+  // THE PLAN IS NOT A TAB ANY MORE, so the strip's static-surface pass,
   // its plan chip, its right-click Hide and that Hide's confirmation are all gone with
   // it: "i decided i think i want it under settings, as its own top level item". The
-  // strip is chats only again, as it was before item 2mf, and the Plan is a section in
+  // strip is chats only again, as it was before, and the Plan is a section in
   // the Settings nav. Hiding it is the switch on Settings > Chats, which now hides that
   // section; the surface, its URL and its page are untouched, exactly as 2mf (f) said.
 
-  // Item 2gf: the one way back, used by the Plan toggle and by the stand-in
+  // the one way back, used by the Plan toggle and by the stand-in
   // "Chat" route. It must work with the model unreachable, with `/api/plan`
   // failing and with no chat selected yet, so it never reads anything that a
   // failed fetch could have left empty: with no chat at all it goes to /chat,
@@ -478,7 +478,7 @@ function createShell(options = {}) {
     } catch (error) { report(error.message); }
   }
 
-  // Item 2gh: the menu opens AT THE POINTER when there is one, and at the
+  // the menu opens AT THE POINTER when there is one, and at the
   // anchor otherwise (the `+` menu has no pointer of its own). Measured before
   // the change, a right-click 41 px into the tab put the menu's left edge 41 px
   // to the left of the pointer, because it was placed at the tab. It is still
@@ -514,7 +514,7 @@ function createShell(options = {}) {
     const session = store.sessions[store.selection.session_id];
     const robot = appRobotStatus(store.sessions, store.selection.session_id);
     updateAgentRobot(appRobot, { state: robot.state, label: robot.label });
-    // Item 2gl (v1.2.6): the window's own title. The overlay could not be made
+    // the window's own title. The overlay could not be made
     // to activate - measured on Edge 153 under --app= and with no unattended
     // way to install the app - so the system strip stays, and the least it can
     // do is say which chat is in the window instead of naming the connection,
@@ -550,7 +550,7 @@ function createShell(options = {}) {
       sessionHeading.textContent = heading;
       sessionHeading.title = heading;
       sessionHeading.classList.remove("alarm");
-      // Item 2hc (v1.3.0/W7): the header is snapped to whole pixels.
+      // the header is snapped to whole pixels.
       //
       // The strip's right-hand group is sized to its content, and the title's
       // own width is the text's natural width - 14.406 px, measured. That
@@ -594,7 +594,7 @@ function createShell(options = {}) {
       page = next;
       root.dataset.page = next;
       applyPanel();
-      // Item 2mf (b): an in-page surface change moves the selection with it.
+      // an in-page surface change moves the selection with it.
       const surface = surfaceForPage(next, store.selection.session_id);
       if (surface && surface.kind !== "chat") setSurface(surface);
       render();

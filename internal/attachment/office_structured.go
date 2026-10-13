@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Item 2ep: Office attachments keep their structure. A workbook becomes one
+// Office attachments keep their structure. A workbook becomes one
 // Markdown table per sheet (sheet name as its heading, rows and columns intact,
 // formulas as their cached values, merged cells expanded); a document becomes
 // headings, paragraphs, list items and tables in reading order. Standard
@@ -323,7 +323,7 @@ func sheetGrid(files map[string]*zip.File, budget *zipBudget, part string, share
 	return grid, nil
 }
 
-// v0.65.0/W15 cold review: a few kilobytes of merge ranges or two far-apart
+// cold review: a few kilobytes of merge ranges or two far-apart
 // cells made the grid (and the Markdown) hundreds of megabytes. A sheet keeps at
 // most maxSheetCells cells and maxSheetColumns+1 columns; the rest is marked
 // truncated, never silently dropped.

@@ -19,13 +19,13 @@ type Status struct {
 	State            string `json:"state,omitempty"`
 	Action           string `json:"action,omitempty"`
 	CredentialStored bool   `json:"credential_stored,omitempty"`
-	// Item 2li (e): a machine-provisioned identity must read as ready without
+	// a machine-provisioned identity must read as ready without
 	// offering to redo it. "machine" is how Settings knows not to.
 	CredentialScope        string `json:"credential_scope,omitempty"`
 	ExecutionPolicyMessage string `json:"execution_policy_message,omitempty"`
 }
 
-// Item 2kk (e): a launch that never happened is its own state, distinct from a
+// a launch that never happened is its own state, distinct from a
 // run that failed. UAC declined, or policy refused to elevate, is not an
 // account operation gone wrong -- nothing was touched and nothing needs
 // repairing, and the operator should be told that and not sent to inspect an
@@ -37,7 +37,7 @@ const (
 	LaunchStarted  LaunchOutcome = "started"
 )
 
-// Item 2kk (a): the result the elevated child WROTE, not text scraped from a
+// the result the elevated child WROTE, not text scraped from a
 // stream. Ok and Message come from a small JSON file the child is told to
 // write; LogPath names where the full streams were kept, so (d) can show a
 // complete message and still point at everything else.

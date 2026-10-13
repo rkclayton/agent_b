@@ -1,8 +1,8 @@
-// Proposed plan edits, rendered in the chat that proposed them (item 2fc).
+// Proposed plan edits, rendered in the chat that proposed them.
 import { api, store } from "./bus.js";
 import { proposalKey, proposalLabel, workerProposals } from "./plan-surface.js";
 
-// Item 2fc: the planner IS the d-chat, so its proposed edits sit in its own
+// the planner IS the d-chat, so its proposed edits sit in its own
 // thread, above the composer, with the tray's controls: Accept, Dismiss, and a
 // click that quotes the proposal into the composer. The Plan page has no tray.
 const resolvedKey = (id) => `agentb.plan.resolved.${id}`;

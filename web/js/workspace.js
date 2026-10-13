@@ -4,7 +4,7 @@ import { closeSettings, initSettings, openSettings } from "./settings.js";
 import { mountChat } from "./chat.js";
 import { recordViewMount } from "./navigation-telemetry.js";
 
-// Item 2gk (v1.2.3): there is one surface in this document now. The page that
+// there is one surface in this document now. The page that
 // stood beside the chat is gone; its six groups are two sections of Settings,
 // and the numbers that describe THIS chat are on the chat itself. So this file
 // no longer switches between two surfaces — it shows the chat, and the only
@@ -17,14 +17,14 @@ const chatSurface = [
 ];
 let shell;
 
-// Item 2gn: the id the operator opened the page with. The first show() runs
+// the id the operator opened the page with. The first show() runs
 // before any snapshot, when the store holds no selection, so pathFor used to
 // rewrite `/chat?session=<id>` to `/chat` and delete the very id the page was
 // asked for — chat.js then had nothing to honour. It is kept until the store
 // has a selection of its own.
 const openedWith = new URLSearchParams(location.search).get("session") || "";
 
-// Item 2hb (v1.2.4): THE ADDRESS IS READ ONCE, HERE, BEFORE ANYTHING REWRITES
+// THE ADDRESS IS READ ONCE, HERE, BEFORE ANYTHING REWRITES
 // IT. That is the whole defect the operator hit: the shell syncs the address to
 // the mounted view during its first render, which happens while initShell is
 // still running, and that sync deleted the requested `#settings/...` address
@@ -35,7 +35,7 @@ const entry = (() => {
   const search = new URLSearchParams(location.search);
   const requested = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
   const from = search.get("from");
-  // Item 2no (d): /plan STILL ANSWERS, and it lands on Settings > Plan. So does
+  // /plan STILL ANSWERS, and it lands on Settings > Plan. So does
   // ?from=plan, which used to mean "another document sent you here and closing goes
   // back to it" — there is no other document now, so it names the section instead.
   const plan = location.pathname === "/plan" || from === "plan";
@@ -52,7 +52,7 @@ function pathFor() {
   return `/chat${sessionID ? `?session=${encodeURIComponent(sessionID)}` : ""}`;
 }
 
-// Item 2hb: the one view state. The chat is what this document mounts; Settings
+// the one view state. The chat is what this document mounts; Settings
 // is a sheet over it. Everything that navigates asks this, and nothing keeps a
 // second copy to disagree with.
 export function mountedView() {

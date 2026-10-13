@@ -15,7 +15,7 @@ import (
 // ErrNoTextLayer is a PDF whose pages carry no text: a scan, for the OCR path.
 var ErrNoTextLayer = errors.New("PDF has no text layer")
 
-// ExtractPDFText reads a PDF's text layer locally, page by page (item 2fj),
+// ExtractPDFText reads a PDF's text layer locally, page by page,
 // with github.com/ledongthuc/pdf (BSD-3-Clause, pure Go, no dependencies).
 // The library panics on streams it cannot decode; that is returned as an
 // error, never allowed to reach the server. Output stops at maxBytes with a

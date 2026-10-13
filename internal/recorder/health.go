@@ -9,7 +9,7 @@ import (
 	"harness/internal/events"
 )
 
-// Item 2q6: what went wrong, said without anyone relaying it. A run's health is
+// what went wrong, said without anyone relaying it. A run's health is
 // gathered as it goes and leaves as a handful of aggregates when it stops,
 // never one event per request: a forty-call run adds a dozen events at most.
 // Every value is a count, a duration, a size or a fixed word.
@@ -225,7 +225,7 @@ func (h *health) tool(name string) *toolHealth {
 	return tool
 }
 
-// struggling is item 2qa's closed list.
+// struggling is the closed list.
 func (h *health) struggling(stopReason string) bool {
 	if stopReason != "done" || len(h.refusals) > 0 ||
 		h.behaviour["unparseable_tool_calls"] > 0 || h.behaviour["unoffered_tool_calls"] > 0 {

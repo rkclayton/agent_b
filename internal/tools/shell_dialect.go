@@ -9,8 +9,8 @@ import (
 	"harness/internal/config"
 )
 
-// Item 2gb: the model writes `a && b`. Windows PowerShell 5.1 has no pipeline
-// chain operators and answers with a parse error, which cost the v1.0.0 eval 17
+// the model writes `a && b`. Windows PowerShell 5.1 has no pipeline
+// chain operators and answers with a parse error, which cost the eval 17
 // of its 20 tool errors. So the shell runs PowerShell 7 when the host has it,
 // and rewrites the two chain operators at the top level when it does not.
 
@@ -36,7 +36,7 @@ func (h powerShellHost) Dialect() string {
 }
 
 // pwshCandidates are the machine-wide install paths, and only those. The
-// v1.0.1/W4 cold review: resolving through PATH or %LOCALAPPDATA%\Microsoft\
+// cold review: resolving through PATH or %LOCALAPPDATA%\Microsoft\
 // WindowsApps would let anything a non-admin can write become the interpreter
 // every shell call runs — including the operator-identity path — which is the
 // class operatorOnlyInterpreter already refuses for python and node. A host
@@ -89,7 +89,7 @@ func shellHostFor(cfg config.Shell) powerShellHost { return resolveShellHost(cfg
 // by a backtick. It returns the index and the operator, or -1. The second
 // result of scanned() says whether the scan ended cleanly; a command whose
 // quotes or brackets do not balance is not understood, and is never rewritten
-// (v1.0.1/W4 cold review).
+// (cold review).
 func chainSplit(command string) (int, string) {
 	index, operator, balanced := scanChain(command)
 	if !balanced {
@@ -215,7 +215,7 @@ func shellCommandForHost(host powerShellHost, command string) string {
 	return rewriteChainOperators(command)
 }
 
-// ShellHostFinding is the capability probe's host finding (item 2gb): which
+// ShellHostFinding is the capability probe's host finding: which
 // shell actually backs the shell tool on this host, and whether the model's
 // chain operators run natively or through the rewrite.
 func ShellHostFinding(cfg config.Shell) string {

@@ -21,7 +21,7 @@ var (
 
 // ExtractPDF renders each page of a PDF with the Windows inbox PDF renderer
 // (Windows.Data.Pdf) and recognizes it with the same OCR engine as images
-// (item 2fj): the route for a scanned PDF, one with no text layer. Pages are
+// the route for a scanned PDF, one with no text layer. Pages are
 // joined under "## Page n" headings; a page with no text is skipped.
 func ExtractPDF(ctx context.Context, path string, progress func(int, int)) (string, int, int, bool, error) {
 	runtime.LockOSThread()

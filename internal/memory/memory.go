@@ -129,7 +129,7 @@ func (m *Manager) Path(workspace string) string {
 	name := filepath.Base(abs) + "-" + hex.EncodeToString(sum[:4]) + ".md"
 	dir := m.Dir()
 	path := filepath.Join(dir, name)
-	// v0.9 and earlier hashed the display spelling. Keep that existing file
+	// and earlier hashed the display spelling. Keep that existing file
 	// mapped to the default workspace instead of silently orphaning memory.
 	legacySum := sha256.Sum256([]byte(clean))
 	legacy := filepath.Join(dir, filepath.Base(abs)+"-"+hex.EncodeToString(legacySum[:4])+".md")
@@ -483,7 +483,7 @@ func (m *Manager) DropSessionWrites(writes []events.MemoryWrite) (int, error) {
 			}
 			if notes[strings.TrimSpace(note)] {
 				dropped++
-				// Item 2mw (c): a removal is undoable. The whole line goes to the
+				// a removal is undoable. The whole line goes to the
 				// tombstone, so a restore brings back its words rather than a
 				// reconstruction of them.
 				removed[path] = append(removed[path], line)
@@ -553,10 +553,10 @@ func (m *Manager) NoteAgent(agentID, note string) (string, bool, error) {
 	return m.notePath(m.TargetPath(agentID), note)
 }
 
-// Item 2jf: a note is written rarely, scoped, replacing, and within a budget.
+// a note is written rarely, scoped, replacing, and within a budget.
 //
 // Write carries what the note needs to be accountable for itself. Everything
-// here is a property of the FILE rather than of the injection: item 2eb trimmed
+// here is a property of the FILE rather than of the injection: trimmed
 // the oldest notes on the way IN and asked the model to consolidate, which meant
 // the file grew forever and the operator never met the limit. (d) reverses that
 // — the write is refused and the model is told to replace something it names.
@@ -610,7 +610,7 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 			return true, nil
 		}
 	}
-	// (b): the old note goes in the SAME write. A replace that left the old one
+	// the old note goes in the SAME write. A replace that left the old one
 	// behind would grow the file it was meant to hold steady.
 	var archived string
 	if replaced := strings.TrimSpace(write.Replaces); replaced != "" {
@@ -648,7 +648,7 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 		lines = kept
 	}
 	lines = append(lines, formatNote(note, write))
-	// (d): the budget is on the FILE, and a write that would exceed it is
+	// the budget is on the FILE, and a write that would exceed it is
 	// refused with what to do about it. The estimate is the same crude
 	// characters-over-four the loader falls back to, so the two agree.
 	if write.Budget > 0 {
@@ -741,12 +741,12 @@ type Note struct {
 	Run             string `json:"run,omitempty"`
 	Turn            int    `json:"turn,omitempty"`
 	UntrustedInTurn bool   `json:"untrusted_in_turn,omitempty"`
-	// Item 2mw (b): reflection's own state, "unconfirmed" or "confirmed <date>",
+	// reflection's own state, "unconfirmed" or "confirmed <date>",
 	// read from the same trailing provenance the other fields come from.
 	Reflection string `json:"reflection,omitempty"`
 }
 
-// Notes reads a layer back. Item 2jf (f): the Settings view lists them with
+// Notes reads a layer back. the Settings view lists them with
 // their scope, date and provenance, so the operator can see what the agent
 // believes and where each belief came from.
 func (m *Manager) Notes(path string) ([]Note, error) {
@@ -830,7 +830,7 @@ func (m *Manager) notePath(path, note string) (string, bool, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		// Item 2mw (d): DEDUPE BEFORE WRITING, on meaning rather than on bytes. This
+		// DEDUPE BEFORE WRITING, on meaning rather than on bytes. This
 		// compared the remainder of the line against the incoming note, so differing
 		// whitespace wrote a second copy of the same correction — and, while
 		// reflection's marker was a prefix, a note whose provenance changed looked new.

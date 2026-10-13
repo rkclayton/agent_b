@@ -131,7 +131,7 @@ func (r *Registry) Call(ctx context.Context, s *session.Session, name string, ar
 	return outcome.Content, outcome.OK
 }
 func (r *Registry) CallDetailed(ctx context.Context, s *session.Session, name string, args map[string]any) CallOutcome {
-	// Item 13 (v1.2.5): search_text and find_files are `search` now. A model
+	// search_text and find_files are `search` now. A model
 	// that learned the old names, or a saved plan that uses one, still works
 	// for this release and is told the name is going away.
 	aliasNotice := ""

@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// Item 2nh: THE INSTALLER'S OWN SEQUENCE, READ AS A SEQUENCE.
+// THE INSTALLER'S OWN SEQUENCE, READ AS A SEQUENCE.
 //
-// The operator pressed Update to v1.29.0, it SUCCEEDED, and he reported "update
+// The operator pressed Update to, it SUCCEEDED, and he reported "update
 // failed. this needs to be a more controlled process". Three faults, and all three
 // are in what was read rather than in what happened: nothing showed the sequence
 // while it ran, the last line of the progress file was a migration warning written
@@ -41,16 +41,16 @@ type Outcome struct {
 	Error      string   `json:"error,omitempty"`
 	Transcript string   `json:"transcript,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
-	// Item 2mk (a): THE VERSION THAT DID NOT CHANGE, said in those words. An
+	// THE VERSION THAT DID NOT CHANGE, said in those words. An
 	// install can finish and leave this window serving something else — on
-	// 2026-09-26 the installer wrote v1.22.0 to the per-user root, the launcher
+	// 2026-09-26 the installer wrote to the per-user root, the launcher
 	// found port 8790 already answered by another instance, the new process exited,
 	// and the operator was told "installed but failed to start" while his window
 	// went on serving the old build. Running is set only when the installer
 	// finished with a NEWER version than the one this process is: an older one is a
 	// stale file, not a fact about now.
 	Running string `json:"running,omitempty"`
-	// (c): the install root the setup was given, so the version being reported and
+	// the install root the setup was given, so the version being reported and
 	// the path it was written to are the same statement.
 	ApplicationRoot string `json:"application_root,omitempty"`
 }
@@ -109,7 +109,7 @@ func warningsIn(phases []progressPhase) []string {
 }
 
 // transcriptIn pulls the transcript path out of the installer's own failure
-// sentence, which ends with "Transcript: <path>" (item 2nf (c)).
+// sentence, which ends with "Transcript: <path>" ).
 func transcriptIn(text string) string {
 	marker := "Transcript: "
 	index := strings.LastIndex(text, marker)
@@ -158,7 +158,7 @@ func outcomeFor(dataRoot, currentVersion string) *Outcome {
 	if version == running {
 		return &Outcome{Version: version, At: last.At, OK: true, Warnings: warningsIn(phases)}
 	}
-	// Item 2mk (a): a finish for a NEWER version than this process is running is the
+	// a finish for a NEWER version than this process is running is the
 	// case the operator lived through and was never told about. An older one is a
 	// progress file left by an earlier install and says nothing about now.
 	if installed, ok := semanticVersion(version); ok {

@@ -69,7 +69,7 @@ function updateView(view, entry, tokens, options) {
   const open = options.expanded.has(entry.key);
   setAttribute(view.button, "class", `thinking-line ${entry.done ? "thought-line" : "thinking-active"}`);
   setAttribute(view.button, "aria-expanded", String(open));
-  // Item 2eo: "use the thought icon as the caret". The glyph is the disclosure
+  // "use the thought icon as the caret". The glyph is the disclosure
   // mark (Mute closed, Ink open, Trace while live); the caret node stays, hidden,
   // so the row keeps its structure and hit target.
   setText(view.caret, open ? "▾" : "▸");
@@ -84,7 +84,7 @@ function updateView(view, entry, tokens, options) {
     const duration = options.formatDuration?.(entry.thinkingMS);
     setText(view.summary, `thinking · ${count}${duration ? ` · ${duration}` : ""}`);
   }
-  // Item 2gg (v1.1.3/W3): a collapsed thought is real model output, and the
+  // a collapsed thought is real model output, and the
   // audit found the browser's own find could not reach it — `hidden` removes
   // it from the find. `until-found` keeps it out of the layout but inside the
   // search, and the browser reveals it when it matches, which is what 2gg's

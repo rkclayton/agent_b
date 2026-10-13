@@ -98,11 +98,11 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 	}
 	if !service.Enabled || unavailable != "" {
 		result, err := t.tool.Call(ctx, s, args)
-		// Item 2fi: with no service identity the outside-folder refusal offers
+		// with no service identity the outside-folder refusal offers
 		// the same operator decision the service posture offers, and holds;
 		// declining leaves the refusal as the tool's result.
 		if err != nil && strings.Contains(strings.ToLower(err.Error()), "path is outside the folder") {
-			// Item 2fy: a card widens the folder for a file that exists; for one
+			// a card widens the folder for a file that exists; for one
 			// that does not, the tool says so and no card is raised. The harness's
 			// own view decides here, since there is no service account.
 			if target := outsideTarget(s, t.tool.Name(), args); targetMissing(target) {
@@ -123,13 +123,13 @@ func (t *identityFileTool) CallDetailed(ctx context.Context, s *session.Session,
 		return fileIdentityOverride(err.Error())
 	}
 	defer clearBytes(password)
-	// Item 2fy: existence is judged in the service account's own view, on the
+	// existence is judged in the service account's own view, on the
 	// impersonated thread; only a definite not-found skips the card (a denied
-	// stat means the path exists — v0.71.0/W1 measured the two apart).
+	// stat means the path exists — measured the two apart).
 	missing := false
 	result, err := runner(service, password, func() (string, error) {
 		result, err := t.tool.Call(ctx, s, args)
-		// v0.71.0 cold review: only the jail's outside-folder refusal is judged;
+		// cold review: only the jail's outside-folder refusal is judged;
 		// a permission error inside the folder is the service account's denial
 		// and keeps its card, whether or not the target exists yet.
 		if err != nil && strings.Contains(strings.ToLower(err.Error()), "path is outside the folder") {
@@ -245,7 +245,7 @@ func targetMissing(path string) bool {
 
 // missingOutside answers a call on a path outside the folder that does not
 // exist: a plain tool error naming the boundary, never a card. A write to a
-// new file outside the folder is refused outright, by item 2fy's contract ("a
+// new file outside the folder is refused outright, by the contract ("a
 // write can never be widened by a card"); before it, the card's operator
 // replay could create one.
 func missingOutside(name, path string) CallDetail {

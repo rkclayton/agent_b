@@ -8,7 +8,7 @@ import (
 	"harness/internal/buildinfo"
 )
 
-// Item 2ev: a browser must never run one build's page against another build's
+// a browser must never run one build's page against another build's
 // server. Documents are never stored and carry the build id they were served
 // by, so the shell can compare it with /api/state. Every /static/ reference in a
 // document carries the build id as a path segment, so the relative module

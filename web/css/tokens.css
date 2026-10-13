@@ -2,7 +2,7 @@
 @font-face{font-family:"IBM Plex Sans";src:url("../assets/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");font-weight:500;font-style:normal;font-display:swap}
 @font-face{font-family:"IBM Plex Mono";src:url("../assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:"IBM Plex Mono";src:url("../assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");font-weight:500;font-style:normal;font-display:swap}
-/* Item 2lj (c): shipped because Agent_b runs offline. A font named but absent falls back to something else without saying so, and the reader who chose it would never know. Both are SIL OFL 1.1; see assets/fonts/LICENSE-FONTS.md. */
+/* shipped because Agent_b runs offline. A font named but absent falls back to something else without saying so, and the reader who chose it would never know. Both are SIL OFL 1.1; see assets/fonts/LICENSE-FONTS.md. */
 @font-face{font-family:"Atkinson Hyperlegible";src:url("../assets/fonts/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:"OpenDyslexic";src:url("../assets/fonts/opendyslexic-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 :root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--raised-edge:#000;--raised-radius:calc(var(--chat-size,12px) * 5 / 6);--raised-radius-tight:calc(var(--chat-size,12px) / 4);--raised-fill:#15181C;--raised-fill-deep:#0D1014;--raised-shadow:inset 0 1px 0 rgba(232,238,244,.10),0 3px 8px rgba(0,0,0,.38);--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--etch-fade:.0825;--chat-size:12px;--chat-face:var(--sans)}
@@ -10,7 +10,7 @@
 html,body{height:100%;margin:0}
 body{height:100dvh;overflow:hidden;background:var(--bezel);color:var(--ink);font:400 13px/20px var(--sans)}
 body::after{content:"";position:fixed;z-index:100;inset:0;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(112,125,139,.28)}
-/* Item 2cz: the etching, one fixed layer over the whole window. The map is built by the historical v1.0.0 order evidence from the operator's circuit image: white or black at a few percent, so each surface is its own tone lightened on one edge and darkened on the other. Item 2gr (v1.2.5): the operator judged the v1.0.0 low about twice what he wanted, so it halves. --etch-fade is the one dial and the amplitude is this number alone - the map is a fixed image - so the positions rescale rather than the map being rebuilt: .165 low (the new default), .33 next (the old low), .66 high, 0 off. Item 2m7 (rel-1.23.0) halves it again, .165 to .0825, on the operator's second reading of the same judgement -- the dial is unchanged and only the default moves. Item 2jh removed will-change: this static layer never animates, and compositor promotion caused repeat captures to round pixels differently. */
+/* the etching, one fixed layer over the whole window. The map is built by the historical order evidence from the operator's circuit image: white or black at a few percent, so each surface is its own tone lightened on one edge and darkened on the other. the operator judged the low about twice what he wanted, so it halves. --etch-fade is the one dial and the amplitude is this number alone - the map is a fixed image - so the positions rescale rather than the map being rebuilt: .165 low (the new default), .33 next (the old low), .66 high, 0 off. halves it again, .165 to .0825, on the operator's second reading of the same judgement -- the dial is unchanged and only the default moves. removed will-change: this static layer never animates, and compositor promotion caused repeat captures to round pixels differently. */
 body::before{content:"";position:fixed;z-index:2147483647;inset:0;pointer-events:none;background:url("../assets/etching.png") 0 0/3782px 1736px repeat;opacity:var(--etch-fade)}
 .etch-current{position:fixed;z-index:2147483646;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 0 38%,var(--signal) 50%,transparent 62%);background-size:200% 100%;opacity:0;-webkit-mask-image:url("../assets/etching.png");mask-image:url("../assets/etching.png");-webkit-mask-size:3782px 1736px;mask-size:3782px 1736px}
 .run-active .etch-current{opacity:.05;animation:etch-current 6s linear infinite}
@@ -45,26 +45,26 @@ button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,
 @keyframes agent-robot-blink{0%,36%,40%,78%,82%,86%,90%,100%{transform:scaleY(1)}38%,80%,88%{transform:scaleY(.12)}}@keyframes agent-robot-breathe{from{opacity:.35}to{opacity:1}}@keyframes agent-robot-glance{0%,50%,70%,100%{transform:translateX(0)}54%,66%{transform:translateX(1.1px)}}@keyframes agent-robot-read{0%{transform:translateX(-1.2px)}82%{transform:translateX(1.2px)}90%,100%{transform:translateX(-1.2px)}}@keyframes agent-robot-think{from{transform:translate(-.9px,-.9px)}to{transform:translate(.9px,-.9px)}}@keyframes agent-robot-tick{0%{opacity:1}50%{opacity:.25}}@keyframes agent-robot-talk{0%,100%{transform:scaleX(1)}16%{transform:scaleX(.45)}32%{transform:scaleX(.85)}48%{transform:scaleX(.35)}66%{transform:scaleX(1)}82%{transform:scaleX(.6)}}@keyframes agent-robot-nod{0%,100%{transform:translateY(0)}50%{transform:translateY(.9px)}}@keyframes agent-robot-tilt{0%,12%,70%,100%{transform:rotate(0)}24%,58%{transform:rotate(-9deg)}}
 @media (prefers-reduced-motion:reduce){.agent-robot *{animation:none!important}}
 .shell-window-title{display:flex;min-width:0;overflow:hidden;color:var(--mute);font:12px/20px var(--mono);white-space:nowrap;pointer-events:none}.shell-window-title[hidden]{display:none}.shell-product-title,.shell-title-separator{flex:none}.shell-title-separator{white-space:pre}.shell-chat-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Item 2px (f): the chat's connection lamp is shell, so it is styled where every page loads it. */
+/* the chat's connection lamp is shell, so it is styled where every page loads it. */
 .shell-session-lamp{flex:none;width:8px;height:8px;margin-right:6px;background:rgba(112,125,139,.35)}.shell-session-lamp[data-state=ready]{background:var(--signal)}.shell-session-lamp[data-state=amber]{background:var(--trace)}.shell-session-lamp[data-state=alarm]{background:var(--alarm)}
 .shell-left{overflow:hidden;width:auto}
 .shell-session-activity{min-width:0;overflow:hidden;color:var(--mute);font:12px/20px var(--mono);text-overflow:clip;white-space:nowrap}
 .shell-session-title{flex:0 1 auto;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;background:transparent;color:var(--mute);font:12px/20px var(--mono)}
 @media(max-width:600px){.shell-session-activity{display:none}}
 .shell-connection-menu{min-width:280px}
-/* Item 2mh (b) and (c): four columns now, because the model is what the operator
-   is choosing between and the row did not show it. The menu is 680px wide and
-   the name column was flooring at 90 — it gets room, and its type is set one
-   step smaller for this row alone so a long name fits WHOLE. */
+/* and (c): four columns now, because the model is what the operator
+ is choosing between and the row did not show it. The menu is 680px wide and
+ the name column was flooring at 90 — it gets room, and its type is set one
+ step smaller for this row alone so a long name fits WHOLE. */
 .shell-connection-choice{display:grid;grid-template-columns:minmax(80px,auto) minmax(180px,2fr) minmax(90px,1fr) auto;gap:10px;width:100%;text-align:left;font:12px/18px var(--mono)}
 .shell-connection-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* (c): NO ELLIPSIS ON A MODEL NAME. The rule above applies to every other cell;
    this one is allowed to be smaller rather than cut, because a truncated model
    name identifies nothing and that is the whole defect. */
-/* Item 2mh (c), MEASURED IN THE RUNNING APP at rel-1.31.0 and found not to apply:
-   `.shell-connection-choice span` is a class AND an element, so it outranks a bare
-   class and the ellipsis it sets won. The rule said clip and the browser computed
-   ellipsis. Same selector weight as the rule it must beat, plus one. */
+/* MEASURED IN THE RUNNING APP at and found not to apply:
+ `.shell-connection-choice span` is a class AND an element, so it outranks a bare
+ class and the ellipsis it sets won. The rule said clip and the browser computed
+ ellipsis. Same selector weight as the rule it must beat, plus one. */
 .shell-connection-choice span.shell-connection-model{overflow:visible;text-overflow:clip;font-size:11px}
 .shell-connection-untested{color:var(--mute);font-style:italic}
 .shell-connection-choice.selected{color:var(--trace)}
@@ -82,20 +82,20 @@ button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,
 .shell-window-control.close .shell-window-control-glyph::before,.shell-window-control.close .shell-window-control-glyph::after{content:"";position:absolute;top:4px;left:-1px;width:11px;height:1px;background:currentColor}
 .shell-window-control.close .shell-window-control-glyph::before{transform:rotate(45deg)}
 .shell-window-control.close .shell-window-control-glyph::after{transform:rotate(-45deg)}
-/* Item 2ge, glyph replaced by 2he: the Plan chip is the one element drawn in
-   --accent-plan, the operator-stated exception to the six-colour palette.
-   Faint at rest, brighter on hover and while the Plan pane is open.
-   The operator explicitly halved its displayed size in v1.5.0; the SVG keeps
-   its checked-in 24-grid geometry and its own stroke-width. */
-/* Item 2le: the chip is the operator artwork now, so it carries its own colour
-   and needs no stroke. The rest-to-hover-to-selected fade is unchanged. */
+/* glyph replaced by 2he: the Plan chip is the one element drawn in
+ --accent-plan, the operator-stated exception to the six-colour palette.
+ Faint at rest, brighter on hover and while the Plan pane is open.
+ The operator explicitly halved its displayed size in; the SVG keeps
+ its checked-in 24-grid geometry and its own stroke-width. */
+/* the chip is the operator artwork now, so it carries its own colour
+ and needs no stroke. The rest-to-hover-to-selected fade is unchanged. */
 .shell-page-chip{display:block;width:12px;height:12px;opacity:.6}
-/* Item 2mf: the chip moved with the Plan surface out of the one-entry pages nav
-   and into the tab strip. Same file, same drawn size, same three densities.
-   Item 2ni: and out of the strip into the SETTINGS NAV, where the Plan's entry is
-   now. The chip and its rest-to-hover-to-selected ramp are unchanged; only the
-   element it hangs off moved. It sits inline here because a nav entry is a line of
-   text with a mark in front of it, not a tab with a glyph. */
+/* the chip moved with the Plan surface out of the one-entry pages nav
+ and into the tab strip. Same file, same drawn size, same three densities.
+ and out of the strip into the SETTINGS NAV, where the Plan's entry is
+ now. The chip and its rest-to-hover-to-selected ramp are unchanged; only the
+ element it hangs off moved. It sits inline here because a nav entry is a line of
+ text with a mark in front of it, not a tab with a glyph. */
 .settings-nav button .shell-page-chip{display:inline-block;vertical-align:-2px;margin-right:6px}
 .settings-nav button:hover .shell-page-chip{opacity:.8}
 .settings-nav button.selected .shell-page-chip{opacity:1}

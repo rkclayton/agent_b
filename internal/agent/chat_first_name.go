@@ -11,7 +11,7 @@ import (
 	"harness/internal/session"
 )
 
-// Item 2go (v1.2.5): a chat is named ONCE, from the first message the operator
+// a chat is named ONCE, from the first message the operator
 // sends, and the harness never changes it again.
 //
 // What this replaces: a name the aux model rewrote every twenty model turns.
@@ -55,7 +55,7 @@ func firstMessageName(text string) string {
 }
 
 // firstClause cuts at the first mark that ends a thought. A decimal point or a
-// mark inside a word - "v1.2.5", "fix the bug in user.go" - is not one of them,
+// mark inside a word - "", "fix the bug in user.go" - is not one of them,
 // so a clause is cut only where the mark is followed by space or by nothing.
 func firstClause(text string) string {
 	text = strings.TrimSpace(text)

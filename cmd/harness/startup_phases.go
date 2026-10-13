@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// Item 2gm (v1.1.3/W2): the launch is measured rather than guessed. The
+// the launch is measured rather than guessed. The
 // operator reported "it eventually loaded, just took a good 2 minutes to
-// launch", and the v0.66.0 report had already measured 45-74 s to listen and
+// launch", and the report had already measured 45-74 s to listen and
 // carded the cause as unknown — the launcher's ready wait was raised to 120 s
 // to cover it instead. A phase line in the log says where the time goes, on
 // every start, so the next person does not have to guess either.

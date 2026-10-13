@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// The tool-candidate report (item 17-i, step 4). The pipeline is deterministic
+// The tool-candidate report. The pipeline is deterministic
 // from end to end: no model is called anywhere in this file. It reads the
 // recorded tool calls and their results, normalises each call to a shape with
 // the accidental constants removed, clusters the shapes, contrasts the calls
@@ -48,7 +48,7 @@ var (
 	numbers     = regexp.MustCompile(`\b\d[\d,.]*\b`)
 	// The chain and sequence operators collapse to one token, so a command and
 	// the retry that only changed its separator land in the same cluster and
-	// the contrast can name the difference (item 17-i's own example).
+	// the contrast can name the difference.
 	separators    = regexp.MustCompile(`\s*(?:&&|\|\||;)\s*`)
 	hexes         = regexp.MustCompile(`\b[0-9a-f]{8,}\b`)
 	whitespaceRun = regexp.MustCompile(`\s+`)

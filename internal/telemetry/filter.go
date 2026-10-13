@@ -1,12 +1,12 @@
 // Package telemetry sends diagnostic counts to a receiver the operator runs.
 //
-// Item 2jg. Three things make an opt-out defensible, and all three live here:
+// Three things make an opt-out defensible, and all three live here:
 // an ALLOW-LIST rather than a deny-list, so a new event type is silently
 // dropped and loudly unclassified; REDACTION applied to everything that leaves,
 // as a belt against a field that turns out to carry more than it should; and an
 // OFF SWITCH that detaches rather than filters.
 //
-// Item 2lr: the RECEIVER is the VPS. Nothing in this package receives anything.
+// the RECEIVER is the VPS. Nothing in this package receives anything.
 package telemetry
 
 import (
@@ -24,7 +24,7 @@ const SchemaVersion = 1
 // Classification is what the allow-list says about one event type. There are
 // exactly two answers and "not mentioned" is not one of them: an unclassified
 // type is a test failure, because absence is indistinguishable from an
-// oversight, which is the same defect item 2lq found in a bench list.
+// oversight, which is the same defect found in a bench list.
 type Classification struct {
 	// Fields are the event-data keys that may be sent, in the order
 	// docs/TELEMETRY.md lists them. An empty Fields with Sent true means the
@@ -47,7 +47,7 @@ var allowList = map[string]Classification{
 		"total_ms", "model_ms", "tool_ms", "waiting_ms", "compaction_ms",
 		"prompt_ms", "generation_ms",
 		"retries", "compactions", "empty_replies", "repeated_calls",
-		// Item 2lx: the two counts item 2ls's reflection floor reads are the two
+		// the two counts the reflection floor reads are the two
 		// counts telemetry sends. They are COUNTS -- how many model calls, how
 		// many tool results -- and carry no tool name, no model name and no
 		// argument content, which is what makes them sendable under 2jg's
@@ -59,12 +59,12 @@ var allowList = map[string]Classification{
 		"model_class",
 	),
 	"tool.result": sent("name", "ok", "ms", "class"),
-	// Item 2pw: the flight recorder's two events, whose shape is
+	// the flight recorder's two events, whose shape is
 	// docs/telemetry-trace.md. A qualifying failed run emits its own `trace`.
 	"trace": sent("report_id", "runs"),
 	"run.summary": sent("inference_calls", "tool_calls", "max_fill_pct", "loop", "stop_reason", "ttft_ms",
 		"reasoning_tokens", "compactions", "approval_wait_seconds", "wall_seconds"),
-	// Item 2q6: built by the recorder per run or per change, never per request.
+	// built by the recorder per run or per change, never per request.
 	// `compaction` here is the run's aggregate; the bus event of that name is
 	// never sent itself (RecorderTypes).
 	"compaction": sent("count", "kind", "trigger", "before", "after", "outcomes"),
@@ -78,7 +78,7 @@ var allowList = map[string]Classification{
 	"connection.state": sent("from", "to", "cause"),
 	"update":           sent("check", "install", "from", "to"),
 	"settings.shape":   sent("connections", "telemetry", "os_version"),
-	// Item 2q7: per hour, from the recorder only.
+	// per hour, from the recorder only.
 	"app.start":     sent("listen_ms", "window_ms", "first_answer_ms", "previous_exit"),
 	"app.lifecycle": sent("phase", "cause", "uptime_s", "previous_exit"),
 	"page.health":   sent("state_bytes", "state_ms", "page_load_ms", "longest_freeze_ms", "js_errors"),
@@ -111,7 +111,7 @@ var allowList = map[string]Classification{
 	"memory.noted": dropped, "memory.cleared": dropped, "memory.flushed": dropped,
 	"project.instructions_loaded": dropped,
 	"connection.probed":           dropped, "connection.health": dropped, "probe.request": dropped, "config.changed": dropped,
-	// Item 2nb (b): one per address an endpoint walk tries. It names the operator's own
+	// one per address an endpoint walk tries. It names the operator's own
 	// server and what it answered, which is exactly the kind of thing that never leaves.
 	"connection.discovering": dropped,
 	"shell.identity":         dropped, "shell.credential": dropped, "shell.grant": dropped,
@@ -130,10 +130,10 @@ var allowList = map[string]Classification{
 	// projection.patch and snapshot are the same material: the whole conversation
 	// as a client reads it. Dropped, emphatically.
 	"projection.patch": dropped, "snapshot": dropped,
-	// Item 2ls's accounting line. Dropped: it is two counts about one of the
+	// the accounting line. Dropped: it is two counts about one of the
 	// operator's own runs and nothing outside this machine needs it.
 	"reflection.skipped": dropped,
-	// Item 2pw: the recorder reads it; the name is the model's own word.
+	// the recorder reads it; the name is the model's own word.
 	"tool.unoffered": dropped,
 }
 
@@ -192,7 +192,7 @@ func Redact(value string) string {
 	return value
 }
 
-// RedactFull applies exactly the same rules WITHOUT the length cut. Item 2mv's
+// RedactFull applies exactly the same rules WITHOUT the length cut. the
 // diagnostics export needs it for log lines: a cut stack trace is worth nothing,
 // and duplicating these patterns anywhere else is how two redactors drift apart.
 // Every caller that sends data off the machine wants Redact, not this.
@@ -205,7 +205,7 @@ func RedactFull(value string) string {
 
 // Pick applies one classification to one event's data: the allow-listed fields,
 // redacted, and nothing else. A field the event does not carry is ABSENT rather
-// than zero — item 2ji's prompt_ms and generation_ms depend on that, and a
+// than zero — the prompt_ms and generation_ms depend on that, and a
 // receiver cannot tell a measured zero from a missing one otherwise.
 func Pick(class Classification, data map[string]any) map[string]any {
 	if !class.Sent {

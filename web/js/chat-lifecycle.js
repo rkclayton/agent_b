@@ -63,7 +63,7 @@ export function stateGlyph(session) {
   return "○";
 }
 
-// Item 2go (v1.2.5): a chat shows its NAME. Before the operator has said
+// a chat shows its NAME. Before the operator has said
 // anything there is nothing to name it after, so it reads "new chat" - never
 // the role, which the robot glyph and its hover already carry.
 export function chatName(session) {

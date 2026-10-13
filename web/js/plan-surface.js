@@ -72,7 +72,7 @@ export function workerProposals(sessions, session) {
 export function proposalLabel(proposal) { return `${proposal.kind} · ${proposal.path} · ${proposal.item_id}`; }
 export function proposalKey(proposal) { return JSON.stringify([proposal.id, proposal.kind, proposal.path, proposal.old_text, proposal.new_text, proposal.item_id]); }
 
-// Item 2fc: the Plan page's pure parts, kept here so they can be tested.
+// the Plan page's pure parts, kept here so they can be tested.
 
 // changedLines are the lines of next that were not in previous, counted as a
 // multiset so a repeated line is new only when it appears more often.

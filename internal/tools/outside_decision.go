@@ -23,7 +23,7 @@ type outsideDecision struct {
 // statementBreak splits a command line into statements: && and || before the
 // single separators, then ; | & and line breaks. A bare & is cmd's separator
 // and PowerShell's call operator; splitting on it only makes more statements,
-// and only a navigation statement is ever exempt (v1.0.0/W4 cold review: `cd
+// and only a navigation statement is ever exempt (cold review: `cd
 // /d C:\ & type <outside file>` was one statement headed by cd).
 var statementBreak = regexp.MustCompile(`&&|\|\||[;|&\r\n]`)
 
@@ -35,13 +35,13 @@ var navigationVerbs = map[string]bool{
 // laterRead is a file-reading verb or form. After a directory change to an
 // outside folder it would read relative to that folder, so the change counts
 // as a read of it: `cd C:\secret; type key.txt` still reaches the card.
-// The v1.0.0/W4 cold review widened it with the forms that read or carry a
+// The cold review widened it with the forms that read or carry a
 // relative file after a directory change: certutil, robocopy, xcopy, fc,
 // comp, print, archivers, Invoke-Expression, subshells, openers, uploaders,
 // and any [IO.*] class.
 var laterRead = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(type|cat|gc|get-content|more|less|head|tail|select-string|sls|findstr|copy|cp|copy-item|move|mv|move-item|import-\w+|get-filehash|format-hex|readall\w*|open|certutil|robocopy|xcopy|fc|comp|print|tar|7z|expand|expand-archive|compress-archive|makecab|iex|invoke-expression|invoke-command|icm|powershell|pwsh|cmd|start|start-process|saps|invoke-item|ii|notepad|curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|bitsadmin|streamreader)([^a-z0-9_-]|$)|\[(system\.)?io\.\w+\]|<`)
 
-// laterWrite is a form that writes, moves or deletes. Item 2q3 (c): Agent_b's own
+// laterWrite is a form that writes, moves or deletes. Agent_b's own
 // data and install folders are read without a card only when no such form is in
 // the statement or after it, so a path carried in a variable still asks.
 var laterWrite = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(set-content|sc|add-content|ac|out-file|new-item|ni|remove-item|rm|ri|del|erase|rd|rmdir|mkdir|md|move|mv|move-item|copy|cp|copy-item|cpi|rename-item|ren|rni|clear-content|clc|set-item|tee|tee-object|writeall\w*|appendall\w*|streamwriter|icacls|takeown|attrib|open)([^a-z0-9_-]|$)|>`)
@@ -102,7 +102,7 @@ func statementArguments(statement string) string {
 }
 
 // outsideCommandDecision classifies each literal outside path by the statement
-// it sits in (item 2fz): an argument of a directory change or listing runs,
+// it sits in: an argument of a directory change or listing runs,
 // unless a file read follows it in the same source; any other outside path is
 // a read and raises the same card whether the path exists or not (a denied or
 // unknown stat still counts as existing, 2fy's rule). Forms the guard cannot
@@ -157,7 +157,7 @@ func outsideCommandDecision(source string, s *session.Session, trusted []config.
 			folders = appendUniquePath(folders, holdingFolder(path))
 		}
 	}
-	// Item 2q4 (c): folders that share a parent under the user's profile are one
+	// folders that share a parent under the user's profile are one
 	// question about that parent.
 	if home, err := os.UserHomeDir(); err == nil && len(folders) > 1 {
 		parent := folders[0]
@@ -201,7 +201,7 @@ func trustedPath(path string, entries []config.TrustedFolder) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
-	// Item 2q4 (b): a path that does not exist as written (s51's `logs\*.log`) is
+	// a path that does not exist as written (s51's `logs\*.log`) is
 	// judged by the nearest folder above it that does; links resolve on that part.
 	real, err := session.RealPath(path)
 	for current := filepath.Clean(path); err != nil && filepath.Dir(current) != current; current = filepath.Dir(current) {

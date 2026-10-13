@@ -5,7 +5,7 @@ export const thinThoughtTokenLimit = 64;
 
 export function hasVisibleChatContent(item) {
   if (!item || typeof item !== "object") return true;
-  // A run that finished had nothing to say, so its notice was hidden. Item 2ji
+  // A run that finished had nothing to say, so its notice was hidden.
   // (b) gives it something to say — where the time went — so it is hidden only
   // when there is no time to report, which is every run journalled before that.
   if (item.type === "notice" && item.event?.type === "run.stopped" && item.event?.data?.reason === "done") {
@@ -64,7 +64,7 @@ export function responseBlocks(items = []) {
       if (item.reasoning) block.steps.push({ ...item, key: `thought:${item.key || index}`, text: "", done: true });
       continue;
     }
-    // Item 2mu (a): ONE KEY FROM THE FIRST DELTA TO THE LAST.
+    // ONE KEY FROM THE FIRST DELTA TO THE LAST.
     //
     // A streaming agent item with reasoning and no text yet used to come through
     // here under its OWN key, and the instant it gained a text delta the branch

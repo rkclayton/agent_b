@@ -3,9 +3,9 @@
 // Package quietproc starts child processes without putting a window on the
 // operator's screen.
 //
-// Item 2na: he works on this machine while Agent_b and its gates run, and a child
+// he works on this machine while Agent_b and its gates run, and a child
 // started with the platform's defaults takes whatever window the platform gives it —
-// a console for every PowerShell, a real window for the installer. Item 2nf (d) is the
+// a console for every PowerShell, a real window for the installer. is the
 // same rule met from the other side: his Update attempt left a console behind after the
 // installer had already exited, with nothing readable in it.
 //

@@ -38,7 +38,7 @@ func (s *Server) planSurface(w http.ResponseWriter, r *http.Request) {
 	}
 	planDir, err := s.planDirFor(item)
 	if errors.Is(err, errNoPlan) {
-		// Item 2fo: a chat without a plan is an ordinary state, not a conflict.
+		// a chat without a plan is an ordinary state, not a conflict.
 		writeJSON(w, http.StatusOK, map[string]any{"plan": "", "notes": "", "no_plan": true, "reason": err.Error()})
 		return
 	}
@@ -107,7 +107,7 @@ func (s *Server) planAccept(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error(), "proposal")
 		return
 	}
-	// Item 2bq: the plan lint runs on Accept too, and its findings go back to
+	// the plan lint runs on Accept too, and its findings go back to
 	// the panel with the result.
 	diagnostics := []worker.Diagnostic{}
 	if planDir, err := s.planDirFor(item); err == nil && planDir != "" {
@@ -186,7 +186,7 @@ func validatePlanProposal(value planProposal) error {
 		if !strings.Contains(value.NewText, value.OldText) || len(value.NewText) <= len(value.OldText) {
 			return fmt.Errorf("add proposals must preserve the exact source span")
 		}
-		// Item 2bq: an item written into its own file carries its contract and
+		// an item written into its own file carries its contract and
 		// the command that verifies it, read exactly as the worker reads it (in
 		// the header, before the first heading), so the tray cannot accept a
 		// verifier Go won't see.
@@ -249,13 +249,13 @@ func (s *Server) acceptPlanProposal(r *http.Request, item *session.Session, prop
 			ToolsEnabled: map[string]bool{"edit_file": true}, LastSeen: map[string]time.Time{},
 		}
 	}
-	// Item 2fx: Accept refuses a verifier that can never pass, with the lint's words.
+	// Accept refuses a verifier that can never pass, with the lint's words.
 	if contradictions := worker.ContradictoryVerifiers(proposal.Path, proposal.NewText); len(contradictions) > 0 {
 		return "", fmt.Errorf("verifier contradicts itself: %s", contradictions[0])
 	}
 	writer.SetPlanPage(true)
 	// The accepted old_text is the browser's exact observed span; count that
-	// observation for the existing cross-session edit coordinator. Item 2mn (a):
+	// observation for the existing cross-session edit coordinator.
 	// under the file's own key, which is what the coordinator records against, so
 	// a d-session's accepted edit is seen by a session in another scratch root.
 	writer.Touch(session.FileKey(filepath.Join(writer.PlanDir, proposal.Path)))

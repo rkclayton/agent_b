@@ -54,7 +54,7 @@ type CallService struct {
 	now      func() time.Time
 	listener string
 	change   func(ConnectorChange) error
-	// Item 2nv: the named-credential store, and a client a test can hand in so an
+	// the named-credential store, and a client a test can hand in so an
 	// https stub can be reached without loosening anything in the product path.
 	vault      *credential.Vault
 	testClient *http.Client
@@ -93,7 +93,7 @@ func (*CallService) Description() string {
 	return "Call a registered service, or when the user asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
 }
 
-// Schema is built from the CONFIGURED CONNECTORS each time it is asked for. Item 2nr (d):
+// Schema is built from the CONFIGURED CONNECTORS each time it is asked for.
 // a connector that has imported a document lists its enabled operations and their
 // parameters here, so the model needs no prose note and no second tool. The definition is
 // assembled per request (internal/agent/run.go calls Registry.Schemas), so a connector
@@ -204,7 +204,7 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 		}
 	}
 	change.Service.TimeoutS, change.Service.MaxBodyKB = 60, 64
-	// Item 2nr (b): the proposal may name an OpenAPI document and the operations to
+	// the proposal may name an OpenAPI document and the operations to
 	// enable. NOTHING IS FETCHED HERE — parsing a proposal does no I/O; the approval path
 	// fetches the document once, shows it on the same card, and records the snapshot.
 	if raw, present := entry["openapi"]; present && raw != nil {
@@ -272,7 +272,7 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 			detail.Err = fmt.Errorf("connector changes are unavailable")
 			return detail
 		}
-		// Item 2nr (b): the document the operator approved is fetched once — this reads
+		// the document the operator approved is fetched once — this reads
 		// the same five-minute entry the approval card was drawn from — and the
 		// operations he enabled must be operations it declares.
 		if change.Service.OpenAPI != nil {
@@ -303,7 +303,7 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 		return detail
 	}
 	operationName, _ := args["operation"].(string)
-	// Item 2nr (a) and (c): the operation form, and the document as the allow-list. Both
+	// the operation form, and the document as the allow-list. Both
 	// end as the ordinary call below — one code path from here down, which is (f).
 	if service, registered := c.service(serviceName); registered && service.OpenAPI != nil {
 		rewritten, err := c.operationArgs(serviceName, service, args)
@@ -419,7 +419,7 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 
 	authorization, token, operatorContext := "", "", false
 	credentialHeaders := http.Header{}
-	// Item 2nv (f): the origin the credential is approved for, resolved BEFORE any
+	// the origin the credential is approved for, resolved BEFORE any
 	// credential is acquired. A connector with no credential is untouched by this.
 	credentialOrigin := ""
 	if registered {
@@ -636,7 +636,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 	if auth == "none" {
 		return "", "", nil, false, nil
 	}
-	// Item 2nv (b): a stored credential, by reference. Its binding carries the origin and
+	// a stored credential, by reference. Its binding carries the origin and
 	// the header, and the origin is checked before the secret is read.
 	if strings.HasPrefix(auth, "stored:") {
 		attached, storedErr := c.storedCredential(auth, target)
@@ -702,7 +702,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 	}
 	credentialContext, cancel := context.WithTimeout(ctx, time.Duration(service.TimeoutS)*time.Second)
 	defer cancel()
-	// Item 2nv (f): a helper's output is a credential like any other, so the request's
+	// a helper's output is a credential like any other, so the request's
 	// destination must be the connector's own approved origin before the helper is run.
 	origin, originErr := approvedOrigin(service.BaseURL)
 	if originErr != nil {
@@ -712,7 +712,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 		return "", "", nil, true, destinationErr
 	}
 	command := exec.CommandContext(credentialContext, argv[0], argv[1:]...)
-	// (g): no window on the user's desktop, ever. Measured at W0: this child had
+	// no window on the user's desktop, ever. Measured at W0: this child had
 	// none of the quiet-start flags, so a console helper flashed a window.
 	quietproc.Quiet(command)
 	output, runErr := command.Output()
@@ -962,7 +962,7 @@ func parseServiceHeaders(raw any) (http.Header, error) {
 	return headers, nil
 }
 
-// serviceClient is the request's client. Item 2nv (f): when a credential is attached, a
+// serviceClient is the request's client. when a credential is attached, a
 // redirect that leaves the approved ORIGIN — another scheme, another port, another host —
 // is refused rather than followed, because the credential travels with the redirect.
 // The host-only rule stays for a connector with no credential.
@@ -1067,7 +1067,7 @@ func requiredString(args map[string]any, key string) (string, bool) {
 	return value, ok && value != ""
 }
 
-// --- item 2nr: the imported document, the operations it offers, and the call ---
+// the imported document, the operations it offers, and the call ---
 
 // enabledOperations reads the connector's snapshot, checks it against the hash recorded
 // when the operator approved it, and returns the operations he enabled. (g): a snapshot

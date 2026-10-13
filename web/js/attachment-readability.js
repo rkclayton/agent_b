@@ -12,7 +12,7 @@ export function attachmentReadability(session, connections, attachment) {
     return "This PDF needs extraction before the connection can read it";
   if (attachment?.kind === "pdf" && handling === "auto" && !capabilities.document_input)
     return "This connection cannot read PDFs · probe found no document input";
-  // Item 2ch (v1.2.5): a PDF has two routes and the operator chose - sidecar by
+  // a PDF has two routes and the operator chose - sidecar by
   // default, inline only under the threshold. The chip NAMES the route rather
   // than leaving him to infer it from the size and the connection.
   if (attachment?.kind === "pdf")

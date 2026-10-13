@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Item 2nv (a): STORAGE, and only storage. A vault credential is kept exactly the way
+// STORAGE, and only storage. A vault credential is kept exactly the way
 // this package already keeps a model connection's key — one DPAPI blob per name under the
 // operator data root, user scope, written through the same Store — and the vault adds
 // only the plain record of what each one is for: its origin, the header it is sent as,

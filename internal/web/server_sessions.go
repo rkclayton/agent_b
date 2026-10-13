@@ -499,7 +499,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"session": updated.Snapshot()})
 		return
 	}
-	// Item 2hq (v1.6.2): close and delete are distinct HTTP acts. Closing keeps
+	// close and delete are distinct HTTP acts. Closing keeps
 	// the retained chat and only removes it from the open tab set; reopening is
 	// the existing inverse above. Permanent deletion remains DELETE below and
 	// refuses an open chat.
@@ -605,7 +605,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "session not found", "session")
 			return
 		}
-		// Item 2py (f): DELETE ON AN OPEN OR RUNNING CHAT IS ONE ACT. "if its live chat
+		// DELETE ON AN OPEN OR RUNNING CHAT IS ONE ACT. "if its live chat
 		// you close the chat then delete it": a running run is stopped, the chat is
 		// closed, and then it is deleted.
 		if item.IsRunning() && s.scheduler != nil {
@@ -617,7 +617,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		// Item 2hq, as 2py changed it: the journal, the scratch folder, its
+		// as 2py changed it: the journal, the scratch folder, its
 		// attachments, its history entry and its tab go, and no copy is written;
 		// what the chat produced elsewhere - memory notes, plans, files written
 		// into a repository - is not the chat and stays.
@@ -638,7 +638,7 @@ func (s *Server) deleteChat(item *session.Session) (events.SessionInventory, err
 	if s.runner != nil {
 		s.runner.LapseSessionGrants(id)
 	}
-	// Item 2py (a): DELETE DELETES. No export is written; what was said is gone, and
+	// DELETE DELETES. No export is written; what was said is gone, and
 	// every client — the paired phone included — is told so it drops its copy.
 	inventory, err := s.registry.Delete(id)
 	if err == nil && scratch && withinRoot(filepath.Join(s.profileRoot(), "chats"), workspace) {

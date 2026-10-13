@@ -82,13 +82,13 @@ func setSignInStart(enabled bool, command string) error {
 	return approved.SetBinaryValue(signInValue, []byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
 }
 
-// osVersion is item 2q6 (g)'s OS version: numbers only.
+// osVersion is the OS version: numbers only.
 func osVersion() string {
 	info := windows.RtlGetVersion()
 	return fmt.Sprintf("windows %d.%d.%d", info.MajorVersion, info.MinorVersion, info.BuildNumber)
 }
 
-// totalRAM is item 2q7 (e)'s installed memory, from GlobalMemoryStatusEx.
+// totalRAM is the installed memory, from GlobalMemoryStatusEx.
 func totalRAM() int64 {
 	var status struct {
 		Length, MemoryLoad                                 uint32

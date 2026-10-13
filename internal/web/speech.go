@@ -18,7 +18,7 @@ import (
 	"harness/internal/quietproc"
 )
 
-// Item 2ge (v1.2.2/W1): what the microphone can do on this host, answered by
+// what the microphone can do on this host, answered by
 // Windows rather than assumed.
 //
 // The operator asked for Windows' own recogniser, the one behind Win+H, run
@@ -66,7 +66,7 @@ func (s *Server) speechStatus(ctx context.Context) SpeechStatus {
 
 func (s *Server) probeSpeech(ctx context.Context) SpeechStatus {
 	script := filepath.Join(s.roots.Application, "scripts", "speech-probe.ps1")
-	// Item 2gc: Windows' own utilities by absolute path, never a bare name.
+	// Windows' own utilities by absolute path, never a bare name.
 	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	probeContext, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -100,7 +100,7 @@ func (s *Server) speechHandler(w http.ResponseWriter, r *http.Request) {
 // operator dictates. Where dictation cannot run, it says so once and closes,
 // so the page never waits on a stream that will never speak.
 //
-// Item 2ge (v1.2.4): it drives scripts/speech-helper.ps1, which runs the
+// it drives scripts/speech-helper.ps1, which runs the
 // recogniser Windows ships IN THIS MACHINE and writes one JSON line per
 // hypothesis and per utterance. Those lines are forwarded as they arrive. No
 // audio and no text made from it goes anywhere else: the helper reads an audio
@@ -142,7 +142,7 @@ func (s *Server) speechStreamHandler(w http.ResponseWriter, r *http.Request) {
 		send(map[string]any{"error": "the dictation helper is not installed", "done": true})
 		return
 	}
-	// Item 2gc: Windows' own utilities by absolute path, never a bare name.
+	// Windows' own utilities by absolute path, never a bare name.
 	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	arguments := []string{"-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script}
 	// A wave file is the gate's input, and it is accepted ONLY from the

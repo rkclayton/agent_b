@@ -64,7 +64,7 @@ func (c Config) validateBasics() error {
 	if c.Chat.TextColor != "" && !allowed(c.Chat.TextColor, ChatTextColors) {
 		return fmt.Errorf("chat.text_color: %q is not offered", c.Chat.TextColor)
 	}
-	// Item 2mf: an unknown hidden surface would be a surface nothing can bring
+	// an unknown hidden surface would be a surface nothing can bring
 	// back, so the name is refused rather than stored and forgotten.
 	for _, name := range c.Chat.HiddenSurfaces {
 		if !slices.Contains(HideableSurfaces, name) {
@@ -138,7 +138,7 @@ func (c Config) validateConnections() (map[string]bool, error) {
 		if p.Context.ReserveOutput < 0 {
 			return nil, fmt.Errorf("%s.context.reserve_output: cannot be negative", prefix)
 		}
-		// Item 2l9 (e3): the one hard limit here. Output is carved out of the
+		// the one hard limit here. Output is carved out of the
 		// context window, so a reserve larger than half of it starves the prompt it
 		// is taken from. The bound never falls below the reserve every version has
 		// shipped as its default, because a rule that refuses a configuration the
@@ -311,7 +311,7 @@ func (c Config) validateTools() error {
 	if c.Tools.WebSearch.BenchDurationMinutes < 1 || c.Tools.WebSearch.BenchDurationMinutes > 10080 {
 		return fmt.Errorf("tools.web_search.bench_duration_minutes: must be between 1 and 10080")
 	}
-	// Item 2lq: startpage and mojeek were retired on 2026-09-26 and dropped from the
+	// startpage and mojeek were retired on 2026-09-26 and dropped from the
 	// default list, but they stay KNOWN here on purpose. A saved config that still
 	// names one of them predates the retirement, and refusing to load it would stop
 	// the agent over an engine it simply no longer has an adapter for. They are
@@ -385,7 +385,7 @@ func (c Config) validateShellAndOutput() error {
 // ConnectionSetupReason explains incomplete first-run connection settings without
 // making the configuration file itself invalid.
 // ModelPlaceholder is the literal string a connection used to be created with, and
-// item 2nq (b): it is NEVER a model. The operator met it as a model name his server
+// it is NEVER a model. The operator met it as a model name his server
 // refused — "it says 'model' is not a type. MODEL WAS NEVER PUT IN BY ME" — and two
 // earlier items stopped new connections getting it without ever saying what it means
 // when it is already there. It means no model was chosen.
@@ -422,7 +422,7 @@ func ValidateServiceAuth(value string) error {
 	if value == "none" {
 		return nil
 	}
-	// Item 2nv (b): a connector's auth is a REFERENCE to a stored credential. The value
+	// a connector's auth is a REFERENCE to a stored credential. The value
 	// itself is never in the configuration.
 	if strings.HasPrefix(value, "stored:") {
 		name := strings.TrimSpace(strings.TrimPrefix(value, "stored:"))
@@ -438,7 +438,7 @@ func ValidateServiceAuth(value string) error {
 		}
 		return nil
 	}
-	// (h): static_bearer is RETIRED, but a configuration that still carries one must LOAD
+	// static_bearer is RETIRED, but a configuration that still carries one must LOAD
 	// — that is what the migration reads. So it is accepted here and refused in the two
 	// places that would let a new one exist: a connector proposal, and Save.
 	if strings.HasPrefix(value, "static_bearer:") {
@@ -455,7 +455,7 @@ func ValidateServiceAuth(value string) error {
 }
 
 // ValidateNewServiceAuth is the rule for auth that is being WRITTEN: a connector the
-// model proposes, or a configuration being saved. Item 2nv (h): static_bearer cannot be
+// model proposes, or a configuration being saved. static_bearer cannot be
 // created any more, only migrated away.
 func ValidateNewServiceAuth(value string) error {
 	if strings.HasPrefix(strings.TrimSpace(value), "static_bearer:") {

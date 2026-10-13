@@ -7,7 +7,7 @@ import (
 	"harness/internal/session"
 )
 
-// Item 13 (v1.2.5): one search tool with a target, replacing search_text and
+// one search tool with a target, replacing search_text and
 // find_files.
 //
 // The two had overlapping descriptions - each had to say "unlike the other

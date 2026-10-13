@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Item 2mr (a) and (c): THE INSTALLER'S OWN OUTCOME, READ BACK.
+// THE INSTALLER'S OWN OUTCOME, READ BACK.
 //
 // The operator pressed Update on his own client at 02:03 on 2026-09-27, watched it
 // say "downloading and verifying", and watched it go back to "update available"
@@ -22,7 +22,7 @@ import (
 //	dedicated Agent_b or workspace directory: ...\profiles\someone\scratch"}
 //
 // and nothing read it. That file is the installer's own voice, written by the
-// installer itself so the readout survives the wrapper (item 2gl), so it is the
+// installer itself so the readout survives the wrapper, so it is the
 // right thing to read: no new channel, no guess about what went wrong.
 //
 // A failure is reported in the installer's WORDS. A success is not reported here
@@ -75,7 +75,7 @@ func readInstallFailure(dataRoot string, since time.Time) string {
 // control the operator is looking at, and a successful one replaces this process
 // before the watch matters.
 //
-// Item 2nh (a) and (d): IT ALSO FOLLOWS THE PHASES. The same file that carries the
+// IT ALSO FOLLOWS THE PHASES. The same file that carries the
 // verdict carries the sequence, and the operator's complaint was not that the
 // update failed — it succeeded — but that nothing showed it happening. Each new
 // phase the installer writes becomes the line on the one wait element, so the
@@ -103,11 +103,11 @@ func (m *Manager) watchInstallOutcome(started time.Time) {
 			continue
 		}
 		if outcome.OK {
-			// Item 2mk (a): AN INSTALL THAT FINISHED WITHOUT REPLACING THIS PROCESS
+			// AN INSTALL THAT FINISHED WITHOUT REPLACING THIS PROCESS
 			// IS NOT A SUCCESS THIS WINDOW CAN CLAIM. outcomeFor only returns an OK
 			// for the version this process is running, so reaching here at all means
 			// the installer finished and something else is still serving — which is
-			// exactly what happened on 2026-09-26: v1.22.0 was written to the
+			// exactly what happened on 2026-09-26: was written to the
 			// per-user root while the window went on being answered by another
 			// instance, and nothing said so for eleven releases.
 			m.mu.Lock()
@@ -130,7 +130,7 @@ func (m *Manager) watchInstallOutcome(started time.Time) {
 		m.publish(state)
 		return
 	}
-	// The bound passed with no verdict. Item 2nh (a): the stage the wait element is
+	// The bound passed with no verdict. the stage the wait element is
 	// showing is no longer true, and an element that waits forever is worse than
 	// none — InstallOutcomeTimeout exists precisely because saying nothing is the
 	// honest answer here.

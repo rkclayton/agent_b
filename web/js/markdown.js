@@ -42,7 +42,7 @@ function listLine(line) {
 
 function fencedBlock(document, lines, start, indent) {
   const code = [];
-  // Item 2m8 (b): KEEP THE INFO STRING. The opening fence may carry a language
+  // KEEP THE INFO STRING. The opening fence may carry a language
   // and it was thrown away, so a reader could not tell PowerShell from JSON
   // without reading the code. No highlighting in this item — the label, and the
   // hook for it.
@@ -58,7 +58,7 @@ function fencedBlock(document, lines, start, indent) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "code-copy";
-  // Item 2m8 (d): the copy control STOPS BORROWING THE PAPERCLIP. The same glyph
+ // the copy control STOPS BORROWING THE PAPERCLIP. The same glyph
   // meant "attach a file" in the composer and "copy this" here, which teaches a
   // reader that a glyph means whatever the surface feels like. Two overlapping
   // squares is the copy idiom and it is not used for anything else here.

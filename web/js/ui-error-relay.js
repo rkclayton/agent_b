@@ -54,7 +54,7 @@ export function installUIErrorRelay(context = {}) {
 	window.addEventListener("unhandledrejection", (event) => relay("unhandled rejection", stringify(event.reason), event.reason?.stack || "", errorOrigin(event.reason)));
 }
 
-// Item 2q7 (b): an error's name and where in OUR code it was thrown — a file
+// an error's name and where in OUR code it was thrown — a file
 // name of ours under /js/ and a line number, never a message or a value.
 export function errorOrigin(error, filename = "", line = 0) {
 	const name = typeof error?.name === "string" && /^[A-Za-z]{1,40}$/.test(error.name) ? error.name : "";

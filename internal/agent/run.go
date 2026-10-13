@@ -272,7 +272,7 @@ func lastAssistantSummary(transcript []events.Message) string {
 }
 
 // ReserveIDs moves the id counter past floor, so ids minted after a restart
-// never repeat one a restored chat already holds (item 2es).
+// never repeat one a restored chat already holds.
 func (r *Runner) ReserveIDs(floor int64) { reserveCounter(&r.ids, floor) }
 
 func reserveCounter(counter *atomic.Int64, floor int64) {
@@ -316,7 +316,7 @@ func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, t
 }
 func (r *Runner) AppendUser(s *session.Session, message events.Message) {
 	s.Append(message)
-	// Item 2go: the chat takes its name from this message if it has none yet.
+	// the chat takes its name from this message if it has none yet.
 	// Once, from the user's own words, and never again by the harness.
 	r.nameFromFirstMessage(s, message.Content)
 	r.bus.Publish(events.New(events.MessageAppended, s.ID, "", map[string]any{"message": message}))
@@ -336,7 +336,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 
 var messageLimitPattern = regexp.MustCompile(`(?i)(conversation too long:\s*\d+ messages\s*\(limit\s*(\d+)\)?|[^\r\n\"]*message[^\r\n\"]*limit[^\r\n\"]*)`)
 
-// Item 2lf: the status the refusal arrives with is not the test. A server that
+// the status the refusal arrives with is not the test. A server that
 // refuses an over-large request with 500 or 413 says the same thing, and gating on
 // HTTP 400 first meant the connection learned nothing, compacted nothing and
 // retried nothing. The pattern remains the whole test, so an ordinary 400 or 500
@@ -359,7 +359,7 @@ func messageLimitError(err error) (int, string, bool) {
 	return limit, strings.TrimSpace(match[1]), true
 }
 
-// Item 2l8: the byte cap a server names in its refusal. Two currencies appear in
+// the byte cap a server names in its refusal. Two currencies appear in
 // the user's own evidence -- `prompt too large: 401628 bytes (limit 400000)`
 // and `conversation too long: 61 messages (limit 60)` -- and this reads the first.
 var byteLimitPattern = regexp.MustCompile(`(?i)([^\r\n"]*?(?:too large|too long|exceeds)[^\r\n"]*?\d+\s*bytes[^\r\n"]*?\(limit\s*(\d+)\))`)
@@ -396,7 +396,7 @@ func byteLimitTarget(limit int) int {
 // made when there is something new to send.
 func (r *Runner) compactForByteLimit(ctx context.Context, s *session.Session, runID string, connection *config.Connection, limit int, request llm.Request) bool {
 	before := llm.SerializedBytes(connection, request, true)
-	// Item 2o8 (a): TRIM BEFORE SUMMARY. A summary needs more than seven messages
+	// TRIM BEFORE SUMMARY. A summary needs more than seven messages
 	// and a request the server itself accepts; cutting the largest tool results in
 	// place needs neither, so it goes first and summary runs only if it was not
 	// enough.
@@ -683,7 +683,7 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 		"operator_context": operatorContext, "untrusted": untrusted, "ms": ms,
 		"bytes": len(content), "tokens": tokens, "preview": preview(content),
 	}
-	// Item 2jg (e): a failed tool result carries a CLASS from a closed
+	// a failed tool result carries a CLASS from a closed
 	// vocabulary, so telemetry has something to send that is not free text. A
 	// successful call has no class and the field is absent, not empty.
 	if !ok {
@@ -774,7 +774,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		if connectorErr != nil {
 			eventArgs["validation_error"] = connectorErr.Error()
 		}
-		// Item 2nv (e): a proposal that BINDS A CREDENTIAL, or that moves a bound
+		// a proposal that BINDS A CREDENTIAL, or that moves a bound
 		// connector to another address, says so on this card in those words — the
 		// credential's name and the exact origin it would be sent to. Nothing binds or
 		// moves silently, and the card is the existing one.
@@ -802,7 +802,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 				eventArgs["validation_error"] = originErr.Error()
 			}
 		}
-		// Item 2nr (b): a proposal that names an OpenAPI document is shown on THIS card,
+		// a proposal that names an OpenAPI document is shown on THIS card,
 		// with the operations it would enable and what the document says its own auth
 		// wants. The fetch happens once and is read again when the operator approves.
 		if connectorErr == nil && proposedConnector.Service.OpenAPI != nil {
@@ -889,7 +889,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if outsideCard {
 		overrideArgs["outside_folder_card"] = true
 	}
-	// v0.69.0/W12 cold review: run_script has no command or path argument, so
+	// cold review: run_script has no command or path argument, so
 	// its card showed nothing of what would run as the operator.
 	if source, _ := args["source"].(string); name == "run_script" && source != "" {
 		overrideArgs["source"] = source
@@ -897,7 +897,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			overrideArgs["language"] = language
 		}
 	}
-	// With no service identity, the outside-folder card (item 2fi): its "Yes,
+	// With no service identity, the outside-folder card: its "Yes,
 	// for this chat" holds for this chat's outside-folder calls in this posture.
 	// The identity grants below apply only with the service identity on, so
 	// storing them here left a grant that woke up if the posture changed. The
@@ -924,7 +924,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	outsideScope := overrideDecision
 	if len(outsideFolders) > 0 {
-		// Item 2q3 (b): a yes is acted on. A folder that cannot be kept as
+		// a yes is acted on. A folder that cannot be kept as
 		// trusted still runs this once; the note says it was not kept.
 		if outsideScope == "folder" && (r.trustFolders == nil || r.trustFolders(outsideFolders) != nil) {
 			outsideScope = "folder not kept"
@@ -1036,7 +1036,7 @@ func guardModelToolCalls(calls []events.ToolCall, offered map[string]bool) ([]ev
 }
 
 // withModelNote tells the model what happened to a call that did not succeed
-// (v0.65.0/W15 cold review): a denied, canceled or failed override is an error,
+// (cold review): a denied, canceled or failed override is an error,
 // not file content, and a model that is not told retries and prompts again. A
 // successful rerun's content stays exactly what the tool returned.
 func withModelNote(content, note string) string {
@@ -1044,7 +1044,7 @@ func withModelNote(content, note string) string {
 }
 
 // withHarnessNote records what the harness did around a tool call as a result
-// field, rendered as its own harness line. Item 2eo: prepended to the content,
+// field, rendered as its own harness line. prepended to the content,
 // the note was read by the model as the first line of the file it had asked for.
 func withHarnessNote(metadata map[string]any, note string) map[string]any {
 	next := cloneMetadata(metadata)
@@ -1198,7 +1198,7 @@ func estimatedTokenCount(text string) int {
 }
 
 func modelUnavailable(connection *config.Connection, err error) (string, bool) {
-	// Item 2fg: a canceled request says nothing about the model.
+	// a canceled request says nothing about the model.
 	if err == nil || errors.Is(err, context.Canceled) {
 		return "", false
 	}
@@ -1300,7 +1300,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	workspaceMemory := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock, "")
 	system := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
 	// As the run's own assembly does, harness abort records lead the list: a
-	// system-role record mid-history is refused by chat templates (item 2fg).
+	// system-role record mid-history is refused by chat templates.
 	all := s.MessagesCopy()
 	records := make([]events.Message, 0, len(all))
 	for _, message := range all {
@@ -1339,7 +1339,7 @@ func (r *Runner) withoutToolSystems(p *config.Connection, s *session.Session, en
 	return out
 }
 
-// compactAfterTurn projects the next request at the end of a turn. Item 2tv:
+// compactAfterTurn projects the next request at the end of a turn.
 // nothing already sent changes before summary_pct; at that line one pass first
 // stubs cheap old bodies and then summarizes only if needed to land at half.
 func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID string, turn int, p *config.Connection, current map[string]bool) bool {
@@ -1347,7 +1347,7 @@ func (r *Runner) compactAfterTurn(ctx context.Context, s *session.Session, runID
 }
 
 // compactAfterTurnForcing is compactAfterTurn with the cold-prefill deferral of
-// the batch elide overridden when force is set (item 2fv: a read window was
+// the batch elide overridden when force is set ( a read window was
 // just refused, so waiting a turn for a warm cache would only refuse again).
 func (r *Runner) compactAfterTurnForcing(ctx context.Context, s *session.Session, runID string, turn int, p *config.Connection, current map[string]bool, force bool) bool {
 	cfg := r.cfg()
@@ -1435,7 +1435,7 @@ func (r *Runner) compactToFit(ctx context.Context, s *session.Session, runID str
 	cfg := r.cfg()
 	readDefaultLimit := min(cfg.Tools.ReadFile.DefaultLimit, cfg.Tools.ReadFile.MaxLimit)
 	ctx = withCompactionTrigger(ctx, "overflow")
-	// Item 2q1 (d): a weak compaction in this turn is not repeated; the run ends
+	// a weak compaction in this turn is not repeated; the run ends
 	// instead of looping overflow, summarize, overflow as s51 did.
 	runTurn := s.Snapshot().Run.Turn
 	if r.compactionBlocked(s.ID, runID, runTurn) {
@@ -1477,7 +1477,7 @@ func (r *Runner) operationalError(s *session.Session, runID, where string, err e
 	r.bus.Publish(events.New(events.Error, s.ID, runID, map[string]any{"where": where, "message": err.Error()}))
 }
 
-// connectionKind is item 2pw/2q6's provider word: local, or somebody's api.
+// connectionKind is /2q6's provider word: local, or somebody's api.
 func connectionKind(connection *config.Connection) string {
 	if isLoopbackEndpoint(connection.BaseURL) {
 		return "local"
@@ -1534,7 +1534,7 @@ func requestParams(p *config.Connection, maxTokens int) map[string]any {
 }
 
 // keptReadsSentence names the reads still carried verbatim when a run stops
-// for context, so the stop says what it was holding on to (item 2et).
+// for context, so the stop says what it was holding on to.
 func keptReadsSentence(s *session.Session) string {
 	messages := s.MessagesCopy()
 	calls := map[string]events.ToolCall{}
@@ -1682,7 +1682,7 @@ func preview(value string) string {
 
 // truncationDetail names the cap the answer hit, its value and where it is set,
 // and distinguishes thinking having used the budget from the answer being cut
-// short. Item 2l9 (a) and (d): "The run stopped because of length" told the
+// short. "The run stopped because of length" told the
 // operator nothing, least of all that the limit was his own setting.
 func truncationDetail(connection *config.Connection, response llm.Response) string {
 	reserve := connection.Context.ReserveOutput
@@ -1701,7 +1701,6 @@ func truncationDetail(connection *config.Connection, response llm.Response) stri
 
 // keepTruncatedAnswer appends what the model did produce, marked truncated, so
 // the stop card's existing Continue action has something to continue from.
-// Item 2l9 (b).
 func (r *Runner) keepTruncatedAnswer(ctx context.Context, s *session.Session, runID string, connection *config.Connection, response llm.Response, turn int, currentReasoning map[string]bool) {
 	kept := strings.TrimSpace(response.Content)
 	if kept == "" {
@@ -1721,7 +1720,7 @@ func (r *Runner) keepTruncatedAnswer(ctx context.Context, s *session.Session, ru
 	})
 }
 
-// answerCeiling is the wall-clock bound on ONE answer (item 2l9 (e2)). Zero, the
+// answerCeiling is the wall-clock bound on ONE answer ). Zero, the
 // value every existing configuration carries, means no ceiling.
 func answerCeiling(connection *config.Connection) time.Duration {
 	if connection.Context.AnswerCeilingSeconds <= 0 {

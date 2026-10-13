@@ -23,9 +23,9 @@ import (
 //go:embed web_search_news.json
 var webSearchNewsJSON []byte
 
-// Item 2lq: a benched engine is a decision with a date, not a silence.
+// a benched engine is a decision with a date, not a silence.
 //
-// rel-1.17.0/W0 probed every benched engine against the capability suite's own
+// probed every benched engine against the capability suite's own
 // fixed query and the bench list turned out to be three days stale:
 //
 //	duckduckgo_html   10 results, no error   -> REVIVED, the reason was untrue
@@ -37,7 +37,7 @@ var webSearchNewsJSON []byte
 // that had stopped being true. That is the state this item exists to end: every
 // entry below carries what was observed and when it was observed.
 var initiallyBenchedWebSearchEngines = map[string]string{
-	// rel-1.23.0 card 5, DECIDED rather than carried: both DuckDuckGo endpoints
+	// DECIDED rather than carried: both DuckDuckGo endpoints
 	// answer the fixed query with an ANOMALY CHALLENGE and no result markup --
 	// html.duckduckgo.com with HTTP 202 and lite.duckduckgo.com with 200, both
 	// serving a challenge-form and an anomaly.js token. That is the engine's own
@@ -66,12 +66,12 @@ type webSearchHealth struct {
 	LastError           string
 	LastSuccess         time.Time
 	BenchedUntil        time.Time
-	// Item 2lq (c): why it is benched, in the words of whatever benched it. A
+	// why it is benched, in the words of whatever benched it. A
 	// bench with no reason is the silence this item exists to end.
 	BenchReason string
 }
 
-// Item 2lq (c): brave answers HTTP 429 to the capability suite's fixed query, and
+// brave answers HTTP 429 to the capability suite's fixed query, and
 // the old code could not tell that apart from a parser that had stopped working:
 // three of anything benched the engine for the same fixed interval with
 // "HTTP status 429" as the whole explanation.
@@ -171,7 +171,7 @@ func (*WebSearch) Schema() map[string]any {
 	}
 }
 
-// Item 2if: ten, because the model never set the limit and every call came back
+// ten, because the model never set the limit and every call came back
 // in blocks of five. One constant, so the tool and the gate that measures it
 // cannot drift apart -- the capability table hard-coded 5 and could never have
 // shown what shipped.
@@ -201,7 +201,7 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 		detail.Err = fmt.Errorf("kind must be web or news")
 		return detail
 	}
-	// Item 2if. The operator: "why is web search always in blocks of 5?" -- the
+	// The operator: "why is web search always in blocks of 5?" -- the
 	// schema said 5 and the model never set it, so every call returned five.
 	// "i want it set to 10, the model is calling it multiple times anyway."
 	limit := number(args["limit"], webSearchDefaultLimit)
@@ -249,7 +249,7 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 			continue
 		}
 		if health, ok := w.healthSnapshot(adapter.Name()); ok && health.BenchedUntil.After(now) {
-			// (b): a benched engine is reported WITH its reason, dated. The
+			// a benched engine is reported WITH its reason, dated. The
 			// caller used to be handed a bare name and a timestamp.
 			reason := health.BenchReason
 			if reason == "" {
@@ -357,7 +357,7 @@ func (w *WebSearch) searchOne(ctx context.Context, client *http.Client, cfg conf
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer response.Body.Close()
-	// (c): a rate limit is a distinct outcome, not one more failure.
+	// a rate limit is a distinct outcome, not one more failure.
 	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusServiceUnavailable {
 		fallback := time.Duration(w.configuredBenchMinutes()) * time.Minute
 		return nil, &webSearchRateLimited{
@@ -407,7 +407,7 @@ func (w *WebSearch) recordWebSearchFailure(name string, err error, cfg config.We
 	w.mu.Lock()
 	health := w.health[name]
 	health.LastError = err.Error()
-	// (c): a rate limit benches on the FIRST one, for as long as the engine
+	// a rate limit benches on the FIRST one, for as long as the engine
 	// asked, and says that is why. It does not count towards the broken-parser
 	// tally, because waiting is not breaking.
 	var limited *webSearchRateLimited

@@ -1,4 +1,4 @@
-// Item 2l5 (g): drawn to the sheet's weight and metrics — 13px, currentColor, no
+// drawn to the sheet's weight and metrics — 13px, currentColor, no
 // new colour and no new stroke width. Three of the four are icon-only, so every one
 // carries an accessible label at its call site.
 const connectionIcons = {
@@ -33,7 +33,7 @@ export function connectionFailureSentence(message, address) {
   return "The test failed.";
 }
 
-// Item 2px (e): every lamp and word comes from the server's one health state for
+// every lamp and word comes from the server's one health state for
 // the connection, never from whether a Test once passed. Grey "checking" only
 // until the first answer.
 export function connectionHealth(state, id) {
@@ -79,7 +79,7 @@ function connections() {
 // injection starts dropping its oldest notes. No control, no new row.
 const count = (value) => new Intl.NumberFormat().format(Number(value) || 0);
 
-// Item 2jf (e): the provenance is in the file, at the end of the line, in
+// the provenance is in the file, at the end of the line, in
 // brackets. Reading it back is the same parse the Go side does and it is
 // deliberately forgiving: a note written before this item has no brackets and
 // must still list, without claiming a scope it never had.
@@ -120,12 +120,12 @@ function memoryFinding() {
   const over = [];
   if (session.agent_memory_over_budget) over.push("agent");
   if (session.memory_over_budget) over.push("folder");
-  // Item 2jf (d): the harness no longer trims on the way in — a write that
+  // the harness no longer trims on the way in — a write that
   // would exceed the budget is REFUSED and the model is told to replace a note
   // it names — so this line says full rather than "oldest notes omitted".
   const suffix = over.length ? ` · ${over.join(" and ")} full; the next write is refused until a note is replaced` : "";
   const lines = [`<li>memory: agent ${agent}/${budget} · folder ${folder}/${budget}${suffix}</li>`];
-  // Item 2jf (f): the notes themselves, with their scope, date and provenance,
+  // the notes themselves, with their scope, date and provenance,
   // so the operator can see what the agent believes and where each belief came
   // from. PER-NOTE DELETE IS NOT HERE: it needs a control per row, and the
   // item’s own narrowing says to list it for veto and ship without it. The
@@ -175,15 +175,15 @@ function connectionFields(connection, reason, discovery) {
   ].map(([name, label, step, disabled]) => `<div class="sampling-label">${html(label)}</div>${["thinking", "nonthinking"].map((mode) => `<div>${numberControl(`${p}.sampling.${mode}.${name}`, shown.sampling[mode][name], step, disabled)}${disabled ? '<span class="control-note">llama.cpp only</span>' : ""}</div>`).join("")}`).join("");
 	const discoveredModels = discovery?.models || [];
 	const modelName = (model) => String(model).split(/[\\/]/).pop();
-	// Item 2nb (c): THE MODEL IS A DROPDOWN, ALWAYS. It used to be a text box until
+	// THE MODEL IS A DROPDOWN, ALWAYS. It used to be a text box until
 	// Test had listed something, which invited the operator to type a name nobody had
 	// checked — and the literal placeholder `model` that a new connection carried was
 	// exactly such a name, saved and then refused elsewhere. Empty now says what to do
 	// instead, and a server that cannot enumerate is one explicit choice away.
-	// Item 2px (c): until the server's list arrives, or when it cannot list, the field
+	// until the server's list arrives, or when it cannot list, the field
 	// takes a typed name; nothing waits on Test.
 	const typedByHand = typedModels?.has(id) || (!discoveredModels.length && !String(drafts.get(`${p}.model`) ?? connection.model ?? "").trim());
-	// Item 2nq (c) and (d): THE FIELD SHOWS WHAT HE PICKED. This read the SAVED model
+	// THE FIELD SHOWS WHAT HE PICKED. This read the SAVED model
 	// and never the draft, so every render after a choice — and Test is a render —
 	// redrew the saved value over it. The operator watched that happen with the old
 	// "model" placeholder and reported it as his pick being thrown away: "i select a
@@ -207,13 +207,13 @@ function connectionFields(connection, reason, discovery) {
 	const picker = typedByHand
 	  ? `<input class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text" value="${attr(draftModel ?? connection.model ?? "")}">`
 	  : `<select class="setting-input" data-path="${attr(`${p}.model`)}" data-kind="text">${options.join("")}</select>`;
-	// Item 2l1 (a2): one action, not two. Test contacts the address once and fills
+	// one action, not two. Test contacts the address once and fills
 	// the picker and the connection settings from that single result.
 	const modelPath = `${p}.model`;
 	const modelProblem = errors.get(modelPath) || "";
 	const modelListProblem = discovery?.modelListError || "";
 	const modelControl = `${row("model", `<span class="settings-actions">${picker}</span>`, modelProblem ? "invalid" : "", false)}${modelProblem ? errorMarkup(modelProblem, `field:${modelPath}`) : ""}${modelListProblem ? `<p class="settings-note alarm">model list not read — ${html(modelListProblem)}</p>` : ""}`;
-	// Item 2nb (g): ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
+	// ONE MESSAGE, ONE PLACE. The discovery result used to be rendered
 	// twice — once under base_url and once beside the Evaluation Harness button — and
 	// the operator saw three copies of one sentence. It belongs under the field it is
 	// about, and the row header carries the state word only.
@@ -222,11 +222,11 @@ function connectionFields(connection, reason, discovery) {
 	const measurementResult = measurement ? renderMeasurement(measurement) : "";
 	// The one note: the result of the last Test, or what discovery found.
 	const noteText = discovery?.message || (discovery?.base_url ? (discovery.found || `found ${discovery.base_url}`) : "");
-	// Item 2nb (b) and (i): while the walk runs, the seat below holds item 2m4's ONE
+	// while the walk runs, the seat below holds the ONE
 	// waiting element, mounted by the controller. A second indicator is not built here,
 	// and the note is replaced by it rather than sitting beside it.
 	const walking = discovery?.walking;
-	// Item 2nn (c): the bar lives in the CONTROL that was pressed now, so the field's
+	// the bar lives in the CONTROL that was pressed now, so the field's
 	// own seat is gone rather than showing a second one — 2m4's rule is one waiting
 	// element, and the one the operator is looking at is the one he just clicked.
 	const discoveryNote = walking
@@ -288,15 +288,15 @@ export function renderConnectionsPage(context) {
   return connections();
 }
 
-// Item 2ih (d): the Evaluation Harness screen renders the per-arm table and the
+// the Evaluation Harness screen renders the per-arm table and the
 // settings it wrote, and Connections shows the same table under the profile with
 // the measurement's date. It is the same function, because they are the same
 // table -- two renderings would drift apart within a release.
 //
-// (e): the probe's n_ctx and the window the model will actually run with are in
+// the probe's n_ctx and the window the model will actually run with are in
 // that table, so the operator sees the window rather than inferring it.
 //
-// A measurement recorded before rel-1.22.0 has one arm and no decision, and
+// A measurement recorded before has one arm and no decision, and
 // renders as what it was: this shows the arms only when both are present.
 export function renderMeasurement(measurement) {
   const when = html(measurement.measured_at || "measured");

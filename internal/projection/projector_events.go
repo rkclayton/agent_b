@@ -128,7 +128,7 @@ func projectRunQueued(next Snapshot, record Record, data map[string]any) Snapsho
 
 func projectRunResumed(next Snapshot, record Record) Snapshot {
 	next.Activity.StateStartedAt = eventMillis(record.Event)
-	// Item 2fs: an answered run took back the model slot it released on its
+	// an answered run took back the model slot it released on its
 	// card; unlike run.started nothing about the run resets.
 	next.Run.Status = "running"
 	next.Run.QueuePosition = 0
@@ -288,7 +288,7 @@ func projectSessionCreated(next, previous Snapshot, record Record) (Snapshot, er
 	if record.Event.SessionID != "" {
 		next.ID = record.Event.SessionID
 	}
-	// Item 2es: a retained chat restored at startup is announced again with
+	// a retained chat restored at startup is announced again with
 	// its original created_at. It keeps the transcript already projected
 	// from its earlier segments; reseeding it empty made a chat with twenty
 	// messages of model context look like a new one.
@@ -477,7 +477,7 @@ func projectStage(next Snapshot, record Record, data map[string]any) Snapshot {
 
 func projectModelDelta(next Snapshot, record Record, data map[string]any, live bool) Snapshot {
 	next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, true)
-	// Item 2gm: a delta mutates exactly ONE entry — the turn it belongs to
+	// a delta mutates exactly ONE entry — the turn it belongs to
 	// — so only that entry is copied. Deep-copying the whole transcript
 	// per delta was the rest of the startup cost once the JSON round-trip
 	// was gone. The other entries are shared with the previous snapshot
@@ -657,7 +657,7 @@ func projectMessageUpdated(next Snapshot, data map[string]any) Snapshot {
 }
 
 func projectMessagesReminted(next Snapshot, data map[string]any) Snapshot {
-	// Item 2fd rule 7: restore gave later copies of a repeated id new ids.
+	// rule 7: restore gave later copies of a repeated id new ids.
 	// Each change names its position, so only that copy is renamed, and a
 	// replay applies it once and never needs it again.
 	next.Messages = cloneMessages(next.Messages)
@@ -704,7 +704,7 @@ func projectMessageQueued(next Snapshot, data map[string]any) Snapshot {
 		return next
 	}
 	next.QueuedMessages++
-	// rel-1.23.0 card 5: the id, so a restart can rebuild the queue and not just
+	// the id, so a restart can rebuild the queue and not just
 	// its length.
 	if id := stringValue(data["message_id"]); id != "" {
 		next.QueuedMessageIDs = append(append([]string(nil), next.QueuedMessageIDs...), id)
@@ -740,7 +740,7 @@ func projectApprovalDecided(next Snapshot, record Record, data map[string]any) S
 	for index := len(next.Chat) - 1; index >= 0; index-- {
 		if next.Chat[index].Type == "notice" && next.Chat[index].Event != nil && stringValue(eventMap(next.Chat[index].Event.Data)["call_id"]) == stringValue(data["call_id"]) {
 			next.Chat[index].Decision = stringValue(data["decision"])
-			// Item 2q2 (b): he reads in the morning what was asked and why it was refused.
+			// he reads in the morning what was asked and why it was refused.
 			if data["unanswered"] == true {
 				next.Chat[index].Decision = "unanswered"
 			}

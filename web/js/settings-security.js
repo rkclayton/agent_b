@@ -42,7 +42,7 @@ function shell(active) {
 						: serviceAccountStatus.state === "administrator"
 							? "agentb-svc · ADMINISTRATOR — refused"
 						: serviceAccountStatus.state === "disabled"
-							// Item 2np (c): the account EXISTS and the identity is off by
+							// the account EXISTS and the identity is off by
 							// choice. This state fell through to "account not created" —
 							// the operator read that beside a working account and pressed
 							// Repair, which is what the words told him to do.
@@ -108,7 +108,7 @@ function shell(active) {
 	const subnetChoices = detectedSubnets.length
 		? detectedSubnets.map((subnet) => `<label class="settings-chip"><input type="checkbox" data-local-subnet value="${attr(subnet)}" ${confirmedSubnets.has(subnet) ? "checked" : ""} ${lanEnabled ? "" : "disabled"}> ${html(subnet)}</label>`).join("")
 		: '<span class="settings-chip-empty">none detected</span>';
-	// Item 2np (d): OFF IS NOT AN ERROR. The panel opened whenever the state was not
+	// OFF IS NOT AN ERROR. The panel opened whenever the state was not
 	// ready, which includes the identity being off by choice — so a deliberate setting
 	// looked like a fault with a repair panel hanging open under it. It opens when
 	// something is actually wrong with an identity that is on, or being turned on.
@@ -151,7 +151,7 @@ function shell(active) {
     `;
 }
 
-// Item 2nv (c): TRUSTED MANAGEMENT, in the one place the operator already trusts. A
+// TRUSTED MANAGEMENT, in the one place the operator already trusts. A
 // credential is typed here and nowhere else: not in a chat, not by the model, not from
 // the phone. What is listed is the name, where it may go, how it is sent and when it was
 // stored — never the value, which this page cannot read back either.
@@ -178,7 +178,7 @@ function credentialRows() {
 	${feedback(credentialMessage, credentialAlarm)}`;
 }
 
-// Item 2kq (b) and (e): PAIRING AND STATUS WHERE THE OPERATOR LOOKS. Away from home the
+// PAIRING AND STATUS WHERE THE OPERATOR LOOKS. Away from home the
 // phone reaches this AgentB through the broker, and everything he needs for that is
 // here: the address, the code to type into the phone, the fingerprint to compare on the
 // two screens, the paired device, Revoke, and what the connection is doing right now.
@@ -186,7 +186,7 @@ function credentialRows() {
 // The broker carries ciphertext and cannot read any of it. The fingerprint is the whole
 // of the user's part in that: if the two screens differ, the pairing is not his.
 function brokerRows() {
-	// Item 2nu (b): the address is built into the build and is not in this page — no
+	// the address is built into the build and is not in this page — no
 	// field, no label, no read-out. The section is the pairing, the paired device and
 	// Revoke; "off" is now a build without a broker, which the status says for itself.
 	const status = brokerStatus || {};
@@ -211,11 +211,11 @@ function brokerRows() {
 	return `${subhead("Phone", "One phone, paired through the broker. It carries ciphertext and can read none of it; the fingerprint below is how you check that for yourself.")}
 	${row("connection", `<span class="account-status"><span class="lamp ${lamp}"></span>${html(state)}${status.broker_build ? ` · build ${html(status.broker_build)}` : ""}${connectionEvidence ? `<small>${connectionEvidence}</small>` : ""}</span>`)}
 	${row("pairing", offer.code
-		// Item 2ns (b): THE QR IS THE PAIRING DISPLAY. "this code is waaay too long its
+		// THE QR IS THE PAIRING DISPLAY. "this code is waaay too long its
 		// insane" — the code is unchanged, because its length is its margin and three
 		// repositories agree on it; what changed is that he never types it. The code
 		// stays beneath in small plain text for a phone with no camera.
-		// Item 2nz (a): the square stays until the phone pairs or he presses Cancel, and
+		// the square stays until the phone pairs or he presses Cancel, and
 		// a code the broker expires is replaced under it without a blank moment. Cancel
 		// is this row's own button, reading differently while a pairing is under way.
 		? `<span class="pairing-offer">${offer.qr ? `<img class="pairing-qr" src="${attr(offer.qr)}" width="220" height="220" alt="Pairing QR code">` : ""}<span class="account-status mono pairing-code">${html(offer.code)}</span><button type="button" data-action="broker-cancel">Cancel</button></span>`

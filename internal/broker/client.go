@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// DefaultURL is THE broker address, and this is the one place it is written. Item 2nu:
+// DefaultURL is THE broker address, and this is the one place it is written.
 // the operator asked "cant you just have the broker url hard coded in the app? we dont
 // need to manipulate it or even expose it" once the broker went public, because a fresh
 // install could not pair a phone until someone found and typed an address. A broker.url
@@ -21,7 +21,7 @@ import (
 // but nothing in the page shows or edits it.
 const DefaultURL = "wss://broker.agentb.app/v1/connect"
 
-// Item 2kq (a): DIAL OUT AND HOLD.
+// DIAL OUT AND HOLD.
 //
 // Nothing listens. This client dials the broker, authenticates as the agent endpoint,
 // establishes one peer session with the paired device and holds it, reconnecting with
@@ -62,7 +62,7 @@ type Delivery struct {
 	Queued    bool
 }
 
-// Status is what Settings shows. Item 2kq (e).
+// Status is what Settings shows..
 type Status struct {
 	State         string `json:"state"`
 	BrokerBuild   string `json:"broker_build,omitempty"`
@@ -94,11 +94,11 @@ type Client struct {
 	pendingOrder []string
 	pendingBytes int
 	// handled remembers request ids already executed, so a RESEND after a reconnect
-	// delivers the same answer instead of running the work twice. Item 2kq (c)'s
+	// delivers the same answer instead of running the work twice. the
 	// deduplication at the execution boundary.
 	handled      map[string][]byte
 	handledOrder []string
-	// Item 2o7: sendMu keeps sealed frames on the wire in counter order when the
+	// sendMu keeps sealed frames on the wire in counter order when the
 	// answer to a request and the downstream stream send at the same time, and
 	// connected is told each time a session is up, with a context that ends with it.
 	sendMu    sync.Mutex
@@ -274,7 +274,7 @@ func (c *Client) Run(ctx context.Context) error {
 			c.refused(problem.Code, problem.Detail)
 		}
 		if errors.As(err, &problem) && problem.Code == "connection_replaced" {
-			// Item 2kq (a): 4001 newest-wins. Another connection for this key took
+			// 4001 newest-wins. Another connection for this key took
 			// over; this one stops rather than fighting it.
 			c.mu.Lock()
 			c.status.State = "broker unreachable"
@@ -804,7 +804,7 @@ func (c *Client) deliver(frame Frame, transport Transport) error {
 		return err
 	}
 
-	// Item 2kq (c): DEDUPLICATED AT THE EXECUTION BOUNDARY. A retried request never
+	// DEDUPLICATED AT THE EXECUTION BOUNDARY. A retried request never
 	// executes twice; the answer it produced the first time is sent again.
 	c.mu.Lock()
 	answer, already := c.handled[payload.MessageID]

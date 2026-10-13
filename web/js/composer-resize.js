@@ -8,7 +8,7 @@
 //
 // It lives in its own module because a drag is only proven by dragging it, and the
 // gate needs to load this behaviour without loading the whole chat surface.
-// Item 2oc: zero is now a remembered position. The strip does not collapse with
+// zero is now a remembered position. The strip does not collapse with
 // the input row, so the operator can drag it open again without another control.
 export const COMPOSER_MIN = 0;
 export const TRANSCRIPT_MIN = 120;

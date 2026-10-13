@@ -49,7 +49,7 @@ func withOSPathPolicy(ctx context.Context) context.Context {
 }
 
 func resolveForSessionTool(ctx context.Context, s *session.Session, root, path string) (string, error) {
-	// Item 2jt: plan registration chooses a working directory; it is not a
+	// plan registration chooses a working directory; it is not a
 	// filesystem allow-list. Absolute paths are therefore decided by the OS
 	// identity running the tool. Relative paths still start at root. The
 	// plan-tree ownership check remains separately enforced for writes below.
@@ -60,7 +60,7 @@ func resolveForSessionTool(ctx context.Context, s *session.Session, root, path s
 // is written only by the d session bound to that plan: the plans folder is
 // closed to b and c sessions even when an operator grant lets Windows, not the
 // jail, decide the rest of the path — a relative path climbing out of the
-// repository must not reach the item file whose verifier decides [x]. Item 2fq:
+// repository must not reach the item file whose verifier decides [x].
 // both sides are compared as real paths, so a junction, symbolic link or
 // reparse point cannot reach the plans folder under another name.
 func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path string) (string, error) {
@@ -141,7 +141,7 @@ func resolvePath(workspace, path string, enforceWorkspace bool) (string, error) 
 	if !enforceWorkspace {
 		return candidate, nil
 	}
-	// v0.69.0/W16 cold review: both sides are judged where the file system
+	// cold review: both sides are judged where the file system
 	// takes them. filepath.EvalSymlinks does not follow a junction (Go 1.23+),
 	// so a junction inside a folder used to pass the jail by its text path.
 	root, err = session.RealPath(root)

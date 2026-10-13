@@ -123,7 +123,7 @@ export function createFileChip(document, file, status, actions, presentation = {
   size.className = "file-chip-size";
   size.textContent = status?.state === "missing" ? "missing" : formatBytes(status?.bytes ?? file.bytes);
   root.append(name, size);
-  // Item 2ep: a delivered document opens with the operator's default
+  // a delivered document opens with the operator's default
   // application from its name; the folder is a glyph, "folder" on hover.
   if (status?.state !== "missing" && actions.openFile && openableFile(file.path)) {
     name.className = "file-chip-name openable";

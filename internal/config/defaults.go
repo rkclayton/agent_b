@@ -16,7 +16,7 @@ func Defaults(workspace string) Config {
 	}
 	abs, _ := filepath.Abs(workspace)
 	connection := defaultConnection()
-	// Item 2l1 (b): no placeholder that reads as a value. A connection with no
+	// no placeholder that reads as a value. A connection with no
 	// model chosen has an empty model, and ConnectionSetupReason says exactly
 	// that. The literal "model" default reached save and was refused elsewhere,
 	// with wording the operator could not act on.
@@ -75,7 +75,7 @@ func applyDefaults(c *Config) {
 	if c.Approval.Mode == "" {
 		c.Approval = d.Approval
 	}
-	// Item 2q5 (e): a config still holding the old defaults moves to the new ones;
+	// a config still holding the old defaults moves to the new ones;
 	// any other value is the user's and stays.
 	if c.Context.SoftPct == .75 && c.Context.SummaryPct == .85 {
 		c.Context.SoftPct, c.Context.SummaryPct = d.Context.SoftPct, d.Context.SummaryPct
@@ -385,7 +385,7 @@ func (c Config) DefaultAgentID() string {
 }
 
 // ReserveOutputFor is the output allowance a probe proposes for a connection
-// whose window it has just learned. Item 2l9 (c): a fixed 10,240 tokens is 3.9%
+// whose window it has just learned. a fixed 10,240 tokens is 3.9%
 // of a 262,144-token window, and the operator lost a 672-second answer to it. The
 // relationship is one eighth of the window, never below the old fixed default and
 // never above MaxProposedReserveOutput, which also keeps it inside (e3)'s bound.
@@ -397,7 +397,7 @@ func ReserveOutputFor(nCtx int) int {
 }
 
 // ReasoningShareFor is how much of the output allowance thinking may take when
-// reasoning is on and reasoning.max_tokens is unset. Item 2l9 (d): sharing one
+// reasoning is on and reasoning.max_tokens is unset. sharing one
 // allowance uncapped let a long thinking pass consume it and leave no answer.
 func ReasoningShareFor(reserveOutput int) int {
 	if reserveOutput <= 0 {
@@ -406,7 +406,7 @@ func ReasoningShareFor(reserveOutput int) int {
 	return max(reserveOutput/2, 1)
 }
 
-// reserveOutputBound is item 2l9 (e3)'s hard limit: half the context window, but
+// reserveOutputBound is the hard limit: half the context window, but
 // never less than the default every shipped version used, so a configuration with
 // a small window keeps loading.
 func reserveOutputBound(nCtx int) int {
@@ -416,7 +416,7 @@ func reserveOutputBound(nCtx int) int {
 	return max(nCtx/2, DefaultReserveOutput)
 }
 
-// MigrateConnectorCredentials is item 2nv (h). Each `static_bearer:<ENV>` connector is
+// MigrateConnectorCredentials is. Each `static_bearer:<ENV>` connector is
 // moved into the credential store ONCE, on load: the variable is read, stored, bound to
 // the connector's own origin, and READ BACK — and only then is the connector rewritten to
 // `stored:<name>`. If the variable is empty, or the value does not read back, the

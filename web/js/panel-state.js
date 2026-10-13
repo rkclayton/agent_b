@@ -26,7 +26,7 @@ function safeStorage() {
   }
 }
 
-// Item 2gk: renamed with the page that is gone. A key that changes forgets
+// renamed with the page that is gone. A key that changes forgets
 // which rows were open once, in this browser, and that is the whole cost.
 function key(scope, id) {
   return `agentb.panel.${scope}.${id}.expanded`;

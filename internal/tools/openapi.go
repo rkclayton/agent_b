@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// Item 2nr: an OpenAPI document, read once, becomes the operations a connector offers.
+// an OpenAPI document, read once, becomes the operations a connector offers.
 //
 // What this is for: `call_service` already carries registered connectors — a host, a
 // credential and a set of HTTP methods — but it knows nothing about what lives on that

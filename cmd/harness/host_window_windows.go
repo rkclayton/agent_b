@@ -2,7 +2,7 @@
 
 package main
 
-// Item 2hc (v1.3.0/W2): our own window, so the title bar is ours.
+// our own window, so the title bar is ours.
 //
 // THE FRAME. The window keeps Windows' own left, right and bottom borders and
 // loses only the caption: WM_NCCALCSIZE gives the client area the band the
@@ -49,7 +49,7 @@ const (
 	hostDefaultWidth  = 1280
 	hostDefaultHeight = 860
 
-	// Item 2nm (b): THE ONLY MINIMUM IS THE ONE THE PAGE NEEDS TO STAY USABLE, and
+	// THE ONLY MINIMUM IS THE ONE THE PAGE NEEDS TO STAY USABLE, and
 	// these two numbers are measured rather than chosen. wmGetMinMaxInfo was declared
 	// here and never handled, so the frame stated nothing and the window kept
 	// Windows' own default track size (measured on the operator's machine as
@@ -66,7 +66,7 @@ const (
 	// WIDTH: the three window buttons the strip paints (108 px) beside one chat tab
 	// and the new-chat control, measured at 295 px of content in the 304 px client a
 	// 320 px window gives. Below that the strip begins to lose tabs rather than
-	// overflow them, which item 2mf's strip is not written for.
+	// overflow them, which the strip is not written for.
 	hostMinWidth  = 320
 	hostMinHeight = 293
 
@@ -380,7 +380,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		return 0
 
 	case wmGetMinMaxInfo:
-		// Declared since v1.3.0 and never answered until item 2nm. Answering it is
+		// Answering it is
 		// what lets the bottom and right edges drag all the way to the stated
 		// minimum and no further, and it is the only clamp this window has.
 		var info minMaxInfo
@@ -390,7 +390,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		return 0
 
 	case wmExitSizeMove:
-		// (d): the size he chose is his. Written when the drag ends rather than on
+		// the size he chose is his. Written when the drag ends rather than on
 		// every WM_SIZE, which would be a file write per frame of a resize.
 		w.savePlacement()
 		return 0
@@ -536,7 +536,7 @@ func hostMinimumTrack(hwnd uintptr) (int32, int32) {
 }
 
 // placementPath is beside the marker file the launcher writes, in the data root:
-// the WebView2 folder is WebView2's, and this is ours. Item 2nm (d).
+// the WebView2 folder is WebView2's, and this is ours..
 func (w *hostWindow) placementPath() string {
 	if strings.TrimSpace(w.userDataDir) == "" {
 		return ""
@@ -681,7 +681,7 @@ func runHostWindow(url, userDataDir, title, applicationRoot string) (err error) 
 }
 
 // watchActivation owns the activation event for the life of the server, not
-// of one window (item 2o0): a server started without a window must still
+// of one window: a server started without a window must still
 // answer a later launch. Only this user and SYSTEM may signal it.
 func watchActivation(applicationRoot string, activated func()) {
 	attributes, release := userOnlyAttributes()
@@ -750,7 +750,7 @@ func (w *hostWindow) create(title string) error {
 		return fmt.Errorf("loading the embedded Agent_b icon failed")
 	}
 	w.windowProc = syscall.NewCallback(func(hwnd, message, wParam, lParam uintptr) uintptr {
-		// Item 2mt (a): THE ONE BOUNDARY WINDOWS CALLS INTO GO, and until now it
+		// THE ONE BOUNDARY WINDOWS CALLS INTO GO, and until now it
 		// had no recover() at all. A panic here takes the whole process with it —
 		// server and window together — which is what the operator saw when he
 		// dragged the window mid-stream: the journal stops on a model.delta and
@@ -767,7 +767,7 @@ func (w *hostWindow) create(title string) error {
 		return fmt.Errorf("registering the host window class failed")
 	}
 	w.classAtom = atom
-	// Item 2nm (d): the window opens where it was left, at the size it was left,
+	// the window opens where it was left, at the size it was left,
 	// including a small one. Nothing remembered it before this: every launch was
 	// 1280 x 860 whatever the operator had dragged it to.
 	x, y := uintptr(cwUseDefault), uintptr(cwUseDefault)

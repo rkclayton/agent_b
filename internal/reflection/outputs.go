@@ -12,7 +12,7 @@ import (
 	"harness/internal/memory"
 )
 
-// Reflection's durable outputs (item 17-i, step 5). Both go through the paths
+// Reflection's durable outputs. Both go through the paths
 // that already exist and their existing rules: a memory note under 2eb's rule,
 // and plan registration under 2dr's rule. Reflection never writes plan text.
 
@@ -72,9 +72,9 @@ type SessionNoter interface {
 
 // NoteProvenance marks every note reflection writes. A note is read back into
 // later prompts for that folder, so a reader — operator or model — is told
-// where it came from and that nobody confirmed it (v1.1.0/W6 cold review).
+// where it came from and that nobody confirmed it (cold review).
 //
-// Item 2mw (b): this moved from a PREFIX to the trailing provenance form the memory
+// this moved from a PREFIX to the trailing provenance form the memory
 // loader already parses, and it now names the run. As a prefix it was invisible to
 // the parser — whose provenance pattern is anchored to the end of the line — so the
 // bracket was part of the note's own words: it travelled into every prompt as text
@@ -143,7 +143,7 @@ type PlanCandidate struct {
 // PlanCandidates is tape-bounded: it looks only at the roots the summaries
 // name, never at the disk. A root that already has a plan is not a candidate,
 // and neither is one whose agent file the agent itself wrote during the window
-// it is being judged on (v1.1.0/W6 cold review).
+// it is being judged on (cold review).
 func PlanCandidates(summaries []Summary, registered func(root string) bool) []PlanCandidate {
 	touched := map[string]int{}
 	earliest := map[string]time.Time{}

@@ -11,7 +11,7 @@ import (
 
 const (
 	cryptProtectUIForbidden = 0x1
-	// Item 2li: CRYPTPROTECT_LOCAL_MACHINE. rel-1.15.0/W0 measured what this
+	// CRYPTPROTECT_LOCAL_MACHINE. measured what this
 	// costs and what it does not: the blob names a master key that is not in any
 	// user's key store, so anything running on the machine can decrypt it -- the
 	// ACL is what protects it -- and CryptUnprotectData needs no flag to read it

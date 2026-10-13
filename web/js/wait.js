@@ -1,4 +1,4 @@
-// Item 2m4: ONE WAITING ELEMENT, used everywhere.
+// ONE WAITING ELEMENT, used everywhere.
 //
 // The product had no general one: a run showed a blinking robot glyph, a queued
 // message showed a sentence, a model load showed nothing at all, and each
@@ -13,7 +13,7 @@
 //
 // (c) TWO HONEST MODES. Determinate when something real reports progress —
 // llama.cpp streams prompt_progress with processed and total, which
-// rel-1.23.0/W0 confirmed is the only progress any server in this product
+// confirmed is the only progress any server in this product
 // reports — and indeterminate when nothing does. An indeterminate wait NEVER
 // animates toward a finish it does not know: it cycles a fixed pattern in place,
 // which says "working" without implying "nearly there".

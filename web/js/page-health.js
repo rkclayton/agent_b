@@ -1,4 +1,4 @@
-// Item 2q7 (b) and (f): what only the page can see — its longest freeze and
+// what only the page can see — its longest freeze and
 // which settings pages were opened — told to the app in one small post every
 // ten minutes and when the page is hidden. Counts and a number; no text.
 

@@ -1,4 +1,4 @@
-// Package contextmgr batches compaction, largest stale result first (item 2ey).
+// Package contextmgr batches compaction, largest stale result first.
 // Editing the prompt prefix invalidates the model cache, so doing this rarely and
 // in one batch minimizes repeated prefill work.
 package contextmgr
@@ -38,7 +38,7 @@ func pinIndex(messages []events.Message, pin string) int {
 }
 
 // RecentToolWindow is how many of the newest tool results elision keeps
-// verbatim inside the running turn (item 2et; item 2fd made the window the
+// verbatim inside the running turn (; made the window the
 // running turn rather than a count across turns).
 const RecentToolWindow = 4
 
@@ -54,13 +54,13 @@ func pinPresent(messages []events.Message, pin string) bool {
 // StubOlderResults returns messages with every un-elided tool result that
 // precedes the last user message replaced by its elision stub, the form a
 // retained chat is restored in: the JSONL keeps the bytes, the next request
-// carries only what the last turn read (item 2et).
+// carries only what the last turn read.
 func StubOlderResults(messages []events.Message, readDefaultLimit int) []events.Message {
 	return StubResultsBefore(messages, "", readDefaultLimit)
 }
 
 // StubResultsBefore is StubOlderResults anchored on the newest user message the
-// journal names (item 2fd rule 3), surviving or not: every tool result whose id
+// journal names, surviving or not: every tool result whose id
 // is older than anchor comes back as a stub. Message ids are minted in order, so
 // age is the id's number, which holds when the anchor itself was folded into a
 // summary. An anchor that is empty or not numbered falls back to the last user
@@ -102,7 +102,7 @@ func idNumber(id string) (int64, bool) {
 		start--
 	}
 	// More than fifteen digits is no id this harness minted; reading it would
-	// wrap int64 and move the re-mint floor below every real id (v0.69.0/W12
+	// wrap int64 and move the re-mint floor below every real id
 	// cold review).
 	if start == end || start == 0 || id[start-1] != '-' || end-start > 15 {
 		return 0, false
@@ -122,7 +122,7 @@ type Remint struct {
 }
 
 // RemintDuplicateIDs gives every later copy of a repeated message id a new id
-// above floor (item 2fd rule 7), so a pin, a compaction or a weight cache can
+// above floor, so a pin, a compaction or a weight cache can
 // never resolve to the wrong message. The first copy keeps its id. It returns
 // the messages, what changed, and the new floor.
 func RemintDuplicateIDs(messages []events.Message, floor int64) ([]events.Message, []Remint, int64) {
@@ -217,7 +217,7 @@ func eligibleOldElision(message events.Message) bool {
 	return !strings.HasPrefix(prefix, "error:") && !strings.HasPrefix(prefix, "note:")
 }
 
-// ElideOld stubs eligible stale results until used falls to target. Item 2ey:
+// ElideOld stubs eligible stale results until used falls to target.
 // results older than the running turn go first, largest first (ties oldest first),
 // then the running turn's own, so one pass on a small window frees the most;
 // trigger names what asked for the pass and is recorded on the compaction event.
@@ -225,7 +225,7 @@ func (c *Compactor) ElideOld(s *session.Session, runID, trigger string, used, ta
 	return c.ElideOldWindow(s, runID, trigger, used, target, 0, 0, readDefaultLimit, count)
 }
 
-// ElideOldWindow is ElideOld with the context window known (item 2fd rule 4).
+// ElideOldWindow is ElideOld with the context window known.
 // The recent window is a turn, not a message count: only the running turn —
 // its user message (the pin) onward — is protected, and inside it the newest
 // RecentToolWindow results (2et's in-turn rule). Results of earlier turns are
@@ -250,7 +250,7 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		return false
 	}
 	skip := map[int]bool{}
-	// Item 2q5 (b): MASK BY BUDGET. With keep set, the newest results that fit in
+	// MASK BY BUDGET. With keep set, the newest results that fit in
 	// keep tokens stay whole, and the newest always does, whatever turn they are in;
 	// every older one is a candidate.
 	for kept, i := 0, len(toolIndexes)-1; keep > 0 && i >= 0; i-- {
@@ -271,7 +271,7 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		}
 		skip[index] = true
 	}
-	// Item 2et: the running turn's user message and the model's own messages are
+	// the running turn's user message and the model's own messages are
 	// never elided (only tool-result categories are candidates), and neither are
 	// the last RecentToolWindow tool results. Older results inside the running
 	// turn may become stubs, largest first, before the run stops for context.
@@ -313,7 +313,7 @@ func (c *Compactor) ElideOldWindow(s *session.Session, runID, trigger string, us
 		call, _ := callFor(messages, item.ToolCallID)
 		updated := elide(item, call.Arguments, readDefaultLimit, count)
 		callIndex, updatedCall, callFreed, callChanged := stubWriteCall(messages, item.ToolCallID, count)
-		// v0.65.0/W11: a result whose stub is no smaller (a fresh in-turn result
+		// a result whose stub is no smaller (a fresh in-turn result
 		// not yet weighed) frees nothing; eliding it would only hide its bytes
 		// and publish a compaction with before == after.
 		freed := item.Tokens - updated.Tokens + callFreed
@@ -351,7 +351,7 @@ func SummarizeSpan(messages []events.Message, pin string) (int, bool) {
 
 // foldBoundary is the exclusive end of the span a summarize folds. It starts at
 // the earlier of the retention window and the run pin and retreats far enough
-// that no folded tool call loses its kept result. Item 2fd rule 1: it then
+// that no folded tool call loses its kept result. rule 1: it then
 // advances to the next user message, so the note — an assistant message — is
 // never followed by another assistant message, which a chat template refuses at
 // the end of any measured prefix. The pin is itself a user message, so the
@@ -375,10 +375,10 @@ func foldBoundary(messages []events.Message, pin string) (int, bool) {
 // FoldSpan is the span a summarize replaces with its note, messages[start:end]:
 // everything before the running turn, as SummarizeSpan says; when that is empty,
 // the running turn's own completed steps older than its newest RecentToolWindow
-// results (item 2q1 (b)), so a run that is one long turn can still be summarized.
+// results ), so a run that is one long turn can still be summarized.
 // The running turn's user message and its newest results are never in it. ok is
 // false when there is nothing to fold, or only an earlier note: re-summarizing a
-// note frees nothing new (item 2q1 (e); s51 re-summarized its turn-0 note each turn).
+// note frees nothing new; s51 re-summarized its turn-0 note each turn).
 func FoldSpan(messages []events.Message, pin string) (start, end int, ok bool) {
 	fresh := func(start, end int) bool {
 		for index := start; index < end; index++ {

@@ -280,7 +280,7 @@ func (x *runState) start() runOutcome {
 	x.retryInstruction = ""
 	x.malformedToolRetried = false
 	x.answeredThisRun = false
-	// Item 2fv: a read_file window refused on two consecutive turns ends the
+	// a read_file window refused on two consecutive turns ends the
 	// read; from then on the model answers from what it has read, without
 	// tools. refusedTurn is the turn of the latest refusal (-1: none since the
 	// last window that fit). The elide between the two turns has had its chance.
@@ -355,7 +355,7 @@ func (x *runState) turnBoundary() runOutcome {
 	x.schemas = r.tools.Schemas(x.enabled)
 	x.system = ""
 	x.budgetBusy = false
-	// Item 2jf (e): the trust flag is per TURN, so it clears here. A note is
+	// the trust flag is per TURN, so it clears here. A note is
 	// suspect because of what was in the turn that wrote it, not because of
 	// something three turns ago.
 	x.s.BeginTurnTrust()
@@ -395,7 +395,7 @@ func (x *runState) buildRequest() runOutcome {
 			messages = append(messages, converted)
 			requestRecords = append(requestRecords, message)
 		}
-		// Item 2fd rule 1: the list is checked before it is measured or sent.
+		// rule 1: the list is checked before it is measured or sent.
 		conversation, repairedRecords, _ := normalizeAdjacentAssistants(messages, requestRecords)
 		hadUser := false
 		for _, message := range conversation {
@@ -432,7 +432,7 @@ func (x *runState) buildRequest() runOutcome {
 		if x.request.Thinking && x.connection.Reasoning.MaxTokens > 0 && !containsFinding(x.connection, "server reasoning budget: accepted") {
 			x.request.MaxTokens = min(x.request.MaxTokens, x.connection.Reasoning.MaxTokens)
 		}
-		// Item 2l9 (d): with reasoning on and no reasoning cap set, thinking and
+		// with reasoning on and no reasoning cap set, thinking and
 		// the answer share one allowance, and a long thinking pass can take all
 		// of it and leave nothing. Thinking gets its own share.
 		if x.request.Thinking && x.connection.Reasoning.MaxTokens == 0 {
@@ -453,7 +453,7 @@ func (x *runState) buildRequest() runOutcome {
 		}
 		r.bus.Publish(events.New(events.BudgetEvent, x.s.ID, x.runID, x.budget))
 		data := map[string]any{"turn": x.turn, "message_count": len(messages), "tool_count": len(x.schemas), "params": requestParams(x.connection, x.request.MaxTokens), "est_prompt_tokens": x.budget.UsedEst, "estimated": x.budget.Estimated}
-		// Item 2pw: what the flight recorder's invoke_agent span names, with
+		// what the flight recorder's invoke_agent span names, with
 		// no text: the template's hash, the model's file name, the tools offered.
 		data["connection_kind"], data["model_file"], data["n_ctx"] = connectionKind(x.connection), filepath.Base(filepath.ToSlash(x.connection.Model)), x.budget.NCtx
 		data["prompt_hash"], data["tools_offered"] = shortHash(systemBase), x.toolNames
@@ -473,7 +473,7 @@ func (x *runState) buildRequest() runOutcome {
 			x.turn--
 			return runAgainOutcome
 		}
-		// Item 2fd rule 2: a refused template is repaired and tried once more;
+		// rule 2: a refused template is repaired and tried once more;
 		// only a second refusal stops the run, with its reason. The list is
 		// normalised on every assembly, so the retry reassembles it.
 		if !x.templateRetryTried && templateRefused(x.budgetErr) {
@@ -497,7 +497,7 @@ func (x *runState) fitWindow() runOutcome {
 			return runAgainOutcome
 		}
 	}
-	// Item 2l8: both constraints bind. A body the token budget believes has room
+	// both constraints bind. A body the token budget believes has room
 	// is still refused by a server that counts bytes, so the serialized request
 	// is measured against the limit this connection has been refused by, with
 	// headroom rather than to the byte.
@@ -509,7 +509,7 @@ func (x *runState) fitWindow() runOutcome {
 			}
 		}
 	}
-	// Item 2ey: a run's first request gets the projection a later turn gets at
+	// a run's first request gets the projection a later turn gets at
 	// its end, so a restored chat over the soft line compacts before it is
 	// sent instead of after it overflows.
 	if !x.softLineChecked {
@@ -563,7 +563,7 @@ func (x *runState) callModelStep() runOutcome {
 	toolArgumentBytes := map[int]int{}
 	toolArgumentRunes := map[int]int{}
 	var streamBusy atomic.Bool
-	// Item 2l9 (e2): a ceiling on ONE answer, never on a run or a chat. Zero,
+	// a ceiling on ONE answer, never on a run or a chat. Zero,
 	// which is what every existing configuration carries, means no ceiling.
 	x.callCtx = x.ctx
 	x.answerStarted = time.Now()
@@ -635,13 +635,13 @@ func (x *runState) callModelStep() runOutcome {
 		if x.ctx.Err() != nil {
 			return x.stop(x.contextStop(x.turn, "model call canceled"))
 		}
-		// Item 2q6 (d): a server's refusal as its status and its own type word,
+		// a server's refusal as its status and its own type word,
 		// never its message; published before any retry, so a refusal the run
 		// recovers from is still counted.
 		if status, kind := serverRefusal(x.callErr); status > 0 {
 			r.bus.Publish(events.New(events.ModelRefused, x.s.ID, x.runID, map[string]any{"status": status, "error_type": kind, "connection_kind": connectionKind(x.connection)}))
 		}
-		// Item 2l9 (e2): the answer, not the run, hit its ceiling. Same treatment
+		// the answer, not the run, hit its ceiling. Same treatment
 		// as a token truncation — name the ceiling and keep what was produced.
 		if x.callCtx.Err() != nil && answerCeiling(x.connection) > 0 {
 			truncated := x.response
@@ -655,10 +655,10 @@ func (x *runState) callModelStep() runOutcome {
 			x.runByteLimit = limit
 			x.connection.Capabilities.ObservedByteLimit = limit
 			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, fmt.Sprintf("The server refused this run above %d bytes: %s. This limit applies only to this run.", limit, sentence))
-			// Item 2l8 (d): a retry that would send the same bytes is not made.
+			// a retry that would send the same bytes is not made.
 			// The refusal is acted on once -- compacted against the limit it
 			// named -- and only a genuinely smaller body is sent again.
-			// Item 2o8 (d): each pass makes the body genuinely smaller -- a cut or
+			// each pass makes the body genuinely smaller -- a cut or
 			// a summary -- so it is retried until nothing is left to cut; the
 			// bound only guards against a server whose limit keeps moving.
 			before := llm.SerializedBytes(x.connection, x.request, true)
@@ -682,7 +682,7 @@ func (x *runState) callModelStep() runOutcome {
 			}
 			return x.stop("model_error", sentence, x.turn)
 		}
-		// Item 2px (i): the window is the server's. A refusal that names the
+		// the window is the server's. A refusal that names the
 		// window it allows is learned, and the run compacts to it and retries
 		// once rather than stopping (s48: 33,849 tokens against 32,768).
 		if window, matched := windowLimitError(x.callErr); matched && !x.windowRetried {
@@ -783,7 +783,7 @@ func (x *runState) readAnswer() runOutcome {
 	}
 	if len(x.toolCalls) == 0 && x.response.FinishReason != "tool_calls" {
 		if x.response.FinishReason == "length" {
-			// Item 2l9 (a) and (b): the cap is named with its value and where it
+			// the cap is named with its value and where it
 			// is set, and what the model did produce is kept in the transcript
 			// marked truncated, so the Continue action on the stop card has
 			// something to continue from instead of the run being thrown away.
@@ -813,7 +813,7 @@ func (x *runState) readAnswer() runOutcome {
 			x.s.Append(message)
 			r.bus.Publish(events.New(events.MessageAppended, x.s.ID, x.runID, map[string]any{"message": message}))
 		})
-		// Item 2fa: a final message that is exactly the registration sentence
+		// a final message that is exactly the registration sentence
 		// raises the user's card; the line stays in the transcript above it.
 		finalText, _ := parsePlanProposals(finalContent)
 		if stopReason != "done" {
@@ -864,7 +864,7 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 	}
 	x.toolCallsUsed += len(x.results)
 	r.stage(x.s, x.runID, x.turn, "execute", func() {
-		// Item 2et: -1 means the window is unknown and nothing is clamped;
+		// 1 means the window is unknown and nothing is clamped;
 		// 0 means no room is left, which clamps every later window read.
 		remainingResultTokens := -1
 		if x.budget.NCtx > 0 {
@@ -886,7 +886,7 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 				item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
 				r.setFlightToolOutput(x.s.ID, x.runID, item.content)
 				item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
-				// Item 2jf (e): a note written in this turn is marked, because
+				// a note written in this turn is marked, because
 				// external content was in it.
 				if outcome.Untrusted {
 					x.s.MarkUntrustedInTurn()
@@ -1008,7 +1008,7 @@ func (x *runState) endTurn() runOutcome {
 		return x.stop("turn_ceiling", "maximum turns reached", x.turn)
 	}
 	r.stage(x.s, x.runID, x.turn, "compact", func() {
-		// Item 2fv: after a refused window the elide runs even on a cold
+		// after a refused window the elide runs even on a cold
 		// prefill, so a second refusal means nothing elidable was left.
 		r.compactAfterTurnForcing(x.ctx, x.s, x.runID, x.turn, x.connection, x.currentReasoning, x.refusedTurn == x.turn)
 	})

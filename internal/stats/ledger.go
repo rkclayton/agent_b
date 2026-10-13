@@ -47,9 +47,9 @@ type Counters struct {
 	DelegatedToolCalls        int64           `json:"delegated_tool_calls,omitempty"`
 	WallMS                    int64           `json:"wall_ms"`
 	ModelResponseMS           []int64         `json:"model_response_ms"`
-	// Item 2ji (c): the per-connection row. RunTimeMS is one entry per finished
+	// the per-connection row. RunTimeMS is one entry per finished
 	// run, so the median is a real median rather than a mean pretending to be one.
-	// The three time sums are what the run.stopped event reported, which item 2ji
+	// The three time sums are what the run.stopped event reported, which
 	// (a) put there -- so Activity, the chat line and the eval harness read the
 	// same numbers from the same place and cannot disagree.
 	RunTimeMS     []int64 `json:"run_time_ms,omitempty"`
@@ -67,7 +67,7 @@ type Counters struct {
 	Reliability Reliability `json:"worker_reliability"`
 }
 
-// RecentRunWindow is the "last 20 runs" item 2ji (c) names.
+// RecentRunWindow is the "last 20 runs" names.
 const RecentRunWindow = 20
 
 // RunRecord is one finished run, reduced to what the row needs. A run whose event
@@ -96,7 +96,7 @@ type run struct {
 	evidence   bool
 	connection string
 	wallMS     int64
-	// Item 2ji (c): run.stopped carries no tool counts, so the tool-error rate for
+	// run.stopped carries no tool counts, so the tool-error rate for
 	// the last 20 runs is tallied here as the results arrive.
 	toolCalls    int64
 	toolFailures int64
@@ -256,7 +256,7 @@ func add(c *Counters, event events.Event, r *run) {
 		if r != nil {
 			c.WallMS += r.wallMS
 		}
-		// Item 2ji (c): the run's own figures, as the event reports them.
+		// the run's own figures, as the event reports them.
 		recordRun(c, d, r, event.TS)
 		if reason == "done" {
 			c.Reliability.Completed++
@@ -280,7 +280,7 @@ func add(c *Counters, event events.Event, r *run) {
 
 // recordRun folds one finished run's reported time into the connection's
 // counters and onto the recent window. A run whose event carries no time -- every
-// run journalled before item 2ji -- contributes nothing rather than a row of
+// run journalled before -- contributes nothing rather than a row of
 // zeros that would drag every rate towards nothing.
 func recordRun(c *Counters, d map[string]any, r *run, at string) {
 	timeFields := eventData(d["time"])
@@ -325,7 +325,7 @@ func (m *Manager) record(event events.Event) {
 		r = &run{started: time.Now(), connection: connection}
 		m.runs[key(event)] = r
 	}
-	// Item 2ji (c): the tool-error rate for the last 20 runs needs per-run counts,
+	// the tool-error rate for the last 20 runs needs per-run counts,
 	// and run.stopped carries none -- it never knew them. This is tallied HERE
 	// rather than in add(), which runs twice per event, once for the agent and once
 	// for the connection, and would count every tool call twice.

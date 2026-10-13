@@ -11,7 +11,7 @@ import (
 	"harness/internal/events"
 )
 
-// Item 2ji (a): where a run's time went.
+// where a run's time went.
 //
 // Every run already journals what this needs — model.response carries
 // duration_ms and, when the server reports them, timings.prompt_ms and
@@ -29,7 +29,7 @@ import (
 // never zero. The pointer fields below are the mechanism, and they carry
 // omitempty so the wire shows nothing rather than a false zero.
 
-// RunTime is one run's wall clock, broken into the buckets item 2ji names, in
+// RunTime is one run's wall clock, broken into the buckets names, in
 // milliseconds.
 type RunTime struct {
 	// TotalMS is the span the operator waited: from the moment the run was
@@ -56,7 +56,7 @@ type RunTime struct {
 	UnaccountedMS int64 `json:"unaccounted_ms"`
 }
 
-// RunOutcome is the whole of what item 2ji adds to run.stopped: the time, and
+// RunOutcome is the whole of what adds to run.stopped: the time, and
 // the reliability counters, and no text.
 type RunOutcome struct {
 	Time          RunTime `json:"time"`
@@ -64,9 +64,9 @@ type RunOutcome struct {
 	Compactions   int     `json:"compactions"`
 	EmptyReplies  int     `json:"empty_replies"`
 	RepeatedCalls int     `json:"repeated_calls"`
-	// Item 2ls: the floor's two counts.
+	// the floor's two counts.
 	//
-	// rel-1.19.0/W0 asked whether the run loop can know both at the moment
+	// asked whether the run loop can know both at the moment
 	// reflection triggers, and the answer was that NEITHER was on the event and
 	// BOTH were already being counted here — this fold sums every model.response
 	// duration and every tool.result's milliseconds, so it has seen both all

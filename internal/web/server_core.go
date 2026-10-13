@@ -47,12 +47,12 @@ type Server struct {
 	configPath string
 	roots      RuntimeRoots
 	bus        *events.Bus
-	// Item 2jg: the telemetry sender and its subscription, or nothing at all.
+	// the telemetry sender and its subscription, or nothing at all.
 	telemetry telemetryHost
-	// Item 2pw: the flight recorder, fed by the bus whatever the switch says.
+	// the flight recorder, fed by the bus whatever the switch says.
 	recorder *recorder.Recorder
 	app      *recorder.App
-	// Item 2kq: the broker client, or nothing when broker.url is empty.
+	// the broker client, or nothing when broker.url is empty.
 	brokerMu           sync.RWMutex
 	broker             BrokerHost
 	registry           *session.Registry
@@ -77,7 +77,7 @@ type Server struct {
 	accountMu          sync.Mutex
 	credentialRejected bool
 	mutationToken      string
-	// Item 2mx: submissions already answered, so a phone's retry does not start a
+	// submissions already answered, so a phone's retry does not start a
 	// second run.
 	submissions        *idempotentSubmissions
 	operatorState      operatorState
@@ -143,7 +143,7 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		server.plannerNotes = memory.NewPlannerNotes(roots.Data)
 	}
 	server.recorder.SetSink(server.queueRunTelemetry)
-	// Item 2q7: the app around the runs, an hour at a time.
+	// the app around the runs, an hour at a time.
 	server.app = recorder.NewApp(time.Now())
 	server.app.SetSink(server.queueRunTelemetry)
 	server.app.Resources = server.resourceProbe
@@ -266,7 +266,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 			s.scheduleReachabilityProbe(connectionID)
 			s.setConnectionHealth(connectionID, connectionHealth{Lamp: "alarm", Word: "unreachable"})
 		})
-		// Item 2px (e): a real answer is the best check there is; it clears red
+		// a real answer is the best check there is; it clears red
 		// and keeps an amber that is about the model or the window.
 		runner.SetModelAnswered(func(connectionID string) {
 			if current := s.connectionHealthState()[connectionID]; current.Lamp != "amber" {
@@ -391,7 +391,7 @@ func retiredPhoneRoutes(next http.Handler) http.Handler {
 	})
 }
 
-// routes is the mux itself. Item 2kq (c) needs it without the browser and mutation
+// routes is the mux itself. needs it without the browser and mutation
 // guards — those two are a browser page's CSRF and cookie, and the broker transport has
 // neither; its authority is the pairing. Splitting it here is what lets the app-message
 // dispatcher call THE SAME HANDLERS rather than a second implementation of them.
@@ -401,14 +401,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/chat", s.page)
 	mux.HandleFunc("/plan", s.page)
 	mux.HandleFunc("/setup", s.page)
-	// Item 2fo: a page that names no icon still asks for /favicon.ico.
+	// a page that names no icon still asks for /favicon.ico.
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.Join(s.webDir, "assets", "Agent_b.ico"))
 	})
 	mux.Handle("/static/", revalidateStatic(http.StripPrefix("/static/", http.FileServer(http.Dir(s.webDir)))))
 	mux.HandleFunc("/api/events", s.sse)
 	mux.HandleFunc("/api/state", s.state)
-	// Item 2mv: one read-only export of what this installation already knows.
+	// one read-only export of what this installation already knows.
 	mux.HandleFunc("/api/diagnostics", s.diagnostics)
 	mux.HandleFunc("/api/browser-session", s.browserSessionEndpoint)
 	mux.HandleFunc("/api/broker/status", s.brokerStatus)
@@ -446,7 +446,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/workspaces", s.replayGuard(s.workspaces))
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))
 	mux.HandleFunc("/api/agent-memory/remove", s.replayGuard(s.agentMemoryRemove))
-	// Item 2mw: the rows the Activity page builds from, and the two actions the
+	// the rows the Activity page builds from, and the two actions the
 	// delete route did not have. Removal stays exactly where it was.
 	mux.HandleFunc("/api/reflection-notes", s.replayGuard(s.reflectionNotes))
 	mux.HandleFunc("/api/reflection-notes/confirm", s.replayGuard(s.reflectionNoteAction))
@@ -465,12 +465,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/service-account", s.replayGuard(s.serviceAccount))
 	mux.HandleFunc("/api/hardening", s.replayGuard(s.hostHardening))
 	mux.HandleFunc("/api/message", s.replayGuard(s.message))
-	// Item 2mx: one read a voice assistant can speak, for a run it just started.
+	// one read a voice assistant can speak, for a run it just started.
 	mux.HandleFunc("/api/runs/", s.replayGuard(s.runBrief))
 	mux.HandleFunc("/api/stop", s.replayGuard(s.stop))
 	mux.HandleFunc("/api/host-window", s.replayGuard(s.hostWindow))
 	mux.HandleFunc("/api/sign-in-start", s.replayGuard(s.signInStart))
-	// Item 2ge: the composer microphone asks the host what it can do.
+	// the composer microphone asks the host what it can do.
 	mux.HandleFunc("/api/speech", s.speechHandler)
 	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)
 	mux.HandleFunc("/api/speech/stop", s.replayGuard(s.speechStopHandler))
@@ -484,7 +484,7 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-// hardeningRequest is what the protection scripts are given. Item 2nx: NOTHING IN IT
+// hardeningRequest is what the protection scripts are given. NOTHING IN IT
 // COMES FROM A MODEL CONNECTION any more — the service identity's outbound rule is
 // loopback plus the operator's own approved ranges, so no host is resolved, nothing fails
 // because a connection is unreachable, and switching connections changes nothing. The
@@ -537,7 +537,7 @@ const browserSessionCookie = "agentb_browser"
 
 func (s *Server) browserSessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Item 2nv (c): the credential listing joins the protected reads. It carries no
+		// the credential listing joins the protected reads. It carries no
 		// value, but it names what is stored and where it may go, and only the operator's
 		// own page may see that.
 		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/credentials")
@@ -663,14 +663,14 @@ func writeError(w http.ResponseWriter, status int, message, field string) {
 }
 func method(w http.ResponseWriter) { writeError(w, 405, "method not allowed", "method") }
 
-// saveMachineConfig writes the machine's configuration file. Item 2m0: this is
+// saveMachineConfig writes the machine's configuration file. this is
 // the ONE place the server writes it, and it writes the machine's own
 // per-profile sections rather than the active profile's.
 //
 // Every caller here holds `*s.cfg`, which is the MERGE, so before this existed
 // each of them wrote whichever profile was active into the machine's defaults as
 // a side effect of changing a connection or the service identity. The audit at
-// rel-1.21.0/W0 found nineteen such writers and only one that had any idea it
+// found nineteen such writers and only one that had any idea it
 // was doing it.
 //
 // A caller whose write IS per-profile does not belong here: it calls
@@ -683,7 +683,7 @@ func (s *Server) saveMachineConfig(cfg config.Config) error {
 }
 
 // saveProfileConfig persists a change to a PER-PROFILE section, and writes the
-// machine file too because a route may have changed both. Item 2m0 (b).
+// machine file too because a route may have changed both..
 //
 // The order matters: the profile's own file is written first, so that if the
 // machine write fails the profile's value is already durable rather than lost.

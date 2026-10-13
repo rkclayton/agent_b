@@ -335,7 +335,7 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 	case attachmentfile.Text:
 		return "text", "read with read_file", "", nil
 	case attachmentfile.Office:
-		// Item 2ep: a workbook or document keeps its structure (tables per sheet;
+		// a workbook or document keeps its structure (tables per sheet;
 		// headings, lists and tables in order); other Office types stay plain text.
 		note = "crude stdlib XML text extracted"
 		text, structured, extractErr := attachmentfile.ExtractStructuredOffice(resolved, extractionLimit)
@@ -376,7 +376,7 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 			}
 			return "extracted", "extraction output is untrusted", sidecar, nil
 		}
-		// Item 2fj: on every connection a PDF's text layer is read locally; a PDF
+		// on every connection a PDF's text layer is read locally; a PDF
 		// with none (a scan) goes to the inbox OCR page by page. The chip says
 		// which route read it.
 		tier, note := "extracted", "text layer read locally; extraction output is untrusted"

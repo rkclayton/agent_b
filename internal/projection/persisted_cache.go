@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Item 2m5 (b): STARTUP DOES NOT PARSE WHAT IT DOES NOT NEED.
+// STARTUP DOES NOT PARSE WHAT IT DOES NOT NEED.
 //
 // The operator's launch at 08:30 on 2026-09-28 took 8,513 ms to listen, of which
 // `parse and project journals` was 6,797 ms — 80% — and a cold one before it took
@@ -40,7 +40,7 @@ import (
 // that was stored. A journal that shrank, or whose offset no longer lands on a
 // record boundary, is projected from the beginning, which is what every launch did
 // before this existed. Nothing here writes, renames or deletes anything under
-// `chats/` — item 2m5 (c).
+// `chats/` —.
 const cacheSchema = 1
 
 // cacheEntry is one chat's projected state with the identity of the journal it was

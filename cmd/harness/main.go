@@ -59,7 +59,7 @@ func main() {
 	if err := startupElevationError(processIsElevated() && !allUsersInstallRequested(os.Args[0], os.Args[1:])); err != nil {
 		log.Fatal(err)
 	}
-	// Item 2gm: where the two minutes go, measured on every start.
+	// where the two minutes go, measured on every start.
 	phases := newStartupPhases()
 	startupTimer = phases
 	configOverride := flag.String("config", "", "configuration file (overrides AGENTB_CONFIG and installed/default locations)")
@@ -68,11 +68,11 @@ func main() {
 	replayPaths := flag.String("replay", "", "comma-separated session JSONL files to replay")
 	startupLog := flag.String("startup-log", "", "optional append-only startup diagnostic log")
 	version := flag.Bool("version", false, "print this build's identity as JSON and exit")
-	// Item 2hc (v1.3.0/W2): our own window. One process and one binary still:
+	// our own window. One process and one binary still:
 	// this is a mode of the server, not a second executable, and the browser
 	// path stays supported for every case where the runtime is absent.
 	window := flag.Bool("window", false, "host the page in Agent_b's own window (Windows, needs the WebView2 runtime)")
-	// Item 2gl: install mode. Everything after --install is the installer's,
+	// install mode. Everything after --install is the installer's,
 	// so it is taken before flag.Parse and passed through untouched — the
 	// PowerShell installer's parameters stay its own and cannot drift from a
 	// second copy of them here.
@@ -149,11 +149,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Item 2mt (a): before anything that can fault. The data root is the first
+	// before anything that can fault. The data root is the first
 	// thing a crash record needs and this is the first line that knows it.
 	build := buildinfo.Current()
 	installCrashRecord(paths.Data, map[string]any{"tag": build.Tag, "commit": build.Commit, "dirty": build.Dirty, "executable_sha256": build.ExecutableSHA256}, *window)
-	// Item 2hx: an installed launch is one application, not a race to bind the
+	// an installed launch is one application, not a race to bind the
 	// same port. The serving process's marker names its install root and port;
 	// a second window launch validates both, asks that exact process to foreground
 	// its window, writes one launcher line, and exits before config work or a bind.
@@ -165,7 +165,7 @@ func main() {
 			return
 		}
 	}
-	// Item 2gl: an install that did not finish says so, once, at the next
+	// an install that did not finish says so, once, at the next
 	// launch — the user asked "should i re-run?" and nothing could answer
 	// him. The marker is only ever cleared by an install that completed.
 	if marker, found, markerErr := readInstallMarker(paths.Data); markerErr != nil {
@@ -178,7 +178,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Item 2nv (h): every static_bearer connector moves into the credential store here,
+	// every static_bearer connector moves into the credential store here,
 	// once, before anything can use one. A connector whose variable is empty or whose
 	// value does not verify is left unauthenticated and says so; nothing falls back to
 	// the environment.
@@ -223,7 +223,7 @@ func main() {
 	} else if facts.TokenizeBlocksOnSlot == "yes" {
 		log.Printf("tokenize blocks on the generation slot (%d ms measured busy); context.accounting: \"estimated\" avoids it", facts.TokenizeBusyMS)
 	}
-	// Item 2o0: every server can host its window, not only one started with
+	// every server can host its window, not only one started with
 	// -window, because a later launch may ask a background server for it.
 	hostWindowMode = *window
 	hostWindowDataRoot = paths.Data
@@ -274,7 +274,6 @@ func main() {
 		}
 	}()
 	bus := events.NewBus()
-	// Item 2ji (a): every run already journals its timings; nothing added them up.
 	// The tally folds the run's own events and puts the buckets and the
 	// reliability counters onto run.stopped, before the journal is written, so the
 	// chat line, Activity and the telemetry receiver all read the same numbers
@@ -289,7 +288,7 @@ func main() {
 	updateManager := updater.New(updater.Options{
 		CurrentVersion: buildinfo.Current().Tag,
 		DataRoot:       paths.Data,
-		// Item 2lh: this instance updates where it lives, not where the operator
+		// this instance updates where it lives, not where the operator
 		// per-user install happens to be.
 		ApplicationRoot: paths.Application,
 		WorkspaceRoot:   paths.Workspace,
@@ -319,7 +318,7 @@ func main() {
 	registry.SetMachineMemoryLoader(memoryManager.LoadMachine)
 	registry.SetWorkspaceManager(workspaceManager)
 	web.SetRegistry(registry)
-	// Item 2kq (f) as item 2nu left it: the address is built in, so this is normally
+	// The address is built in, so this is normally
 	// broker.DefaultURL and a phone can be paired on a fresh install. Constructing the
 	// client loads this install's protected identity and any durable pairing. It opens
 	// nothing unless a pairing is under way or already exists (2nu (d), 2ob).
@@ -368,7 +367,6 @@ func main() {
 	web.SetNotifications(notificationManager, notificationStore)
 	web.SetWorkspaceState(workspaceManager, memoryManager)
 	operatorFiles := operatorfiles.New(profileRoot, logDir, web.ConfigSnapshot)
-	// Item 2py (c): once per profile, the transcripts earlier versions wrote on delete.
 	if profiles, err := filepath.Glob(filepath.Join(paths.Data, "profiles", "*")); err == nil {
 		if _, err := operatorfiles.SweepChatExports(append(profiles, paths.Data)); err != nil {
 			log.Printf("chat export sweep: %v", err)
@@ -382,7 +380,7 @@ func main() {
 		log.Printf("apply log retention: %v", err)
 	}
 	web.SetOperatorFiles(operatorFiles)
-	// Item 17-i: reflection runs after a run closes and on a daily tick. It
+	// reflection runs after a run closes and on a daily tick. It
 	// subscribes to the bus, so it is never in a run's path.
 	web.StartReflection(24 * time.Hour)
 	web.ApplyTelemetry()
@@ -431,7 +429,7 @@ func main() {
 	}
 	workspaces := session.NewWorkspaceRegistry()
 	coordinator := tools.NewFileCoordinator(workspaces, registry.Label, bus)
-	// Item 2li (b): the store is pinned to the service account it holds the
+	// the store is pinned to the service account it holds the
 	// password for, so a machine-scoped blob's access list can name that account
 	// and the read-side check can insist on it.
 	credentialStore := credential.New(paths.Data).ForAccount(credential.ServiceAccount)
@@ -467,7 +465,7 @@ func main() {
 		return hardeningManager.GrantPlan(grantContext, web.ConfigSnapshot().Shell.ServiceAccount.Account, repository)
 	})
 	web.SetSigningManager(signing.New(filepath.Join(paths.Application, "scripts", "manage-signing.ps1")))
-	// Item 2gm: inspecting the installed signatures runs PowerShell and used to
+	// inspecting the installed signatures runs PowerShell and used to
 	// hold the port closed for seconds — on a fresh root with no chats at all
 	// it was most of the 8.1 s before listen. It is not needed to serve a
 	// request: Settings reads the state when it is ready, the same treatment
@@ -479,16 +477,15 @@ func main() {
 			log.Printf("inspect installed signatures: %v", err)
 		}
 	}()
-	// Item 2ho (v1.6.0): web_search follows fetch_url. It shares that tool's
+	// web_search follows fetch_url. It shares that tool's
 	// guarded uTLS transport, so the older tools retain their relative order.
-	// Item 2jf (d): the tool enforces the layer budget, so it needs the number.
 	rememberTool := tools.NewRemember(memoryManager, bus)
 	rememberTool.SetConfig(web.ConfigSnapshot)
 	rememberTool.SetPlanner(web.PlannerNotes())
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	delegateTool := tools.NewDelegate()
 	callServiceTool := tools.NewCallService(cfg.Services)
-	// Item 2nv: the named-credential store lives beside the connection credentials, under
+	// the named-credential store lives beside the connection credentials, under
 	// the operator data root, and the tool reads it through one seam.
 	vault := credential.NewVault(paths.Data)
 	callServiceTool.SetVault(vault)
@@ -515,7 +512,7 @@ func main() {
 		tools.NewChatHistory(func() tools.ChatHistoryReader { return writers }),
 		tools.NewCronjob(cronManager),
 	)
-	// Item 2ch (v1.2.5): the threshold under which a PDF is sent inline rather
+	// the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(cfg.Tools.Attachments.InlineDocumentLimit())
 	runner := agent.NewRunner(bus, toolRegistry, renderer, web.Connection, web.ConfigSnapshot)
@@ -611,7 +608,7 @@ func main() {
 			if !item.IsClosed() {
 				runner.PublishBudget(context.Background(), item)
 			}
-			// rel-1.23.0 card 5: a message that was queued when the process ended is
+			// a message that was queued when the process ended is
 			// still queued, in the same place.
 			if count := scheduler.RestoreQueue(item); count > 0 {
 				log.Printf("restored chat %s came back with %d queued message(s), held until your next message", item.ID, count)
@@ -657,8 +654,7 @@ func main() {
 		}
 		phases.mark("before restore")
 		// restoreRetainedChats computes the id floor from the same projection it
-		// restores. Projecting every journal here first used to do the dominant
-		// startup work twice.
+		// restores.
 		restored, floor, restoreErr := restoreRetainedChats(writers, registry, bus, 0)
 		if restoreErr != nil {
 			log.Fatal(restoreErr)
@@ -807,7 +803,7 @@ func notificationFixtureURL() string {
 // retainedIDFloor is the highest numeric id suffix a restored chat holds in a
 // message id or a run id. Message and run ids come from counters that start at
 // 1 in every process; without this floor the first run after a restart reused
-// restoreProjections is item 2m5 (b)'s whole mechanism: read each chat's PROJECTED
+// restoreProjections is the whole mechanism: read each chat's PROJECTED
 // STATE when the journal it came from has not changed, and project only the journals
 // that have.
 //
@@ -854,7 +850,7 @@ func restoreProjections(writers *events.Writers, paths []string) (map[string]pro
 }
 
 // restoreRetainedChats restores every retained chat and returns the id floor
-// past everything it holds, including ids it re-minted (item 2fd rule 7).
+// past everything it holds, including ids it re-minted.
 func restoreRetainedChats(writers *events.Writers, registry *session.Registry, bus *events.Bus, floor int64) ([]*session.Session, int64, error) {
 	paths, err := writers.DurableChatPaths()
 	if err != nil {
@@ -896,7 +892,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	for id := range replay.Sessions {
 		ids = append(ids, id)
 	}
-	// Item 2m5 (b): the floor is taken over EVERY restored chat before the first
+	// the floor is taken over EVERY restored chat before the first
 	// remint, because a remint in s1 must not collide with an id s9 already holds.
 	// It used to be a second full projection of the same journals (retainedIDFloor,
 	// now gone); it is a pass over the snapshots this function already has.
@@ -914,7 +910,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		if unmarshalErr := json.Unmarshal(encoded, &saved); unmarshalErr != nil {
 			return nil, floor, unmarshalErr
 		}
-		// Item 2mt (e): A RUN THE PROCESS DIED IN IS CLOSED HERE, and the item
+		// A RUN THE PROCESS DIED IN IS CLOSED HERE, and the item
 		// asked me to verify this already happened. It did not. The projector
 		// takes `run.status` from `run.started` and `run.stopped`, so a journal
 		// that stops on a `model.delta` — which is exactly what the user's
@@ -923,16 +919,16 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 		// that way on every later start. A chat that claims to be thinking
 		// forever is worse than one that says it was cut.
 		saved.Run = closeRunCutByProcessDeath(saved.Run, replay.Sessions[id].Timeline)
-		// Item 2et, anchored by item 2fd rule 3: results older than the newest
+		// anchored by rule 3: results older than the newest
 		// user message the journal names — surviving or folded — come back as
 		// their elision stubs; the JSONL keeps the bytes.
 		saved.Messages = contextmgr.StubResultsBefore(saved.Messages, newestRunUserMessage(replay.Sessions[id].Timeline), config.Defaults("").Tools.ReadFile.DefaultLimit)
-		// Item 2fd rule 7: a repeated id gets a new one once, with a journal note.
+		// rule 7: a repeated id gets a new one once, with a journal note.
 		var reminted []contextmgr.Remint
 		saved.Messages, reminted, floor = contextmgr.RemintDuplicateIDs(saved.Messages, floor)
 		item, restoreErr := registry.RestoreWithTranscript(saved, replay.Sessions[id].Chat)
 		if restoreErr != nil {
-			// Item 2gg (v1.1.2/W4): one chat that cannot be restored is not a
+			// one chat that cannot be restored is not a
 			// reason to refuse to start. It used to return here and the caller
 			// called log.Fatal, so a single retained chat naming an agent the
 			// operator had since renamed or removed took the whole application
@@ -1077,7 +1073,7 @@ func resolveStartupPaths(configOverride, applicationOverride, dataOverride strin
 	if err != nil {
 		return startupPaths{}, fmt.Errorf("resolve working directory: %w", err)
 	}
-	// Item 2gw (v1.2.5): the binary's OWN files - web, prompts, scripts, the
+	// the binary's OWN files - web, prompts, scripts, the
 	// example config - live beside the binary, not beside whatever directory a
 	// shell happened to be in. Resolving them against the working directory
 	// meant the exe started from C:\ or from Explorer looked for its own assets
@@ -1271,7 +1267,7 @@ func readServingFacts(path string) servingFacts {
 	return facts
 }
 
-// Item 2hc (v1.3.0/W2): the host window, started beside the server in the same
+// the host window, started beside the server in the same
 // process. It runs on its own OS thread because a window and its message pump
 // belong to one thread, and closing it asks for the same graceful stop the
 // installer's channel uses, so every exit still records its reason.
@@ -1279,7 +1275,7 @@ func readServingFacts(path string) servingFacts {
 // A missing or unusable WebView2 runtime is NOT a failure: the server keeps
 // serving, the reason is logged, and the browser window remains the way in.
 //
-// Item 2o0: the window's fate is written to the startup log AND launcher.log
+// the window's fate is written to the startup log AND launcher.log
 // for every launch, and the window is supervised rather than attempted once.
 // Five mornings the sign-in start (-Detached -NoBrowser, so no -window) left a
 // server with no window and, because only a window owned the activation event,
@@ -1354,7 +1350,7 @@ func openHostWindow(url, applicationRoot string) bool {
 
 // recordWindowFate writes one window line to the startup log and to the
 // launcher log the user reads, in the launcher's own line format.
-// Item 2q7 (a): the app aggregator, and whether the last instance crashed;
+// the app aggregator, and whether the last instance crashed;
 // package level because the listen and window lines live outside main().
 var (
 	startupApp      *recorder.App

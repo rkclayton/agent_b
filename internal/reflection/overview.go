@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Reflection joins the two (item 17-i, step 3): the structure comes from the
+// Reflection joins the two: the structure comes from the
 // code, the narrative from the summaries. Which parts have seen churn, what
 // changed, what is open. It is text, stored per pass so two passes can be
 // diffed, and it is never written into plan.md.

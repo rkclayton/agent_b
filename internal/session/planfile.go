@@ -67,7 +67,7 @@ func UpdatePlanFile(path string, change func(current string, exists bool) (strin
 		return err
 	}
 	// A new plan's creator announces it once its folder is complete; a rewrite
-	// of an existing plan.md is announced here, whoever wrote it (item 2bq).
+	// of an existing plan.md is announced here, whoever wrote it.
 	if exists && strings.EqualFold(filepath.Base(path), "plan.md") {
 		notifyPlan("plan.updated", filepath.Dir(path))
 	}
@@ -120,7 +120,7 @@ func RegistrationRefusal(plansRoot, repo string) (string, string) {
 	if strings.HasPrefix(filepath.VolumeName(resolved), `\\`) || filepath.Dir(resolved) == resolved {
 		return "", "a drive or network root cannot be a plan's repository; choose the repository's own folder"
 	}
-	// v0.69.0/W16 cold review: registering a folder adds it to every chat's
+	// cold review: registering a folder adds it to every chat's
 	// writable union, so the operator's whole connection and the system folders
 	// are refused wherever the typed path led.
 	if reason := protectedRepoFolder(resolved); reason != "" {

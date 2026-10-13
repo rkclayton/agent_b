@@ -215,14 +215,14 @@ func permissionDeniedOutput(output string) bool {
 
 func (s *Shell) TestServiceAccount(ctx context.Context) (string, error) {
 	cfg, workspace := s.configWithWorkspace()
-	// Item 2l2 (b): with the split disabled there is no identity in use, so there
+	// with the split disabled there is no identity in use, so there
 	// is nothing to test and nothing to ask approval for.
 	if !cfg.ServiceAccount.Enabled {
 		return "service split is disabled; the service account is not tested", nil
 	}
 	workspace, err := usableShellWorkspace(workspace)
 	if err != nil {
-		// Item 2l2 (e): which directory, and why the account cannot reach it --
+		// which directory, and why the account cannot reach it --
 		// that is an ACL question the operator can settle.
 		return s.failedServiceTest(fmt.Sprintf("the service account cannot use its working directory: %v", err), err)
 	}
@@ -277,7 +277,7 @@ func (s *Shell) failedServiceTest(reason string, err error) (string, error) {
 		status = s.configuredIdentityStatus()
 	}
 	s.setIdentity(status)
-	// Item 2l2 (c): once per launch per condition, not once per trigger. Ten
+	// once per launch per condition, not once per trigger. Ten
 	// identical approval alarms in four minutes was the Settings panel rendering
 	// ten times, and each one asked the operator for the same approval.
 	if previous, _ := s.alarmedCondition.Load().(string); previous != reason {

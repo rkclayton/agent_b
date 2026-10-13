@@ -12,7 +12,7 @@ export const store = {
   update: { enabled: false, checking: false, available: false, installing: false },
   mutation_token: browserMutationToken, shell_credential: { stored: false, stored_at: "" },
   shell_identity: { fallback: false, operator_approval_required: false, operator_context: false, reason: "", since: "" }, replay: false,
-  // Item 2ew: false until the first full snapshot is applied. Empty-state text
+  // false until the first full snapshot is applied. Empty-state text
   // (no agent, an empty transcript, no activity) waits for it, so a reload or a
   // slow server never shows "nothing here" when there is something.
   loaded: false,
@@ -51,12 +51,12 @@ function notify(event) { for (const fn of listeners) fn(store, event); }
 export function reduce(event) {
   const data = event.data || {};
   if (event.type === "snapshot") {
-    // Item 2ev: every snapshot, including the one after the event stream
+    // every snapshot, including the one after the event stream
     // reconnects to a restarted server, names the server's build.
     if (typeof document !== "undefined" && data.build?.executable_sha256) { try { compareWithServer(data.build.executable_sha256); } catch {} }
     const active = store.active;
     const selection = store.selection;
-    // v0.65.0/W8 (2er): a resync's snapshot is fetched while patches keep
+    // a resync's snapshot is fetched while patches keep
     // arriving on the event stream. A session this page already advanced past
     // the snapshot's cursor (same generation, later offset) keeps its newer
     // state: replacing it moved the page backwards, the patches it lost were
@@ -87,11 +87,11 @@ export function reduce(event) {
     const chosen = store.sessions[selected];
     const mine = chosen && roleAgentID(chosen) === selection.agent_id;
     store.active = mine && !chosen.closed ? selected : firstOpenSessionID(selection.agent_id, { freshOnly: true });
-    // Item 2gn: a CLOSED chat may stay selected. This line used to assign
+    // a CLOSED chat may stay selected. This line used to assign
     // store.active — always an open chat — over the selection on every
     // snapshot, so a closed chat could never be the selected one and asking
     // for one by name silently landed the operator on another chat. That is
-    // the cause the v1.1.2 report could not find: it is here, not in chat.js.
+    // the cause the report could not find: it is here, not in chat.js.
     // `active` still means the active OPEN chat, so nothing that runs work
     // gains a closed session; only what the operator is LOOKING at changes.
     store.selection.session_id = mine && chosen.closed ? selected : store.active;
@@ -130,7 +130,7 @@ export function reduce(event) {
         store.shell_identity = { ...(store.shell_identity || {}), operator_context: data.config.shell.operator_context };
       }
       break;
-    // Item 2px (e): the one state every connection lamp reads.
+    // the one state every connection lamp reads.
     case "connection.health": store.connection_health = { ...(store.connection_health || {}), [data.connection_id]: data.health }; break;
     case "agent.connection_change":
       store.agent_connection_changes ||= {};
@@ -146,7 +146,7 @@ export function reduce(event) {
     case "chat.list.patch":
       if (data.operation === "activity" && store.sessions[data.session_id]) store.sessions[data.session_id].last_activity = data.last_activity;
       break;
-    // Item 2bq: a plan created, rewritten or removed by any route. The list
+    // a plan created, rewritten or removed by any route. The list
     // follows, and every subscriber (the Plan panel) re-reads its plan.
     case "plan.created":
     case "plan.updated":
@@ -280,7 +280,7 @@ async function resync() {
 }
 
 function roleAgentID(session) { return `agent_${session?.role === "d" ? "d" : "b"}`; }
-// Item 2es: with nothing selected, a chat that already holds messages (a
+// with nothing selected, a chat that already holds messages (a
 // retained chat restored at startup) is never picked for the operator — they
 // select its tab. Only an empty chat may become the target on its own.
 function firstOpenSessionID(agentID = "agent_b", { freshOnly = false } = {}) {
@@ -289,14 +289,14 @@ function firstOpenSessionID(agentID = "agent_b", { freshOnly = false } = {}) {
 export function setActive(id) { setSelection(store.selection.agent_id || "agent_b", id); }
 export function setSelection(agentID, sessionID = "") {
   const nextAgent = agentID || "agent_b";
-  // Item 2gn: a closed chat may be selected — the operator asked for it by
+  // a closed chat may be selected — the operator asked for it by
   // name. This refused a closed id outright and left the selection empty,
   // which is why every attempt to open one of his retained chats landed
   // somewhere else. `active` still means the active OPEN chat, so nothing
   // that runs work is handed a closed session.
   const target = sessionID && store.sessions[sessionID] && roleAgentID(store.sessions[sessionID]) === nextAgent ? sessionID : "";
   const nextSession = target;
-  // Item 2mf (b): SELECTION IS A SURFACE REFERENCE. It was a session id, which is
+  // SELECTION IS A SURFACE REFERENCE. It was a session id, which is
   // why no tab could point at anything that was not a chat. The session id is
   // still here and still means what it meant — it is what the CHAT KIND carries,
   // rather than what every tab must have.
@@ -305,7 +305,7 @@ export function setSelection(agentID, sessionID = "") {
 	persistSelection();
 	notify({ type: "selection.changed", data: { ...store.selection } });
 	const session = store.sessions[target];
-	// Item 2qc: the opening stream carries list metadata only. Selecting one of
+	// the opening stream carries list metadata only. Selecting one of
 	// those rows must ask for the bounded session projection, not just its Chat
 	// rows: proposal cards and other selected-chat state live in Messages.
 	if (target && !store.replay && Number(session?.history_total || 0) > 0 && !Array.isArray(session?.messages)) {
@@ -352,7 +352,7 @@ export async function loadSessionHistory(id, earlier = false) {
 	historyLoads.set(key, pending);
 	return pending;
 }
-// Item 2mf (b): selecting a surface that is not a chat. The chat selection is
+// selecting a surface that is not a chat. The chat selection is
 // left exactly as it was, because the user's chat is still his chat while he
 // is reading the Plan, and one click on its tab must return to it.
 export function setSurface(surface) {

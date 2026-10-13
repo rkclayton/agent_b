@@ -1,5 +1,5 @@
 // Package reflection is the pass that runs after a chat's run closes and on a
-// daily tick (item 17-i). It records one summary per run, extracts the shape of
+// daily tick. It records one summary per run, extracts the shape of
 // a repository from the code rather than from history, joins the two into a
 // text overview per plan, and mines recorded tool calls for the tool-candidate
 // report. It never touches the run loop's latency: everything here happens
@@ -45,7 +45,7 @@ type Summary struct {
 	Duration    int64    `json:"duration_ms"`
 	// Untrusted marks a run that read content the operator did not write — a
 	// fetched page, an untrusted tool result. Reflection writes no memory note
-	// from such a run (v1.1.0/W6 cold review).
+	// from such a run (cold review).
 	Untrusted bool `json:"untrusted"`
 }
 
@@ -69,8 +69,7 @@ type Report struct {
 }
 
 // Store is the SQLite store under the data root. modernc.org/sqlite is pure
-// Go, needs no cgo, and carries a permissive licence, which is what item 17-i
-// asks of the driver.
+// Go, needs no cgo, and carries a permissive licence.
 type Store struct{ db *sql.DB }
 
 // Open creates or opens <dataRoot>/reflection/reflection.db.
@@ -120,7 +119,7 @@ func (s *Store) migrate() error {
 			untrusted INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS summaries_at ON summaries (at)`,
-		// A store written before v1.1.0/W6 has no untrusted column.
+		// A store written before has no untrusted column.
 		`ALTER TABLE summaries ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0`,
 		`CREATE TABLE IF NOT EXISTS overviews (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,7 +154,7 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("reflection schema: %w", err)
 		}
 	}
-	// v1.6.7 renamed profiles to connections. Rename the released column too:
+	// renamed profiles to connections. Rename the released column too:
 	// adding connection would leave profile NOT NULL and make every new insert
 	// fail because current writes no longer carry it.
 	if _, err := s.db.Exec(`ALTER TABLE summaries RENAME COLUMN profile TO connection`); err != nil && !strings.Contains(err.Error(), "no such column") {
@@ -234,7 +233,7 @@ func (s *Store) Summaries(since time.Time, limit int) ([]Summary, error) {
 }
 
 // KeptOverviews and KeptReports bound the diffable record. Without a bound the
-// store grows with every pass forever (v1.1.0/W6 cold review).
+// store grows with every pass forever (cold review).
 const (
 	KeptOverviews = 60
 	KeptReports   = 30
@@ -342,7 +341,7 @@ func (s *Store) LatestReport() (Report, error) {
 	return report, nil
 }
 
-// Plan proposals (item 17-i's registration decision, v1.1.1/W3). Reflection
+// Plan proposals. Reflection
 // never registers a plan: it proposes one, the operator answers the existing
 // card, and the answer is remembered. A declined proposal stays declined until
 // the repository's agent files change — the fingerprint below — so the

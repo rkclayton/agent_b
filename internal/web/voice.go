@@ -14,7 +14,7 @@ import (
 	"harness/internal/projection"
 )
 
-// Item 2mx: SIRI, AND WHAT A VOICE ASSISTANT ACTUALLY NEEDS.
+// SIRI, AND WHAT A VOICE ASSISTANT ACTUALLY NEEDS.
 //
 // A Shortcut cannot read a screen, cannot retry safely and cannot be told "look at the
 // settings sheet". Three things follow, and they are the whole of this file:
@@ -40,7 +40,7 @@ type idempotentReply struct {
 	status int
 	body   any
 	at     time.Time
-	// Item 2mx (b): a retry with the same key AND THE SAME SESSION replays. The session
+	// a retry with the same key AND THE SAME SESSION replays. The session
 	// is part of the identity because a key reused against a different chat is a
 	// different request, and replaying the first chat's answer into the second would be
 	// a wrong answer rather than a safe retry.
@@ -118,7 +118,7 @@ func idempotencyKeyOf(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 }
 
-// spokenLine is item 2mx's brief: ONE SHORT LINE, drawn from what already happened and
+// spokenLine is the brief: ONE SHORT LINE, drawn from what already happened and
 // nothing else.
 //
 // The order of precedence is the order of urgency. An approval that is waiting is the
@@ -152,7 +152,7 @@ type spokenApproval struct {
 	CallID  string `json:"call_id,omitempty"`
 }
 
-// Item 2mx (c): THE STATE VOCABULARY IS THE ITEM'S, NOT THE RUN'S.
+// THE STATE VOCABULARY IS THE ITEM'S, NOT THE RUN'S.
 //
 // The brief passed the run's own status through, which is the harness's word for it.
 // (c) names six states a caller can branch on without knowing how the harness talks:
@@ -235,7 +235,7 @@ func humanStopReason(reason string) string {
 	return reason
 }
 
-// runBrief is item 2mx's `GET /api/runs/{id}/brief`: one line a voice assistant can
+// runBrief is the `GET /api/runs/{id}/brief`: one line a voice assistant can
 // speak about a run, and the structured state behind it for anything that wants more.
 //
 // It INVENTS NOTHING. Every word of `spoken` comes from the approval that is waiting,
@@ -274,7 +274,7 @@ func (s *Server) runBrief(w http.ResponseWriter, r *http.Request) {
 		"session_id": snapshot.ID,
 		"chat":       snapshot.Label,
 		"status":     snapshot.Run.Status,
-		// (c): the state a caller branches on, in the item's own six words, and where to
+		// the state a caller branches on, in the item's own six words, and where to
 		// go to answer an approval — a voice assistant cannot show a screen, so it hands
 		// over a link instead.
 		"state":    briefState(snapshot.Run.Status, pending != nil, stopped),

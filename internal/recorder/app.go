@@ -13,7 +13,7 @@ import (
 	"harness/internal/events"
 )
 
-// Item 2q7: how the app itself is doing — start-up, the page, the phone link,
+// how the app itself is doing — start-up, the page, the phone link,
 // installs, resources and what gets used — gathered for an hour and sent as a
 // handful of aggregates. Every size and count that could single out a machine
 // is a power-of-two bucket. Nothing here is text: words from fixed sets, our own

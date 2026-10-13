@@ -18,7 +18,7 @@ import (
 	"harness/internal/quietproc"
 )
 
-// Structure extraction (item 17-i, step 2). The shape of a repository comes
+// Structure extraction. The shape of a repository comes
 // from the code, never from a model and never from run history. Three tiers,
 // degrading silently, each reporting which one produced the graph.
 //
@@ -71,7 +71,7 @@ type resolver struct {
 
 func resolvers() []resolver {
 	return []resolver{
-		// The environment is pinned, not inherited (v1.1.0/W6 cold review): a
+		// The environment is pinned, not inherited (cold review): a
 		// repository names its own toolchain in go.mod or rust-toolchain.toml,
 		// and an inherited GOTOOLCHAIN or RUSTUP_TOOLCHAIN would let it choose
 		// the binary that runs.
@@ -192,7 +192,7 @@ func importPatterns() []importPattern {
 
 // maxScannedFiles bounds tier 2 and tier 3: reflection reads a repository, it
 // does not crawl a disk. maxSourceBytes bounds one file: a generated bundle is
-// not worth reading into memory (v1.1.0/W6 cold review).
+// not worth reading into memory (cold review).
 const maxScannedFiles = 4000
 const maxSourceBytes = 1 << 20
 

@@ -16,7 +16,7 @@ import (
 	"harness/internal/telemetry"
 )
 
-// Item 2mv: ONE DIAGNOSTICS EXPORT, REDACTED.
+// ONE DIAGNOSTICS EXPORT, REDACTED.
 //
 // The probes already exist as separate endpoints and the logs as separate files;
 // nothing gathered them, so asking for the state of an install meant asking for a
@@ -234,7 +234,7 @@ func (r *redactor) bounded(ctx context.Context, name, means string, call func(co
 		}
 		return diagnosticsSection{Name: name, Means: means, Value: r.through(got.value)}
 	case <-ctx.Done():
-		// (d): named, with the reason, and not waited on.
+		// named, with the reason, and not waited on.
 		return diagnosticsSection{Name: name, Means: means + " It is not in this file because reading it takes longer than the export allows; the matching page in Settings shows it in full.", Skipped: fmt.Sprintf("took longer than %s", diagnosticsProbeBound)}
 	}
 }
@@ -270,7 +270,7 @@ func (s *Server) diagnosticsExport() map[string]any {
 	red := newRedactor(dataRoot, appRoot)
 	snapshot := s.snapshot()
 
-	// (a): everything from the snapshot the server already holds. No new probe.
+	// everything from the snapshot the server already holds. No new probe.
 	fromSnapshot := func(key, means string) diagnosticsSection {
 		value, present := snapshot[key]
 		if !present {
@@ -302,7 +302,7 @@ func (s *Server) diagnosticsExport() map[string]any {
 	if newest := newestMatching(filepath.Join(logs, "startup-*.log")); newest != "" {
 		sections = append(sections, red.tail(newest, diagnosticsLogTail))
 	}
-	// Item 2mt's crash records, which are the reason a crash is readable at all.
+	// the crash records, which are the reason a crash is readable at all.
 	for _, crash := range crashRecordsUnder(logs) {
 		sections = append(sections, red.tail(crash, diagnosticsLogTail))
 	}
@@ -385,7 +385,7 @@ func (s *Server) diagnosticsProbes(red *redactor) []diagnosticsSection {
 	return out
 }
 
-// crashRecordsUnder lists item 2mt's crash records, newest first, bounded.
+// crashRecordsUnder lists the crash records, newest first, bounded.
 func crashRecordsUnder(logs string) []string {
 	entries, err := os.ReadDir(logs)
 	if err != nil {

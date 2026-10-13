@@ -1,4 +1,4 @@
-// Item 2mf (a) and (b): A TAB POINTS AT A SURFACE, NOT AT A SESSION.
+// A TAB POINTS AT A SURFACE, NOT AT A SESSION.
 //
 // The strip was hard-wired to chats — every wrap carried a session id, every tab
 // was named by the session and lit by its run state, and selection WAS a session
@@ -12,7 +12,7 @@
 // a surface can already be opened in a window. This module is where that list
 // lives; the strip renders it and knows nothing else about what a kind is.
 //
-// (h): PLAN IS THE FIRST USER, NOT THE ONLY ONE. No other surface moves in this
+// PLAN IS THE FIRST USER, NOT THE ONLY ONE. No other surface moves in this
 // item — Settings and the activity page stay exactly where they are. Making
 // everything a tab at once is how a refactor becomes a rewrite.
 
@@ -31,7 +31,7 @@ export function sameSurface(a, b) {
   return !!a && !!b && a.kind === b.kind && a.key === b.key;
 }
 
-// The static surfaces the STRIP pins after every chat. Item 2ni emptied this list:
+// The static surfaces the STRIP pins after every chat. emptied this list:
 // "why is plan a chat tab on the left side? ... i decided i think i want it under
 // settings, as its own top level item". The Plan is a Settings section now, so the
 // strip is chats only again. The list and the machinery around it stay, because the
@@ -74,7 +74,7 @@ export function surfaceForPage(page, sessionID = "") {
   return kind ? { kind, key: kind } : null;
 }
 
-// (d), (e) and (f): A HIDDEN SURFACE IS HIDDEN, NOT GONE. The config carries the
+// A HIDDEN SURFACE IS HIDDEN, NOT GONE. The config carries the
 // names of the kinds the operator has hidden and nothing else; the surface itself,
 // its URL and its page are untouched, so re-enabling restores it where it was —
 // pinned at the far right, because that is where the list puts it.
@@ -82,7 +82,7 @@ export function surfaceForPage(page, sessionID = "") {
 // Only a static surface may be hidden. A chat is closed, which is [[2hq]]'s
 // close-is-not-delete and a different thing entirely.
 //
-// Item 2ni: hiding the Plan now hides its SETTINGS SECTION rather than a tab that
+// hiding the Plan now hides its SETTINGS SECTION rather than a tab that
 // no longer exists. The stored name, the config key and the switch are unchanged:
 // the operator's choice was "I do not want to see this", and that is still the
 // choice, applied where the entry now lives.

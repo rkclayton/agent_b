@@ -105,7 +105,7 @@ func contains(values []string, want string) bool {
 }
 
 // SerializedBytes is the size of the request body this client would send, in the
-// bytes the server actually counts. Item 2l8: the token budget cannot see this
+// bytes the server actually counts. the token budget cannot see this
 // number, and a server that caps the serialized request refuses a body the token
 // budget believes has room.
 func SerializedBytes(connection *config.Connection, request Request, stream bool) int {

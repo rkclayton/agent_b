@@ -12,7 +12,7 @@ import (
 	"harness/internal/events"
 )
 
-// Item 2mw: REFLECTION'S NOTES BECOME THE OPERATOR'S.
+// REFLECTION'S NOTES BECOME THE OPERATOR'S.
 //
 // The mechanism already ran. Reflection recorded one summary per run and wrote one
 // memory note per stated correction, and there it stopped: nothing confirmed a note,

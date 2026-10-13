@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Item 2nv (f): DESTINATION ENFORCEMENT, and nothing else. This file knows nothing about
+// DESTINATION ENFORCEMENT, and nothing else. This file knows nothing about
 // how a secret is stored or which provider produced it — it is given an approved origin
 // and a URL, and it answers. Every credential kind passes through it before a request is
 // built: a stored key, a helper's output, and (stage 2) a signed-in provider's token.

@@ -13,7 +13,7 @@ import (
 )
 
 // Reflection's plan proposals, offered through the card that already exists
-// (v1.1.1/W3). Reflection finds repositories recent activity touched that have
+// (). Reflection finds repositories recent activity touched that have
 // agent files and no plan; it registers nothing. The operator meets one
 // ordinary Allow-this card per repository on their next visit, marked as
 // proposed by reflection and carrying the activity that led to it. Approving

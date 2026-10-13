@@ -32,7 +32,7 @@ type Registry struct {
 	config      func() config.Config
 	memory      func(context.Context, string, string) (string, string, error)
 	agentMemory func(context.Context, string, string) (string, string, error)
-	// Item 2mw (e): the machine layer takes no id — it is one layer for the box.
+	// the machine layer takes no id — it is one layer for the box.
 	machineMemory  func(context.Context, string) (string, string, error)
 	workspaces     *workspaceinfo.Manager
 	plansRoot      string
@@ -140,7 +140,7 @@ func (r *Registry) Restore(saved Snapshot) (*Session, error) {
 // RestoreWithTranscript is Restore carrying the chat's visible transcript, as
 // projected from its retained journal, in the session.created event. A restore
 // opens a new log generation with no predecessor, so without it the projector
-// starts the chat empty while its messages come back whole (item 2es).
+// starts the chat empty while its messages come back whole.
 func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -367,7 +367,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	r.reserved[id] = true
 	createdAt := time.Now().UTC()
-	// Item 2go (v1.2.5): a chat with no name has NO NAME. It used to be called
+	// a chat with no name has NO NAME. It used to be called
 	// after its own id - s14 - which told the operator nothing and was never
 	// something he wrote. The tab reads "new chat" until his first message
 	// names it.
@@ -459,7 +459,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 		tools = selected
 	}
-	// v0.69.0/W16 cold review: a repository's policy picks tools within the
+	// cold review: a repository's policy picks tools within the
 	// role, never around it — a planner reads the folder and never runs it.
 	if role == "d" {
 		tools["shell"] = false
@@ -479,7 +479,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			return nil, err
 		}
 	}
-	// Item 2mw (e): the machine layer, loaded the same way and under the same budget.
+	// the machine layer, loaded the same way and under the same budget.
 	// It takes no id, because there is one machine.
 	machineMemoryBlock, machineMemoryPath := "", ""
 	if r.machineMemory != nil {
@@ -749,7 +749,7 @@ func (r *Registry) Label(id string) string {
 	return id
 }
 
-// ConnectionInUse names the chat holding a connection. Item 2nc (b): the LABEL comes
+// ConnectionInUse names the chat holding a connection. the LABEL comes
 // back with the id, because "in use by session s12" tells the user nothing he can
 // act on — he knows his chats by their names, not by their ids.
 func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
@@ -761,7 +761,7 @@ func (r *Registry) ConnectionInUse(connectionID string) (string, bool) {
 // ConnectionHolder names an OPEN chat using a connection, which is what can block
 // removing it.
 //
-// Item 2mo's settings journey found this by walking it: a CLOSED chat held the
+// the settings journey found this by walking it: a CLOSED chat held the
 // connection too, so "in use by the chat main — close that chat first" was returned
 // for a chat that was already closed, and the connection could never be removed. The
 // operator has 33 closed chats. [[2hq]]'s close-is-not-delete keeps a closed chat's
@@ -1311,7 +1311,7 @@ func (r *Registry) Archive(id string) error {
 	return nil
 }
 
-// Item 2gy (v1.2.5): a capability finding gates the FEATURE that needs it, not
+// a capability finding gates the FEATURE that needs it, not
 // the chat. A probe that could not get an answer - a busy GPU, a timeout, a 503
 // - used to be recorded as a server that cannot call tools, and that finding
 // then stopped every run with "connection not runnable". A chat the user can
@@ -1387,7 +1387,7 @@ func restoredConnectionRunnable(connectionID string, found, savedRunnable bool, 
 }
 
 // folderMemory loads a chat's folder memory layer. A scratch folder has no
-// layer of its own (item 2fh): a scratch chat's folder memory is the layers of
+// layer of its own: a scratch chat's folder memory is the layers of
 // the plan repositories it writes into, loaded at run start.
 func (r *Registry) folderMemory(scratch bool, workspace, connectionID string) (string, string, error) {
 	if scratch || r.memory == nil {

@@ -78,7 +78,7 @@ func (s *Server) openFileFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 // openDeliveredFile opens a delivered file with the operator's default
-// application (item 2ep: an .xlsx opens in Excel). The harness runs as the
+// application. The harness runs as the
 // operator, so this needs no Run-as-you. A default open runs whatever the file
 // type runs, so only document types are opened; anything else answers 415 and
 // the chip still offers its folder.
@@ -87,7 +87,7 @@ func (s *Server) openDeliveredFile(w http.ResponseWriter, r *http.Request) {
 }
 
 var openableExtensions = map[string]bool{
-	// v0.65.0/W15 cold review: .csv, .xls and .doc are left out; a tool can write
+	// cold review: .csv, .xls and .doc are left out; a tool can write
 	// them byte for byte with formulas or macros that would run as the operator.
 	".xlsx": true, ".docx": true, ".pptx": true,
 	".pdf": true, ".txt": true, ".md": true, ".json": true, ".log": true,

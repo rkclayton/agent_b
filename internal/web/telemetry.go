@@ -19,7 +19,7 @@ import (
 	"harness/internal/telemetry"
 )
 
-// Item 2jg (d): off means off, and this file is where that is true or not.
+// off means off, and this file is where that is true or not.
 //
 // The switch does not filter. When telemetry is off there is NO SUBSCRIBER on
 // the bus, so nothing is collected; the sender is not running, so nothing is
@@ -43,7 +43,7 @@ type telemetryHost struct {
 	state *telemetryState
 	// transport is a test seam. In the product it is nil and the sender posts.
 	transport func(body []byte) error
-	// shapeSent is the last settings.shape sent (item 2q6 (g)).
+	// shapeSent is the last settings.shape sent ).
 	shapeSent string
 }
 
@@ -109,7 +109,7 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 			}
 		}
 	}()
-	// Item 2q6 (g): the settings' shape when collection starts — which is every
+	// the settings' shape when collection starts — which is every
 	// configuration save — if it changed, and once a day regardless.
 	s.queueSettingsShapeLocked(sender, cfg)
 	go func() {
@@ -170,7 +170,7 @@ func (s *Server) QueueStartupTelemetry(eventType, at string, data map[string]any
 	return true
 }
 
-// queueRunTelemetry is the recorder's sink (item 2pw (d)): with the switch off
+// queueRunTelemetry is the recorder's sink ): with the switch off
 // there is no sender, and the event goes nowhere.
 func (s *Server) queueRunTelemetry(eventType string, data map[string]any) {
 	s.telemetry.mu.Lock()
@@ -205,7 +205,7 @@ func (s *Server) headerState(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// settingsShape is item 2q6 (g): per connection its kind, model file name,
+// settingsShape is per connection its kind, model file name,
 // window, reserve, reasoning effort; the context thresholds; the switch; the OS
 // version. No address, key, name, path or label.
 func settingsShape(cfg config.Config) map[string]any {
@@ -235,7 +235,7 @@ func (s *Server) queueSettingsShapeLocked(sender *telemetry.Sender, cfg config.C
 	sender.Observe(events.SettingsShape, time.Now().UTC().Format(time.RFC3339), shape)
 }
 
-// pageHealth is item 2q7 (b) and (f) from the page: its longest freeze and the
+// pageHealth is and (f) from the page: its longest freeze and the
 // settings pages it opened. Names are checked against a word pattern there.
 func (s *Server) pageHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -253,7 +253,7 @@ func (s *Server) pageHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resourceProbe is item 2q7 (e), run once an hour by the recorder: the data
+// resourceProbe is, run once an hour by the recorder: the data
 // folder's and the chat store's size, the chat count, RAM and the OS build.
 func (s *Server) resourceProbe() map[string]any {
 	out := map[string]any{"os_version": osVersion()}
@@ -285,5 +285,5 @@ func NewInstallID() string { return telemetry.NewInstallID() }
 
 var _ = events.RunStopped
 
-// App is the app-health aggregator (item 2q7), for start-up's notes.
+// App is the app-health aggregator, for start-up's notes.
 func (s *Server) App() *recorder.App { return s.app }

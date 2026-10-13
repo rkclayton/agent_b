@@ -55,13 +55,13 @@ type Gate struct {
 	bus              *events.Bus
 	cfg              func() config.Config
 	mailboxDecision  func(string) (string, error)
-	// Item 2fs: the scheduler's hooks. A run waiting on a card gives up its
+	// the scheduler's hooks. A run waiting on a card gives up its
 	// model slot (released) and takes one back once answered (reacquire).
 	released     func(sessionID, runID string)
 	reacquire    func(ctx context.Context, sessionID, runID string) error
 	standingPath string
 	standingMu   sync.Mutex
-	// Item 2q2: how long a card waits for an answer before it is refused.
+	// how long a card waits for an answer before it is refused.
 	unansweredAfter time.Duration
 }
 
@@ -122,7 +122,7 @@ func (g *Gate) WaitPolicyRequired(ctx context.Context, s *session.Session, runID
 }
 
 func (g *Gate) WaitPolicyDecision(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (string, error) {
-	// Item 5f: unattended means nothing asks. The refusal is recorded on the
+	// unattended means nothing asks. The refusal is recorded on the
 	// item and the run moves on rather than sitting on a card nobody will see.
 	if g.unattended(s) {
 		// Registering a plan is its own kind, so the morning list says which of
@@ -263,7 +263,7 @@ func workerApproval(s *session.Session, data map[string]any) map[string]any {
 }
 
 func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, callID string, wait *approvalWait) (string, error) {
-	// v0.70.2 cold review: a run already cancelled keeps nothing to release, and
+	// cold review: a run already cancelled keeps nothing to release, and
 	// the hooks name the run so a late wait of an ended run never touches the
 	// run that followed it in the same chat.
 	if g.released != nil && ctx.Err() == nil {
@@ -277,7 +277,7 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 		defer ticker.Stop()
 		mailbox = ticker.C
 	}
-	// Item 2q2: a card nobody answers is refused after ten minutes, as the
+	// a card nobody answers is refused after ten minutes, as the
 	// unattended path refuses it, so a card raised while he sleeps costs the run
 	// ten minutes rather than the night.
 	limit := g.unansweredAfter
@@ -335,7 +335,7 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 		g.publishDecision(wait, signal.decision)
 	}
 	// Every path out of a wait takes the model slot back before the run goes
-	// on, the superseded one included (v0.70.2 cold review).
+	// on, the superseded one included (cold review).
 	if g.reacquire != nil {
 		if err := g.reacquire(ctx, s.ID, runID); err != nil && signal.decision != "superseded" {
 			return "dismissed", err

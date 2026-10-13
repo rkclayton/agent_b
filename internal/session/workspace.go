@@ -11,7 +11,7 @@ type WriteRecord struct {
 	SessionID string
 	At        time.Time
 }
-// Item 2mn (a): THE KEY IS THE FILE, not the workspace it was reached through.
+// THE KEY IS THE FILE, not the workspace it was reached through.
 //
 // It was keyed by (the writing session's own root, the path relative to that
 // root). Two sessions with different scratch roots writing ONE file in a shared

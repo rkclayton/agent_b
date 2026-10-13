@@ -22,10 +22,10 @@ function about() {
   const signatureFiles = Array.isArray(store.signature?.files) ? store.signature.files : [];
   const signatureWord = signatureFiles.length > 0 && signatureFiles.every((file) => file.status === "Valid" && file.timestamped) ? "signed" : "unsigned";
   const update = store.update || {};
-  // Item 2mr (c): AN ERROR IS SHOWN WHETHER OR NOT AN UPDATE IS STILL OFFERED.
+ // AN ERROR IS SHOWN WHETHER OR NOT AN UPDATE IS STILL OFFERED.
   //
   // The operator pressed Update, saw "downloading and verifying", and was returned
-  // to "v1.24.0 available" with nothing said. This line is why: the error branch
+ // to "available" with nothing said. This line is why: the error branch
   // sat BELOW the available branch, so a failed install — which leaves the update
   // available, because it is still available — could never reach it. The reason is
   // the updater's own words and it stays until the next check replaces it.
@@ -36,9 +36,9 @@ function about() {
       ? `${update.version} available · update failed · ${update.error}`
       : `Check failed · ${update.error}`
     : "";
-  // Item 2nh (b): THE OUTCOME IS STATED WHERE THE CONTROL WAS.
+ // THE OUTCOME IS STATED WHERE THE CONTROL WAS.
   //
-  // The operator's update to v1.29.0 worked, and he reported it as a failure: his
+ // The operator's update to worked, and he reported it as a failure: his
   // window closed under him and the new one came back on the old chat with nothing
   // saying what had happened. The instance reading this line IS the result of that
   // update, and the updater read the installer's own finish before this page loaded,
@@ -48,7 +48,7 @@ function about() {
   const outcomeTime = outcomeAt && !Number.isNaN(outcomeAt.getTime())
     ? outcomeAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "";
-  // Item 2mk (a): AND THE VERSION THAT DID NOT CHANGE IS SAID IN THOSE WORDS. An
+ // AND THE VERSION THAT DID NOT CHANGE IS SAID IN THOSE WORDS. An
   // install can finish and leave this window serving the old build — it did, on
   // 2026-09-26, and the operator was eleven releases behind before a report told
   // him. (c): every one of these names the install it is about.

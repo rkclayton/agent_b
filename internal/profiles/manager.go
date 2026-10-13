@@ -23,7 +23,7 @@ type Settings struct {
 	Agents        []config.Agent       `json:"agents"`
 	Deliver       config.Deliver       `json:"deliver"`
 	Notifications config.Notifications `json:"notifications"`
-	// Item 2ly: everything else this profile overrides, as raw JSON, one entry
+	// everything else this profile overrides, as raw JSON, one entry
 	// per top-level configuration key.
 	//
 	// The three fields above were per-profile before this item and are kept as
@@ -41,7 +41,7 @@ type Manager struct {
 	dataRoot   string
 	configPath string
 	cfg        *config.Config
-	// Item 2ly: the machine's per-profile sections as they were BEFORE any
+	// the machine's per-profile sections as they were BEFORE any
 	// profile was laid over them. It is the baseline for both halves of the
 	// overlay: what counts as a disagreement worth storing, and what a profile
 	// that has no opinion goes back to when another profile's values are in
@@ -254,7 +254,7 @@ func (manager *Manager) existsLocked(name string) bool {
 	return false
 }
 
-// overlayOfLive is item 2ly's half of saveActiveLocked: the live values of the
+// overlayOfLive is the half of saveActiveLocked: the live values of the
 // keys this profile owns, captured as raw JSON so only what is set is stored.
 func (manager *Manager) overlayOfLive() config.Overlay {
 	// The baseline is the SNAPSHOT taken when this manager opened, not the live
@@ -278,7 +278,7 @@ func (manager *Manager) saveActiveLocked() error {
 	current.Agents = cloneAgents(manager.cfg.Agents)
 	current.Deliver = manager.cfg.Deliver
 	current.Notifications = manager.cfg.Notifications
-	// Item 2ly: and the rest of what this profile owns.
+	// and the rest of what this profile owns.
 	current.Overlay = manager.overlayOfLive()
 	return manager.writeSettings(current)
 }
@@ -293,7 +293,7 @@ func (manager *Manager) loadLocked(name string) error {
 }
 
 func (manager *Manager) apply(settings Settings) {
-	// Item 2ly: and everything else this profile has an opinion about. A key it
+	// and everything else this profile has an opinion about. A key it
 	// does not carry keeps the MACHINE's value, which is the inheritance -- so
 	// the machine's sections are restored first and the overlay laid over those.
 	// Applying the overlay alone would leave the PREVIOUS profile's answers in
@@ -453,7 +453,7 @@ func cloneAgents(values []config.Agent) []config.Agent {
 }
 
 // MachineBaseline is the machine's per-profile sections as they were before any
-// profile was applied. Item 2m0: the web layer writes the machine file too, and
+// profile was applied. the web layer writes the machine file too, and
 // it must write the same baseline this manager reasons about rather than a
 // second one of its own.
 func (manager *Manager) MachineBaseline() config.Overlay {
@@ -467,7 +467,7 @@ func (manager *Manager) MachineBaseline() config.Overlay {
 }
 
 // SaveMachine writes the machine's configuration file without the active
-// profile's values in it. Item 2m0.
+// profile's values in it.
 func (manager *Manager) SaveMachine(cfg config.Config) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -487,7 +487,7 @@ func (manager *Manager) SaveMachine(cfg config.Config) error {
 	return config.SaveMachine(cfg, manager.machine, settings.Overlay, manager.configPath)
 }
 
-// Settings reads one profile's stored settings. Item 2m0 (e) asserts through it
+// Settings reads one profile's stored settings. asserts through it
 // that a per-profile write reached the profile's own file rather than the
 // machine's.
 func (manager *Manager) Settings(name string) (Settings, error) {
@@ -497,7 +497,7 @@ func (manager *Manager) Settings(name string) (Settings, error) {
 }
 
 // reportDrift names the machine sections a profile's values have leaked into.
-// Item 2m0 (d): the drift is on disk before this release fixes the writers, and
+// the drift is on disk before this release fixes the writers, and
 // a fix that only prevents NEW drift leaves the wrong values in place silently.
 //
 // It reports rather than repairs, and the reason is that repair is not possible

@@ -12,7 +12,7 @@ import (
 	"harness/internal/llm"
 )
 
-// Item 2px (e): ONE TRUE STATE per connection, and the only source of every lamp
+// ONE TRUE STATE per connection, and the only source of every lamp
 // and word — the Settings header, its form, the chat header and the chat's
 // connection picker. Every lamp used to be derived from whether a Test EVER
 // passed, so a server that was off read "ready" and one that was fine read amber.
@@ -78,7 +78,7 @@ func (s *Server) checkConnectionHealth(ctx context.Context, connection config.Co
 	case !modelListed(connection.Model, models):
 		health = connectionHealth{Lamp: "amber", Word: "model not listed"}
 	}
-	// Item 2px (i): the window the server gives ONE request. llama.cpp reports it
+	// the window the server gives ONE request. llama.cpp reports it
 	// per slot; a connection set larger runs with the smaller and says so.
 	if err == nil {
 		if props, propsErr := client.Props(check); propsErr == nil && props.DefaultGenerationSettings.NCtx > 0 {

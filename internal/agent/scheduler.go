@@ -31,7 +31,7 @@ type activeRun struct {
 }
 
 // resumeWaiter is an answered run waiting to take back the model slot it
-// released while paused on a card (item 2fs).
+// released while paused on a card.
 type resumeWaiter struct {
 	sessionID string
 	ready     chan struct{}
@@ -52,7 +52,7 @@ type Scheduler struct {
 	pending     map[string][]queuedRun
 	unreachable map[string]bool
 	stoppedRuns map[string]bool
-	// Item 2fs: a run paused on a card holds no model slot. paused marks it;
+	// a run paused on a card holds no model slot. paused marks it;
 	// resuming lists answered runs waiting to take a slot back, served before
 	// the queue.
 	paused    map[string]bool
@@ -61,7 +61,7 @@ type Scheduler struct {
 	agentIdle func(string)
 }
 
-// ReserveIDs moves the run-id counter past floor (item 2es).
+// ReserveIDs moves the run-id counter past floor.
 func (s *Scheduler) ReserveIDs(floor int64) { reserveCounter(&s.ids, floor) }
 
 func NewScheduler(runner *Runner, registry *session.Registry, bus *events.Bus, cfg func() config.Config) *Scheduler {
@@ -106,7 +106,7 @@ func (s *Scheduler) notifyAgentIdleLocked(agentID string) {
 }
 
 // RestoreQueue puts a restored chat's queued messages back in the queue, in the
-// order they were accepted. rel-1.23.0's card 5: the messages were always durable —
+// order they were accepted. the the messages were always durable —
 // QueueUserAttachments writes them to the journal before they are queued — but their
 // PLACE in the queue lived in this map, so a restart turned a queue of three into
 // three ordinary history messages that nothing would ever send.
@@ -255,7 +255,7 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 	entry.s.ResetBoundaryHits()
 	go func() {
 		reason, detail, turns := s.runner.Run(ctx, entry.s, entry.runID)
-		// Item 2q2 (c): the stop lists every card refused on this run.
+		// the stop lists every card refused on this run.
 		if hits := entry.s.BoundaryHits(); len(hits) > 0 {
 			detail = strings.TrimSpace(detail + "\n" + strings.Join(hits, "\n"))
 		}
@@ -307,7 +307,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	go s.runner.nameAfterFirstRun(entry.s, entry.runID)
 }
 
-// Item 2fc: runs are admitted per model connection as well as globally. A connection
+// runs are admitted per model connection as well as globally. A connection
 // serves at most its own max_concurrent runs at once (one when unset), so a
 // planner and a worker on a shared connection never overlap unless the operator
 // has raised that connection's limit.
@@ -337,7 +337,7 @@ func (s *Scheduler) connectionRunsLocked(connectionID string) (int, string) {
 }
 
 // runningLocked counts the runs using a model slot: every active run except
-// one paused on a card (item 2fs).
+// one paused on a card.
 func (s *Scheduler) runningLocked() int {
 	count := 0
 	for sessionID := range s.active {
@@ -393,7 +393,7 @@ func (s *Scheduler) queuedDataLocked(item *session.Session, runID string, positi
 }
 
 // ConnectionBusy reports whether a connection is serving as many runs as it may, and
-// the role of one of them (item 2fc: Go refuses rather than queue behind it).
+// the role of one of them.
 func (s *Scheduler) ConnectionBusy(connectionID string) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -674,13 +674,13 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 			}
 		}
 	}
-	// Item 2jg: the model CLASS, never the model name, endpoint or connection id.
+	// the model CLASS, never the model name, endpoint or connection id.
 	// "was this a local model or somebody's API" is the only distinction a
 	// diagnostic needs, and it is the only one that can leave.
 	if class := s.modelClassLocked(sessionID); class != "" {
 		data["model_class"] = class
 	}
-	// Item 2lw (b): a reason outside the declared set is DETECTABLE rather than
+	// a reason outside the declared set is DETECTABLE rather than
 	// silent. This is at the EMISSION point, which is the one place that can know
 	// the product produced it -- a reader cannot tell a new reason from an old
 	// one, and (d) forbids making readers stricter anyway.
@@ -712,7 +712,7 @@ func scheduledNoticeAnswer(content string) string {
 }
 
 // modelClassLocked answers local or remote for the session's connection. It is
-// deliberately coarse: item 2jg's contract forbids the endpoint, the model name
+// deliberately coarse: the contract forbids the endpoint, the model name
 // and the connection id from leaving, and this is what is left that is useful.
 func (s *Scheduler) modelClassLocked(sessionID string) string {
 	item, ok := s.registry.Get(sessionID)
@@ -765,7 +765,7 @@ func canonicalTerminalReason(reason string) string {
 		return "cancelled-by-operator"
 	case "wall_clock", "cron_timeout", "turn_ceiling", "tool_budget", "context_exhausted", "context_ceiling":
 		return "limit"
-	// Item 2lw: malformed_turn joins these. rel-1.20.0/W1 s own scan found it
+	// malformed_turn joins these. s own scan found it
 	// LIVE and undeclared -- the model returned finish_reason tool_calls with no
 	// calls twice and the run stopped with a reason nothing named, so the
 	// accounting called it a harness defect. It is the model s output that was
@@ -774,7 +774,7 @@ func canonicalTerminalReason(reason string) string {
 		return "model-error"
 	case "tool_errors":
 		return "tool-errors"
-	// Item 2lw (c): these four are DECLARED reasons that fell through to
+	// these four are DECLARED reasons that fell through to
 	// "harness-error", which is a wrong answer rather than a missing one. A run
 	// the user's mailbox stopped, or that stopped because the model repeated
 	// itself, or that could not start because its connection is not runnable, is
@@ -795,7 +795,6 @@ func canonicalTerminalReason(reason string) string {
 
 // releaseForCard is called when a run pauses on a card: the run keeps its place
 // in active but gives up its model slot, and whatever it was holding back runs
-// (item 2fs).
 func (s *Scheduler) releaseForCard(sessionID, runID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -825,7 +824,7 @@ func (s *Scheduler) reacquireAfterCard(ctx context.Context, sessionID, runID str
 	}
 	waiter := resumeWaiter{sessionID: sessionID, ready: make(chan struct{})}
 	s.resuming = append(s.resuming, waiter)
-	// v0.70.2 cold review: an earlier waiter blocked on another model must not
+	// cold review: an earlier waiter blocked on another model must not
 	// hold this one back when its own model has a free slot.
 	s.drainLocked()
 	select {

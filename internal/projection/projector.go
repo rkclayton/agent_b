@@ -39,7 +39,7 @@ type Run struct {
 	LastRunID      string `json:"last_run_id,omitempty"`
 	ResultLabel    string `json:"result_label,omitempty"`
 	// WaitingBehind names the role holding a queued run's model connection
-	// (item 2fc), for "waiting for model · behind <role>".
+	// for "waiting for model · behind <role>".
 	WaitingBehind string `json:"waiting_behind,omitempty"`
 }
 
@@ -167,7 +167,7 @@ type Snapshot struct {
 	Messages          []events.Message           `json:"messages"`
 	Budget            events.Budget              `json:"budget"`
 	QueuedMessages    int                        `json:"queued_messages"`
-	// rel-1.23.0 card 5: WHICH messages are queued, not only how many. The count
+	// WHICH messages are queued, not only how many. The count
 	// survived a restart and the queue did not: the messages were in the journal,
 	// their place in it was in memory. These ids are what the scheduler rebuilds
 	// the queue from, in order, after a restart.
@@ -300,7 +300,7 @@ func Next(previous Snapshot, record Record) (Snapshot, Patch, error) {
 
 // NextState folds one record into the snapshot and computes NO patch.
 //
-// Item 2gm (v1.1.3/W2): diff() runs reflect.DeepEqual over the whole Messages,
+// diff() runs reflect.DeepEqual over the whole Messages,
 // Chat and Timeline slices, which grow with the chat, so computing a patch for
 // every record is quadratic in the length of the journal. Restoring retained
 // chats at startup never uses those patches — it wants only the final state —
@@ -831,7 +831,7 @@ func removeAssistantTurn(values []ChatEntry, turn int) []ChatEntry {
 // cloneChat copies the transcript so the caller may mutate it without touching
 // the snapshot it came from. Next is pure and live clients depend on that.
 //
-// Item 2gm (v1.1.3/W2): this used to marshal the whole transcript to JSON and
+// this used to marshal the whole transcript to JSON and
 // unmarshal it back, on EVERY event that touches the chat — and model.delta,
 // which is about 99.6% of the events in a real journal, is one of them. The
 // cost is the length of the transcript so far, per delta, through the JSON
@@ -898,7 +898,7 @@ func cloneAny(value any) any {
 // chatWithMutableTurn returns the transcript with exactly one entry safe to
 // mutate: the newest agent entry for this run and turn. The slice itself is
 // copied so the previous snapshot keeps its own length and ordering, and only
-// the target entry is deep-copied (item 2gm).
+// the target entry is deep-copied.
 func chatWithMutableTurn(values []ChatEntry, runID string, turn int) ([]ChatEntry, *ChatEntry) {
 	index := -1
 	for at := len(values) - 1; at >= 0; at-- {

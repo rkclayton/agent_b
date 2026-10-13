@@ -69,12 +69,12 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 }
 .chat-list-hidden > #chat-budget,.chat-list-hidden > #chat-log,.chat-list-hidden > #chat-composer { width:calc(100% - 12px);min-width:0;margin-left:12px; }
 
-/* Item 2lj (c) and (e): the chosen face is for PROSE. It is set on the chat's
-   own regions rather than on .chat-page, so the shell that shares that page --
-   the tabs, the titlebar, the session name -- keeps the product's own face and
-   nothing outside the chat changes. Every rule below that names var(--mono)
-   keeps it: code, tool output, paths and identifiers stay monospaced under
-   every typeface, because a proportional font makes them unreadable. */
+/* and (e): the chosen face is for PROSE. It is set on the chat's
+ own regions rather than on .chat-page, so the shell that shares that page --
+ the tabs, the titlebar, the session name -- keeps the product's own face and
+ nothing outside the chat changes. Every rule below that names var(--mono)
+ keeps it: code, tool output, paths and identifiers stay monospaced under
+ every typeface, because a proportional font makes them unreadable. */
 .chat-log,
 .chat-composer,
 .chat-budget,
@@ -198,10 +198,10 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   outline: 1px solid var(--signal);
   outline-offset: 2px;
 }
-/* Item 2ge: the bar above the chat now carries the paperclip at its far right,
-   directly above where it used to sit in the composer, so it is a row rather
-   than a hairline. The meter itself is unchanged: still a 4px line, now along
-   the bottom of that row. */
+/* the bar above the chat now carries the paperclip at its far right,
+ directly above where it used to sit in the composer, so it is a row rather
+ than a hairline. The meter itself is unchanged: still a 4px line, now along
+ the bottom of that row. */
 .chat-budget {
   position: relative;
   background: var(--well);
@@ -480,7 +480,7 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   color: var(--ink);
   overflow-wrap: anywhere;
 }
-/* Item 2ep: a delivered document opens from its name; the folder is a glyph. */
+/* a delivered document opens from its name; the folder is a glyph. */
 .file-chip-name.openable {
   cursor: pointer;
 }
@@ -586,10 +586,10 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .thinking-active .thought-glyph {
   color: var(--trace);
 }
-/* Item 2gg (v1.1.3/W3): a collapsed thought is hidden "until-found" so the
-   browser can still find the model text inside it. That keeps the element
-   rendered, unlike display:none, so it is collapsed to nothing here — the
-   fold looks exactly as it did and the text stays searchable. */
+/* a collapsed thought is hidden "until-found" so the
+ browser can still find the model text inside it. That keeps the element
+ rendered, unlike display:none, so it is collapsed to nothing here — the
+ fold looks exactly as it did and the text stays searchable. */
 .thinking-body[hidden="until-found"] {
   height: 0;
   min-height: 0;
@@ -642,7 +642,7 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .tool-state {
   color: var(--mute);
 }
-/* Item 2eo: what the harness did around a call, on its own line above the call. */
+/* what the harness did around a call, on its own line above the call. */
 .tool-harness-note {
   min-height: 20px;
   color: var(--mute);
@@ -663,9 +663,9 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-notice-row.alarm {
   color: var(--alarm);
 }
-/* Item 2ji (b): where the run time went, one line, in the muted colour every
-   other notice already uses. No bar, no pane, no chart — the item says text
-   only, and this adds no colour to the six. */
+/* where the run time went, one line, in the muted colour every
+ other notice already uses. No bar, no pane, no chart — the item says text
+ only, and this adds no colour to the six. */
 .chat-run-time {
   color: var(--mute);
   font-size: var(--ct);
@@ -843,23 +843,23 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   pointer-events: none;
   border: 1px solid var(--trace);
 }
-/* Item 2ge: the paperclip lives in the bar above the chat now, at its far
-   right and directly above where it used to sit in the composer. The bar is
-   the budget line, so the wrap is pinned to its right edge and the meter runs
-   under it. */
+/* the paperclip lives in the bar above the chat now, at its far
+ right and directly above where it used to sit in the composer. The bar is
+ the budget line, so the wrap is pinned to its right edge and the meter runs
+ under it. */
 .chat-budget { position: relative; }
 /* In the bar the menu drops DOWNWARD over the transcript: upward would put
    it behind the header, which intercepted the click. */
 
-/* Item 2ge: a microphone where the paperclip was. Mute at rest, Trace while
-   it listens -- the two colours the palette already uses for that. */
-/* Item 2ha (v1.2.4): the operator, on the composer corner - "button
-   consistency needs improvement... i want all 3 icons normalized." They were
-   three different KINDS of mark: two emoji, each drawn by the emoji font at its
-   own weight and colour, and one text arrow. They are one family now: the same
-   24px target, the same 16px glyph box, the same stroke, the same background,
-   and the colour they are told. The stop state keeps the octagon it always had.
-   */
+/* a microphone where the paperclip was. Mute at rest, Trace while
+ it listens -- the two colours the palette already uses for that. */
+/* the operator, on the composer corner - "button
+ consistency needs improvement... i want all 3 icons normalized." They were
+ three different KINDS of mark: two emoji, each drawn by the emoji font at its
+ own weight and colour, and one text arrow. They are one family now: the same
+ 24px target, the same 16px glyph box, the same stroke, the same background,
+ and the colour they are told. The stop state keeps the octagon it always had.
+ */
 /* The selector matches the page rule above it, so the three controls are one
    family by winning on their own terms rather than with !important. */
 .chat-page > :where(:not(.app-shell)) .composer-control,
@@ -951,9 +951,9 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   text-decoration: none;
 }
 .chat-composer { align-items:end; padding:0 4px 6px; }
-/* Item 2ld (a): the operator drags the strip to the height he wants, and the
-   composer takes it. --composer-height is set by the drag and remembered; without
-   it the composer keeps the height it has always had. */
+/* the operator drags the strip to the height he wants, and the
+ composer takes it. --composer-height is set by the drag and remembered; without
+ it the composer keeps the height it has always had. */
 .chat-composer[style*="--composer-height"] .chat-input-wrap {
   height: var(--composer-height);
   min-height: var(--composer-height);
@@ -1005,8 +1005,8 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   .tool-tick > span { min-width:0; white-space:normal; overflow-wrap:anywhere; }
 }
 
-/* Item 2fc: proposed plan edits sit in the planning chat's own thread, above
-   the composer, with the tray's rows and controls. */
+/* proposed plan edits sit in the planning chat's own thread, above
+ the composer, with the tray's rows and controls. */
 .chat-proposals { max-height:40vh; overflow-y:auto; border-top:1px solid rgba(112,125,139,.28); }
 .chat-proposals[hidden] { display:none; }
 .plan-proposal { padding:6px 10px; cursor:pointer; font-size:var(--ct); }
@@ -1017,12 +1017,12 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .plan-proposal-actions button:hover { background:rgba(232,238,244,.12); }
 .plan-proposal .field-error { margin:4px 0 0; color:var(--alarm); }
 
-/* Item 2m7 (c): BOLD IS A REAL WEIGHT.
-   Markdown emits <strong>, nothing set its weight, and the browser's default is
-   700 -- a weight this product does not ship, so every bold word in every model
-   answer was SYNTHESIZED: the 400 face smeared wider by the rasteriser. IBM Plex
-   ships 400 and 500 here and 500 is the one that exists, so that is the one
-   asked for. Asserted in web/js/typography.test.mjs rather than eyeballed. */
+/* BOLD IS A REAL WEIGHT.
+ Markdown emits <strong>, nothing set its weight, and the browser's default is
+ 700 -- a weight this product does not ship, so every bold word in every model
+ answer was SYNTHESIZED: the 400 face smeared wider by the rasteriser. IBM Plex
+ ships 400 and 500 here and 500 is the one that exists, so that is the one
+ asked for. Asserted in web/js/typography.test.mjs rather than eyeballed. */
 .chat-response-answer strong,
 .chat-response-answer b,
 .chat-user-text strong,
@@ -1030,6 +1030,6 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   font-weight: 500;
 }
 
-/* Item 2m8 (b): the fence's language, quietly. Item 2ol gives it a real
-   header row beside the copy control so it never overlaps the code. */
+/* the fence's language, quietly. gives it a real
+ header row beside the copy control so it never overlaps the code. */
 .code-language { grid-area: language; padding: 4px 8px; font: var(--ct)/1.2 var(--mono); color: var(--mute); pointer-events: none; }

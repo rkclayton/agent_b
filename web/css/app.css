@@ -100,8 +100,8 @@
 .queued .lamp {
   animation: breathe 1.6s ease-in-out infinite;
 }
-/* Item 2px (e): a connection's health, in the palette's own colours: lit ink is
-   ready, trace is a problem with the model or window, alarm is red. */
+/* a connection's health, in the palette's own colours: lit ink is
+ ready, trace is a problem with the model or window, alarm is red. */
 .lamp.ready {
   background: var(--signal);
 }
@@ -655,8 +655,8 @@
   color: var(--mute);
   text-align: right;
 }
-/* Item 2l7: as tall as what it holds. Pinning it to the viewport is what forced
-   its wells to scroll inside a page that already scrolls. */
+/* as tall as what it holds. Pinning it to the viewport is what forced
+ its wells to scroll inside a page that already scrolls. */
 .grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -664,7 +664,7 @@
   gap: 16px;
   padding: 0 16px 16px;
 }
-/* Item 2l7: a well is part of the page it sits in, and the page is what scrolls. */
+/* a well is part of the page it sits in, and the page is what scrolls. */
 .well {
   background: var(--well);
   box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.6);
@@ -824,7 +824,7 @@
   transform: translateX(12px);
   background: var(--well);
 }
-/* Item 2l7: Activity own lists are part of the page. */
+/* Activity own lists are part of the page. */
 .panel-scroll {
   position: relative;
   min-height: 0;
@@ -960,8 +960,8 @@
 .timeline-inline.run-stopped.fault .timeline-head {
   color: var(--alarm);
 }
-/* Item 2fw: the model row that holds "Drop last message" gives it its own
-   column, so the fixed-height head never wraps it over the row below. */
+/* the model row that holds "Drop last message" gives it its own
+ column, so the fixed-height head never wraps it over the row below. */
 @media (min-width: 521px) {
   .timeline-model > .timeline-head:has(#drop-last-message) {
     grid-template-columns: minmax(70px, auto) 62px minmax(150px, 1fr) 72px auto;
@@ -1205,8 +1205,8 @@
   background: var(--well);
 }
 .settings-content {
-  /* Item 2nc (c): the confirmation popover is positioned inside this scroller, so it
-     stays with the control that raised it however far the sheet is scrolled. */
+  /* the confirmation popover is positioned inside this scroller, so it
+ stays with the control that raised it however far the sheet is scrolled. */
   position: relative;
   overflow-x: hidden;
   overflow-y: auto;
@@ -1311,10 +1311,10 @@
   color: var(--mute);
   font: 12px/16px var(--mono);
 }
-/* Item 2lk (a): part of the page, and the page is what scrolls. The 48px cap
-   with overflow-y:auto put a scrollbar on a two-line status message; removing
-   overflow-y alone would not have worked, because overflow-x:hidden on its own
-   computes overflow-y to auto, which is what cost rel-1.14.0/W4 an attempt. */
+/* part of the page, and the page is what scrolls. The 48px cap
+ with overflow-y:auto put a scrollbar on a two-line status message; removing
+ overflow-y alone would not have worked, because overflow-x:hidden on its own
+ computes overflow-y to auto, which is what cost an attempt. */
 .settings-feedback {
   margin: 6px 0 0 170px;
   padding: 6px 8px;
@@ -1404,8 +1404,8 @@
 .settings-page .lamp.alarm {
   background: var(--alarm);
 }
-/* Item 2l4: the width no longer changes, because the label no longer does.
-   Item 2l5: the trash sits with the other three row actions. */
+/* the width no longer changes, because the label no longer does.
+ the trash sits with the other three row actions. */
 .connection-actions .row-action[data-action="remove-connection"] { color: var(--alarm); }
 .connection-editor {
   padding: 12px 0 22px;
@@ -1687,9 +1687,9 @@
   color: var(--ink);
   font-weight: 500;
 }
-/* Item 2lk (a): the same violation, on the General page. The notes are as long
-   as they are and the page carries them; nothing that was reachable by
-   scrolling inside this block stopped being reachable. */
+/* the same violation, on the General page. The notes are as long
+ as they are and the page carries them; nothing that was reachable by
+ scrolling inside this block stopped being reachable. */
 .memory-content {
   margin: 8px 0 0;
   padding: 8px;
@@ -1750,10 +1750,10 @@
     gap: 8px;
     padding: 3px 0;
   }
-  /* Item 2ns (b): at the narrowest window the frame allows, the pairing row gives the
-     QR the whole pane rather than the control column. A camera needs the modules big
-     enough to resolve, and 145 px of a 45-module code is about two and a half pixels
-     each — measured, when the decoder could read the full-width shot and not that one. */
+  /* at the narrowest window the frame allows, the pairing row gives the
+ QR the whole pane rather than the control column. A camera needs the modules big
+ enough to resolve, and 145 px of a 45-module code is about two and a half pixels
+ each — measured, when the decoder could read the full-width shot and not that one. */
   .setting-row:has(.pairing-offer) {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1969,10 +1969,10 @@
 .timeline-tool-group.active > .timeline-head .timeline-lamp {
   background: var(--trace);
 }
-/* Item 2l7: Activity and Agents are pages of the Settings sheet, and the sheet's
-   content is the one thing that scrolls. The surface sizes to what it holds
-   instead of being pinned to the viewport with its rows scrolling inside it, which
-   is what wasted the space and produced the nested scrollbars. */
+/* Activity and Agents are pages of the Settings sheet, and the sheet's
+ content is the one thing that scrolls. The surface sizes to what it holds
+ instead of being pinned to the viewport with its rows scrolling inside it, which
+ is what wasted the space and produced the nested scrollbars. */
 .panel-surface {
   display: grid;
   grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr);
@@ -2031,7 +2031,7 @@
   grid-template-rows: 28px minmax(0, 1fr);
   background: var(--well);
 }
-/* Item 2l7: part of the page; a line list does not scroll on its own. */
+/* part of the page; a line list does not scroll on its own. */
 .panel-lines { min-width: 0; }
 .panel-line {
   min-height: 28px;
@@ -2077,23 +2077,23 @@
 .skill-table-row.open .skill-description { max-width: none; white-space: normal; }
 .skill-detail { color: var(--mute); }
 .skill-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-/* Item 2m2 (a): a measured value sits in a seat as wide as its widest form.
-   Tabular figures keep every digit the same width; the seat keeps the FIELD the
-   same width when the count of digits changes. Right-aligned, because a number
-   that grows should grow away from the label rather than push it. */
-/* Item 2m2 (b), found at W4 by the gate rather than by the inventory: the About
-   page's "checked <clock>" row draws a LOCALE-FORMATTED DATE, whose width moves
-   with the date, the time and the locale -- and the row is right-aligned, so the
-   word "checked" moved with it while the clock itself sat under its mask. A
-   value nobody listed, which is the defect card 3 named. It gets a seat like
-   every other measured value; 22 characters holds "9/26/2026, 10:41:07 PM",
-   the widest form toLocaleString produces here. */
+/* a measured value sits in a seat as wide as its widest form.
+ Tabular figures keep every digit the same width; the seat keeps the FIELD the
+ same width when the count of digits changes. Right-aligned, because a number
+ that grows should grow away from the label rather than push it. */
+/* found at W4 by the gate rather than by the inventory: the About
+ page's "checked <clock>" row draws a LOCALE-FORMATTED DATE, whose width moves
+ with the date, the time and the locale -- and the row is right-aligned, so the
+ word "checked" moved with it while the clock itself sat under its mask. A
+ value nobody listed, which is the defect named. It gets a seat like
+ every other measured value; 22 characters holds "9/26/2026, 10:41:07 PM",
+ the widest form toLocaleString produces here. */
 .settings-update-checked { display: inline-block; min-width: 22ch; font-variant-numeric: tabular-nums; }
 .seat { display: inline-block; min-width: var(--seat, auto); text-align: right; font-variant-numeric: tabular-nums; }
 .panel-figures { font-variant-numeric: tabular-nums; }
-/* Item 2ih (d): the Evaluation Harness's two arms, side by side. Tabular
-   figures and right-aligned numbers, for the same reason item 2m2 gives: these
-   are measured values and they must not move the columns when they change. */
+/* the Evaluation Harness's two arms, side by side. Tabular
+ figures and right-aligned numbers, for the same reason gives: these
+ are measured values and they must not move the columns when they change. */
 .harness-arms { width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
 .harness-arms th { text-align: left; color: var(--mute); font-weight: normal; }
 .harness-arms td + td, .harness-arms th + th { text-align: right; font-variant-numeric: tabular-nums; }
@@ -2103,30 +2103,30 @@
 .hermes-preview td { padding:4px 8px 4px 0; vertical-align:top; overflow-wrap:anywhere; border-bottom:1px solid var(--line); }
 .hermes-preview td:last-child { text-align:right; padding-right:0; }
 .panel-empty { padding: 10px; color: var(--mute); }
-/* Item 2ly (c): one line per group saying the settings below follow the
-   profile. Muted, like every other note on the page; no new colour. */
+/* one line per group saying the settings below follow the
+ profile. Muted, like every other note on the page; no new colour. */
 .settings-scope-note { margin: 0 0 8px; padding: 0 10px; color: var(--mute); font-size: var(--ct); }
 .panel-connection-head { padding: 8px 10px 4px; color: var(--trace); font: 12px/16px var(--mono); }
-/* Item 2lk (b): Lifetime sat in column 2 of a two-column surface, so at 1250px
-   its twenty metric rows towered over the two-row Tool use pane beside it and
-   left the whole left column as bare bezel. rel-1.14.0/W7 recorded that as the
-   one honest reservation of that pass, and rel-1.15.0/W0 confirmed it is the
-   GRID and not missing content.
+/* Lifetime sat in column 2 of a two-column surface, so at 1250px
+ its twenty metric rows towered over the two-row Tool use pane beside it and
+ left the whole left column as bare bezel. recorded that as the
+ one honest reservation of that pass, and confirmed it is the
+ GRID and not missing content.
 
-   The fix is to stop asking two lists of wildly different length to be the same
-   height. On Activity both panes take the full width of the surface, so there
-   is no second column left to leave empty, and Lifetime's metrics -- each a
-   label and a number, which want width rather than height -- flow into as many
-   columns as the surface can hold. At 1250px that is three, and Lifetime is a
-   third as tall as it was. Nothing was removed from either pane.
+ The fix is to stop asking two lists of wildly different length to be the same
+ height. On Activity both panes take the full width of the surface, so there
+ is no second column left to leave empty, and Lifetime's metrics -- each a
+ label and a number, which want width rather than height -- flow into as many
+ columns as the surface can hold. At 1250px that is three, and Lifetime is a
+ third as tall as it was. Nothing was removed from either pane.
 
-   Only Activity is changed. The Profiles page has the same shape with its own
-   Tool panel, and is carded rather than restyled here: it is not this item's. */
+ Only Activity is changed. The Profiles page has the same shape with its own
+ Tool panel, and is carded rather than restyled here: it is not this item's. */
 #activity-panel > .panel-pane,
 #activity-panel > .panel-lifetime-group,
-/* Item 2ln (e): the Profiles page has the same shape -- the Tools pane sat in one
-   column at 300px beside a 721px role group. rel-1.15.0 card 8 carried this
-   forward unmeasured; measured at 1250px it was still there. */
+/* the Profiles page has the same shape -- the Tools pane sat in one
+ column at 300px beside a 721px role group. carried this
+ forward unmeasured; measured at 1250px it was still there. */
 #agents-panel > .panel-pane {
   grid-column: 1 / -1;
 }
@@ -2154,7 +2154,7 @@
 .panel-live > .panel-empty { margin:0; }
 .panel-live .grid { height:100%; min-height:0; }
 .panel-maintenance { display:grid; grid-template-rows:22px 36px; }
-/* Item 17-i: the reflection well is a row of the Console grid, like the others. */
+/* the reflection well is a row of the Console grid, like the others. */
 .panel-reflection { display:grid; grid-template-rows:22px minmax(0,1fr); }
 @media (max-width: 820px) {
   .panel-surface { display:block; }
@@ -2185,13 +2185,13 @@
   .rack { grid-template-columns: 1fr; }
 }
 
-/* Item 17-i: Console's read-only reflection section — the latest overview and
-   the tool-candidate report, as text. No control. */
+/* Console's read-only reflection section — the latest overview and
+ the tool-candidate report, as text. No control. */
 .panel-reflection-panes { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s3); padding: var(--s2) var(--s2) 0; }
 .panel-reflection-text { margin: 0; min-height: 0; padding: var(--s2); background: var(--well); box-shadow: inset 0 1px 0 rgba(0, 0, 0, .6); color: var(--mute); font: 12px/16px var(--mono); white-space: pre-wrap; }
 .panel-reflection-text:empty { display: none; }
-/* Item 2mw: the reflection note rows. Plain rows in the same well as the panes, no
-   card, no motion, no colour the console does not already use. */
+/* the reflection note rows. Plain rows in the same well as the panes, no
+ card, no motion, no colour the console does not already use. */
 .panel-reflection-notes { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: var(--s2) var(--s2) 0; }
 .reflection-note { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "text actions" "meta actions"; gap: 0 var(--s3); padding: var(--s2); border-top: 1px solid rgba(0, 0, 0, .5); }
 .reflection-note:first-child { border-top: 0; }
@@ -2202,9 +2202,9 @@
 .reflection-note-actions { grid-area: actions; display: flex; align-items: start; gap: var(--s1); }
 .reflection-note-empty { margin: 0; padding: var(--s2); color: var(--mute); font: 12px/16px var(--mono); }
 
-/* Item 2l6: a row says it took effect, and a setting that waits for a complete
-   value carries its own save. Both sit inside the row's existing control area, at
-   the sheet's normal control size — nothing oversized, and no new region. */
+/* a row says it took effect, and a setting that waits for a complete
+ value carries its own save. Both sit inside the row's existing control area, at
+ the sheet's normal control size — nothing oversized, and no new region. */
 .setting-applied {
   flex: 0 0 auto;
   color: var(--mute);
@@ -2222,12 +2222,12 @@
 }
 .setting-save svg { fill: currentColor; }
 
-/* Item 2l4: the one anchored confirmation. It names what will be removed and
-   offers confirm and cancel — nothing else, no dimmed page, no dialog that takes
-   over the view. It uses the sheet's own tokens and adds no other new idiom. */
+/* the one anchored confirmation. It names what will be removed and
+ offers confirm and cancel — nothing else, no dimmed page, no dialog that takes
+ over the view. It uses the sheet's own tokens and adds no other new idiom. */
 .confirm-popover {
-  /* Item 2nc (c): absolute in the settings scroller, not fixed to the viewport. Fixed
-     meant the question stayed where the screen was while its control scrolled away. */
+  /* absolute in the settings scroller, not fixed to the viewport. Fixed
+ meant the question stayed where the screen was while its control scrolled away. */
   position: absolute;
   z-index: 40;
   width: 232px;
@@ -2242,15 +2242,15 @@
 .settings-error-panel header { display:flex; align-items:center; justify-content:space-between; padding:0 var(--s2); border-bottom:1px solid var(--line); font:12px/16px var(--mono); }
 .settings-error-panel header button { min-width:22px; min-height:22px; padding:0; background:transparent; color:var(--mute); }
 .settings-error-panel pre { min-width:0; margin:0; padding:var(--s3); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ink); font:12px/17px var(--mono); user-select:text; }
-/* Item 2nc (a): the refusal sits on the row it belongs to, expanded or not, so a
-   Remove that could not happen is never an unchanged screen. */
+/* the refusal sits on the row it belongs to, expanded or not, so a
+ Remove that could not happen is never an unchanged screen. */
 .connection-row.refused { height: auto; grid-template-rows: 36px auto; }
 .connection-refusal { grid-column: 1 / -1; margin: 0; padding: 0 var(--s2) var(--s2); color: var(--alarm); font: 11px/16px var(--mono); }
 .connection-row:has(.connection-test-failure) { height: auto; grid-template-rows: 36px auto; }
 .connection-row > .connection-test-failure { grid-column: 1 / -1; margin: 0; padding: 0 var(--s2) var(--s2); }
 
-/* Item 2l5: a connection's four actions live at the right of its own line, at the
-   sheet's normal control size. Test is lettering, the other three are icons. */
+/* a connection's four actions live at the right of its own line, at the
+ sheet's normal control size. Test is lettering, the other three are icons. */
 .connection-actions { display: flex; align-items: center; gap: var(--s1); }
 .row-action {
   display: inline-flex;
@@ -2267,19 +2267,19 @@
   text-transform: uppercase;
   padding: 0 6px;
 }
-/* Item 2nn (c): while the test runs the control HOLDS the waiting element, so it
-   widens to the bar and its phase line rather than clipping them, and a disabled
-   control that is the thing being watched is not dimmed. */
+/* while the test runs the control HOLDS the waiting element, so it
+ widens to the bar and its phase line rather than clipping them, and a disabled
+ control that is the thing being watched is not dimmed. */
 .row-action.test:has(.probe-wait) { padding: 0 var(--s2); opacity: 1; }
 .probe-wait { display: inline-flex; align-items: center; }
 .probe-wait .wait { font-size: 10px; text-transform: none; letter-spacing: 0; gap: var(--s1); }
 .probe-wait .wait-cell { height: 8px; }
 .settings-actions button.has-wait { display: inline-flex; align-items: center; gap: var(--s2); }
 
-/* Item 2iq (a): Agents is one table -- a row per role, the role's plain-language
-   name, a model picker with its state, and nothing else in the row. The columns
-   are fixed so the pickers line up down the page rather than shifting with the
-   longest label. */
+/* Agents is one table -- a row per role, the role's plain-language
+ name, a model picker with its state, and nothing else in the row. The columns
+ are fixed so the pickers line up down the page rather than shifting with the
+ longest label. */
 .panel-roles {
   display: grid;
   gap: 1px;
@@ -2329,8 +2329,8 @@
 .panel-role-state { color: var(--mute); font-size: 12px; }
 .panel-role-state.pending { color: var(--trace); }
 .panel-role-cancel { min-height: 22px; }
-/* Item 2iq (b): the tool toggles have no other home, so they fold rather than
-   move or vanish. Closed by default: a role table is what this page is for. */
+/* the tool toggles have no other home, so they fold rather than
+ move or vanish. Closed by default: a role table is what this page is for. */
 #panel-tools-fold > summary {
   display: flex;
   align-items: center;
@@ -2344,10 +2344,10 @@
 #panel-tools-fold > summary::-webkit-details-marker { display: none; }
 #panel-tools-fold[open] > summary { color: var(--ink); }
 
-/* Item 2ip (b): the idle line. One row, the same height as a panel line, with
-   the way back to the detail on it. (d): the occupancy bar keeps its five
-   category labels but shows them on hover, so the bar itself is the row and
-   the words arrive when they are wanted. */
+/* the idle line. One row, the same height as a panel line, with
+ the way back to the detail on it. (d): the occupancy bar keeps its five
+ category labels but shows them on hover, so the bar itself is the row and
+ the words arrive when they are wanted. */
 .panel-live-idle {
   display: flex;
   align-items: center;
@@ -2363,18 +2363,18 @@
 .rail:hover .rail-labels,
 .rail:focus-within .rail-labels { opacity: 1; }
 
-/* Item 2nh (c): an installer warning is a note under the update outcome. It is
-   muted and on its own line, because it is not the result and must not read as
-   one - a "MIGRATION LEFT IN PLACE" line written as a success is exactly how a
-   working update came to be reported as a failure. */
+/* an installer warning is a note under the update outcome. It is
+ muted and on its own line, because it is not the result and must not read as
+ one - a "MIGRATION LEFT IN PLACE" line written as a success is exactly how a
+ working update came to be reported as a failure. */
 .settings-update-note { display: block; font: 12px/16px var(--mono); color: var(--mute); }
 
-/* Item 2m4: the one waiting element. Twelve cells, monospace line, step timing
-   rather than a smooth sweep that would imply progress the product cannot know.
+/* the one waiting element. Twelve cells, monospace line, step timing
+ rather than a smooth sweep that would imply progress the product cannot know.
 
-   Indeterminate cycles a lit cell along the row and says nothing about how far
-   through it is. Determinate lights --filled cells and stops there: the two are
-   visibly different, which is the point of (c). */
+ Indeterminate cycles a lit cell along the row and says nothing about how far
+ through it is. Determinate lights --filled cells and stops there: the two are
+ visibly different, which is the point of (c). */
 .wait { display: inline-flex; align-items: center; gap: var(--s2); font: 12px/16px var(--mono); color: var(--mute); }
 .wait-meter { display: inline-flex; gap: 2px; }
 .wait-cell { width: 4px; height: 10px; background: var(--bezel); }
@@ -2389,10 +2389,10 @@
   25%, 100% { background: var(--bezel); }
 }
 
-/* Item 2ns (b): the pairing QR, sized to scan from a phone at arm's length and still
-   whole at the smallest window item 2nm allows (a 304 px client). It is drawn on white
-   because a QR reader needs the quiet zone and the contrast the format assumes; this is
-   the one white rectangle in the product and it is white for a machine, not a person. */
+/* the pairing QR, sized to scan from a phone at arm's length and still
+ whole at the smallest window allows (a 304 px client). It is drawn on white
+ because a QR reader needs the quiet zone and the contrast the format assumes; this is
+ the one white rectangle in the product and it is white for a machine, not a person. */
 .pairing-offer { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
 .pairing-qr {
   /* Sized to the cell it is in rather than to the viewport, so the narrowest window the

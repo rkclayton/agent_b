@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// The pass itself (item 17-i). One summary call when a run closes, and a
+// The pass itself. One summary call when a run closes, and a
 // fuller pass on a tick: the overview per plan, the tool-candidate report, and
 // the two durable outputs. Nothing here runs inside a run: the run is over
 // before any of it starts, and a failure of any part leaves the run's outcome
@@ -43,7 +43,7 @@ type Runner struct {
 	Now     func() time.Time
 	// NoteLimit bounds how many memory notes one summary may produce, and
 	// PassNoteLimit how many one pass may write at all: the per-summary bound
-	// alone does not bound a caller with many runs (v1.1.0/W6 cold review).
+	// alone does not bound a caller with many runs (cold review).
 	NoteLimit     int
 	PassNoteLimit int
 	// NoteWritten is called for each note actually written, so the harness can
@@ -413,7 +413,7 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	}
 	// Plan registration itself is a durable change the operator approves
 	// through the existing card; reflection runs unattended, so it proposes in
-	// the overview and registers nothing (v1.1.0/W6 cold review; the second
+	// the overview and registers nothing (cold review; the second
 	// walk's step 16 is what a card with nobody present costs).
 	if pruned, err := r.Store.Prune(result.At); err == nil {
 		result.Pruned = pruned

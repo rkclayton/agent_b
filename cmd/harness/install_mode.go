@@ -498,12 +498,12 @@ func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, reopenWin
 		return fmt.Errorf("installed launcher is missing: %s", launcher)
 	}
 	arguments := installedLaunchArguments(applicationRoot, dataRoot, sessionID, reopenWindow)
-	// Item 2m6 (a) and (c): A DISPOSABLE INSTALL NEVER OPENS A WINDOW, and it is
+	// A DISPOSABLE INSTALL NEVER OPENS A WINDOW, and it is
 	// decided by WHAT THE INSTALL IS rather than by a flag a future arm can
 	// forget.
 	//
 	// The environment variable below was the only thing keeping the suite's
-	// installs headless, and rel-1.24.0/W1 enumerated the suite paths that
+	// installs headless, and enumerated the suite paths that
 	// install: six of them, and only test-installer.ps1 set it. An install to a
 	// root that is not the canonical one is by definition not the operator's
 	// install -- that is 2kr's disposable-root marker -- so it starts without a

@@ -2,7 +2,7 @@ import { callServiceKey } from "./call-service-display.js";
 import { formatDuration } from "./duration.js";
 import { isHeaderlessSteps, responseBlocks, responseSummary, thoughtTokens } from "./chat-response-groups.js";
 
-// Item 2gg (v1.1.2/W4): copying the transcript yields plain text, in order,
+// copying the transcript yields plain text, in order,
 // with each entry's kind marked minimally and no UI chrome.
 //
 // The audit found select-all/copy produced bare text in which a question, an
@@ -47,7 +47,7 @@ export function markFor(className) {
 // Blank rows are dropped; a row whose text already begins with its mark is not
 // marked twice; entries are separated by one blank line, which is what makes a
 // pasted transcript readable.
-// Item 2lc (c): a mark is a change of speaker, not a row. A selection inside one
+// a mark is a change of speaker, not a row. A selection inside one
 // entry gets no mark at all; one that spans speakers marks each speaker's portion
 // once and separates them with a blank line.
 export function transcriptText(rows) {
@@ -143,7 +143,7 @@ function delegateDetail(args, delegated) {
   return `arguments\n${JSON.stringify(args, null, 2)}\n\nchild transcript\n${transcript}\n\nsummary\n${delegated.summary || ""}`;
 }
 
-// Item 2lc: the rows a selection touches, each carrying ONLY the text that was
+// the rows a selection touches, each carrying ONLY the text that was
 // actually selected inside it. This supersedes 2js's whole-entry rule, which was a
 // deliberate choice and is now reversed — the operator: "when i copy a small bit of
 // text it takes more of the window then i want. it should be exact".
@@ -164,7 +164,7 @@ export function rowsInSelection(log, selection) {
     .filter((row) => row.text);
 }
 
-// (b): the collapsed step and fold summaries are furniture. Their caret rows —
+// the collapsed step and fold summaries are furniture. Their caret rows —
 // `steps · …`, `thought …`, `tool … → ok …` — are omitted, and their bodies are
 // already hidden and omitted with them. This hides nothing: it declines to copy
 // what the operator did not want.
@@ -212,7 +212,7 @@ function blockOf(node, row) {
   return row;
 }
 
-// (d): carriage returns removed, trailing spaces trimmed, runs of blank lines
+// carriage returns removed, trailing spaces trimmed, runs of blank lines
 // collapsed to one, ends trimmed. The selected words themselves are never altered.
 export function normalize(value) {
   return String(value ?? "").replace(/\r/g, "").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();

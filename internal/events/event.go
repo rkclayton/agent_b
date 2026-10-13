@@ -24,14 +24,14 @@ const (
 	SessionClosed   = "session.closed"
 	SessionReopened = "session.reopened"
 	// SessionRestoreFailed records a retained chat that did not come back at
-	// startup (item 2gg). Its journal is left on disk untouched.
+	// startup. Its journal is left on disk untouched.
 	SessionRestoreFailed = "session.restore_failed"
 	ChatDeleted          = "chat.deleted"
 	ChatListSnapshot     = "chat.list.snapshot"
 	ChatListPatch        = "chat.list.patch"
 	ConnectionProbed     = "connection.probed"
 	ConnectionHealth     = "connection.health"
-	// Item 2nb (b): one per address the endpoint walk tries, as it lands, so the sheet
+	// one per address the endpoint walk tries, as it lands, so the sheet
 	// can say what is being tried instead of sitting idle for the length of the walk.
 	ConnectionDiscovering      = "connection.discovering"
 	ProbeRequest               = "probe.request"
@@ -104,18 +104,18 @@ const (
 	UpdateChanged              = "update.changed"
 	Speech                     = "speech"
 	AttachmentOCRProgress      = "attachment.ocr_progress"
-	// ReflectionSkipped records a run the floor kept reflection off (item 2ls
+	// ReflectionSkipped records a run the floor kept reflection off
 	// (c)). It carries the two counts, so the saving is auditable and a
 	// wrongly-skipped run is findable rather than merely absent.
 	ReflectionSkipped = "reflection.skipped"
-	// Item 2pw: a tool call the model named but was never offered, recorded
+	// a tool call the model named but was never offered, recorded
 	// before the guard drops it, with nothing but the turn and the name.
 	ToolUnoffered = "tool.unoffered"
-	// Item 2pw: content-free events the flight recorder builds for telemetry
+	// content-free events the flight recorder builds for telemetry
 	// (docs/telemetry-trace.md). They never enter a journal.
 	Trace      = "trace"
 	RunSummary = "run.summary"
-	// Item 2q6: ModelRefused is published by the run loop; the rest are built
+	// ModelRefused is published by the run loop; the rest are built
 	// by the recorder, one per run or per change, never one per request.
 	ModelRefused    = "model.refused"
 	ModelPerf       = "model.perf"
@@ -126,7 +126,7 @@ const (
 	ConnectionState = "connection.state"
 	UpdateResult    = "update"
 	SettingsShape   = "settings.shape"
-	// Item 2q7: the app around the runs, aggregated per hour by the recorder.
+	// the app around the runs, aggregated per hour by the recorder.
 	AppStart     = "app.start"
 	AppLifecycle = "app.lifecycle"
 	PageHealth   = "page.health"
@@ -147,18 +147,18 @@ const (
 var Stages = []string{"assemble", "call_model", "parse", "dispatch", "execute", "append", "compact", "wait_user"}
 var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "cron_timeout", "turn_ceiling", "wall_clock", "tool_budget", "cycle", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable", "malformed_turn"}
 
-// Item 2lw: every stop reason a run can produce is one the product names.
+// every stop reason a run can produce is one the product names.
 //
 // StopReasons above is the documented set and nothing enforced it, so a reason
 // could reach a journal, the accounting and the operator's eye without ever
-// being declared. rel-1.20.0/W0 went looking and found the two that had:
+// being declared. went looking and found the two that had:
 // `emergency` and `safe`, which a two-press stop once escalated through. NEITHER
 // HAS A LIVE EMITTER any more — abortReason returns only the three aborted_mid_*
 // values and the one other publisher hard-codes "done" — so they are HISTORICAL,
 // they stay out of StopReasons, and the journals that carry them are named in
 // HistoricalStopReasons below rather than being quietly re-admitted.
 //
-// Item 2lw (d): nothing that READS a journal is made stricter by any of this. A
+// nothing that READS a journal is made stricter by any of this. A
 // historical reason still loads and still renders. Refusing to read old journals
 // to enforce a new rule would be worse than the defect.
 
@@ -272,7 +272,7 @@ type CompactionSummaryData struct {
 	Usage                 ModelUsage `json:"usage"`
 	DurationMS            int64      `json:"duration_ms"`
 	Trigger               string     `json:"trigger,omitempty"`
-	// Item 2mm (d): the bytes the harness carried into the note itself, reported
+	// the bytes the harness carried into the note itself, reported
 	// beside the model's own accounting so the two halves of a compaction are
 	// visible separately. CarriedDropped is 2mm (c)'s condition, stated rather
 	// than folded into a summary that then silently violates its cap.

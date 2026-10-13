@@ -2,7 +2,7 @@
 
 package main
 
-// Item 2hc (v1.3.0/W2): the WebView2 loader, bound the narrow way.
+// the WebView2 loader, bound the narrow way.
 //
 // WHY THIS FILE EXISTS AT ALL. Three orders tried to get the window's top edge
 // from Edge and none did: the Window Controls Overlay measures 0x0 in an
@@ -10,7 +10,7 @@ package main
 // 2026-09-21) on a policy-installed PWA too. So the frame becomes ours.
 //
 // WHERE THE LOADER COMES FROM. The WebView2 runtime does NOT ship
-// WebView2Loader.dll - measured in v1.3.0/W1, it ships EmbeddedBrowserWebView
+// WebView2Loader.dll - measured in, it ships EmbeddedBrowserWebView
 // .dll and nothing else - so every WebView2 application carries its own copy.
 // Ours is Microsoft's, from their SDK package, pinned by SHA-256 AND
 // Authenticode signature in scripts/webview2-loader.json and verified by the

@@ -1,7 +1,7 @@
 //go:build windows
 
-// Item 2li (b): the trade, in code. A machine-scoped DPAPI blob is decryptable
-// by anything running on this machine -- rel-1.15.0/W0 measured that its master
+// the trade, in code. A machine-scoped DPAPI blob is decryptable
+// by anything running on this machine -- measured that its master
 // key is not in any user's key store -- so the DPAPI envelope is not what keeps
 // the service password secret. THE FILE'S ACL IS. Everything here exists to make
 // that ACL explicit when the blob is written and to refuse the blob when the ACL

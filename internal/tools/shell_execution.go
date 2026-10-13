@@ -53,7 +53,6 @@ type Shell struct {
 	identityReporter   func(ShellIdentityStatus)
 	// alarmedCondition is the last service-account condition this launch alarmed
 	// on, so the same condition is reported once rather than once per trigger
-	// (item 2l2 (c)).
 	alarmedCondition atomic.Value
 }
 
@@ -63,7 +62,7 @@ func NewShell(cfg config.Shell) *Shell {
 func (*Shell) Name() string { return "shell" }
 func (s *Shell) Description() string {
 	cfg, operatorCommands := s.configWithOperatorCommands()
-	// Item 2gb: the description names the dialect the command actually runs in.
+	// the description names the dialect the command actually runs in.
 	syntax := shellHostFor(cfg).Dialect()
 	description := "Run an unconfined inline command from the folder root. "
 	if cfg.ServiceAccount.Enabled {
@@ -142,13 +141,13 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if timeout > cfg.MaxTimeoutS {
 		timeout = cfg.MaxTimeoutS
 	}
-	// Item 2gb: PowerShell 7 when the host has it, else 5.1 with the model's
+	// PowerShell 7 when the host has it, else 5.1 with the model's
 	// top-level chain operators rewritten, so `a && b` works either way.
 	host := shellHostFor(cfg)
 	executed := shellCommandForHost(host, command)
 	if executed != command {
 		// The user's log shows what the interpreter was actually given,
-		// not only what the model wrote (v1.0.1/W4 cold review).
+		// not only what the model wrote (cold review).
 		log.Printf("shell rewrote the model's chain operators for PowerShell 5.1: as run: %q", executed)
 	}
 	argv := append(append([]string(nil), cfg.Command[1:]...), executed)
@@ -160,11 +159,11 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if !forceOperator && outside.trusted && outside.card == "" && outside.missing == "" && cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
 		forceOperator = true
 	}
-	// Item 2fi: with no service identity a command naming a path outside the
+	// with no service identity a command naming a path outside the
 	// folder raises the same operator decision as read_file, so a file cannot be
 	// read around the card.
 	if !forceOperator && !cfg.ServiceAccount.Enabled && !cfg.OperatorContext {
-		// Item 2fz: directory changes and listings run; an existing outside
+		// directory changes and listings run; an existing outside
 		// read raises the card; a missing one is a plain error.
 		decision := outside
 		if decision.card != "" {

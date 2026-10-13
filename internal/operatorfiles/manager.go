@@ -468,7 +468,7 @@ func (m *Manager) ApplyRetention() ([]string, error) {
 // assertRetentionRoot is checked before retention deletes anything: the log
 // directory must be absolute, not a volume root, and a real directory rather
 // than a junction or symbolic link, so a misconfigured root can never point the
-// pruner at another tree (v0.64.0, item 2en).
+// pruner at another tree.
 func assertRetentionRoot(dir string) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("retention refused: log directory is not absolute: %q", dir)
@@ -564,7 +564,7 @@ func regular(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// Item 2py (c): DELETE DELETES, including what earlier versions left. Deleting a
+// DELETE DELETES, including what earlier versions left. Deleting a
 // chat used to write its transcript to <profile>\chats\<name>-<8 hex>\<date>-<name>.md,
 // beside the live chat store. Once per profile these are removed, and only these:
 // the folder pattern, the file pattern and the header that export wrote must all

@@ -21,7 +21,7 @@ func renderedUserText(connection *config.Connection, s *session.Session, message
 }
 
 // renderedUserTextAt renders a user message's text and attachment lines. inline
-// is false once the message's turn has ended (item 2fd rule 6): a native image
+// is false once the message's turn has ended: a native image
 // or PDF is then named, not re-sent, and the line says how to see it again.
 func renderedUserTextAt(connection *config.Connection, s *session.Session, message events.Message, inline bool) string {
 	lines := make([]string, 0, len(message.Attachments)+1)
@@ -68,7 +68,7 @@ func requestMessage(connection *config.Connection, s *session.Session, message e
 
 // requestMessageAt converts a stored message for a request. inline says whether
 // the message belongs to the running turn; only then are native attachment
-// parts sent (item 2fd rule 6).
+// parts sent.
 func requestMessageAt(connection *config.Connection, s *session.Session, message events.Message, inline bool) llm.Message {
 	content := any(renderedUserTextAt(connection, s, message, inline))
 	parts := []any{}
@@ -111,7 +111,7 @@ func requestMessageAt(connection *config.Connection, s *session.Session, message
 	return converted
 }
 
-// Item 2ch (v1.2.5): an image has no second route - a picture is not
+// an image has no second route - a picture is not
 // chunk-readable, so inline is the only way one reaches a model. A PDF has
 // both, and the operator chose: sidecar by default, inline only under the
 // threshold and only where the connection reads documents natively. The size is
@@ -277,7 +277,7 @@ func runningTurnIDs(records []events.Message, pin string) map[string]bool {
 }
 
 // normalizeAdjacentAssistants folds an assistant message that is followed by
-// another assistant message into the later one, for the request only (item 2fd
+// another assistant message into the later one, for the request only
 // rule 1). A chat template refuses a list that ends in two assistant messages,
 // and the budget measures every prefix, so one adjacent pair anywhere refuses
 // every request; the session keeps both messages. It returns how many folds it
@@ -315,7 +315,7 @@ func templateRefused(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "apply-template HTTP 4")
 }
 
-// contextWindow is the model's context window for item 2fd rule 4's
+// contextWindow is the model's context window for rule 4's
 // quarter-window test: n_ctx when known, else the ceiling.
 func contextWindow(budget events.Budget) int {
 	if budget.NCtx > 0 {

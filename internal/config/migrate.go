@@ -70,7 +70,7 @@ func migrateAgentProfiles(cfg *Config) {
 	}
 }
 
-// migrateConnectionKey preserves the v1.6.6-and-earlier list key. The legacy
+// migrateConnectionKey preserves the -and-earlier list key. The legacy
 // spelling is assembled here so the endpoint-vocabulary lint can reserve that
 // word everywhere else while old operator files remain readable forever.
 func migrateConnectionKey(data []byte) (bool, []byte, error) {
@@ -497,9 +497,9 @@ func migrateV1(data []byte) (bool, []byte, error) {
 	return true, out, err
 }
 
-// migrateModelPlaceholder is item 2nq (a): THE PLACEHOLDER LEAVES DISK.
+// migrateModelPlaceholder is THE PLACEHOLDER LEAVES DISK.
 //
-// A connection created before item 2l1 (b) carries the literal string "model" as its
+// A connection created before carries the literal string "model" as its
 // model, and nothing ever removed it from a configuration already written — so the
 // operator met it again after every fix: "i asked about 5 times now to remove MODEL
 // and there it is." It is cleared here, once, on any config written before version 11,

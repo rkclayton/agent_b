@@ -35,7 +35,7 @@ const (
 	errorLogonTypeNotGranted = syscall.Errno(1385)
 	errorDirectory           = syscall.Errno(267)
 
-	// JOBOBJECT_BASIC_UI_RESTRICTIONS (item 2eq). A service-account tool shares
+	// JOBOBJECT_BASIC_UI_RESTRICTIONS. A service-account tool shares
 	// the operator's desktop; these deny it USER handles owned by processes
 	// outside its job (so it cannot address production's or the operator's
 	// windows), desktop creation and switching, display-settings changes and
@@ -49,7 +49,7 @@ const (
 	jobUILimitGlobalAtoms        = 0x00000020
 	jobUILimitDesktop            = 0x00000040
 	jobUILimitExitWindows        = 0x00000080
-	// v0.65.0/W15 cold review: the clipboard, global atoms (DDE) and system
+	// cold review: the clipboard, global atoms (DDE) and system
 	// parameters are the operator's too, so all eight limits apply.
 	serviceJobUIRestrictions = jobUILimitHandles | jobUILimitReadClipboard | jobUILimitWriteClipboard | jobUILimitSystemParameters |
 		jobUILimitDisplaySettings | jobUILimitGlobalAtoms | jobUILimitDesktop | jobUILimitExitWindows

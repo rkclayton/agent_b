@@ -9,7 +9,7 @@ import (
 	"harness/internal/events"
 )
 
-// Item 2iz (c): the two cards, as terminal prompts, with the same scopes.
+// the two cards, as terminal prompts, with the same scopes.
 //
 // There are exactly two card kinds in this product and a third is a hard stop,
 // so there are exactly two prompts here. The scopes are the app's — once, this
@@ -17,7 +17,7 @@ import (
 // who has read the card in the app should not have to learn a second vocabulary
 // at a prompt.
 //
-// --unattended does not route through here at all. Item 5f's rule is that
+// unattended does not route through here at all. the rule is that
 // NOTHING ASKS, and the gate already enforces it; a prompt that appeared and
 // then answered itself would be theatre.
 

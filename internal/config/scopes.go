@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Item 2ly: a setting belongs to a profile, or to the machine, and which is
+// a setting belongs to a profile, or to the machine, and which is
 // stated.
 //
 // Before this, the configuration was one file for the machine and every setting
@@ -18,7 +18,7 @@ import (
 // written to the profile's own settings.json; this classifies the rest and
 // gives the per-profile ones the same treatment.
 //
-// (a): the classification is the real deliverable, and it is HERE rather than in
+// the classification is the real deliverable, and it is HERE rather than in
 // a report, so it is the thing the code reads and not a description of it.
 //
 // The rule that decided each one: MACHINE-WIDE is anything about the machine,
@@ -40,7 +40,7 @@ const (
 // scopes is the classification, by the top-level configuration key. Every key
 // the configuration holds appears exactly once; a key that appears in neither
 // list is a test failure, because absence is indistinguishable from an oversight
-// — the same rule item 2jg's telemetry allow-list lives by.
+// the same rule the telemetry allow-list lives by.
 var scopes = map[string]Scope{
 	// ------------------------------------------------------------ machine-wide
 	"config_version": ScopeMachine, // the file's own format
@@ -58,20 +58,20 @@ var scopes = map[string]Scope{
 	"operator_files": ScopeMachine, // the mailbox lives in the data root
 	"approval":       ScopeMachine, // what may run unattended is a safety decision
 	"tools":          ScopeMachine, // limits and guards on what tools may do
-	// Item 2kq (f): the broker this machine dials out to. It is the machine's because
+	// the broker this machine dials out to. It is the machine's because
 	// the pairing it carries is this INSTALL's pairing with one phone, and because a
 	// second operator on the same computer reaching a different broker would be a
 	// second outbound connection nobody asked for.
 	"broker": ScopeMachine,
 
 	// ------------------------------------------------------------- per-profile
-	"chat":          ScopeProfile, // item 2lj (d): typography and density
+	"chat":          ScopeProfile, // typography and density
 	"run":           ScopeProfile, // the dials a person tunes to their own patience
 	"cron":          ScopeProfile, // scheduled jobs and their deadline live in this profile
 	"context":       ScopeProfile, // accounting and compaction thresholds
 	"memory":        ScopeProfile, // a profile already owns its memory directory
 	"skills":        ScopeProfile, // trusted procedures and their per-profile enablement
-	"reflection":    ScopeProfile, // item 2ls's floor, which is a working preference
+	"reflection":    ScopeProfile, // the floor, which is a working preference
 	"agents":        ScopeProfile, // already per-profile before this item
 	"deliver":       ScopeProfile, // already per-profile
 	"notifications": ScopeProfile, // already per-profile
@@ -110,7 +110,7 @@ func ClassifiedKeys() []string {
 // Overlay is a profile's per-profile settings as RAW JSON, one entry per
 // top-level key.
 //
-// (b): raw, and only the keys actually overridden, because that is what makes a
+// raw, and only the keys actually overridden, because that is what makes a
 // machine value a DEFAULT A PROFILE INHERITS rather than a value it copies. A
 // struct would have to store every field, and then changing the machine default
 // would stop reaching profiles that never expressed an opinion — which is the
@@ -240,7 +240,7 @@ func AllProfileSections(machine Config) (Overlay, error) {
 // SelectProfile puts one profile's per-profile settings in force: the machine's
 // values for every per-profile key, then this profile's overrides over them.
 //
-// rel-1.20.0/W6 found the reset missing. ApplyOverlay alone passed its own unit
+// found the reset missing. ApplyOverlay alone passed its own unit
 // tests and still leaked, because nothing in a pure extract/apply pair can see
 // that the configuration it is applying to already carries another profile's
 // answers. A new profile read the previous profile's text size and looked like
@@ -300,7 +300,7 @@ func zeroSection(cfg *Config, key string) {
 // SaveMachine writes the machine's configuration file with the per-profile
 // sections taken from BASELINE rather than from the configuration in memory.
 //
-// Item 2m0. The configuration a running harness holds is the MERGE -- the
+// The configuration a running harness holds is the MERGE -- the
 // machine's values with the active profile's laid over them -- and every writer
 // of the machine file marshals that whole thing. So a route that came to change
 // a connection wrote the active profile's typography into the machine's
@@ -308,7 +308,7 @@ func zeroSection(cfg *Config, key string) {
 // nineteen callers do not each need to know this; the boundary does.
 //
 // This is NOT Config.Save taught to preserve what is on disk. That was tried at
-// rel-1.20.0/W6 and reverted, because reading the sections back from the file
+// and reverted, because reading the sections back from the file
 // drops a write the caller meant to make -- the Connections route's agent-role
 // write is per-profile, and preserving disk silently discarded it. The baseline
 // here is the machine's own values as they were before any profile was applied,
@@ -319,7 +319,7 @@ func zeroSection(cfg *Config, key string) {
 // the live value IS the machine's value, because SelectProfile put the
 // baseline there and nothing overrode it.
 //
-// rel-1.21.0/W4 found this the hard way. Restoring EVERY per-profile section
+// found this the hard way. Restoring EVERY per-profile section
 // from the baseline rolled back writes the machine was entitled to make: on a
 // first run the baseline is captured before setup has chosen anything, so
 // saving a new connection restored the empty agents list and the file failed
@@ -345,7 +345,7 @@ func SaveMachine(cfg Config, baseline Overlay, opinion Overlay, path string) err
 	// where the baseline predates setup and carries no agent at all -- then the
 	// merge is written instead and the caller's change lands.
 	//
-	// rel-1.21.0/W4 found this twice, both times as "agents: at least one agent
+	// found this twice, both times as "agents: at least one agent
 	// is required" from the onboarding gate. Refusing the write to protect the
 	// machine's defaults is the same mistake as the fix this item rejected: it
 	// puts tidiness above the operator's change. Separation is worth having
@@ -357,7 +357,7 @@ func SaveMachine(cfg Config, baseline Overlay, opinion Overlay, path string) err
 }
 
 // DriftedSections names the per-profile sections of a machine configuration that
-// a profile's own values have leaked into. Item 2m0 (d).
+// a profile's own values have leaked into..
 //
 // The tell is exact rather than heuristic. ExtractOverlay writes a key into a
 // profile's overlay ONLY when it disagrees with the machine baseline, so an
@@ -365,7 +365,7 @@ func SaveMachine(cfg Config, baseline Overlay, opinion Overlay, path string) err
 // file moved toward that profile: the entry could not have been written
 // otherwise, and nothing else makes them converge.
 //
-// It reports and does not repair, which is the narrowing rel-1.21.0/W0 took
+// It reports and does not repair, which is the narrowing took
 // deliberately: the value the section drifted FROM is gone, and substituting a
 // default would silently overwrite a machine setting the operator meant. A named
 // finding lets the operator decide; a guess would not.

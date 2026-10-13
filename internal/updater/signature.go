@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Item 2lb: a verification that could not be performed is a distinct outcome
+// a verification that could not be performed is a distinct outcome
 // from a signature that is bad. The updater used to decode a child's combined
 // stdout and stderr as JSON, so one warning line turned a sound artifact into
 // "the signature is invalid" and discarded the real reason.

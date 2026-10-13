@@ -222,7 +222,7 @@ func LoadInstructions(boundDir, touchedDir string) (Instructions, error) {
 }
 
 // RenderInstructions is the block for these instruction files as they are now. It is
-// read at the start of every run, so an edit reaches the next run (item 2q0), and a file
+// read at the start of every run, so an edit reaches the next run, and a file
 // over the bound is a pointer to read it, never a copy cut mid-sentence.
 func RenderInstructions(files []string) (string, error) {
 	block, _, err := RenderInstructionSet(files)

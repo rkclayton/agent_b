@@ -31,7 +31,7 @@ type Config struct {
 	Telemetry     Telemetry               `json:"telemetry"`
 	Reflection    Reflection              `json:"reflection"`
 	Skills        map[string]SkillSetting `json:"skills"`
-	// Item 2kq (f): ONE KEY. Empty is off and nothing dials; a URL is the broker this
+	// ONE KEY. Empty is off and nothing dials; a URL is the broker this
 	// AgentB reaches its phone through. Everything else about the broker — the
 	// identity, the pairing, the device — is state, not configuration.
 	Broker      Broker   `json:"broker,omitempty"`
@@ -98,19 +98,19 @@ func AgentID(name string) string {
 	return strings.Trim(id, "-")
 }
 
-// Item 2ka: delegate follows the twelve established tools; every older tool
+// delegate follows the twelve established tools; every older tool
 // keeps its relative position.
 func FullToolset() []string {
 	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration
-// written before v1.2.5 names them, and an agent whose toolset named them meant
+// written before names them, and an agent whose toolset named them meant
 // "this agent may search" - so they are read as `search` rather than rejected
 // as unknown, which would have turned searching off without saying so.
 var MergedSearchNames = map[string]bool{"search_text": true, "find_files": true}
 
-// migrateToolset rewrites a pre-v1.2.5 toolset in place, without changing what
+// migrateToolset rewrites a pre-toolset in place, without changing what
 // the agent is allowed to do.
 func migrateToolset(toolset []string) []string {
 	migrated := make([]string, 0, len(toolset))
@@ -186,10 +186,10 @@ func allowed(value string, values []string) bool {
 // Updates controls the one passive release check. AutoCheck defaults on even
 // for older configuration files that predate this object; an explicit false is
 // preserved by the custom unmarshaller.
-// Item 2ls (b): reflection's floor, visible and adjustable.
+// reflection's floor, visible and adjustable.
 //
 // A run below BOTH counts does not trigger reflection. The numbers come from
-// item 2iy's measurement of this machine's own journals -- seven of eleven runs
+// the measurement of this machine's own journals -- seven of eleven runs
 // made two model calls or fewer, and reflection doubled the cost of a one-call
 // run -- and they are configuration rather than constants precisely because a
 // number derived from one machine's distribution should not be something the
@@ -220,7 +220,7 @@ func (f *ReflectionFloor) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Item 2jg: diagnostic telemetry. Three keys and no more.
+// diagnostic telemetry. Three keys and no more.
 //
 // An empty Endpoint selects telemetry.DefaultEndpoint at runtime. Keeping the
 // stored value empty preserves the distinction between the product default and
@@ -245,7 +245,7 @@ func (t *Telemetry) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Reflection is what reflection reads from configuration. Item 2ls adds the
+// Reflection is what reflection reads from configuration. adds the
 // floor; nothing else about reflection is configurable and this does not change
 // that.
 type Reflection struct {
@@ -306,7 +306,7 @@ type Connection struct {
 	Capabilities         Capabilities      `json:"-"`
 	Measurement          *Measurement      `json:"-"`
 	Models               []ConnectionModel `json:"-"`
-	// MaxConcurrent is how many runs this server serves at once (items 2fc, 2s5);
+	// MaxConcurrent is how many runs this server serves at once;
 	// zero means one. The global run.max_concurrent still caps the total.
 	MaxConcurrent int `json:"max_concurrent,omitempty"`
 	initialized   bool
@@ -353,7 +353,7 @@ type Measurement struct {
 	CompletionMS  int64   `json:"completion_ms,omitempty"`
 	Capped        bool    `json:"capped"`
 	Stopped       bool    `json:"stopped,omitempty"`
-	// Item 2ih (c), (d) and (e): the two arms the harness ran, the decision it
+	// the two arms the harness ran, the decision it
 	// wrote from them, and the window the model will actually run with. A
 	// measurement that only reported a pass count could not explain what it
 	// changed, and the operator would be left reading a switch that moved by
@@ -377,7 +377,7 @@ type Service struct {
 	TimeoutS            int      `json:"timeout_s"`
 	MaxBodyKB           int      `json:"max_body_kb"`
 	RequireConfirmation bool     `json:"require_confirmation"`
-	// Item 2nr: the one key a connector gains when it has imported an OpenAPI
+	// the one key a connector gains when it has imported an OpenAPI
 	// document. Its presence is what makes the document the allow-list.
 	OpenAPI *ServiceOpenAPI `json:"openapi,omitempty"`
 }

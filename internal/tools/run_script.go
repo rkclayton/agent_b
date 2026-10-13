@@ -14,7 +14,7 @@ type RunScript struct{ shell *Shell }
 func NewRunScript(shell *Shell) *RunScript { return &RunScript{shell: shell} }
 func (*RunScript) Name() string            { return "run_script" }
 func (t *RunScript) Description() string {
-	// Item 2gb: powershell source runs in the same interpreter the shell tool
+	// powershell source runs in the same interpreter the shell tool
 	// resolves, and the description says which. Source is not rewritten: only
 	// the shell tool's one-line command is.
 	dialect := "PowerShell"
@@ -104,7 +104,7 @@ func (t *RunScript) call(ctx context.Context, item *session.Session, args map[st
 	var argv []string
 	switch strings.ToLower(strings.TrimSpace(language)) {
 	case "powershell":
-		// Item 2gb: the same interpreter the shell tool resolves.
+		// the same interpreter the shell tool resolves.
 		executable = shellHostFor(cfg).Executable
 		// -Command - consumes standard input as an interactive command stream.
 		// Windows PowerShell accepts a line at a time there and silently leaves a

@@ -83,7 +83,7 @@ func (r *PromptRenderer) RenderParts(connection *config.Connection, s *session.S
 }
 
 // RenderMemoryParts takes the memory layers as a list rather than as two named
-// arguments: item 2mw added a third, `machine`, and a list means a layer joins the
+// arguments: added a third, `machine`, and a list means a layer joins the
 // prompt without every caller having to be told about it.
 func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *session.Session, toolNames []string, project string, layers ...string) string {
 	return r.RenderSkillParts(connection, s, toolNames, project, "", layers...)

@@ -49,7 +49,7 @@ type Reasoning struct {
 type Context struct {
 	NCtx          int `json:"n_ctx"`
 	ReserveOutput int `json:"reserve_output"`
-	// AnswerCeilingSeconds bounds ONE answer, never a run or a chat (item 2l9):
+	// AnswerCeilingSeconds bounds ONE answer, never a run or a chat:
 	// the operator spent 672 seconds on a single turn that was then thrown away.
 	// Zero means no ceiling, which is what every existing configuration says.
 	AnswerCeilingSeconds int            `json:"answer_ceiling_seconds,omitempty"`
@@ -85,7 +85,7 @@ type Capabilities struct {
 	ValidEfforts         []string `json:"valid_efforts"`
 	OverflowBehavior     string   `json:"overflow_behavior"`
 	ObservedMessageLimit int      `json:"observed_message_limit,omitempty"`
-	// Item 2l8: a server byte cap cannot be probed -- neither vLLM's /v1/models
+	// a server byte cap cannot be probed -- neither vLLM's /v1/models
 	// entry nor llama.cpp's /props publishes one -- so it is learned from the
 	// refusal that names it and remembered for this connection.
 	ObservedByteLimit int      `json:"observed_byte_limit,omitempty"`
@@ -118,7 +118,7 @@ const DefaultMaxToolCalls = 1000
 
 type Approval struct {
 	Mode string `json:"mode"`
-	// Item 5f (v1.2.5): unattended means nothing asks. It changes WHO IS ASKED,
+	// unattended means nothing asks. It changes WHO IS ASKED,
 	// never who runs anything and never what the boundary permits - a refused
 	// thing is still refused, it is just recorded rather than raised.
 	Unattended bool `json:"unattended"`
@@ -158,7 +158,7 @@ func (n *Notifications) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Broker is item 2kq (f)'s one config key. Item 2nu made it a key with a BUILT-IN
+// Broker is the one config key. made it a key with a BUILT-IN
 // default — broker.DefaultURL, written once in internal/broker — so a fresh install can
 // pair a phone without anybody finding and typing an address. A url in the file still
 // wins, for tests and for anyone running their own broker; the page neither shows nor
@@ -189,7 +189,7 @@ func (d *Deliver) UnmarshalJSON(data []byte) error {
 const (
 	CurrentConfigVersion = 15
 	DefaultReserveOutput = 10240
-	// MaxProposedReserveOutput caps what a probe proposes. Item 2l9 (c).
+	// MaxProposedReserveOutput caps what a probe proposes..
 	MaxProposedReserveOutput = 32768
 	ApprovalModeBoundaryOnly = "boundary-only"
 	ApprovalModeMutating     = "mutating"
@@ -205,7 +205,7 @@ const OperatorIdleTimeoutMigrationNotice = "migrated shell.operator_context_time
 const ByteWindowMigrationNotice = "migrated read_file and fetch_url limits from line counts to UTF-8 byte windows"
 const ModelRolesMigrationNotice = "migrated model connections to schema 5 with an explicit main role, optional aux role, and per-connection context size"
 
-// ModelPlaceholderMigrationNotice is item 2nq (a), and it names the connections it
+// ModelPlaceholderMigrationNotice is, and it names the connections it
 // cleared: the operator asked five times for the placeholder to go and every fix so
 // far had only stopped new connections getting it.
 const ModelPlaceholderMigrationNotice = "cleared the \"model\" placeholder from connection(s): "
@@ -234,7 +234,7 @@ type Tools struct {
 
 type AttachmentTool struct {
 	MaxBytes int64 `json:"max_bytes"`
-	// Item 2ch (v1.2.5): a PDF has two routes and the branch order used to
+	// a PDF has two routes and the branch order used to
 	// choose. The operator chose: SIDECAR BY DEFAULT, inline only under this
 	// many bytes and only where the connection can read a document natively.
 	// Inline is higher fidelity and unbounded; a sidecar is bounded and lossy,

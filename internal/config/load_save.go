@@ -106,7 +106,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if err != nil {
 		return nil, false, created, err
 	}
-	// Item 2nq (a): THE PLACEHOLDER LEAVES DISK. Once, named, and recorded by the
+	// THE PLACEHOLDER LEAVES DISK. Once, named, and recorded by the
 	// config version, so it cannot come back from a load.
 	placeholderCleared, data, err := migrateModelPlaceholder(data, version)
 	if err != nil {
@@ -161,7 +161,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if profilesMigrated {
 		migrateAgentProfiles(&cfg)
 	}
-	// Item 13 (v1.2.5): a configuration written before the merge names the two
+	// a configuration written before the merge names the two
 	// tools that became `search`. It meant "this agent may search", so it is
 	// read that way rather than refused as unknown.
 	for i := range cfg.Agents {
@@ -197,7 +197,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if agentsMigrated && !unstamped {
 		cfg.LoadNotices = append(cfg.LoadNotices, AgentObjectsMigrationNotice)
 	}
-	// Item 2nq (a): one line, naming the connections it cleared. It says which ones
+	// one line, naming the connections it cleared. It says which ones
 	// because the user's question was which ones.
 	if len(placeholderCleared) > 0 {
 		cfg.LoadNotices = append(cfg.LoadNotices, ModelPlaceholderMigrationNotice+strings.Join(placeholderCleared, ", "))
@@ -237,7 +237,7 @@ func (c Config) Save(path string) error {
 	if named, ok := persisted.Chat.TextSize.(string); ok && named != "" {
 		persisted.Chat.TextSize, _ = ChatTextPixels(named)
 	}
-	// Item 2nv (h): a retired auth mode is never written back. The migration rewrites
+	// a retired auth mode is never written back. The migration rewrites
 	// each one before this is reached, so getting here means something tried to keep it.
 	for name, service := range persisted.Services {
 		if err := ValidateNewServiceAuth(service.Auth); err != nil {

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Item 2ep: write_file turns Markdown into a real workbook when the path ends
+// write_file turns Markdown into a real workbook when the path ends
 // .xlsx. Each `## heading` names a sheet and the first Markdown table under it
 // becomes that sheet; Markdown with no heading makes one sheet. Standard
 // library only. Every cell is written as an inline string or a number, never a

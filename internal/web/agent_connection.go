@@ -61,12 +61,12 @@ func (s *pendingAgentConnectionState) takeSessionConnections() map[string]string
 	return pending
 }
 
-// Item 2ln (a): the route takes a ROLE. [[2iq]] built the Agents table in v1.16.0
+// the route takes a ROLE. [[2iq]] built the Agents table in
 // and found two of its three rows had to be read-only, because this route wrote
 // agent.B and nothing else. The operator asked to "assign a model to an agent";
 // two thirds read-only is not that.
 //
-// (b), and rel-1.17.0/W0 measured why the wording matters: a run resolves its
+// (b), and measured why the wording matters: a run resolves its
 // connection from the SESSION (run.go:119,222,334,396), so a session already
 // bound is never moved by a role change -- but r.cfg is a live accessor and the
 // aux and compaction paths read agent.C at the point of use, so a compaction
@@ -182,7 +182,7 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 		}
 	}
 	if role != roleB {
-		// (b): c and d take effect on the next run that reads them. Nothing is
+		// c and d take effect on the next run that reads them. Nothing is
 		// pending, because no session is bound to them.
 		if body.ConnectionID == current {
 			writeJSON(w, http.StatusOK, map[string]any{"status": "applied", "agent_id": agentID, "role": role, "connection_id": body.ConnectionID})

@@ -39,16 +39,16 @@ const exchangeFileList = document.getElementById("chat-exchange-files");
 const attachMenuControl = registerMenu(attachMenu, { anchor: attachButton });
 const filePicker = document.getElementById("chat-file-picker");
 const pendingFiles = document.getElementById("chat-attachments");
-// Item 2ge: send and stop are one control, so there is one element for both.
+// send and stop are one control, so there is one element for both.
 const mic = document.getElementById("chat-mic");
 const retryModel = document.getElementById("chat-retry-model");
 let attachmentFolder = { name: "attachments", path: "" };
 let requested = new URLSearchParams(location.search).get("session");
-// Item 2gn: the chat the operator asked for by name, so the stale-selection
+// the chat the operator asked for by name, so the stale-selection
 // sweep never takes him off a closed chat he opened deliberately.
 let askedFor = "";
 const selectedID = () => store.selection.session_id;
-// Item 2gg: copying the transcript marks the kind of each entry. Installed
+// copying the transcript marks the kind of each entry. Installed
 // once, on the document, and inert unless the selection is in the transcript.
 installTranscriptCopy(log);
 const expanded = new Set();
@@ -135,7 +135,7 @@ function applyReadingSettings() {
   root.dataset.chatListWrap = String(boundedPixels >= 28);
   root.style.setProperty("--chat-ink", TEXT_COLORS[chat.text_color] || TEXT_COLORS.default);
   // An unset typeface is not a broken one: it falls back to the product's own
-  // sans, which is what every release before v1.15.0 rendered.
+  // sans, which is what every release before rendered.
   if (face) root.style.setProperty("--chat-face", `"${face}", var(--sans)`);
   else root.style.removeProperty("--chat-face");
 }
@@ -147,9 +147,9 @@ subscribe((_state, event) => {
   if (event.type === "snapshot") {
     applyReadingSettings();
     const open = newestOpenSessions();
-    // Item 2gn: a link that names a chat opens THAT chat, closed or open. The
+    // a link that names a chat opens THAT chat, closed or open. The
     // `!closed` test sent the user to whatever chat happened to be
-    // selected — five of five ids in the v1.1.2 probe — and nine of his ten
+    // selected — five of five ids in the probe — and nine of his ten
     // retained chats are closed, so it was his whole history.
     if (requested && store.sessions[requested]) { askedFor = requested; changeBound(requested); requested = ""; }
     else if (store.selection.agent_id === "agent_b" && (!store.sessions[selectedID()] || store.sessions[selectedID()].closed)) changeBound(open[0]?.id || "");
@@ -158,7 +158,7 @@ subscribe((_state, event) => {
 	cacheQueuedDraft(store.sessions[selectedID()]);
   // The sweep below exists for a selection that went stale on its own. A chat
   // the operator asked for by name is not stale, so it is left in front of him
-  // until he chooses another (item 2gn).
+  // until he chooses another.
   // `askedFor` is not cleared when the selection moves: the selection is
   // applied through the bus and does not always equal the id on the very
   // snapshot that set it, and clearing it there is what made the first attempt
@@ -269,7 +269,7 @@ export function unmountChat() {
   document.body.classList.remove("drop-target");
 }
 
-// Item 2ms: THE PANE MAY ONLY FALL BACK TO A CHAT THE STRIP WOULD SHOW.
+// THE PANE MAY ONLY FALL BACK TO A CHAT THE STRIP WOULD SHOW.
 //
 // This is the user's sighting, found against a copy of his own restored journal
 // set: of his 34 chats, 33 are closed and the one that is not is s23, role `c` — a
@@ -305,7 +305,7 @@ function renderLog(session) {
   usedEntryViews = new Set();
   usedFileViews = new Set();
   usedToolViews = new Set();
-  // Item 2ew: before the first snapshot nothing is known, so nothing is claimed.
+  // before the first snapshot nothing is known, so nothing is claimed.
   if (!store.loaded) {
     finishLogRender([]);
     return;
@@ -416,7 +416,7 @@ function changeBound(value) {
   if (previous) attachmentQueues.set(previous, queuedAttachments);
   setSelection(`agent_${store.sessions[value]?.role === "d" ? "d" : "b"}`, value);
   queuedAttachments = attachmentQueues.get(value) || [];
-  // Item 2fc: "Build plan now?" opens the planning chat with its request in
+  // "Build plan now?" opens the planning chat with its request in
   // the composer; the operator sends it, so the harness speaks for no one.
   try {
     const draft = sessionStorage.getItem(`agentb.draft.${value}`);
@@ -458,7 +458,7 @@ function groupResponses(entries) {
     // group: an unreachable model, and a question from the worker, are the two
     // things in this thread that nobody can answer without seeing them. Item
     // 2fg: nor is a run stopped mid-tool, so the transcript shows the stop.
-    // Item 2ji (b): nor is a finished run's time sentence, for a different
+    // nor is a finished run's time sentence, for a different
     // reason — it is the line that CLOSES the run, and folding it into the steps
     // group buries it under a collapsed "Steps · 1 row", which is where my first
     // version of this put it. The screenshot gate is what showed me.
@@ -486,7 +486,7 @@ function renderEntrySafely(session, entry, index) {
   }
 }
 
-// Item 2gs (v1.2.1/W1): a key that appears twice in one render gets its own
+// a key that appears twice in one render gets its own
 // row the second time.
 //
 // The transcript was rendering the retained chats out of order — s6 showed
@@ -725,7 +725,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
     view.fold.append(view.head, view.rows);
   }
   const totals = responseSummary(block.steps);
-  // Item 2eo: one tool call and one thought are two rows, not a group.
+  // one tool call and one thought are two rows, not a group.
   // Active rows are pinned open, so drawing a disclosure for them would be an
   // inert control. Thought-only rows never need a grouping disclosure either.
   const inline = !!block.prose;
@@ -783,14 +783,14 @@ function responseSummaryText(summary, rowCount, outcome = { alarm: summary.faile
   return parts.join(" · ");
 }
 
-// Item 2m2 (a): the trailing duration sits in a SEAT rather than in the summary
+// the trailing duration sits in a SEAT rather than in the summary
 // string, and the seat is there whether a duration is or not.
 //
 // A step summary draws its measured duration only when it rounds to at least a
 // millisecond, so two runs of one build read "2 tool calls · 2 failed" and "2
 // tool calls · 2 failed · 1 ms". That presence difference is what the
 // duration-seat MASK existed to cover -- a mask over the place a value would
-// sit. The place is real now, so the mask is gone: item 2m2 (e) removes the
+// sit. The place is real now, so the mask is gone: removes the
 // masks whose only job was hiding movement, so that a future difference in
 // those pixels is seen rather than covered.
 //
@@ -846,7 +846,7 @@ function renderResponseToolGroup(session, view, group, recovered = false) {
   setSummaryWithDuration(groupView.head, `${open ? "▾" : "▸"} ${parts.join(" · ")}`, group.duration);
   const children = open ? group.items.map((item, index) => {
     try {
-      // Item 2mu (a): item.key, unprefixed here on purpose. These items come from
+      // item.key, unprefixed here on purpose. These items come from
       // responseBlocks, which already gives a thought its `thought:` key in BOTH
       // of its branches now — so prefixing again produced `thought:thought:…`,
       // which matched no view, and a thin thought inside a group rendered CLOSED
@@ -1051,7 +1051,7 @@ function toolTick(entry, forceOpen = false, recovered = false) {
     view = { root, button, pre, collapse, args: null, result: null, content: null };
     toolViews.set(entry.key, view);
   }
-  // Item 2eo: a harness note is a line of its own, never part of the result.
+  // a harness note is a line of its own, never part of the result.
   const note = typeof entry.result?.harness_note === "string" ? entry.result.harness_note : "";
   if (note) {
     if (!view.note) { view.note = document.createElement("div"); view.note.className = "tool-harness-note"; }
@@ -1154,13 +1154,13 @@ function noticeContent(session, entry, actionable) {
 		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty" || data.reason === "announced_action_and_stopped") {
 			content.textContent = data.detail || reason;
 		} else if (data.reason === "done") {
-			// Item 2ji (b): a run that finished shows only where its time went. "stopped:
+			// a run that finished shows only where its time went. "stopped:
 			// done" is not news, and this notice was hidden outright until this item gave
 			// it something to say. 2iw's rule — the reason first — governs the stops that
 			// are worth a reason.
 			content.textContent = "";
 		} else content.textContent = `stopped: ${reason}${data.detail ? ` · ${data.detail}` : ""}`;
-    // Item 2ji (b): where the time went, as a sentence, AFTER the reason — 2iw
+    // where the time went, as a sentence, AFTER the reason — 2iw
     // put the reason first and it stays first. A run journalled before this item
     // carries no time and gets no sentence rather than a row of zeros.
     const summary = runTimeSentence(data);
@@ -1217,7 +1217,7 @@ function noticeContent(session, entry, actionable) {
     content.textContent = `conflict: ${data.path} written by ${data.other_label} ${data.age_s} s ago`;
     content.classList.add("alarm");
   } else if (event.type === "memory.noted") {
-    // Item 2jf (e): the row says WHICH KIND of note and whether it replaced one,
+    // the row says WHICH KIND of note and whether it replaced one,
     // because "noted for next session" told the user nothing about what the
     // agent now believes. An untrusted turn is marked, since that is the note
     // worth a second look.
@@ -1299,13 +1299,13 @@ function noticeContent(session, entry, actionable) {
   return content;
 }
 
-// Item 2ge: the microphone. Trace while it listens, Mute at rest, and the
+// the microphone. Trace while it listens, Mute at rest, and the
 // hover text says whether the recogniser is running offline on this host or
 // through the online path. The operator asked for the Windows recogniser -
 // the one behind Win+H - so there is no browser speech API here and no audio
 // leaves the machine by any path Windows itself does not take.
 let micState = { listening: false, available: null, offline: null, reason: "" };
-// Item 2hf: a mic failure belongs on the strip, not only in a hover title.
+// a mic failure belongs on the strip, not only in a hover title.
 let micNotice = "";
 
 function renderMic(session) {
@@ -1314,7 +1314,7 @@ function renderMic(session) {
   setProperty(mic, "disabled", !usable);
   setAttribute(mic, "data-state", micState.listening ? "listening" : "idle");
   mic.classList.toggle("listening", micState.listening);
-  // Item 2ge: the hover says which engine is listening and whether anything
+  // the hover says which engine is listening and whether anything
   // would leave the machine if it did. The host answers that; this draws the
   // answer rather than deciding it.
   const where = micState.available === false
@@ -1351,7 +1351,7 @@ function renderComposer(session) {
   attachButton.disabled = !session || !!store.replay || attachmentsBusy || phoneOwned;
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
-  // Item 2fc: a run queued behind its model connection says whose run it waits on.
+  // a run queued behind its model connection says whose run it waits on.
   const queuedBehind = session?.run?.status === "queued" && session.run.waiting_behind ? `waiting for model · behind ${session.run.waiting_behind}` : "";
   const state = session?.pending_approval || session?.pending_repo_policy ? "waiting for you" : queuedBehind || session?.run?.status || "idle";
   const unreachable = session?.model_unreachable;
@@ -1369,7 +1369,7 @@ function renderComposer(session) {
   // as long as the run is live, and is absent otherwise. Its eyes take the same
   // state colour the tab robot uses.
   const running = !!activity;
-  // Item 2m4: THE ONE WAITING ELEMENT, EARNING ITS PLACE.
+  // THE ONE WAITING ELEMENT, EARNING ITS PLACE.
   //
   // The model wait is the case the user described — "chatting and hoping the
   // model catches it" — so this is where it goes first. It appears only while a
@@ -1378,7 +1378,7 @@ function renderComposer(session) {
   // and nothing about progress.
   //
   // Determinate when llama.cpp is streaming prompt_progress, which
-  // rel-1.23.0/W0 confirmed is the only progress any server here reports;
+  // confirmed is the only progress any server here reports;
   // indeterminate for everything else, cycling in place rather than sweeping
   // toward a finish it does not know.
   const progress = session?.activity?.progress || {};
@@ -1626,7 +1626,7 @@ async function queueExchangeFile(item) {
   }
 }
 
-// Item 2ge: click to dictate, click again to stop. Recognised text lands in
+// click to dictate, click again to stop. Recognised text lands in
 // the composer as it arrives, so the operator watches it appear rather than
 // waiting for a block at the end; ten seconds of silence, a second click or a
 // send all end the session. Nothing is sent anywhere: the recogniser runs on
@@ -1787,7 +1787,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-// Item 2ld (b): the composer's height is the dragged one now, so there is nothing
+// the composer's height is the dragged one now, so there is nothing
 // for this to step through.
 function resize() {}
 function busy(session) {

@@ -65,12 +65,12 @@ type Snapshot struct {
 	Messages          []events.Message           `json:"messages"`
 	Budget            events.Budget              `json:"budget"`
 	QueuedMessages    int                        `json:"queued_messages"`
-	// rel-1.23.0 card 5: the queue itself, not only its length, so a restart can
+	// the queue itself, not only its length, so a restart can
 	// put the messages back in the order they were accepted.
 	QueuedMessageIDs  []string `json:"queued_message_ids,omitempty"`
 	Runnable          bool     `json:"runnable"`
 	NotRunnableReason string   `json:"not_runnable_reason"`
-	// Item 2gy (v1.2.5): what this connection cannot do, for the strip to say once.
+	// what this connection cannot do, for the strip to say once.
 	// A missing capability gates the feature that needs it, never the chat.
 	DegradedNotes         []string `json:"degraded_notes,omitempty"`
 	MemoryPath            string   `json:"memory_path"`
@@ -99,7 +99,7 @@ type Session struct {
 	ID, Label, AgentID, ConnectionID, Workspace                                      string
 	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot, SkillStateRoot string
 	ParentSessionID                                                                  string
-	// Item 5f (v1.2.5): cards refused while unattended, for this run.
+	// cards refused while unattended, for this run.
 	boundaryHits           []string
 	WorkspaceMissing       bool
 	Scratch                bool
@@ -125,13 +125,13 @@ type Session struct {
 	Budget                 events.Budget
 	Run                    RunState
 	ToolsEnabled           map[string]bool
-	// Item 2jf (e): set when an untrusted tool result lands in this turn.
+	// set when an untrusted tool result lands in this turn.
 	untrustedInTurn  bool
 	ToolCalls        map[string]int
 	LastSeen         map[string]time.Time
 	TouchedPlanRepos map[string]bool
 	// WrittenPlanRepos are the plan repositories this chat has written into,
-	// oldest first, for its lifetime (item 2fh); TouchedPlanRepos is per run.
+	// oldest first, for its lifetime; TouchedPlanRepos is per run.
 	WrittenPlanRepos []string
 	// LoadFolderMemory loads one folder's memory layer for this chat's connection.
 	LoadFolderMemory  func(folder string) (string, string, error)
@@ -143,7 +143,7 @@ type Session struct {
 	MemoryBlock       string
 	MemoryPath        string
 	AgentMemoryBlock  string
-	// Item 2mw (e): the machine layer — facts about this box rather than about a
+	// the machine layer — facts about this box rather than about a
 	// folder or about the agent. Loaded like the agent layer and written only by
 	// reflection.
 	MachineMemoryBlock   string
@@ -173,7 +173,7 @@ type Session struct {
 	mu                   sync.Mutex
 }
 
-// Item 5f (v1.2.5): every card this run would have raised while unattended.
+// every card this run would have raised while unattended.
 // The worker reads them onto its item and the morning report lists them.
 func (s *Session) RecordBoundaryHit(reason string) {
 	s.mu.Lock()
@@ -392,7 +392,7 @@ func (s *Session) touchPlanRepoLocked(root string) {
 	s.WrittenPlanRepos = append(kept, root)
 }
 
-// MemoryFolder is where a folder-layer note from this chat belongs (item 2fh):
+// MemoryFolder is where a folder-layer note from this chat belongs:
 // a scratch chat has no memory layer of its own, so a project fact goes to the
 // plan repository it wrote into most recently, and "" means none is in scope.
 // Any other chat's folder is its workspace.
@@ -637,7 +637,7 @@ func (s *Session) appendProjectRoot(root, memoryBlock string) bool {
 }
 
 // RefreshProject re-reads the chat's instruction files at the start of a run and keeps
-// the block it returns when they changed (item 2q0).
+// the block it returns when they changed.
 func (s *Session) RefreshProject() (string, bool) {
 	s.mu.Lock()
 	files := append([]string(nil), s.ProjectFiles...)
@@ -723,7 +723,7 @@ func (s *Session) ToggleTool(name string, enabled bool) bool {
 	return true
 }
 
-// Item 2jf (e): whether an untrusted tool result landed in the turn now running.
+// whether an untrusted tool result landed in the turn now running.
 //
 // A note written in a turn that had external content in it is marked in the
 // memory file, because that is the note somebody should look at twice. The flag
@@ -824,7 +824,7 @@ func (s *Session) UpdatePartial(partial string)   { s.mu.Lock(); s.Run.Partial =
 func (s *Session) SetBudget(budget events.Budget) { s.mu.Lock(); s.Budget = budget; s.mu.Unlock() }
 func (s *Session) SetQueuedMessages(count int)    { s.mu.Lock(); s.queuedMessages = count; s.mu.Unlock() }
 
-// SetQueuedMessageIDs and QueuedMessageIDs carry rel-1.23.0 card 5's queue across a
+// SetQueuedMessageIDs and QueuedMessageIDs carry the queue across a
 // restart: the messages were always durable in the journal, their PLACE in the queue
 // was not.
 func (s *Session) SetQueuedMessageIDs(ids []string) {

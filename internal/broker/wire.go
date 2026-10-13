@@ -13,7 +13,6 @@ import (
 
 // The frame layer, exactly as broker-protocol-v1.md's registry spells it. A frame is a
 // three-part header — version, type, big-endian payload length — and a JSON payload.
-// Item 2kq.
 const (
 	FrameHello         = 0x01
 	FrameChallenge     = 0x02

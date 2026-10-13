@@ -7,7 +7,7 @@ import (
 )
 
 // RefusalCase performs the refusal the placed vector file names and returns the error
-// the protocol requires. Item 2kq: the five of them are named in the file rather than
+// the protocol requires. the five of them are named in the file rather than
 // described, so each is built here from the same inputs the accepted handshake uses and
 // then broken in exactly one way. A refusal that returns nil is a defect.
 //

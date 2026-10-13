@@ -213,13 +213,13 @@ func processRunning(pid int, created int64) bool {
 // logoff. The reason is written synchronously: Windows may end the process as
 // soon as the handler returns.
 //
-// Item 2eq: any process on the desktop can address a top-level window, so the
+// any process on the desktop can address a top-level window, so the
 // window acts on nothing it cannot attribute to Windows. WM_CLOSE is ignored.
 // A session end is recorded only when WM_QUERYENDSESSION and then WM_ENDSESSION
 // were both sent (the way Windows delivers them), never posted. The graceful
 // stop has its own channel instead: a named event in this session that only
 // the operator's account and SYSTEM may signal (stopEventName).
-// Item 2hg (v1.3.0/W6): watchSessionEnd RETURNS ONLY ONCE THE GUARD WINDOW
+// watchSessionEnd RETURNS ONLY ONCE THE GUARD WINDOW
 // EXISTS. It used to start the goroutine and return immediately, so there was a
 // window of time in which the process was listening but had no window to ignore
 // WM_CLOSE with -- and a console application started hidden owns a

@@ -127,7 +127,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 			results = append(results, fmt.Sprintf("[read_file %s]\n%s", label, result))
 		}
 		if succeeded {
-			// Item 2mn (a): the seen-list is keyed by the FILE, the same key the
+			// the seen-list is keyed by the FILE, the same key the
 			// write coordinator records against, so a read clears a conflict
 			// whichever root either session reached the file through.
 			s.Touch(resolved)
@@ -142,7 +142,7 @@ func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string
 	return ContentDigestLine(data) + result, nil
 }
 
-// ContentDigestLine is item 2mn (b): WHAT THIS READ SAW, in a form an edit can
+// ContentDigestLine is WHAT THIS READ SAW, in a form an edit can
 // carry back. The whole FILE's digest heads every read - not the window's, because
 // what an edit needs to know is whether the file changed underneath it, and a
 // window can be identical while the rest of the file is rewritten.

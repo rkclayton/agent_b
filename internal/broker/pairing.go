@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// Item 2kq (b): PAIRING FROM SETTINGS, PAIR_BEGIN-first.
+// PAIRING FROM SETTINGS, PAIR_BEGIN-first.
 //
 // This AgentB begins the pairing and shows the operator the code; his phone types it in.
 // The code authorizes the exchange and is not input to any key. What he compares on the
@@ -114,7 +114,7 @@ type pairWaitingPayload struct {
 // The field names are the LIVE broker's, read off the wire rather than guessed: the
 // document's frame registry says PAIR_PEER carries "both peer public keys" without
 // naming the fields, and the broker calls them peer_ed25519_public and
-// peer_x25519_public. Measured against wss://…:8444 at rel-1.36.0/W5.
+// peer_x25519_public. Measured against wss://…:8444 at.
 type pairPeerPayload struct {
 	PairingID string `json:"pairing_id"`
 	PeerKeyID string `json:"peer_key_id"`
@@ -143,7 +143,7 @@ type revokePayload struct {
 // into the phone, and — once the phone has arrived — the fingerprint to compare.
 type PairingOffer struct {
 	Code string `json:"code"`
-	// Item 2ns (b): the link and its QR, present only while the code is live and kept
+	// the link and its QR, present only while the code is live and kept
 	// nowhere. They are not persisted with an offer; the endpoint fills them per
 	// response.
 	Link        string `json:"link,omitempty"`
@@ -292,7 +292,7 @@ func Revoke(transport Transport, identity Identity, pairingID []byte) error {
 	return transport.Send(frame)
 }
 
-// Item 2ns (a): THE PAIRING LINK, defined by docs/pairing-link-v1.md and built in one
+// THE PAIRING LINK, defined by docs/pairing-link-v1.md and built in one
 // place. The user never types the code: "this code is waaay too long its insane",
 // "we dont need to have them enter a code do we?". The code itself is unchanged — its
 // length is its margin, and shortening it would be a wire change in three repositories.

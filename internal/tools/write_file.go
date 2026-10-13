@@ -34,7 +34,7 @@ func (c *FileCoordinator) check(s *session.Session, path, resolved string) (stri
 	if s.Role == "d" {
 		root = s.PlanDir
 	}
-	// Item 2mn (a): the CONFLICT is checked on the file's own identity, so a
+	// the CONFLICT is checked on the file's own identity, so a
 	// shared plan repository is shared however each session reached it. `rel`
 	// stays what the operator reads in the event, which is (d): the event's shape
 	// and the chat's rendering of it are unchanged.
@@ -55,7 +55,7 @@ func (c *FileCoordinator) check(s *session.Session, path, resolved string) (stri
 	return "", nil
 }
 
-// lastWriterNote names who wrote a file last, for item 2mn (b)'s refusal. It says
+// lastWriterNote names who wrote a file last, for the refusal. It says
 // nothing when the last writer was this session or when nothing is recorded: "it
 // changed" is the fact, and naming a session that did not do it would be worse than
 // naming none.
@@ -75,7 +75,7 @@ func (c *FileCoordinator) lastWriterNote(s *session.Session, resolved string) st
 }
 
 func (c *FileCoordinator) record(s *session.Session, resolved string) {
-	// Item 2mn (a): the write is recorded against the FILE. The session's own root
+	// the write is recorded against the FILE. The session's own root
 	// no longer takes part, which is why a shared plan repository is now shared.
 	s.Touch(resolved)
 	c.workspaces.RecordWrite(resolved, s.ID)
@@ -148,7 +148,7 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err := refusePlanManifestWrite(s, resolved); err != nil {
 		return "", err
 	}
-	// Item 2ep: an .xlsx path turns its Markdown tables into a workbook; every
+	// an .xlsx path turns its Markdown tables into a workbook; every
 	// other extension is written as the bytes given.
 	sheetSummary := ""
 	if strings.EqualFold(filepath.Ext(resolved), ".xlsx") {

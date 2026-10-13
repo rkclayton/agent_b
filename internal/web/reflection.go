@@ -16,7 +16,7 @@ import (
 	"harness/internal/reflection"
 )
 
-// Item 17-i: reflection runs after a run closes and on a daily tick. The
+// reflection runs after a run closes and on a daily tick. The
 // server subscribes to the event bus rather than calling into the run loop, so
 // the loop's latency is untouched by construction: the run is already stopped
 // and its outcome already published before anything here starts. A failure
@@ -63,7 +63,7 @@ func (s *Server) StartReflection(tick time.Duration) {
 	runner.NoteWritten = func(summary reflection.Summary, note string) {
 		// The note is published like the model's own, so the operator's
 		// existing "delete this chat and drop its memory" path can revoke it
-		// (v1.1.0/W6 cold review).
+		// (cold review).
 		path := s.memoryState.SharedPath()
 		if item, ok := s.registry.Get(summary.SessionID); ok {
 			path = s.memoryState.TargetPath(item.Snapshot().AgentID)
@@ -124,7 +124,7 @@ func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
 			}
 			data, _ := event.Data.(map[string]any)
 			runID, _ := data["run_id"].(string)
-			// Item 2ls: the floor, applied before anything is dispatched. A run
+			// the floor, applied before anything is dispatched. A run
 			// below it costs nothing rather than costing a model call and being
 			// discarded afterwards.
 			if skip, counts := s.belowReflectionFloor(data); skip {
@@ -149,13 +149,13 @@ func (s *Server) reflectionLoop(tick time.Duration, state *reflectionState) {
 }
 
 // belowReflectionFloor decides whether this run is too small to be worth a
-// summary, from the counts item 2ls put on run.stopped.
+// summary, from the counts put on run.stopped.
 //
-// Item 2ls (a): the floor is three model calls OR one tool call, whichever is
+// the floor is three model calls OR one tool call, whichever is
 // reached first — so a run clears it by doing enough of either. Both numbers are
 // configuration, because they came from one machine's distribution.
 //
-// Item 2ls (d): A RUN THAT ENDED BADLY ALWAYS REFLECTS, however small. A
+// A RUN THAT ENDED BADLY ALWAYS REFLECTS, however small. A
 // two-call run that failed is exactly the one worth a summary, and a floor that
 // skipped it would be saving money on the only runs anybody goes back to read.
 func (s *Server) belowReflectionFloor(data map[string]any) (bool, map[string]any) {
@@ -165,7 +165,7 @@ func (s *Server) belowReflectionFloor(data map[string]any) (bool, map[string]any
 	if floor.ModelCalls <= 0 && floor.ToolCalls <= 0 {
 		return false, counts
 	}
-	// (d): the ordinary stop reasons are the ones a floor may skip. Anything
+	// the ordinary stop reasons are the ones a floor may skip. Anything
 	// else — a limit, a tool-error stop, a model failure — reflects regardless
 	// of how small the run was.
 	reason, _ := data["reason"].(string)
@@ -183,7 +183,7 @@ func (s *Server) belowReflectionFloor(data map[string]any) (bool, map[string]any
 	return true, counts
 }
 
-// ordinaryStopReason is the set item 2ls (d) permits the floor to skip: a run
+// ordinaryStopReason is the set permits the floor to skip: a run
 // that simply finished, or that the operator ended deliberately. Everything else
 // is a run somebody may want to read about.
 func ordinaryStopReason(reason string) bool {
@@ -219,7 +219,7 @@ func (s *Server) reflectOnClosedRun(sessionID, runID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	// No aux connection exists on this schema: the run's own connection summarises
-	// and the summary says so (item 17-i's @verify, answered in v1.1.0/W1).
+	// and the summary says so.
 	summary := state.runner.SummariseRun(ctx, sessionID, runID, workspace, planID, connectionID, false)
 	if summary.PlannerNote != "" && !summary.Untrusted && s.plannerNotes != nil {
 		if err := s.plannerNotes.Add(sessionID, summary.PlannerNote); err != nil {
@@ -247,7 +247,7 @@ func (s *Server) reflectionPass(manual bool) (reflection.PassResult, error) {
 		log.Printf("reflection: skipped %s", skipped)
 	}
 	// A pass may have proposed a plan; the operator meets it as an ordinary
-	// card when they are next here (v1.1.1/W3).
+	// card when they are next here ().
 	s.OfferReflectionProposals()
 	return result, err
 }
@@ -346,7 +346,7 @@ func (s *Server) reflectionEndpoint(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// Item 2mw (a): THE ROWS NEED STRUCTURED DATA. The Activity page rendered the
+// THE ROWS NEED STRUCTURED DATA. The Activity page rendered the
 // reflection overview as text, so there was nothing for a row to be built from. This
 // returns every reflection-authored note across the memory layers, with its
 // provenance, plus what is restorable and how long it stays that way.
@@ -398,13 +398,13 @@ func (s *Server) reflectionNotes(w http.ResponseWriter, r *http.Request) {
 		"total":          total,
 		"removed":        removed,
 		"retention_days": int(memory.TombstoneRetention.Hours() / 24),
-		// (f): the retrieval cap each layer is loaded under, stated where the
+		// the retrieval cap each layer is loaded under, stated where the
 		// operator is looking at the notes and not only in the documentation.
 		"max_tokens": s.ConfigSnapshot().Memory.MaxTokens,
 	})
 }
 
-// Item 2mw (a) and (c): confirm, edit and restore. Delete is unchanged — it is the
+// confirm, edit and restore. Delete is unchanged — it is the
 // exact-note route that already existed, and it now leaves a tombstone these read.
 func (s *Server) reflectionNoteAction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || s.memoryState == nil {
@@ -447,7 +447,7 @@ func (s *Server) reflectionNoteAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"changed": true})
 }
 
-// Item 2mw (a): DELETE, for a reflection note in any layer. The agent layer already
+// DELETE, for a reflection note in any layer. The agent layer already
 // had an exact-note route; the folder layer, which is where reflection actually writes,
 // did not. Both go through the same removal, so both leave a tombstone.
 func (s *Server) reflectionNoteRemove(w http.ResponseWriter, r *http.Request) {

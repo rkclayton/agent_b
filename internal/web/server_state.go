@@ -149,9 +149,9 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		method(w)
 		return
 	}
-	// Item 17-i's registration decision: the operator is here, so a plan
+	// the registration decision: the operator is here, so a plan
 	// reflection proposed can be put to them as an ordinary card. This returns
-	// at once unless something is pending (v1.1.1/W3).
+	// at once unless something is pending ().
 	started := time.Now()
 	s.OfferReflectionProposals()
 	selected := r.URL.Query().Get("session")
@@ -166,13 +166,13 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		snapshot = s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
 	}
 	if pairedDeviceAuthenticated(r) {
-		// Item 2ow: a stolen paired phone can choose between connections, but it
+		// a stolen paired phone can choose between connections, but it
 		// never receives credentials, paths, prompts, or the rest of local config.
 		snapshot["connections"] = s.phoneConnections()
 		snapshot["agents"] = s.phoneAgents()
 		delete(snapshot, "config")
 	}
-	// Item 2q7 (b): the state answer's size and time, counted as it is written.
+	// the state answer's size and time, counted as it is written.
 	counted := &countingWriter{ResponseWriter: w}
 	writeJSON(counted, 200, snapshot)
 	if s.app != nil {
@@ -378,7 +378,7 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 	} else if r.URL.Path == "/chat" {
 		name = "index.html"
 	} else if r.URL.Path == "/plan" {
-		// Item 2no: the Plan is a Settings section, so /plan is the SAME document
+		// the Plan is a Settings section, so /plan is the SAME document
 		// every other route serves; the client opens Settings on its Plan section.
 		// It still answers, because a deep link and a bookmark still exist.
 		name = "index.html"

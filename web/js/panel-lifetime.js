@@ -62,7 +62,7 @@ export function toolUseRows(tools = [], counters = {}) {
   }).sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
 }
 
-// Item 2ji (c): the per-connection row, lifetime beside the last twenty runs.
+// the per-connection row, lifetime beside the last twenty runs.
 //
 // Lifetime alone cannot show that a connection has GOT WORSE, and that is the
 // question the operator asks of this table. Two columns answer it; one does not.
@@ -88,7 +88,7 @@ function rate(part, whole) {
 }
 
 // runProfile reduces one side of the row -- lifetime, or the recent window -- to
-// the figures item 2ji (c) names.
+// the figures names.
 export function runProfile(counters = {}, recent = false) {
   if (recent) {
     const runs = counters.recent_runs || [];
@@ -128,13 +128,13 @@ export function runProfile(counters = {}, recent = false) {
 }
 
 // runProfileRows is [label, lifetime, recent]. It returns nothing at all when no
-// run has ever reported its time, which is every ledger written before item 2ji
+// run has ever reported its time, which is every ledger written before
 // -- an empty column is more honest than a column of dashes.
 export function runProfileRows(counters = {}) {
   const life = runProfile(counters, false);
   const recent = runProfile(counters, true);
   if (!life.runs && !recent.runs) return [];
-  // Item 2m2: the fourth element is the SEAT, in characters, sized to the
+  // the fourth element is the SEAT, in characters, sized to the
   // widest form the value can take -- not to today's sample. A measured value
   // that changes digit count must not move anything, and a mask cannot help
   // with that: a mask covers a rectangle and the text has left it.

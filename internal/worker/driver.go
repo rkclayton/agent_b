@@ -268,8 +268,8 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 	if err != nil {
 		return Outcome{ItemID: job.ItemID, Marker: "!", Reason: "could not start: " + err.Error()}
 	}
-	// v0.69.0/W16 cold review: the item's time starts when its run starts. A
-	// run queued behind its model connection (item 2fc) has not begun, and time
+	// cold review: the item's time starts when its run starts. A
+	// run queued behind its model connection has not begun, and time
 	// spent waiting there is not the item's.
 	var deadline *time.Timer
 	var expired <-chan time.Time
@@ -303,8 +303,8 @@ func (d *Driver) runItem(ctx context.Context, s *session.Session, item Item) Out
 			case "paused":
 				reason = "waited for approval"
 			case "queued":
-				// v0.70.2 cold review: a begun run shows queued only while, its
-				// card answered, it waits to take its model slot back (item 2fs).
+				// cold review: a begun run shows queued only while, its
+				// card answered, it waits to take its model slot back.
 				reason = "waited for the model"
 			}
 			d.submit.Stop(s.ID, false)

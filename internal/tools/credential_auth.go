@@ -17,10 +17,10 @@ func (c *CallService) SetTokenProvider(scheme string, provider TokenProvider) {
 	c.providers[strings.ToLower(strings.TrimSpace(scheme))] = provider
 }
 
-// Item 2nv (a): AUTH PROVIDERS, behind one seam. A provider is asked for a credential for
+// AUTH PROVIDERS, behind one seam. A provider is asked for a credential for
 // one request and answers with a header, or refuses. It never decides where the request
 // may go — DESTINATION ENFORCEMENT does that, in internal/credential, and every provider
-// passes through it. Stage 2 (item 2nw) adds a signed-in provider here and changes
+// passes through it. Stage 2 adds a signed-in provider here and changes
 // nothing else.
 
 // credentialHeader is what a provider returns: one header, and the secret itself so the

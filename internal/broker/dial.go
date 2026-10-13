@@ -14,7 +14,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-// Item 2kq (a): the live transport. One outbound WebSocket to the broker's
+// the live transport. One outbound WebSocket to the broker's
 // /v1/connect, and nothing listens on this machine for it.
 //
 // golang.org/x/net/websocket is already a dependency of this repository; the one new
@@ -22,7 +22,7 @@ import (
 // with another implementation matters.
 
 // Dial builds a Dialer for a broker address. An empty address is not an error here: it
-// is the caller's business to not dial at all, which is what item 2kq (f) means by
+// is the caller's business to not dial at all, which is what means by
 // empty meaning off.
 func Dial(address string) Dialer {
 	return func(ctx context.Context) (Transport, error) {

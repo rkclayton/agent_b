@@ -26,7 +26,7 @@ type Request struct {
 	ToolChoice any
 	MaxTokens  int
 	Thinking   bool
-	// ReasoningMaxTokens is thinking own share of MaxTokens (item 2l9 (d)). It is
+	// ReasoningMaxTokens is thinking own share of MaxTokens ). It is
 	// sent only where the server accepted a reasoning budget.
 	ReasoningMaxTokens int
 }

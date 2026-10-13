@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Item 2gy (v1.2.5, landed v1.2.6): A PROBE HAS THREE OUTCOMES.
+// A PROBE HAS THREE OUTCOMES.
 //
 // Yes, no, and INCONCLUSIVE - a timeout, a 503, a busy slot, no answer at all,
 // or a reply that is neither a tool call nor a refusal. Only a clear no may

@@ -12,7 +12,7 @@ type MeasurementArm struct {
 	TokensPerSec float64 `json:"tokens_per_second"`
 	ReasoningP95 int     `json:"reasoning_p95,omitempty"`
 	Ran          bool    `json:"ran"`
-	// Item 2ih (f), wired at rel-1.22.0: an arm that could not finish says which
+	// wired at an arm that could not finish says which
 	// way it ended. BriefsRun is how far it got, which is not always Total.
 	BriefsRun int  `json:"briefs_run"`
 	Capped    bool `json:"capped,omitempty"`

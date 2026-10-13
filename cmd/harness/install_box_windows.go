@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-// Item 2gv: a failure early enough that there is no Setup page to show it gets
+// a failure early enough that there is no Setup page to show it gets
 // a message box, because a process started from Explorer has no console to
 // print to. MB_ICONERROR | MB_OK | MB_SETFOREGROUND, so it is seen.
 const (

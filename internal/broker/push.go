@@ -8,12 +8,12 @@ import (
 	"unicode/utf8"
 )
 
-// Item 2kq (d): PUSH THROUGH THE BROKER.
+// PUSH THROUGH THE BROKER.
 //
 // The phone's device token arrives over the session and is relayed with PUSH_REGISTER.
 // The broker forwards a push BLIND: the payload is a sealed box to the device's own
 // static key, and the broker holds no key that opens it. The three kinds are the set
-// item 2kl already established; a push is a wake hint and carries no state.
+// already established; a push is a wake hint and carries no state.
 
 type pushRegisterPayload struct {
 	PairingID   string `json:"pairing_id"`

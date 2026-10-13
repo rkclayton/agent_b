@@ -145,7 +145,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	})
 	setupCancel()
 	if setupErr != nil {
-		// Item 2kk (d) and (e): what the operator sees is the result the elevated
+		// what the operator sees is the result the elevated
 		// child WROTE, complete, with the log path beside it -- never raw CLIXML
 		// and never truncated. A launch that never happened is its own state: no
 		// account was touched, so there is nothing to inspect or repair.
@@ -170,7 +170,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 			writeError(w, http.StatusBadRequest, setupErr.Error()+"; no account change was attempted", "shell.service_account")
 			return
 		}
-		// Item 2ng (d): A FAILED SETUP MUST NOT LEAVE THE STORE WORSE THAN IT FOUND IT.
+		// A FAILED SETUP MUST NOT LEAVE THE STORE WORSE THAN IT FOUND IT.
 		//
 		// A new password is written to the store BEFORE elevating. Until now the previous
 		// one came back only when UAC was declined or the launch never happened — so a child
@@ -194,7 +194,7 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		credentialStatus := s.credential.Status()
 		s.bus.Publish(events.New(events.ShellCredential, "", "", credentialStatus))
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			// Item 2np (e): NO TEXT NAMES A CONTROL THAT DOES NOT EXIST. This said "use
+			// NO TEXT NAMES A CONTROL THAT DOES NOT EXIST. This said "use
 			// Reset password", and there is no such control anywhere in Settings; the
 			// operator read it beside a red box and had nothing to press. What is true is
 			// that the elevated run started, so the account may have been changed, and
@@ -327,7 +327,7 @@ func (s *Server) serviceAccountState(ctx context.Context, status serviceaccount.
 		}
 		status.Action = "Repair"
 	case !s.ConfigSnapshot().Shell.ServiceAccount.Enabled:
-		// Item 2l2 (b): with the split off there is no identity in use, so nothing
+		// with the split off there is no identity in use, so nothing
 		// tests it and no alarm is raised. This path ran the live test on every
 		// Settings render, which is how ten approval alarms appeared in four
 		// minutes for an account the product was not using.

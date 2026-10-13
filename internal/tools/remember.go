@@ -13,7 +13,7 @@ import (
 	"harness/internal/session"
 )
 
-// Item 2jf: remember rarely, scoped, replacing, within a budget.
+// remember rarely, scoped, replacing, within a budget.
 //
 // The tool used to take a note and a target and append. Four things are wrong
 // with that and this fixes them at the tool rather than in the prompt, because
@@ -27,7 +27,7 @@ import (
 //     belief is one action instead of an append and a stale line;
 //   - TWO WRITES PER RUN, enforced here. The third is refused with what to do
 //     instead;
-//   - the layer has a BUDGET on the file. Item 2eb trimmed on the way in and
+// the layer has a BUDGET on the file. trimmed on the way in and
 //     asked the model to consolidate, so the file grew forever and nobody met
 //     the limit. The write is refused now and the harness never trims.
 type Remember struct {
@@ -72,7 +72,7 @@ const MaxWritesPerRun = 6
 // layerFor is (b)'s routing: user and environment are about the user and
 // the machine, so they follow the agent everywhere; repository is about this
 // project, so it follows the folder. A repository note with no folder in scope
-// falls to the agent layer, which is item 2fh's existing rule and is kept.
+// falls to the agent layer, which is the existing rule and is kept.
 func layerFor(scope string) string {
 	if scope == "repository" {
 		return "folder"
@@ -85,7 +85,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if strings.TrimSpace(note) == "" {
 		return "", fmt.Errorf("note is empty")
 	}
-	// (b): an unscoped note is REFUSED. The scope is the model saying what kind
+	// an unscoped note is REFUSED. The scope is the model saying what kind
 	// of fact this is, and guessing it for them is how the folder layer filled
 	// up with facts about the operator.
 	scope := strings.ToLower(strings.TrimSpace(stringValue(args["scope"], "")))
@@ -109,7 +109,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		return "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do", nil
 	}
 
-	// (c): two writes per run, counted here rather than asked for in the prompt.
+	// two writes per run, counted here rather than asked for in the prompt.
 	key := s.ID + "\x00" + s.Run.LastRunID
 	r.mu.Lock()
 	written := r.writes[key]
@@ -159,7 +159,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	}
 	duplicate, err := r.memory.WriteNote(path, write)
 	if err != nil {
-		// (d) and (b): a full layer and a missing replaces are both answers the
+		// a full layer and a missing replaces are both answers the
 		// model can act on, not harness failures. They come back as tool errors
 		// with the instruction in them rather than as an error the run stops on.
 		if errors.Is(err, memory.ErrMemoryFull) || errors.Is(err, memory.ErrNoteNotFound) {
@@ -179,7 +179,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	}
 	r.bus.Publish(events.New(events.MemoryNoted, s.ID, s.Run.LastRunID, map[string]any{
 		"note": note, "path": path, "target": target, "agent_id": s.AgentID,
-		// (e): the transcript row shows scope and whether it replaced.
+		// the transcript row shows scope and whether it replaced.
 		"scope": scope, "replaced": strings.TrimSpace(write.Replaces) != "", "replaced_note": firstWords(write.Replaces, 8),
 		"untrusted_in_turn": write.UntrustedInTurn,
 	}))

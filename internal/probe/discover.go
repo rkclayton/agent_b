@@ -18,7 +18,7 @@ type DiscoveryAttempt struct {
 	BaseURL string `json:"base_url"`
 	Allowed bool   `json:"allowed"`
 	Result  string `json:"result"`
-	// Item 2nb (a) and (b): what the address actually DID, so the walk can stop on
+	// what the address actually DID, so the walk can stop on
 	// the typed one and the sheet can say what each attempt found as it lands.
 	// Status is the HTTP status when the address answered at all, and zero when
 	// nothing answered.
@@ -31,16 +31,16 @@ type DiscoveryResult struct {
 	BaseURL  string             `json:"base_url"`
 	Models   []string           `json:"models"`
 	Attempts []DiscoveryAttempt `json:"attempts"`
-	// NeedsKey is item 2nb (a): the typed address answered 401 or 403. That is not a
+	// NeedsKey is the typed address answered 401 or 403. That is not a
 	// failure to find a server — it is a server saying who it is, and the next move is
 	// the user's: paste a key and Test again.
 	NeedsKey bool `json:"needs_key,omitempty"`
 	// NoModelAPI is (a)'s 404 case: something answered, and it is not a model API.
 	NoModelAPI bool `json:"no_model_api,omitempty"`
 	// TypedAddress is the address whose port the operator typed, once it has answered.
-	// (a): the typed address wins, so a walk that reaches it stops there.
+	// the typed address wins, so a walk that reaches it stops there.
 	TypedAddress string `json:"typed_address,omitempty"`
-	// Item 2nn (a): WHAT EACH PORT ANSWERED, when the operator typed a host with NO
+	// WHAT EACH PORT ANSWERED, when the operator typed a host with NO
 	// port. The walk stops choosing for him — it reports, and he adds the port. His
 	// own case is why: ":8080" was down, ":11434" was an Ollama with no models, and
 	// the walk took the one that answered and wrote it into his address field.
@@ -73,13 +73,13 @@ func answeredStatus(err error) int {
 // Each candidate gets a short bound; the ordinary full probe runs only after a
 // model-list endpoint has answered.
 //
-// Item 2nb (a): THE TYPED ADDRESS WINS. A port the operator typed that answers at all
+// THE TYPED ADDRESS WINS. A port the operator typed that answers at all
 // ends the walk, whatever it answers — 200, 401, 403, 404 — because he typed it on
 // purpose and a walk that silently moves to another port rewrites his intent. Only an
 // address that does not answer at all (refused, timed out, no route) lets the walk go
 // on. And an answer of ZERO models never beats an answer with models: his :11434
 // answered `{"data":null}` and would otherwise have won over the :8080 that had three.
-// DiscoveryReport is item 2nb (b): called as each address lands, with the attempt, how
+// DiscoveryReport is called as each address lands, with the attempt, how
 // many have been tried and how many there are. Nil when nobody is watching.
 type DiscoveryReport func(attempt DiscoveryAttempt, tried, total int)
 
@@ -102,10 +102,10 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 		}
 		return result, &ConnectionError{Friendly: fmt.Sprintf("base_url %q is malformed: %s.", strings.TrimSpace(connection.BaseURL), firstLine(reason, "no host was found")), Detail: "discovery refused: no user-typed host"}
 	}
-	// (a): the candidates are split by PORT. Every path on the port he typed is tried
+	// the candidates are split by PORT. Every path on the port he typed is tried
 	// first; only if that port says nothing at all does the walk go looking elsewhere.
 	// The two halves matter because a 404 is about a PATH, not about the server: typing
-	// host:8080/wrong must still find host:8080/v1/models, which is what item 2l1's
+	// host:8080/wrong must still find host:8080/v1/models, which is what the
 	// path discovery is for. What (a) forbids is LEAVING the port he typed once it has
 	// answered.
 	typedCandidates, otherCandidates := []string{}, []string{}
@@ -174,7 +174,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 			result.TypedAddress = baseURL
 		}
 		if len(models) == 0 {
-			// (a): zero models never beats models, so this is remembered and the walk
+			// zero models never beats models, so this is remembered and the walk
 			// goes on through the remaining paths.
 			if emptyAnswer == "" {
 				emptyAnswer = baseURL
@@ -190,7 +190,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 			return result, err
 		}
 	}
-	// Item 2nn (a): A TYPED PORT IS TRIED, AND ONLY IT. Item 2nb (a) already stopped
+	// A TYPED PORT IS TRIED, AND ONLY IT. already stopped
 	// the walk once the typed port ANSWERED; what was left was the case where it says
 	// nothing at all, and that was still walking off to other ports and rewriting his
 	// address. It does not any more: the answer is what his port did, whatever that is.
@@ -204,7 +204,7 @@ func DiscoverEndpointReporting(ctx context.Context, connection *config.Connectio
 			Detail:   "discovery refused to leave the user-typed port " + typedPort,
 		}
 	}
-	// (a): the typed port answered but listed nothing usable. The walk stops here
+	// the typed port answered but listed nothing usable. The walk stops here
 	// rather than quietly moving to another port and rewriting what he typed.
 	if typedAnswered {
 		if emptyAnswer != "" {
@@ -394,7 +394,7 @@ func discoveryCandidates(raw string) ([]string, string, string, error) {
 }
 
 // discoveryPorts is the list of ports a host typed WITHOUT one is tried on. It is a
-// variable rather than a literal so item 2nn's acceptance can replay the user's
+// variable rather than a literal so the acceptance can replay the user's
 // own case — :8080 serving three models beside an :11434 serving none — against
 // servers a test can actually bind, without asking a test machine for those two
 // ports.

@@ -191,7 +191,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete && !strings.Contains(tail, "/") {
-		// Item 2nc (b): THE REASON SAYS WHAT TO DO. "in use by session s12" named an id
+		// THE REASON SAYS WHAT TO DO. "in use by session s12" named an id
 		// the operator has never seen; this names the chat as he knows it and says what to
 		// do about it.
 		if sessionID, label, used := s.registry.ConnectionHolder(tail); used {
@@ -203,9 +203,9 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
-		// Item 2mb (b): NAME THE ROLE. "assigned to an agent role" is true and
+		// NAME THE ROLE. "assigned to an agent role" is true and
 		// useless; the operator's next move has to be readable off the message.
-		// (c): the field is the ROW, so the refusal lands where the click was
+		// the field is the ROW, so the refusal lands where the click was
 		// rather than on a page nobody aimed at.
 		if holder := agentRoleHolding(s.cfg.Agents, tail); holder != "" {
 			s.mu.Unlock()
@@ -217,7 +217,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 409, "this is the only connection — add another one first, then remove this", "connections."+tail)
 			return
 		}
-		// Item 2mb (d): A FRESH SLICE, AND NOTHING ASSIGNED UNTIL THE ID EXISTS.
+		// A FRESH SLICE, AND NOTHING ASSIGNED UNTIL THE ID EXISTS.
 		//
 		// This read s.cfg.Connections[:0] and appended into the LIVE array, so
 		// deleting B from [A,B,C] overwrote index 1 in place, and anything still
@@ -226,7 +226,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// BEFORE the not-found check, so a delete of an id that does not exist
 		// wrote the configuration it was supposed to leave alone.
 		//
-		// rel-1.23.0/W0 read this rather than reproducing it on the operator's
+		// read this rather than reproducing it on the operator's
 		// machine, and found it is NOT what turned his page red: the client
 		// already keys the message per row. It is a correctness fix and the
 		// report says so.
@@ -277,7 +277,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		BaseURL string `json:"base_url"`
 		Model   string `json:"model"`
-		// Item 2l1 (a4): the one action uses what is on screen. A freshly typed
+		// the one action uses what is on screen. A freshly typed
 		// address, key or timeout is used without a save first, and nothing typed
 		// is cleared by running it.
 		APIKey          string `json:"api_key"`
@@ -306,7 +306,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	// Item 2nb (b): each address is published as it lands, so the sheet says what is
+	// each address is published as it lands, so the sheet says what is
 	// being tried and what it found instead of sitting idle for the length of the walk.
 	discovered, discoverErr := probe.DiscoverEndpointReporting(discoveryContext, &tested, func(attempt probe.DiscoveryAttempt, tried, total int) {
 		s.bus.Publish(events.New(events.ConnectionDiscovering, "", "", map[string]any{
@@ -349,7 +349,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, message, "connections."+id+".base_url")
 		return
 	}
-	// Item 2nn (a): THE PRODUCT NEVER WRITES THE ADDRESS FIELD. A host typed with no
+	// THE PRODUCT NEVER WRITES THE ADDRESS FIELD. A host typed with no
 	// port comes back as a LIST of what each port answered, and the field stays as he
 	// typed it — he adds the port. What this replaces is a rewrite: the walk picked a
 	// port, the server answered "changes_required" with a new base_url, and the sheet
@@ -369,8 +369,8 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := tested
 	updated.BaseURL = discovered.BaseURL
-	// A PATH on the port he typed is still proposed, because that is item 2l1's path
-	// discovery and item 2nn keeps 2nb (c)-(h): same host, same port, the path that
+	// A PATH on the port he typed is still proposed, because that is the path
+	// discovery and keeps 2nb (c)-(h): same host, same port, the path that
 	// answers. What 2nn (a) forbids is moving him to another PORT, and the walk cannot
 	// do that any more — a typed port is the only port tried, and a host with no port
 	// answers with the list above instead of a choice.
@@ -378,7 +378,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		writeConnectionTestFailure(w, id, "model list", fmt.Sprintf("set address to %s and try again", discovered.BaseURL), tested.APIKey)
 		return
 	}
-	// Item 2px (d): Test unlocks nothing and is not a failure without a model. It
+	// Test unlocks nothing and is not a failure without a model. It
 	// checked reach and the list, which is all it can check until one is chosen.
 	if strings.TrimSpace(updated.Model) == "" && len(discovered.Models) > 0 {
 		writeConnectionTestFailure(w, id, "chosen model", "choose a listed model and try again", tested.APIKey)
@@ -386,7 +386,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	listed := modelListed(updated.Model, discovered.Models)
 	if !listed {
-		// Item 2l1 (b),(c),(d): the refusal names the field, the value and what is
+		// the refusal names the field, the value and what is
 		// wanted, and a server that answered with an empty list says THAT rather
 		// than blaming the model -- the operator acme case, where Ollama answered
 		// 200 with no models pulled.
@@ -635,7 +635,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		if s.applyOperatorContextPatch(w, r, patch) {
 			return
 		}
-		// Item 2nb (f): NO VALUE CARRYING THE MASK SENTINEL REACHES THE CONFIGURATION.
+		// NO VALUE CARRYING THE MASK SENTINEL REACHES THE CONFIGURATION.
 		// The merge used to DELETE an api_key that equalled the sentinel exactly, which
 		// is a silent drop: a value that merely contained it, or arrived by another path,
 		// would have been stored as the operator's key. A refusal says what happened.
@@ -674,7 +674,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// Item 2px (g): THE RESERVE FOLLOWS THE WINDOW. A reserve this save did not
+		// THE RESERVE FOLLOWS THE WINDOW. A reserve this save did not
 		// type is recomputed from the window; one it typed that no longer fits is
 		// lowered to the most allowed, and the field says so. Neither is refused:
 		// 30240, half of an old 60480 window, refused a 60000 window's Save.
@@ -689,9 +689,9 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err.Error(), configField(err, next))
 			return
 		}
-		// Item 2nq (b) and (e): THE PLACEHOLDER IS NEVER WRITTEN BACK. An empty model
+		// THE PLACEHOLDER IS NEVER WRITTEN BACK. An empty model
 		// still saves — an address is worth keeping before a model is chosen, which is
-		// item 2nn (b)'s rule — but the literal "model" is not a model, and writing it
+		// the rule — but the literal "model" is not a model, and writing it
 		// again is what kept it alive on the operator's disk through three fixes. The
 		// refusal NAMES THE CONNECTION and the field, so one connection's problem is
 		// never an unexplained refusal about another.
@@ -740,7 +740,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 				next.Connections[index].Capabilities.Findings = kept
 			}
 		}
-		// Item 2jg (d): turning the switch on issues a NEW install id, so two runs
+		// turning the switch on issues a NEW install id, so two runs
 		// of telemetry from one machine cannot be joined. It is reissued here,
 		// before the save, so the new id is what lands on disk.
 		if next.Telemetry.Enabled && (!previous.Telemetry.Enabled || next.Telemetry.InstallID == "") {
@@ -770,7 +770,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		if s.runner != nil {
 			s.runner.Configure(s.ConfigSnapshot())
 		}
-		// Item 2jg (d): the switch does not filter, it detaches. Applying the
+		// the switch does not filter, it detaches. Applying the
 		// configuration is the only place collection starts or stops, so there is
 		// one answer to "is anything collecting" rather than two.
 		s.applyTelemetry(s.ConfigSnapshot())
@@ -842,7 +842,7 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 	for name, service := range s.cfg.Services {
 		next.Services[name] = service
 	}
-	// Item 2nr (b) and (4) of its W0: the approved document is kept as a SNAPSHOT under
+	// and (4) of its W0: the approved document is kept as a SNAPSHOT under
 	// the operator data root, beside the connection credentials — never in the repository
 	// and never in the workspace, which is what tools reach. Its SHA-256 goes into the
 	// configuration, and (g) refuses the connector's operations if the two ever disagree.
@@ -859,7 +859,7 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 		imported.SHA256 = tools.DocumentDigest(change.Document)
 		change.Service.OpenAPI = &imported
 	}
-	// Item 2nv (b) and (f): a binding is refused here unless the credential exists and
+	// a binding is refused here unless the credential exists and
 	// the connector's address is an https origin. A discovered Entra definition is the
 	// one exception: the same approval card names its tenant, public client, scopes and
 	// exact origin, so the definition can be created without making the operator retype it.
@@ -967,12 +967,12 @@ func configField(err error, cfg config.Config) string {
 }
 
 // proposedConnectionValues is what the one action learned, offered as SOFT values
-// the operator sees in the fields and can change before saving. Item 2l1 (a5) and
-// (a7): the window is read from what the server publishes -- vLLM's max_model_len
+// the operator sees in the fields and can change before saving. and
+// the window is read from what the server publishes -- vLLM's max_model_len
 // on /v1/models, which the probe already fetches -- and where nothing publishes
 // it the field says the value is unverified instead of presenting a guess as a
 // measurement. Nothing here is written to configuration.
-// proposedLabelFor answers item 2mh (a): the name a connection would have if it were
+// proposedLabelFor answers the name a connection would have if it were
 // named after what it serves. It is empty when the operator has named the connection
 // himself, and when there is no model to name it after.
 func proposedLabelFor(tested *config.Connection, models []string) string {
@@ -991,7 +991,7 @@ func proposedLabelFor(tested *config.Connection, models []string) string {
 		return ""
 	}
 	// A llama.cpp model is a full GGUF path; the switcher already reduces one to its
-	// basename (item 2mh (d)) and the label uses the same reduction rather than a
+	// basename ) and the label uses the same reduction rather than a
 	// second one.
 	model = strings.TrimSuffix(model, ".gguf")
 	if index := strings.LastIndexAny(model, `/\`); index >= 0 {
@@ -1040,7 +1040,7 @@ func (s *Server) proposedConnectionValues(ctx context.Context, tested *config.Co
 		}
 	}
 	proposed["reasoning_enabled"] = tested.Capabilities.ReasoningControl != "" && tested.Capabilities.ReasoningControl != "none"
-	// Item 2mh (a): TEST NAMES THE CONNECTION WHEN THE OPERATOR HAS NOT. A connection
+	// TEST NAMES THE CONNECTION WHEN THE OPERATOR HAS NOT. A connection
 	// is born labelled with its own generated id — "server-2" identifies nothing, at
 	// any width — and the one thing Test learns that would identify it is the model.
 	// It arrives as a PROPOSED value through 2l1's path, which the operator can
@@ -1052,7 +1052,7 @@ func (s *Server) proposedConnectionValues(ctx context.Context, tested *config.Co
 	return proposed
 }
 
-// onlyModel is item 2l1 (a3)'s first clause: a server offering exactly one model
+// onlyModel is the first clause: a server offering exactly one model
 // has that model selected. Anything else is left to the picker, which keeps the
 // previous choice when it is still offered and otherwise stays empty.
 func onlyModel(models []string) string {
@@ -1062,8 +1062,8 @@ func onlyModel(models []string) string {
 	return ""
 }
 
-// modelRefusalMessage names the field, the value and what is wanted. Item 2l1 (c)
-// and (d): a server that answered with an EMPTY list says that, rather than
+// modelRefusalMessage names the field, the value and what is wanted.
+// a server that answered with an EMPTY list says that, rather than
 // blaming the model name -- the operator acme case, where Ollama answered 200
 // with no model pulled, and the old wording accused his model of not being served.
 func modelRefusalMessage(model, baseURL string, models []string) string {
@@ -1117,7 +1117,7 @@ func agentRoleHolding(agents []config.Agent, connectionID string) string {
 // maskedKeySentinel is what a stored key is shown as. It must never travel back.
 const maskedKeySentinel = "••••"
 
-// patchCarriesMaskedKey is item 2nb (f)'s guard: it finds any api_key in an incoming
+// patchCarriesMaskedKey is the guard: it finds any api_key in an incoming
 // patch that CONTAINS the mask, at any depth, and names the field so the refusal lands
 // on the row the operator was looking at.
 func patchCarriesMaskedKey(patch map[string]any) (string, bool) {

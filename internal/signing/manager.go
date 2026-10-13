@@ -35,7 +35,7 @@ type Certificate struct {
 type Status struct {
 	Supported bool `json:"supported"`
 	CanManage bool `json:"can_manage"`
-	// AdminState is item 2gj's three token states: "elevated",
+	// AdminState is the three token states: "elevated",
 	// "not_elevated", "not_admin", or "unknown" when membership could not be
 	// read. An unelevated administrator is still an administrator, and the
 	// readout says signing needs an elevated run rather than refusing him.

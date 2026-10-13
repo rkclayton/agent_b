@@ -130,7 +130,7 @@ func (s *Server) uiError(w http.ResponseWriter, r *http.Request) {
 		Location    string `json:"location"`
 		RepeatCount int    `json:"repeat_count"`
 		Capped      bool   `json:"capped"`
-		// Item 2q7 (b): the error's name and our own file:line, checked below.
+		// the error's name and our own file:line, checked below.
 		Name string `json:"name"`
 		File string `json:"file"`
 		Line int    `json:"line"`

@@ -1,4 +1,4 @@
-// Item 2ev: a page from one build never keeps running against another build's
+// a page from one build never keeps running against another build's
 // server. The server stamps each document with the build id that served it. The
 // shell compares it with the running server's build on load and on every state
 // snapshot (so a window left open across an upgrade notices when its event

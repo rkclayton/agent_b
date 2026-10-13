@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Item 2jg (c) and (d). The numbers are docs/TELEMETRY.md's.
+// and (d). The numbers are docs/TELEMETRY.md's.
 const (
 	BatchInterval  = 5 * time.Minute
 	BatchEventCap  = 200
@@ -92,7 +92,7 @@ type Record struct {
 	Body   string `json:"body"`
 }
 
-// RecordsKept is the "last 20 batches" of item 2jg (d).
+// RecordsKept is the "last 20 batches" of.
 const RecordsKept = 20
 
 // NewInstallID is a random v4 UUID. A new one is issued whenever the switch goes
@@ -198,7 +198,7 @@ func (s *Sender) Flush() {
 	all := s.pending
 	s.pending = nil
 	s.mu.Unlock()
-	// Item 2pw: the recorder's types travel in batches of their own. A receiver
+	// the recorder's types travel in batches of their own. A receiver
 	// that does not know them yet refuses the whole batch (422
 	// unknown_event_type, 2026-10-04), and that must not take the older events
 	// down with it.
@@ -417,7 +417,7 @@ func (s *Sender) drainQueue() {
 	}
 }
 
-// Close stops the sender and DELETES the queue. Item 2jg (d): off does not mean
+// Close stops the sender and DELETES the queue. off does not mean
 // "sends less". The caller drops its reference afterwards, so the subscriber is
 // detached, nothing is collected, and there is nothing on disk to resume from.
 func (s *Sender) Close() {

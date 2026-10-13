@@ -422,7 +422,7 @@ func responseShapeError(endpoint string, raw []byte, status int, contentType, fi
 	return &ResponseShapeError{Endpoint: endpoint, Status: status, ContentType: contentType, FinalURL: finalURL, Prefix: prefix, Cause: cause}
 }
 
-// ModelEntry is a model as the server publishes it. Item 2l1 (a7): an
+// ModelEntry is a model as the server publishes it. an
 // OpenAI-compatible server carries the model's real context length on this route
 // -- vLLM as max_model_len -- and the probe used to read only the id, so a window
 // it could have learned was left to be guessed by hand.

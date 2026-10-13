@@ -91,9 +91,9 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	if err := os.MkdirAll(r.plansRoot, 0o700); err != nil {
 		return Plan{}, false, err
 	}
-	// v0.68.0/W16: judged on the folder the path resolves to, whatever route
+	// judged on the folder the path resolves to, whatever route
 	// asked, so no link or ancestor brings the plans folder into a repository.
-	// v0.69.0/W16 cold review: and that resolved folder is what is stored, so a
+	// cold review: and that resolved folder is what is stored, so a
 	// link re-pointed after registration changes nothing, and two names for one
 	// folder find the same plan.
 	typed := canonical

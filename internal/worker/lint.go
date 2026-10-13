@@ -18,7 +18,7 @@ type Diagnostic struct {
 var unresolvedEntry = regexp.MustCompile(`^[-*] \[(discovery|blocker)\] \S`)
 
 // Lint checks a plan folder with the rules the harness's own orders are gated by
-// (item 2bq): an id names at most one line, and an item file's ## Unresolved is
+// an id names at most one line, and an item file's ## Unresolved is
 // "(none)" or explicit [discovery]/[blocker] entries; breaking either refuses
 // Go. An item with no item file or no verifier is a warning: 2t-ii's gate
 // already marks it [!] and asks the planner for one, and the contract keeps
@@ -107,7 +107,7 @@ func unresolvedLines(text string) []string {
 
 // VerifierContradicts reports a verifier that can never pass because one of
 // its && parts is another part negated — `C && ! C`, the shape a real planner
-// wrote in the second walk (item 2fx). It is the plainest contradiction only;
+// wrote in the second walk. It is the plainest contradiction only;
 // no attempt is made at general satisfiability.
 func VerifierContradicts(command string) bool {
 	parts := map[string]bool{}
@@ -126,7 +126,7 @@ func VerifierContradicts(command string) bool {
 var openItemVerifier = regexp.MustCompile(`^\s*[-*] \[ \] .*?;\s*verify:\s*(.+)$`)
 
 // ContradictoryVerifiers are the self-contradicting verifier commands a plan
-// edit would leave where Go reads them (v0.70.2 cold review: no quoted example
+// edit would leave where Go reads them (cold review: no quoted example
 // in prose, no finished item): an item file's verify: header, or an open plan
 // line's inline "; verify: …" clause.
 func ContradictoryVerifiers(path, text string) []string {

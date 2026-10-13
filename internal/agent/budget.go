@@ -542,7 +542,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 	for _, value := range categories {
 		used += value
 	}
-	// Item 2q5 (d): COUNT WHAT THE SERVER COUNTS. An estimate starts from the prompt
+	// COUNT WHAT THE SERVER COUNTS. An estimate starts from the prompt
 	// the server reported for the previous request and adds only what came since;
 	// a whole-history estimate ran 1.5k under acme's count and crossed the ceiling.
 	// What a compaction removed comes off the same way what was added goes on.

@@ -46,7 +46,7 @@ func (c *Cache) ProjectFile(path string, through int64) (Snapshot, error) {
 		return value, nil
 	}
 	c.mu.Unlock()
-	// Item 2gm: the cache keeps the state and drops the patches, so it asks
+	// the cache keeps the state and drops the patches, so it asks
 	// for the state only and does not pay the per-record diff.
 	value, err := ProjectFileState(abs, offset)
 	if err != nil {

@@ -147,7 +147,7 @@ func retainLogs(dir string, now time.Time, reserve int) error {
 	return nil
 }
 
-// ProjectionCacheDir is where item 2m5's projected chat states are kept: beside
+// ProjectionCacheDir is where the projected chat states are kept: beside
 // the data root's other machine state, and NEVER inside chats/, which this product
 // does not rewrite. It is a cache in the strict sense — deleting it costs one slow
 // launch and nothing else.

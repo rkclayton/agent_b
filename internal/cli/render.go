@@ -12,9 +12,9 @@ import (
 
 // Renderer turns the event stream into what a person reads at a prompt.
 //
-// Item 2iz (a): one line per tool call — name, target, ok or error, ms —
+// one line per tool call — name, target, ok or error, ms —
 // reasoning as a token count unless --verbose, the reply as text, and the
-// terminal reason last. Item 2iz (b): with --json it is the event stream as
+// terminal reason last. with --json it is the event stream as
 // JSONL instead, the same events the journal holds, so a script and the app
 // read the same thing.
 type Renderer struct {
@@ -55,7 +55,7 @@ func (r *Renderer) Follow(channel <-chan events.Event, runID string) (reason, de
 	return "", "the event stream ended before the run stopped"
 }
 
-// emitJSON writes the event as one JSONL line, unchanged. Item 2iz (b): the
+// emitJSON writes the event as one JSONL line, unchanged. the
 // same events the journal holds, which is what makes `agentb --json` output
 // replayable in the app.
 func (r *Renderer) emitJSON(event events.Event) {
@@ -174,7 +174,7 @@ func truncate(value string, limit int) string {
 	return value[:limit] + "…"
 }
 
-// StopLine is the last thing printed: the terminal reason (item 2iw), in the
+// StopLine is the last thing printed: the terminal reason, in the
 // plain words the chat uses, with the detail when there is one.
 func StopLine(reason, detail string, elapsed time.Duration) string {
 	words := strings.ReplaceAll(reason, "_", " ")

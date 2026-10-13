@@ -217,7 +217,7 @@ export const navigationEventSourceOpened = () => telemetry?.eventSourceOpened();
 export const navigationSnapshotStarted = () => telemetry?.snapshotStarted();
 export const navigationSurfaceReady = (surface, state) => telemetry?.surfaceReady(surface, state);
 
-// Item 2hb (v1.2.4): how long it took to put a view up, measured where the work
+// how long it took to put a view up, measured where the work
 // happens and kept where a scenario and the operator can both read it. This is
 // the mount alone - not a document load, which is the browser's time and not
 // this application's to budget.

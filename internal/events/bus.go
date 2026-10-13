@@ -19,18 +19,18 @@ type Bus struct {
 	afterAppend   func(Event, LogCursor)
 	appendError   func(Event, error)
 	transientSink func(Event)
-	// Item 2ji (a): the run's time buckets have to be ON the run.stopped event,
+	// the run's time buckets have to be ON the run.stopped event,
 	// because the wire is what the client, the journal and the telemetry receiver
 	// all read. The enricher runs before the sink, so the fields are in the
 	// journal too and not only in the live stream.
 	enrich func(*Event)
-	// Item 2pw: the flight recorder sees every event in order on the publisher's
+	// the flight recorder sees every event in order on the publisher's
 	// goroutine, so it cannot be dropped the way a slow channel subscriber is. It
 	// must not publish and must cost the same however much it has stored.
 	observe func(Event)
 }
 
-// SetObserver installs the flight recorder's hook (item 2pw).
+// SetObserver installs the flight recorder's hook.
 func (b *Bus) SetObserver(observe func(Event)) { b.mu.Lock(); b.observe = observe; b.mu.Unlock() }
 
 func NewBus() *Bus {

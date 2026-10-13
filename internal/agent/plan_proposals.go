@@ -41,7 +41,7 @@ func parsePlanProposals(content string) (string, []events.PlanProposal) {
 		if json.Unmarshal([]byte(visible[bodyStart:end]), &envelope) != nil || envelope.Version != 1 || len(envelope.Proposals) == 0 {
 			break
 		}
-		// Item 2fk: each well-formed proposal lands on its own; one malformed
+		// each well-formed proposal lands on its own; one malformed
 		// sibling no longer voids the block. A block with any proposal that
 		// cannot land stays visible, so nothing the model wrote is hidden.
 		landed := []events.PlanProposal{}

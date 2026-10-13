@@ -1,6 +1,6 @@
-/* Item 2fc: two panes. The flyout lists plans; the view is one plan's raw
-   plan.md and its numbers. Nothing scrolls sideways: long lines wrap. A pane
-   scrolls only when its content is taller than it. */
+/* two panes. The flyout lists plans; the view is one plan's raw
+ plan.md and its numbers. Nothing scrolls sideways: long lines wrap. A pane
+ scrolls only when its content is taller than it. */
 .plan-workspace { height:calc(100dvh - var(--app-header-height)); display:grid; grid-template-columns:clamp(200px,22vw,280px) minmax(0,1fr); gap:1px; background:var(--bezel); overflow:hidden; }
 .plan-flyout,.plan-view { min-width:0; min-height:0; background:var(--well); }
 .plan-flyout { display:flex; flex-direction:column; overflow:hidden; }
@@ -49,8 +49,8 @@
 .plan-stats dd { margin:0; color:var(--ink); overflow-wrap:anywhere; }
 @media(max-width:900px){ .plan-body { grid-template-columns:minmax(0,1fr); } .plan-stats { border-left:0; border-top:1px solid rgba(112,125,139,.28); } }
 
-/* Item 2le (d): the header is the icon plus three lines, sized to what it holds,
-   with no new scrolling and nothing oversized. It is static text, not a control. */
+/* the header is the icon plus three lines, sized to what it holds,
+ with no new scrolling and nothing oversized. It is static text, not a control. */
 .plan-intro {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -67,13 +67,13 @@
   font: 12px/18px var(--sans);
 }
 
-/* Item 2no (c): LAID OUT TO FIT THE PANE. The workspace was a page: a grid sized to
-   the whole viewport height, with a flyout column that took 22vw of it. Inside the
-   Settings pane it is a section body like any other — it fills the pane it is given,
-   its flyout takes a share of the pane rather than of the window, and at the narrow
-   widths the sheet reaches it stacks instead of scrolling sideways. The window
-   minimum v1.33.0 shipped (320 x 293, a 304 x 254 client) is the narrowest this has
-   to hold. */
+/* LAID OUT TO FIT THE PANE. The workspace was a page: a grid sized to
+ the whole viewport height, with a flyout column that took 22vw of it. Inside the
+ Settings pane it is a section body like any other — it fills the pane it is given,
+ its flyout takes a share of the pane rather than of the window, and at the narrow
+ widths the sheet reaches it stacks instead of scrolling sideways. The window
+ minimum shipped (320 x 293, a 304 x 254 client) is the narrowest this has
+ to hold. */
 .settings-content .plan-workspace {
   height: auto;
   min-height: min(620px, calc(100dvh - 180px));

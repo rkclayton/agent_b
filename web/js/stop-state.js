@@ -12,7 +12,7 @@ export function projectStopState(session, replay = false) {
   };
 }
 
-// Item 2ge: send and stop are ONE control. This projects which of the two it
+// send and stop are ONE control. This projects which of the two it
 // is right now, so the button job is never guessed from two places.
 export function projectSendStopState(session, replay = false) {
   const stop = projectStopState(session, replay);
@@ -38,7 +38,7 @@ export function renderSendStop(button, session, replay = false) {
   setAttribute(button, "aria-label", state.mode === "stop" ? state.label : "Send");
   setAttribute(button, "title", state.label);
   // The glyph IS the state: the enter mark when it sends, and the octagon with
-  // its inner square while a run is live. Item 2ha: the enter mark is an SVG in
+  // its inner square while a run is live. the enter mark is an SVG in
   // the document, one of the three controls that are now one family, so it is
   // never written over with text - the square is added beside it and CSS hides
   // the glyph while the octagon is on.

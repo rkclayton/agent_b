@@ -11,14 +11,14 @@ import (
 	"harness/internal/projection"
 )
 
-// Item 2o7: THE ASSEMBLY. 2kq built the session client, the dispatcher and the push
+// THE ASSEMBLY. 2kq built the session client, the dispatcher and the push
 // boxes and wired none of them, so a paired phone's every request timed out. While a
 // pairing exists, one authenticated broker session is held with the existing client:
 // every request is answered by DispatchAppMessage (the same handlers the page calls),
 // and the device receives the same snapshot, patches and global events the tailnet
 // client does.
 //
-// Item 2ok restored the three push hooks after the public broker accepted the
+// restored the three push hooks after the public broker accepted the
 // document-conformant four-field frame. Push-provider refusals are non-fatal and do
 // not end this session.
 //
@@ -87,7 +87,7 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 	})
 	client.OnSessionEvent(func(message string) {
 		c.recordSession(pairing, message)
-		server.app.Link(message) // item 2q7 (c): its shape only
+		server.app.Link(message) // its shape only
 	})
 	client.OnConnected(func(connection context.Context) {
 		live.reset()
@@ -292,7 +292,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 				resume[id] = bounded
 			}
 		}
-		// Item 2q7 (c): what one phone join sent (2pv measured 35.1 MB).
+		// what one phone join sent (2pv measured 35.1 MB).
 		if s.app != nil {
 			s.app.NoteJoin(sent)
 		}

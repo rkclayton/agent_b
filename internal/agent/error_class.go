@@ -2,7 +2,7 @@ package agent
 
 import "strings"
 
-// Item 2jg (e): every tool error carries a CLASS, so the telemetry filter has
+// every tool error carries a CLASS, so the telemetry filter has
 // something to send that is not free text.
 //
 // The class is derived at the one place a tool result is built, from the text

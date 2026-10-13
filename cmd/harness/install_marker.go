@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Item 2gl (v1.2.0/W2): an install that was interrupted says so afterwards.
+// an install that was interrupted says so afterwards.
 //
 // The operator: "i ran this installer and might've broken agentb by closing the
 // window that had the preflight language in it. should i re-run? we should have

@@ -15,7 +15,7 @@ var procSetStdHandle = syscall.NewLazyDLL("kernel32.dll").NewProc("SetStdHandle"
 // STD_ERROR_HANDLE, from the Windows headers.
 const stdErrorHandle = ^uintptr(11) + 1
 
-// Item 2mt (a): KEEP THE RUNTIME'S OWN TRACEBACK.
+// KEEP THE RUNTIME'S OWN TRACEBACK.
 //
 // A Go panic that nothing recovers prints its traceback to stderr and exits. The
 // launcher detaches the process and does not persist stderr — AGENTS.md states

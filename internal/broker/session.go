@@ -1,6 +1,6 @@
 // Package broker is this AgentB's client for the broker that lives in its own
 // repository: it dials out, holds one end-to-end session with the operator's phone,
-// and carries application messages over it. Item 2kq.
+// and carries application messages over it.
 //
 // NOTHING HERE TRUSTS THE BROKER. The broker routes ciphertext and sees metadata; every
 // value below is derived from the two endpoints' own keys. docs/external/ holds the

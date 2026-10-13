@@ -1,4 +1,4 @@
-// Package recorder is item 2pw's flight recorder: every run as a sequence of
+// Package recorder is the flight recorder: every run as a sequence of
 // content-free spans, named after the OpenTelemetry GenAI conventions where one
 // exists, kept in a bounded ring per chat. A struggling run also emits its own
 // step sequence — where loops, wrong tools and lost context show — while

@@ -9,7 +9,7 @@ export function shellGrantApproval(data = {}) {
 
 export function approvalChoices(data = {}) {
 	if (data.kind === "cycle" || data.name === "run.cycle") return [["continue", "Continue"], ["stop", "Stop"]];
-	// Item 2q4 (a): the folder question is three buttons; Always trusts the folder
+	// the folder question is three buttons; Always trusts the folder
 	// and everything under it, as the folder choice always has.
 	if (data.args?.outside_folder_card && data.args.outside_folders?.length) return [["folder", "Always"], ["once", "Once"], ["deny", "No"]];
 	const folders = Array.isArray(data.args?.outside_folders) ? data.args.outside_folders : [];
@@ -17,7 +17,7 @@ export function approvalChoices(data = {}) {
 	return [...(data.standing_grant ? [["approve", "Always allow this exact scope"]] : []), ["session", "Yes, for this chat"], ["once", "Just once"], ...trust, ["deny", "No"]];
 }
 
-// Item 2nv (e): what a card says when a proposal binds a credential or moves a bound
+// what a card says when a proposal binds a credential or moves a bound
 // connector. The name and the exact origin, in the operator's own words: he is approving
 // where his key goes, which is the only question that matters here.
 function boundCredential(data) {
@@ -42,7 +42,7 @@ function boundCredential(data) {
 	return lines.join("\n");
 }
 
-// Item 2nr (b): the operations an imported OpenAPI document would enable, written for
+// the operations an imported OpenAPI document would enable, written for
 // the card. Both of these are the DETAIL of whichever connector card is drawn — the
 // harness's own human wording wins the title and the reason, as it does for every other
 // tool — so there is one card, not two.
@@ -110,7 +110,7 @@ export function approvalText(data = {}) {
 		reason: data.args?.reason || "The restricted account cannot complete it.",
 		detail: value,
 	};
-	// Item 17-i's registration decision: reflection proposes a plan, it never
+	// the registration decision: reflection proposes a plan, it never
 	// registers one. The card is the ordinary Allow-this card; these two lines
 	// say who proposed it and what activity led to it.
 	if (data.args?.proposed_by === "reflection") return {
@@ -171,7 +171,7 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	request.textContent = wording.request;
 	const reason = document.createElement("span");
 	reason.textContent = wording.reason;
-	// Item 2q4 (a): a card with no title or reason draws only its one line.
+	// a card with no title or reason draws only its one line.
 	content.append(...[title, request, reason].filter((node) => node.textContent || node.children?.length));
 	if (wording.question) {
 		const question = document.createElement("span");

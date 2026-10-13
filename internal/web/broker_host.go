@@ -20,7 +20,7 @@ import (
 	"harness/internal/projection"
 )
 
-// Item 2kq (a), (b) and (f): the running broker client, and the three things Settings
+// the running broker client, and the three things Settings
 // asks it to do. Nothing here starts unless broker.url is set.
 //
 // The identity and completed pairing are separate named user-scoped DPAPI blobs under
@@ -63,10 +63,10 @@ type BrokerClient struct {
 	lastPushAnswer string
 	pushAnswer     chan string
 	notifyMu       sync.Mutex
-	// Item 2nz: the pairing runs until it succeeds or the operator cancels. cancel is
+	// the pairing runs until it succeeds or the operator cancels. cancel is
 	// closed by CancelPairing and is the only thing besides success that ends it.
 	cancel chan struct{}
-	// Item 2o7: the server whose handlers answer the phone, and the paired session's stop.
+	// the server whose handlers answer the phone, and the paired session's stop.
 	server          *Server
 	stopSession     context.CancelFunc
 	mirrorPending   map[string]chan appResponseUnit
@@ -414,7 +414,7 @@ func (t pairingTraceTransport) Send(raw []byte) error {
 	return err
 }
 
-// PairingOffer is the live offer, if there is one. Item 2ns (b): the QR exists only
+// PairingOffer is the live offer, if there is one. the QR exists only
 // while this returns true.
 func (c *BrokerClient) PairingOffer() (broker.PairingOffer, bool) {
 	c.mu.Lock()
@@ -425,7 +425,7 @@ func (c *BrokerClient) PairingOffer() (broker.PairingOffer, bool) {
 	return *c.offer, true
 }
 
-// BeginPairing starts a pairing and KEEPS IT UP. Item 2nz (a): a code the broker expires
+// BeginPairing starts a pairing and KEEPS IT UP. a code the broker expires
 // is replaced in place — a fresh code, a fresh QR, no blank moment and no click — because
 // the operator asked that the square not disappear under him while he was reaching for
 // his phone. Two things end it: the pairing completing, and his own Cancel.
@@ -582,7 +582,7 @@ func (c *BrokerClient) beginOnce(cancel chan struct{}) (broker.PairingOffer, err
 	return published, nil
 }
 
-// CancelPairing is the operator taking the square away. Item 2nz (a): it and success are
+// CancelPairing is the operator taking the square away. it and success are
 // the only two things that do.
 func (c *BrokerClient) CancelPairing() error {
 	c.mu.Lock()

@@ -82,14 +82,14 @@ func (m *windowsManager) run(ctx context.Context, action string, request Request
 	if runErr != nil {
 		return fmt.Errorf("%s: %s", strings.ToLower(action), safeOutput(output, runErr))
 	}
-	// Item 2lb: the result is the last line that is actually a JSON object, not
+	// the result is the last line that is actually a JSON object, not
 	// simply the last line -- a warning or a module-load error written after it
 	// would otherwise be read as the answer.
 	last := lastJSONObject(string(output))
 	if last == "" {
 		return fmt.Errorf("%s returned no result", action)
 	}
-	// Item 2gc: a host the script cannot read an answer from is unsupported,
+	// a host the script cannot read an answer from is unsupported,
 	// not an internal error; the caller answers 501 rather than 500.
 	var probe struct {
 		Unsupported string `json:"unsupported"`

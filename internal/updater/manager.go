@@ -45,7 +45,7 @@ type State struct {
 	CheckedAt      string `json:"checked_at,omitempty"`
 	Error          string `json:"error,omitempty"`
 	Installing     bool   `json:"installing"`
-	// Item 2nh (a): the sequence, while it runs. Step names which of the five
+	// the sequence, while it runs. Step names which of the five
 	// stages is in hand, Line is the sentence the one wait element shows, and
 	// Processed/Total make it determinate while the download is the stage — the
 	// only part of an update whose size is known in advance.
@@ -53,13 +53,13 @@ type State struct {
 	Line      string `json:"line,omitempty"`
 	Processed int64  `json:"processed,omitempty"`
 	Total     int64  `json:"total,omitempty"`
-	// Item 2nh (b): what the LAST update did, so the instance that came back after
+	// what the LAST update did, so the instance that came back after
 	// the restart can say so where the control was rather than flipping silently
 	// back to "up to date".
 	Outcome *Outcome `json:"outcome,omitempty"`
-	// Item 2mk (b) and (c): HOW FAR BEHIND, and WHICH INSTALL. He was eleven
+	// HOW FAR BEHIND, and WHICH INSTALL. He was eleven
 	// releases behind and learned it from a report; and on 2026-09-26 an install
-	// wrote v1.22.0 to the per-user root while the window went on being served by
+	// wrote to the per-user root while the window went on being served by
 	// another instance entirely, with nothing naming either path.
 	ReleasesBehind  int    `json:"releases_behind,omitempty"`
 	ApplicationRoot string `json:"application_root,omitempty"`
@@ -120,7 +120,7 @@ type Manager struct {
 type Options struct {
 	CurrentVersion string
 	DataRoot       string
-	// Item 2lh: the roots the ASKING instance lives in. The setup resolves the
+	// the roots the ASKING instance lives in. The setup resolves the
 	// operator own per-user locations when it is told nothing, so an instance that
 	// does not pass its own roots updates over production whoever asked. These are
 	// passed to the setup; an instance that cannot name them refuses to install.
@@ -174,7 +174,7 @@ func New(options Options) *Manager {
 				return err
 			}
 			arguments = fixtureInstallArguments(options.LatestURL, data, arguments)
-			// Item 2nf (d) and 2na (a): the setup is started with no console, so an
+			// the setup is started with no console, so an
 			// update never puts a window on the operator's screen and cannot leave one
 			// behind when it fails.
 			command := quietproc.Quiet(exec.Command(path, arguments...))
@@ -194,13 +194,13 @@ func New(options Options) *Manager {
 		}
 	}
 	manager.state = State{Enabled: enabled(), CurrentVersion: normalizeVersion(options.CurrentVersion), ApplicationRoot: options.ApplicationRoot}
-	// Item 2nh (b): THIS PROCESS MAY BE THE RESULT OF AN UPDATE. The installer
+	// THIS PROCESS MAY BE THE RESULT OF AN UPDATE. The installer
 	// stopped the instance that pressed Update and started this one, so the only
 	// account of what happened is the file the installer wrote. Read it once, here,
 	// and the About row can state the outcome instead of saying nothing.
 	manager.state.Outcome = outcomeFor(options.DataRoot, manager.state.CurrentVersion)
 	if manager.state.Outcome != nil {
-		// Item 2mk (c): the outcome names the install it is about. A version without
+		// the outcome names the install it is about. A version without
 		// a path is what left the operator unable to tell which of two installs the
 		// reports had been measuring.
 		manager.state.Outcome.ApplicationRoot = options.ApplicationRoot
@@ -335,7 +335,7 @@ func (m *Manager) beginCheck(minimumInterval time.Duration) (bool, error) {
 		return false, nil
 	}
 	m.state.Enabled, m.state.Checking, m.state.Error = true, true, ""
-	// Item 2nh (b): the outcome stands UNTIL THE NEXT CHECK, and this is that check.
+	// the outcome stands UNTIL THE NEXT CHECK, and this is that check.
 	m.state.Outcome = nil
 	m.lastCheck = now
 	checking := m.state
@@ -443,7 +443,7 @@ func (m *Manager) fetchRelease(ctx context.Context) (fetchedRelease, error) {
 	return result, nil
 }
 
-// countBehind answers item 2mk (b): HOW FAR BEHIND, in releases, not in versions.
+// countBehind answers HOW FAR BEHIND, in releases, not in versions.
 //
 // The operator was eleven releases behind and learned it from a report rather than
 // from the product. One published release is one thing he did not get, so the number
@@ -545,7 +545,7 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	// Item 2mr (c): the setup LAUNCHING is not the setup SUCCEEDING. An installer
+	// the setup LAUNCHING is not the setup SUCCEEDING. An installer
 	// that ran and refused used to look identical to one that worked, because
 	// nothing read back what it said. This watches the installer's own progress
 	// file and puts its own sentence on state.Error if it fails; a successful
@@ -708,7 +708,7 @@ func (m *Manager) getBounded(ctx context.Context, raw string, max int64, progres
 	return data, nil
 }
 
-// readReported is io.ReadAll with a report of how far it has got. Item 2nh (a)
+// readReported is io.ReadAll with a report of how far it has got.
 // wants the download determinate, and the release manifest already says the size,
 // so this is the one part of an update that can honestly show a fraction.
 func readReported(reader io.Reader, total int64, progress func(read, total int64)) ([]byte, error) {
@@ -793,8 +793,8 @@ func compareVersion(left, right [3]int) int {
 	return 0
 }
 
-// installArguments tells the setup where the asking instance lives. Item 2lh (a)
-// and (b): production passes production roots and behaves exactly as before, while
+// installArguments tells the setup where the asking instance lives.
+// production passes production roots and behaves exactly as before, while
 // an instance that cannot name its own roots refuses rather than falling back to
 // the operator location -- the fallback that made the launch half of this path
 // impossible to gate without installing over production.
@@ -802,18 +802,18 @@ func installArguments(application, data, workspace, sessionID string) ([]string,
 	if strings.TrimSpace(application) == "" || strings.TrimSpace(data) == "" {
 		return nil, errors.New("this instance cannot name its own application and data roots, so it will not install; install by hand from the release page")
 	}
-	// Item 2ll (a) and (d): BOTH arguments carry the same root. -DataDirectory is
+	// BOTH arguments carry the same root. -DataDirectory is
 	// the installer script's; --install-data is this process's, and it governs
-	// the install log, the in-progress marker and the progress file. rel-1.14.0
+	// the install log, the in-progress marker and the progress file.
 	// passed only the first, so a disposable instance's update wrote its own
 	// records into the operator's LocalAppData.
 	arguments := []string{"--install", "--quiet", "--install-data", data, "-ApplicationDirectory", application, "-DataDirectory", data}
-	// Item 2nf (b): THE WORKSPACE IS NO LONGER SENT. It was this instance's own
+	// THE WORKSPACE IS NO LONGER SENT. It was this instance's own
 	// configured workspace, which for a real install sits inside the data root, and
 	// every guard in the installer refused that: three Update attempts died in under a
 	// second each. The installer resolves the workspace itself, as it does for a hand
 	// run, so there is nothing here for it to reject. The two ROOTS stay, because
-	// item 2lh's install-target assertion depends on them — without them a disposable
+	// the install-target assertion depends on them — without them a disposable
 	// instance's update would install over the operator's own copy.
 	_ = workspace
 	if sessionID != "" {

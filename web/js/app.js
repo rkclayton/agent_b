@@ -16,7 +16,7 @@ const requestedSession = new URLSearchParams(location.search).get("session");
 let initialSession = requestedSession;
 let selectedAgent = "";
 let ledger = null;
-// Item 2ew: "No lifetime activity" is said only once the ledger has been asked.
+// "No lifetime activity" is said only once the ledger has been asked.
 let ledgerAsked = false;
 let renderFrame = 0;
 let mounted = false;
@@ -54,7 +54,7 @@ activityProfile.addEventListener("change", () => {
   selectedAgent = activityProfile.value;
   void refreshLedger();
 });
-// Item 2iq (a): b's row and the strip's switcher write the same setting, so
+// b's row and the strip's switcher write the same setting, so
 // the table delegates rather than binding a listener per render.
 roleTable.addEventListener("change", (event) => {
   if (event.target instanceof HTMLSelectElement && event.target.dataset.role) void changeAgentConnection(event.target.value, event.target.dataset.role);
@@ -77,7 +77,7 @@ panelRunLabel.addEventListener("click", (event) => {
 subscribe((_state, event) => {
   if (event.type === "snapshot" && initialSession && store.sessions[initialSession]) {
     const id = initialSession; initialSession = ""; setActive(id);
-    // Item 2fu: on a direct load this is the first snapshot; the ledger is asked
+    // on a direct load this is the first snapshot; the ledger is asked
     // for here too, or lifetime and the tool counts stay empty until a redraw.
     if (mounted) { selectedAgent = store.sessions[id]?.agent_id || agentKey(store.config.agents?.[0]); void refreshLedger(false); }
     return;
@@ -88,11 +88,11 @@ subscribe((_state, event) => {
     return;
   }
   if (mounted && (["snapshot", "config.changed"].includes(event.type) || (event.type === "projection.patch" && patchEndedRun(event.data)))) void refreshLedger(false);
-  // Item 17-i: the reflection section is read-only text; it is fetched on the
+  // the reflection section is read-only text; it is fetched on the
   // first snapshot and again after a run ends, when a new summary may exist.
   if (mounted && (event.type === "snapshot" || (event.type === "projection.patch" && patchEndedRun(event.data)))) {
     void loadReflection();
-    // Item 2mw: the rows refresh on the same events the overview does, and the
+    // the rows refresh on the same events the overview does, and the
     // delegate is wired once.
     wireReflectionNotes();
     void loadReflectionNotes();
@@ -124,8 +124,6 @@ async function refreshLedger(render = true) {
   ledgerAsked = false;
   try { ledger = await api(`/api/stats/${encodeURIComponent(askedFor)}`, undefined, "GET"); ledgerAsked = askedFor === selectedAgent; }
   catch (error) { showError(error.message); }
-  // Item 2fl: the answer is drawn when it arrives. The render the caller asked
-  // for ran before it did, so skipping this left lifetime blank until a redraw.
   scheduleRender();
 }
 
@@ -143,7 +141,7 @@ function renderPanels() {
   renderLifetime();
   const session = store.sessions[store.active];
   const hasSelectedChat = !!session && session.agent_id === selectedAgent;
-  // Item 2ip (b): the page shows a live run's apparatus only while one is live.
+  // the page shows a live run's apparatus only while one is live.
   // Idle, it is one line -- what ended, when, and what it cost -- and the
   // apparatus is folded away rather than removed. The operator can open it, and
   // a run starting opens it for them.
@@ -165,7 +163,7 @@ function renderPanels() {
   navigationSurfaceReady("panels", store);
 }
 
-// Item 2ip (b): "live" is a run that is doing something, not a chat that exists.
+// "live" is a run that is doing something, not a chat that exists.
 function isLiveRun(session) {
   return ["running", "queued", "stopping"].includes(session?.run?.status || "");
 }
@@ -219,7 +217,7 @@ export function unmountPanels() {
   flowFrame = 0;
 }
 
-// Item 2iq (a): one row per role the product has, each with the role's
+// one row per role the product has, each with the role's
 // plain-language name and a model picker listing the connection profiles with
 // state. Nothing else in the row.
 //
@@ -230,8 +228,8 @@ export function unmountPanels() {
 // rather than pretending to write. The finding is in the report.
 const roleNames = { b: "the one you talk to", c: "the worker", d: "the planner" };
 
-// Item 2ln (b): what a role's change affects, in the same words the run loop
-// obeys. rel-1.17.0/W0 measured it rather than assuming:
+// what a role's change affects, in the same words the run loop
+// obeys. measured it rather than assuming:
 //
 //   - a run resolves its connection from the SESSION, so a session already bound
 //     is never moved by a role change;
@@ -324,7 +322,7 @@ async function cancelAgentConnectionChange() {
   } catch (error) { showError(error.message); }
 }
 
-// Item 2gk: one table became two, because the two halves answer to different
+// one table became two, because the two halves answer to different
 // people. Turning a tool on or off is setting the agent up, so it is on Agents;
 // how often a tool ran and how often it failed is the record of what happened,
 // so it is on Activity. Every column that was in the one table is still drawn,
@@ -422,7 +420,7 @@ function placeDropLastMessage() { const heads = document.querySelectorAll(".time
 function renderPendingApproval(session) { const root = document.getElementById("panel-pending-approval"); root.hidden = !session?.pending_approval; root.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, { replay: store.replay, decide: (callID, decision) => api("/api/approve", { session_id: session.id, call_id: callID, decision }) })] : [])); }
 function percentile(values = [], fraction = .5) { if (!values.length) return 0; const copy = [...values].sort((a, b) => a - b); return copy[Math.floor((copy.length - 1) * fraction)]; }
 function patchEndedRun(patch = {}) { return (patch.operations || []).some((operation) => operation.path === "/run" && operation.value?.status === "idle"); }
-// Item 2ji (c): lifetime and the last twenty, side by side in ONE value cell.
+// lifetime and the last twenty, side by side in ONE value cell.
 //
 // My first version gave the row a third grid column. Activity flows its lines
 // into narrow columns, and three cells did not fit: the screenshot showed
@@ -431,7 +429,7 @@ function patchEndedRun(patch = {}) { return (patch.operations || []).some((opera
 // figures the way the rest of the panel already separates a pair.
 function runProfileSection(rows) {
   if (!rows.length) return [];
-  // Item 2m2 (a): each figure sits in a seat the width of its widest form, so a
+  // each figure sits in a seat the width of its widest form, so a
   // value that gains a digit changes nothing about where the other column, or
   // the column beside this panel, ends up.
   return [line("per run", "lifetime · last 20"), ...rows.map(([label, life, recent, seat]) => {

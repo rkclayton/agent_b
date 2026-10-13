@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Item 2la: an interpreter is resolved to a real executable, never launched by
+// an interpreter is resolved to a real executable, never launched by
 // bare name and never through something that answers by opening a window.
 //
 // On the operator's own host `python` resolves, in PATH order, to three things:

@@ -17,7 +17,7 @@ import (
 	"harness/internal/session"
 )
 
-// Item 2mt (a): A CRASH LEAVES A RECORD.
+// A CRASH LEAVES A RECORD.
 //
 // The operator, 2026-09-27 03:11: "i dragged the window while he was thinking, it
 // crashed." What his data root actually holds: chat s34's journal stops on a
@@ -279,7 +279,7 @@ func crashLauncherLine(line string) {
 var liveRunStatuses = map[string]bool{"running": true, "queued": true, "stopping": true, "paused": true}
 
 // closeRunCutByProcessDeath turns an open run into a stopped one at restore, with
-// the reason INTERFACES.md already defines for it. Item 2mt (e).
+// the reason INTERFACES.md already defines for it..
 //
 // The reason distinguishes where it was cut, because the transcript should say:
 // mid-model if the last thing the journal recorded was the model streaming, and

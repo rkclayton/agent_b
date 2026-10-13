@@ -11,7 +11,7 @@ import (
 	"harness/internal/identity"
 )
 
-// Item 2nv (c) and (d): TRUSTED MANAGEMENT, and nothing else may touch it.
+// TRUSTED MANAGEMENT, and nothing else may touch it.
 //
 // These endpoints are reachable only with the operator's page session cookie AND the
 // mutation token, which the server's own guards enforce for every mutation and, for the
@@ -83,7 +83,7 @@ func credentialEntry(entries []credential.Entry, name string) (credential.Entry,
 }
 
 func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
-	// (c) and (d): secret entry is the OPERATOR'S PAGE and nothing else. A broker-paired phone
+	// secret entry is the OPERATOR'S PAGE and nothing else. A broker-paired phone
 	// is a full-authority surface for chatting, deliberately — but it is not where a
 	// credential is typed, read or removed, so it is refused here by name rather than
 	// left to the guards that admit it everywhere else.

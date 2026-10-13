@@ -40,7 +40,7 @@ func (r *Runner) handlePlanRegistration(ctx context.Context, item *session.Sessi
 }
 
 // handleModelPlanProposal lets the model raise the operator's own registration
-// card (item 2fa): a final model message that is exactly
+// card: a final model message that is exactly
 // "Add <absolute-path> as a plan" asks, through the same Allow-this card, named
 // so the card says the model proposed it. Registration only; the worker never
 // proposes, and b's read-only relation to plan files is unchanged.

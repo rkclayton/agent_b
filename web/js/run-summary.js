@@ -1,11 +1,11 @@
-// Item 2ji (b): where the run's time went, as a sentence.
+// where the run's time went, as a sentence.
 //
 // The operator was shown a dense one-line version of this and said: "that's not
 // very human readable." So this is plain words, one line, largest share first,
 // and nothing under five per cent is mentioned at all — a run is not more
 // legible for listing every bucket that rounded to nothing.
 //
-// The figures come from run.stopped, which item 2ji (a) put them on. A bucket the
+// The figures come from run.stopped, which put them on. A bucket the
 // server could not supply is ABSENT there, and absent is rendered as "not
 // reported" in the hover and left out of the sentence. It is never a zero.
 

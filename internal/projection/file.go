@@ -122,7 +122,7 @@ func projectRecords(records []Record) (state Snapshot, err error) {
 	return
 }
 
-// ProjectFileState is ProjectFile without the patches (item 2gm). Computing
+// ProjectFileState is ProjectFile without the patches. Computing
 // a patch per record is quadratic in the length of the journal, and a caller
 // that wants only the final state should not pay for it.
 func ProjectFileState(path string, through int64) (Snapshot, error) {

@@ -17,8 +17,8 @@ import (
 
 const measurementProvenance = "setup-wizard-ten-briefs-n1"
 
-// Item 2nn (c): the state carries the COUNT as numbers, not only inside a
-// sentence. The screen shows item 2nh's determinate bar while the harness runs,
+// the state carries the COUNT as numbers, not only inside a
+// sentence. The screen shows the determinate bar while the harness runs,
 // and a bar cannot be drawn from prose -- the briefs are a known ten per arm, so
 // the honest mode here is determinate and the numbers have to travel.
 type measureState struct {
@@ -200,7 +200,7 @@ func (s *Server) measureArm(ctx context.Context, connectionID string, connection
 			arm.Passed++
 		case len(response.ToolCalls) == 0 && strings.TrimSpace(response.Content) == "":
 			// (b)'s empty-reply rate: a turn that finished with neither a call nor
-			// prose. rel-1.21.0 saw one of these on a live model, and it is the
+			// prose. saw one of these on a live model, and it is the
 			// clause the decision rule vetoes on.
 			arm.EmptyReplies++
 		default:

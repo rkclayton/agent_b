@@ -8,7 +8,7 @@ import (
 )
 
 // PublishPlanChanges makes every new plan and every plan.md rewrite an event
-// on the page's stream (item 2bq): plan.created / plan.updated carry the
+// on the page's stream: plan.created / plan.updated carry the
 // plan's id and its current list entry, so each open page follows the plan the
 // moment it changes, whichever route changed it. No route removes a plan
 // folder today, so plan.removed has no emitter yet.

@@ -1,7 +1,7 @@
 // Package cli is the terminal front end for the engine: argument parsing, the
 // stream renderer, and approvals answered at a prompt.
 //
-// Item 2iz. It links the ENGINE only. No web server, no window, no reflection,
+// It links the ENGINE only. No web server, no window, no reflection,
 // no updater, no signing, no notifications. That is not a convention here — the
 // linkage is asserted by a test over `go list -deps`, so the independence is
 // enforced rather than hoped.
@@ -25,7 +25,7 @@ type Options struct {
 	Verbose bool
 	// Continue reuses the last run's session in this folder, for a follow-up.
 	Continue bool
-	// Unattended applies item 5f's rule: nothing asks, and a boundary hit fails
+	// Unattended applies the rule: nothing asks, and a boundary hit fails
 	// the run.
 	Unattended bool
 	// Memory allows the memory layers to be written. Without it they are read
@@ -104,7 +104,7 @@ func ParseArgs(argv []string) (Options, error) {
 	if !options.Help && !options.Version && !options.Replay && options.Task == "" {
 		return options, fmt.Errorf("agentb needs a task; agentb --help")
 	}
-	// Item 5f: unattended means nothing asks. A terminal prompt is asking, so the
+	// unattended means nothing asks. A terminal prompt is asking, so the
 	// two cannot both be true and saying so beats discovering it at the boundary.
 	if options.Unattended && options.Continue && options.Task == "" {
 		return options, fmt.Errorf("--continue without a task has nothing to run")
@@ -112,7 +112,7 @@ func ParseArgs(argv []string) (Options, error) {
 	return options, nil
 }
 
-// ExitCode maps a terminal stop reason to a process exit code. Item 2iz (a):
+// ExitCode maps a terminal stop reason to a process exit code.
 // zero for done, non-zero per reason, so a script can branch on WHY rather than
 // only on whether.
 func ExitCode(reason string) int {

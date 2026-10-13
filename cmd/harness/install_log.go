@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Item 2gv (v1.2.5): an install that fails says so.
+// an install that fails says so.
 //
 // The operator double-clicked Agent_b-setup.exe on 2026-09-21 and nothing
 // happened - no window, no message, nothing written. A console program started

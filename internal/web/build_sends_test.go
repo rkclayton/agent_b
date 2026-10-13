@@ -105,6 +105,11 @@ func TestMessageReopensAClosedChatInTheSameRequest2rd(t *testing.T) {
 	}
 	send("page closed", false)
 	send("phone closed", true)
+	missing := httptest.NewRecorder()
+	server.message(missing, httptest.NewRequest(http.MethodPost, "/api/message", strings.NewReader(`{"session_id":"missing","text":"continue"}`)))
+	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "session not found") {
+		t.Fatalf("unreopenable chat = %d %s", missing.Code, missing.Body.String())
+	}
 }
 
 func TestBuildPlanYesSendsTheOpeningRequestOnce(t *testing.T) {

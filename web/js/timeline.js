@@ -373,9 +373,9 @@ function timelineAttachmentChip(session, attachment) {
       renderTimeline();
     });
   }
-  return createFileChip(document, attachment, state, {
+  return createFileChip(document, { ...attachment, attachment: true }, state, {
     openFolder: () => api("/api/open-folder", { session_id: session.id, path: attachment.path, scope: "workspace" }),
-  });
+  }, { sessionID: session.id });
 }
 function originalToolResult(session, callID) {
   return (session.timeline || []).find(

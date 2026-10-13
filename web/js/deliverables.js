@@ -69,6 +69,37 @@ export async function probeFile(url, fetcher = fetch) {
   }
 }
 
+export function attachmentDisplay(file = {}) {
+  const basename = String(file.display_name || file.path || file.name || "attachment").split(/[\\/]/).at(-1);
+  const extension = /\.([^.]+)$/.exec(String(file.path || file.name || basename))?.[1]?.toUpperCase() || "FILE";
+  const pastedImage = basename === "Pasted image" || basename.toLowerCase().startsWith("pasted-attachment");
+  const label = pastedImage ? "Pasted image" : basename;
+  const pasted = pastedImage && file.width && file.height ? `${label} · ${file.width} × ${file.height}` : label;
+  return { name: pasted, type: extension, image: file.kind === "image" || /^(PNG|JPG|JPEG|GIF|WEBP)$/.test(extension) };
+}
+
+export function createAttachmentBubble(document, file, options = {}, actions = {}) {
+  const display = attachmentDisplay(file), root = document.createElement("span");
+  root.className = "attachment-bubble chat-bubble";
+  root.title = options.title || "";
+  const preview = document.createElement(display.image ? "img" : "span");
+  preview.className = display.image ? "attachment-bubble-preview" : "attachment-bubble-type";
+  if (display.image) {
+    preview.src = options.previewURL || fileURL(options.sessionID, file.path); preview.alt = "";
+    if (display.name === "Pasted image") preview.onload = () => { name.textContent = `Pasted image · ${preview.naturalWidth} × ${preview.naturalHeight}`; };
+  }
+  else preview.textContent = display.type;
+  const words = document.createElement("span"); words.className = "attachment-bubble-words";
+  const name = document.createElement("span"); name.className = `attachment-bubble-name${actions.openFile ? " openable" : ""}`; name.textContent = display.name;
+  if (actions.openFile) name.onclick = actions.openFile;
+  words.append(name);
+  if (options.state) { const state = document.createElement("span"); state.className = `attachment-bubble-state${options.alarm ? " alarm" : ""}`; state.textContent = options.state; words.append(state); }
+  root.append(preview, words);
+  if (options.removable && actions.remove) { const remove = document.createElement("button"); remove.type = "button"; remove.className = "attachment-bubble-remove"; remove.textContent = "×"; remove.setAttribute("aria-label", `Remove ${display.name}`); remove.onclick = actions.remove; root.append(remove); }
+  if (actions.openFolder) { const folder = document.createElement("a"); folder.className = "file-chip-folder"; folder.innerHTML = FOLDER_GLYPH; folder.title = "folder"; folder.ariaLabel = "folder"; folder.href = "#"; folder.onclick = (event) => { event.preventDefault(); return actions.openFolder(); }; root.append(folder); }
+  return root;
+}
+
 const FOLDER_GLYPH =
   '<svg viewBox="0 0 16 12" width="13" height="10" aria-hidden="true" focusable="false"><path d="M1 2.5V10.5a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5V4a.5.5 0 0 0-.5-.5H7.2L5.9 1.8a.5.5 0 0 0-.4-.3H1.5a.5.5 0 0 0-.5.5z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>';
 
@@ -80,7 +111,8 @@ export function openableFile(path = "") {
   return !!match && OPENABLE.has(match[0]);
 }
 
-export function createFileChip(document, file, status, actions) {
+export function createFileChip(document, file, status, actions, presentation = {}) {
+  if (file.attachment) return createAttachmentBubble(document, file, { sessionID: presentation.sessionID, state: status?.state === "missing" ? "missing" : presentation.state, alarm: presentation.alarm, title: presentation.title || file.note || file.outcome }, actions);
   const root = document.createElement("div");
   root.className = `file-chip${status?.state === "missing" ? " missing" : ""}`;
   const name = document.createElement("span");

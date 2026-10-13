@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
+const deliverables = await readFile(new URL("./deliverables.js", import.meta.url), "utf8");
 const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
 const css = await readFile(new URL("../css/chat.css", import.meta.url), "utf8");
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
@@ -118,10 +119,24 @@ test("Whole Chat is the only attachment drop target and is invisible at rest", (
   assert.match(css, /\.chat-page\.drop-target::after/);
 });
 
-test("A native attachment context refusal is visible beside its chip", () => {
-  assert.match(chat, /if \(attachment\.outcome\)/);
-  assert.match(chat, /outcome\.textContent = attachment\.outcome/);
-  assert.match(css, /\.chat-attachment-warning \{ color: var\(--alarm\); \}/);
+test("A native attachment context refusal is visible in its bubble", () => {
+  assert.match(chat, /if \(file\.outcome \|\| \/cannot read\/i\.test\(note\)\) return \{ state: "this model cannot read it", alarm: true/);
+  assert.match(css, /\.attachment-bubble-state\.alarm\{color:var\(--alarm\)\}/);
+});
+
+test("one named bubble rule dresses messages and every attachment 2u1", () => {
+  assert.match(css, /\.chat-bubble\s*\{[^}]*border:\s*1px solid #000[^}]*border-radius:\s*10px[^}]*box-shadow:[^}]*inset[^}]*0 3px 8px/);
+  assert.match(chat, /content\.className = "chat-content chat-bubble"/);
+  assert.match(chat, /createAttachmentBubble\(document, file/);
+  assert.match(deliverables, /root\.className = "attachment-bubble chat-bubble"/);
+});
+
+test("attachment remove drops one ready file and cancels only a readable PDF in progress 2u1", () => {
+  assert.match(chat, /function removeQueuedAttachment\(file\)[\s\S]*queuedAttachments\.filter\(\(item\) => item !== file\)/);
+  assert.match(chat, /remove: \(\) => removeQueuedAttachment\(file\)/);
+  assert.match(chat, /remove: \(\) => void removeActiveAttachment\(upload\)/);
+  assert.match(chat, /api\("\/api\/attachments\/stop", \{ upload_id: upload\.id \}\)/);
+  assert.match(chat, /cancelledUploads\.add\(upload\.id\)/);
 });
 
 // The operator's three lower-chat controls. "the enter and stop
@@ -416,7 +431,8 @@ test("Chats is the minimal ordered profile reading approval context delete surfa
 test("user messages are right-side composer-matched bubbles without changing other rows 2sl", () => {
   assert.match(css, /\.chat-user\s*\{[^}]*display:flex[^}]*justify-content:flex-end[^}]*padding-right:12px/s);
   assert.doesNotMatch(chat, /chat-speaker/);
-  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*background:#15181C[^}]*border-radius:8px[^}]*box-shadow:inset 0 0 0 1px rgba\(112,125,139,\.28\)/s);
+  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*border-bottom-right-radius:3px/s);
+  assert.match(css, /\.chat-bubble\s*\{[^}]*background:#15181C[^}]*border:1px solid #000[^}]*border-radius:10px[^}]*box-shadow:inset/s);
   assert.match(chat, /view\.userText\.className = "chat-user-text"/);
   assert.match(css, /\.chat-user-text,\.chat-response-answer,\.chat-composer textarea\s*\{\s*color:var\(--chat-ink,var\(--ink\)\)/);
   assert.match(css, /\.chat-content code,\.chat-content pre\s*\{\s*color:var\(--ink\)/);

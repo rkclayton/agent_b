@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createFileChip, filesFromResponse, probeFile } from "./deliverables.js";
+import { attachmentDisplay, createAttachmentBubble, createFileChip, filesFromResponse, probeFile } from "./deliverables.js";
 
 class FakeNode {
   constructor(tagName) {
@@ -10,11 +10,30 @@ class FakeNode {
     this.className = "";
     this.disabled = false;
     this.textContent = "";
+    this.attributes = {};
   }
   append(...nodes) { this.children.push(...nodes); }
+  setAttribute(name, value) { this.attributes[name] = value; }
 }
 
 const document = { createElement: (tag) => new FakeNode(tag) };
+
+test("attachment bubbles show pictures, pasted dimensions, types, and one remove action 2u1", () => {
+  assert.deepEqual(attachmentDisplay({ kind: "image", display_name: "Pasted image", width: 1280, height: 720, path: "attachments/pasted.png" }), { name: "Pasted image · 1280 × 720", type: "PNG", image: true });
+  assert.deepEqual(attachmentDisplay({ kind: "pdf", path: "attachments/store-floor-plan.pdf" }), { name: "store-floor-plan.pdf", type: "PDF", image: false });
+  let removed = 0;
+  const picture = createAttachmentBubble(document, { attachment: true, kind: "image", path: "attachments/view.png" }, { sessionID: "main", state: "sent as text", title: "full note", removable: true }, { remove() { removed++; } });
+  assert.match(picture.className, /chat-bubble/);
+  assert.equal(picture.children[0].tagName, "img");
+  assert.equal(picture.children[0].src, "/api/files/attachments/view.png?session=main");
+  assert.equal(picture.children[1].children[0].textContent, "view.png");
+  assert.equal(picture.children[1].children[1].textContent, "sent as text");
+  assert.equal(picture.title, "full note");
+  assert.equal(picture.children[2].attributes["aria-label"], "Remove view.png");
+  picture.children[2].onclick(); assert.equal(removed, 1);
+  const pdf = createAttachmentBubble(document, { attachment: true, kind: "pdf", path: "attachments/plan.pdf" }, {}, {});
+  assert.equal(pdf.children[0].textContent, "PDF");
+});
 
 test("file chips derive only successful file-producing tools from a canned projected response", () => {
   const items = [

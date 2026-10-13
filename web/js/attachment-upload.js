@@ -38,7 +38,7 @@ export function attachmentMetadata(value) {
 }
 
 export function attachmentChipFile(value) {
-  return { ...value, callID: `attachment:${value.sha256}`, openPath: value.path, openScope: "workspace" };
+  return { ...value, attachment: true, callID: `attachment:${value.sha256}`, openPath: value.path, openScope: "workspace" };
 }
 
 function fallbackName(type = "") {

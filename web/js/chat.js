@@ -5,7 +5,7 @@ import { setWaitProgress, waitElement } from "./wait.js";
 import { operatorLogEntry } from "./operator-log.js";
 import { createThinkingRenderer } from "./reasoning.js";
 import { formatDuration } from "./duration.js";
-import { createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
+import { createAttachmentBubble, createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
 import { createApprovalCard } from "./approval.js";
 import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, uploadAttachment } from "./attachment-upload.js";
@@ -61,6 +61,7 @@ let renderTimer = 0;
 let clockTimer = 0;
 let attachmentsBusy = false;
 let activeUpload = null;
+const cancelledUploads = new Set();
 let dragDepth = 0;
 let queuedAttachments = [];
 const attachmentQueues = new Map();
@@ -531,6 +532,7 @@ function renderEntry(session, entry) {
   setAttribute(view.row, "class", `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`);
   const content = view.content;
   if (entry.type === "user") {
+    content.className = "chat-content chat-bubble";
     const nodes = [];
     if (entry.text) {
       if (!view.userText) { view.userText = document.createElement("div"); view.userText.className = "chat-user-text"; }
@@ -539,12 +541,6 @@ function renderEntry(session, entry) {
     }
     for (const attachment of entry.attachments || []) {
       nodes.push(renderFileChip(session, attachmentChipFile(attachment)));
-      if (attachment.outcome) {
-        const outcome = document.createElement("div");
-        outcome.className = "chat-attachment-warning";
-        outcome.textContent = attachment.outcome;
-        nodes.push(outcome);
-      }
     }
 		const messageID = String(entry.key || "").replace(/^message:/, "");
 		const queued = (session.queued_message_ids || []).includes(messageID);
@@ -985,6 +981,7 @@ function renderFileChip(session, file) {
   const fingerprint = `${state.state}|${state.bytes}|${file.bytes}|${file.path}|${file.callID}|${file.openPath}|${file.openScope}`;
   let view = fileViews.get(key);
   if (view?.fingerprint === fingerprint) return view.node;
+  const presentation = attachmentBubblePresentation(session, file);
   const node = createFileChip(document, file, state, {
     openFolder: async () => {
       try {
@@ -1004,9 +1001,16 @@ function renderFileChip(session, file) {
         renderComposer(session);
       }
     },
-  });
+  }, { ...presentation, sessionID: session.id });
   fileViews.set(key, { node, fingerprint });
   return node;
+}
+
+function attachmentBubblePresentation(session, file) {
+  const note = file.note || file.outcome || attachmentReadability(session, store.connections, file) || "";
+  if (file.sidecar) return { state: "sent as text", title: note };
+  if (file.outcome || /cannot read/i.test(note)) return { state: "this model cannot read it", alarm: true, title: note };
+  return { state: "", title: note };
 }
 
 function selectionWithin(node) {
@@ -1422,29 +1426,15 @@ function renderComposer(session) {
     const key = `${file.path}|${file.bytes}|${file.reused}|${file.sidecar}|${file.tier}`;
     let row = composerFileViews.get(key);
     if (row) return row;
-    row = document.createElement("span");
-    row.className = "chat-pending-file";
-    const label = document.createElement("span");
-    const sidecar = file.sidecar ? ` · ${file.tier === "ocr" ? file.pages ? `OCR: ${file.pages} of ${file.total_pages} pages` : `OCR: ${file.sidecar.split("/").pop()}` : `extracted: ${file.sidecar.split("/").pop()}`}` : "";
-    label.textContent = `${file.path.split("/").pop()} · ${format(file.bytes)} B${file.reused ? " · reused" : ""}${sidecar}`;
-    row.append(label);
-    const warning = attachmentReadability(session, store.connections, file);
-    if (warning) {
-      const reason = document.createElement("span");
-      reason.className = "chat-attachment-warning";
-      reason.textContent = warning;
-      row.append(reason);
-    }
+    const presentation = attachmentBubblePresentation(session, file);
+    row = createAttachmentBubble(document, file, { ...presentation, sessionID: session.id, removable: true }, { remove: () => removeQueuedAttachment(file) });
+    row.classList.add("chat-pending-file");
     composerFileViews.set(key, row);
     return row;
 	});
 	const upload = activeUpload;
 	if (upload && session && upload.sessionID === session.id) {
-		const row = document.createElement("span"); row.className = "chat-pending-file";
-		const label = document.createElement("span");
-		label.textContent = upload.total ? `${upload.name} · OCR · page ${upload.page} of ${upload.total}` : `${upload.name} · uploading`;
-		row.append(label);
-		if (upload.total) { const stop = document.createElement("button"); stop.type = "button"; stop.textContent = upload.stopping ? "Stopping…" : "Stop"; stop.disabled = upload.stopping; stop.onclick = () => void stopAttachmentOCR(); row.append(stop); }
+		const row = createAttachmentBubble(document, upload, { previewURL: upload.previewURL, state: upload.total ? `page ${upload.page} of ${upload.total}` : "", removable: !!upload.total }, { remove: () => void removeActiveAttachment(upload) }); row.classList.add("chat-pending-file");
 		fileNodes.unshift(row);
 	}
   reconcileChildren(pendingFiles, fileNodes);
@@ -1540,12 +1530,20 @@ async function queueFiles(files) {
   try {
     for (const file of files) {
       const uploadID = globalThis.crypto.randomUUID();
-	  activeUpload = { id: uploadID, sessionID: session.id, name: file.name, page: 0, total: 0, stopping: false };
+	  const image = file.type?.startsWith("image/") ? await imageInfo(file) : {};
+	  const upload = activeUpload = { id: uploadID, sessionID: session.id, name: file.name || "attachment", display_name: file.name ? "" : "Pasted image", kind: image.previewURL ? "image" : file.name?.toLowerCase().endsWith(".pdf") ? "pdf" : "binary", page: 0, total: 0, ...image };
 	  renderComposer(session);
-      const uploaded = await uploadAttachment(file, session.id, { token: store.mutation_token, uploadID });
-      if (!queuedAttachments.some((item) => item.path.toLowerCase() === uploaded.path.toLowerCase())) queuedAttachments.push(uploaded);
-      localNotice = uploaded.note || "Attachment ready";
-	  activeUpload = null;
+	  try {
+        const uploaded = await uploadAttachment(file, session.id, { token: store.mutation_token, uploadID });
+		const cancelled = cancelledUploads.delete(uploadID);
+		if (!cancelled && !queuedAttachments.some((item) => item.path.toLowerCase() === uploaded.path.toLowerCase())) queuedAttachments.push({ ...uploaded, display_name: upload.display_name, width: upload.width, height: upload.height });
+        if (!cancelled) localNotice = "Attachment ready";
+	  } catch (error) {
+		if (!cancelledUploads.delete(uploadID)) throw error;
+	  } finally {
+		if (upload.previewURL) URL.revokeObjectURL(upload.previewURL);
+		if (activeUpload === upload) activeUpload = null;
+	  }
     }
   } catch (error) {
     localNotice = error.message || String(error);
@@ -1557,12 +1555,23 @@ async function queueFiles(files) {
   }
 }
 
-async function stopAttachmentOCR() {
-	if (!activeUpload || activeUpload.stopping) return;
-	activeUpload.stopping = true; renderComposer(store.sessions[activeUpload.sessionID]);
-	try { await api("/api/attachments/stop", { upload_id: activeUpload.id }); }
-	catch (error) { localNotice = error.message || String(error); localAlarm = true; }
+function removeQueuedAttachment(file) {
+	queuedAttachments = queuedAttachments.filter((item) => item !== file);
+	attachmentQueues.set(selectedID(), queuedAttachments); renderComposer(store.sessions[selectedID()]);
+}
+
+async function removeActiveAttachment(upload) {
+	if (activeUpload !== upload || !upload.total) return;
+	cancelledUploads.add(upload.id); activeUpload = null; renderComposer(store.sessions[upload.sessionID]);
+	try { await api("/api/attachments/stop", { upload_id: upload.id }); }
+	catch {}
 	renderComposer(store.sessions[selectedID()]);
+}
+
+async function imageInfo(file) {
+	const previewURL = URL.createObjectURL(file);
+	try { const bitmap = await globalThis.createImageBitmap(file); const value = { previewURL, width: bitmap.width, height: bitmap.height }; bitmap.close(); return value; }
+	catch { return { previewURL }; }
 }
 
 async function refreshExchangeFiles() {
@@ -1605,7 +1614,7 @@ async function queueExchangeFile(item) {
   try {
     const uploaded = await exchangeUpload(item, session.id, { token: store.mutation_token, uploadID, maxBytes: store.config.tools?.attachments?.max_bytes });
     if (!queuedAttachments.some((value) => value.path.toLowerCase() === uploaded.path.toLowerCase())) queuedAttachments.push(uploaded);
-    localNotice = uploaded.note || "Attachment ready";
+    localNotice = "Attachment ready";
     attachMenu.hidden = true;
   } catch (error) {
     localNotice = error.message || String(error);

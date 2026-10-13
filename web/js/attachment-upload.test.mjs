@@ -51,8 +51,8 @@ test("attachment replay chip reconstructs and marks a missing workspace file", a
   assert.equal(file.callID, "attachment:deadbeef");
   const state = await probeFile("/api/files/attachments/gone.txt?session=main", async () => ({ ok: false, headers: new Map() }));
   const node = createFileChip({
-    createElement() { return { className: "", textContent: "", disabled: false, children: [], append(...children) { this.children.push(...children); } }; },
+    createElement() { return { className: "", textContent: "", disabled: false, children: [], append(...children) { this.children.push(...children); }, setAttribute() {} }; },
   }, file, state, { openFolder() {} });
-  assert.equal(node.children[1].textContent, "missing");
-  assert.equal(node.children.length, 2);
+  assert.equal(node.children[1].children[1].textContent, "missing");
+  assert.match(node.className, /attachment-bubble/);
 });

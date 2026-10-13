@@ -6,20 +6,78 @@ import { decodePNG } from "../png.mjs";
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 
 const appCSS = await readFile(new URL("../../web/css/app.css", import.meta.url), "utf8");
+const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
 const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), "utf8");
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
 
-test("OCR progress and Stop remain visible on the attachment chip", async ({ page }) => {
-  expect(chatJS).toContain("OCR · page ${upload.page} of ${upload.total}");
+test("attachment page progress and remove remain visible on the bubble", async ({ page }) => {
+  expect(chatJS).toContain("page ${upload.page} of ${upload.total}");
   expect(chatJS).toContain('/api/attachments/stop');
   await page.setViewportSize({ width: 320, height: 180 });
   await page.setContent(`<!doctype html><style>:root{--ink:#D8DDE3;--well:#15181C;--trace:#F2B233;--alarm:#E4624F;--sans:sans-serif}${chatCSS}</style>
-    <div class="chat-pending-attachments"><span class="chat-pending-file"><span>phone-scan.pdf · OCR · page 10 of 60</span><button>Stop</button></span></div>`);
-  await expect(page.getByText("phone-scan.pdf · OCR · page 10 of 60")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+    <div class="chat-pending-attachments"><span class="chat-pending-file attachment-bubble chat-bubble"><span class="attachment-bubble-type">PDF</span><span class="attachment-bubble-words"><span>phone-scan.pdf</span><span>page 10 of 60</span></span><button class="attachment-bubble-remove" aria-label="Remove phone-scan.pdf">×</button></span></div>`);
+  await expect(page.getByText("page 10 of 60")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove phone-scan.pdf" })).toBeVisible();
   const shot = await page.screenshot();
-  expect(shot.length, "the off-screen OCR chip screenshot is empty").toBeGreaterThan(0);
+  expect(shot.length, "the off-screen attachment bubble screenshot is empty").toBeGreaterThan(0);
   expect(await page.locator(".chat-pending-file").evaluate((node) => node.getBoundingClientRect().right <= innerWidth)).toBe(true);
+});
+
+test("2u1 real chat bubbles preview remove stop and send only what remains", async ({ browser }) => {
+  const png = await readFile(new URL("../../web/assets/plan-mark.png", import.meta.url));
+  const id = "chat-2u1", uploads = [
+    { path: "attachments/named.png", bytes: png.length, sha256: "1".repeat(64), kind: "image", sidecar: "attachments/named.png.ocr.txt", note: "full image reading note" },
+    { path: "attachments/pasted-attachment.png", bytes: png.length, sha256: "2".repeat(64), kind: "image", sidecar: "attachments/pasted-attachment.png.ocr.txt", note: "full pasted image reading note" },
+    { path: "attachments/unreadable.bin", bytes: 3, sha256: "3".repeat(64), kind: "binary", note: "binary — this connection cannot read it" },
+  ];
+  const state = { sessions: { [id]: { schema_version:1, cursor:{generation:"2u1.jsonl",offset:1}, complete:true, id, label:"Attachment proof", agent_id:"agent_b", role:"b", created_at:"2026-10-12T00:00:00Z", run:{status:"idle"}, tools:[], messages:[], budget:{}, activity:{completed_stages:[]}, timeline:[], runnable:true, closed:false, chat:[{ type:"user", key:"message:sent", text:"Sent picture", attachments:[{ path:"attachments/sent.png", bytes:png.length, sha256:"4".repeat(64), kind:"image" }] }] } }, connections:[{ id:"local", reads_images:false, capabilities:{} }], config:{ agents:[{name:"agent_b",b:"fixture"}], connections:[] }, flow:{stages:[],edges:[]}, tools:[], plans:[], profiles:{active:"",names:[]}, build:{} };
+  state.sessions[id].connection_id = "local";
+  const context = await browser.newContext({ viewport:{width:1280,height:860} });
+  await context.addInitScript(({ state, id }) => {
+    sessionStorage.setItem("agentb.selection", JSON.stringify({agent_id:"agent_b",session_id:id,surface:{kind:"chat",key:id}}));
+    Object.defineProperty(globalThis.crypto,"randomUUID",{value:()=>"00000000-0000-4000-8000-000000000001"});
+    class Events { constructor(){this.listeners=new Map();globalThis.__fixtureEvents=this;setTimeout(()=>this.emit("snapshot",{type:"snapshot",data:state}))} addEventListener(type,fn){this.listeners.set(type,[...(this.listeners.get(type)||[]),fn])} emit(type,value){const event={data:JSON.stringify(value)};for(const fn of this.listeners.get(type)||[])fn(event);if(type==="message")this.onmessage?.(event)} close(){} }
+    globalThis.EventSource=Events;
+  }, { state, id });
+  const page = await context.newPage(); let uploadIndex = 0, stopPDF, sentBody, opened = false;
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url()), path = url.pathname;
+    if (path === "/chat") return route.fulfill({contentType:"text/html",body:indexHTML});
+    if (path.startsWith("/api/files/")) return route.fulfill({contentType:"image/png",body:png});
+    if (path === "/api/open-file") { opened = true; return route.fulfill({contentType:"application/json",body:"{}"}); }
+    if (path === "/api/message") { sentBody = route.request().postDataJSON(); return route.fulfill({contentType:"application/json",body:"{}"}); }
+    if (path === "/api/attachments/stop") { stopPDF?.(); return route.fulfill({contentType:"application/json",body:"{}"}); }
+    if (path === "/api/attachments" && route.request().method() === "POST") {
+      const index = uploadIndex++;
+      if (index < uploads.length) return route.fulfill({contentType:"application/json",body:JSON.stringify(uploads[index])});
+      const raw = route.request().postDataBuffer().toString("latin1"), uploadID = /name="upload_id"\r?\n\r?\n([^\r\n]+)/.exec(raw)?.[1];
+      if (!uploadID) throw new Error("fixture could not read the PDF upload id");
+      await page.evaluate(({id,uploadID}) => globalThis.__fixtureEvents.emit("message",{type:"attachment.ocr_progress",session_id:id,data:{session_id:id,upload_id:uploadID,page:3,total:12}}), {id,uploadID});
+      await new Promise((resolve) => { stopPDF = resolve; });
+      return route.fulfill({status:499,contentType:"application/json",body:'{"error":"stopped"}'});
+    }
+    if (path.startsWith("/api/")) return route.fulfill({contentType:"application/json",body:"{}"});
+    return route.fulfill({path:webRoot + path.replace(/^\/static\//,"")});
+  });
+  await page.goto(`http://bubble-2u1.test/chat?setup=skip&session=${id}`, {waitUntil:"domcontentloaded"});
+  await expect(page.getByText("Sent picture")).toBeVisible();
+  await page.locator('.chat-user .attachment-bubble-name').click(); expect(opened).toBe(true);
+  const picker = page.locator("#chat-file-picker");
+  await picker.setInputFiles({name:"named.png",mimeType:"image/png",buffer:png}); await expect(page.getByText("named.png")).toBeVisible();
+  await page.evaluate((bytes) => { const file=new File([new Uint8Array(bytes)],"",{type:"image/png"}), transfer=new DataTransfer();transfer.items.add(file);document.body.dispatchEvent(new DragEvent("drop",{bubbles:true,dataTransfer:transfer})); }, [...png]);
+  await expect(page.getByText(/Pasted image · \d+ × \d+/)).toBeVisible();
+  await picker.setInputFiles({name:"unreadable.bin",mimeType:"application/octet-stream",buffer:Buffer.from("bad")}); await expect(page.locator("#chat-attachments").getByText("this model cannot read it")).toBeVisible();
+  await picker.setInputFiles({name:"pages.pdf",mimeType:"application/pdf",buffer:Buffer.from("%PDF")}); await expect(page.getByText("page 3 of 12")).toBeVisible();
+  const styles = await page.evaluate(() => [document.querySelector('.chat-user > .chat-content'),document.querySelector('#chat-attachments .attachment-bubble'),document.querySelector('.chat-user .attachment-bubble')].map((node)=>{const s=getComputedStyle(node);return {border:s.border,top:s.borderTopLeftRadius,shadow:s.boxShadow,bottomRight:s.borderBottomRightRadius}}));
+  expect(styles.map(({border,top,shadow})=>({border,top,shadow}))).toEqual([0,1,2].map(()=>({border:styles[0].border,top:styles[0].top,shadow:styles[0].shadow}))); expect(styles[0].bottomRight).toBe("3px");
+  const forbidden = await page.locator("body").innerText(); expect(forbidden).not.toMatch(/OCR|untrusted|layout|extract|\b\d+ bytes\b/i);
+  await mkdir("logs/evidence/rel-1.62.90/captures",{recursive:true});
+  for (const [width,height] of [[1280,860],[1920,1080]]) { await page.setViewportSize({width,height}); await page.screenshot({path:`logs/evidence/rel-1.62.90/captures/bubbles-${width}x${height}.png`,fullPage:true}); }
+  await page.getByRole("button",{name:"Remove named.png"}).click(); await expect(page.getByText("named.png")).toHaveCount(0); await expect(page.locator("#chat-attachments .attachment-bubble")).toHaveCount(3);
+  await page.getByRole("button",{name:"Remove pages.pdf"}).click(); await expect(page.locator("#chat-attachments .attachment-bubble")).toHaveCount(2);
+  await page.fill("#chat-task","Send the rest"); await page.locator("#chat-send").click(); await expect.poll(()=>sentBody).not.toBeUndefined();
+  expect(sentBody.attachments.map((item)=>item.path)).toEqual(["attachments/pasted-attachment.png","attachments/unreadable.bin"]);
+  await context.close();
 });
 
 // The standing UI contract, in the operator's words: "nothing scrolls inside
@@ -606,8 +664,6 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
 // Item 2lj (f) and (g): the standing UI contract still holds at every step. At
 // the largest size nothing overflows and nothing gains a scrollbar it did not
 // have, at the wide width and at the phone viewport both.
-const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
-
 function chatPage(pixels, face) {
   return `<!doctype html><html><head><style>
     :root { --bezel:#0D1014; --well:#080A0D; --ink:#E8EEF4; --mute:#707D8B; --trace:#F2B233; --alarm:#E4624F; --signal:#3CF08A;
@@ -677,8 +733,8 @@ test("user bubbles hold short, long and attached content across the required ran
     for (const pixels of [9, 12, 32]) {
       await page.setViewportSize({ width, height: width === 1280 ? 860 : 900 });
       await page.setContent(chatPage(pixels, '"IBM Plex Sans", sans-serif'));
-      await page.locator("#chat-log").evaluate((log, markup) => { log.innerHTML = markup; }, `<article class="chat-entry chat-user" tabindex="0"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content"><div class="chat-user-text">short</div></div></article>
-        <article class="chat-entry chat-user"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content"><div class="chat-user-text">${"x".repeat(400)}</div><pre><code>pasted block</code></pre><img alt="picture" width="40" height="30"><span class="file-chip">record.txt</span></div></article>
+      await page.locator("#chat-log").evaluate((log, markup) => { log.innerHTML = markup; }, `<article class="chat-entry chat-user" tabindex="0"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content chat-bubble"><div class="chat-user-text">short</div></div></article>
+        <article class="chat-entry chat-user"><div class="chat-speaker" aria-label="you"><span></span></div><div class="chat-content chat-bubble"><div class="chat-user-text">${"x".repeat(400)}</div><pre><code>pasted block</code></pre><img alt="picture" width="40" height="30"><span class="file-chip">record.txt</span></div></article>
         <article class="chat-entry chat-agent"><div class="chat-speaker">agent_b</div><div class="chat-content"><p>left answer</p></div></article>
         <article class="chat-entry tool-entry"><div class="chat-speaker">tool</div><div class="chat-content">left tool</div></article>
         <article class="chat-entry chat-summary"><div class="chat-speaker" aria-label="summary" title="summary"><span></span></div><div class="chat-content">left summary</div></article>`);
@@ -709,14 +765,14 @@ test("user bubbles hold short, long and attached content across the required ran
           nestedVerticalScrollers: [...log.querySelectorAll("*")].filter((node) => /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1).length,
           copied: selection.toString(),
           focusWhole: getComputedStyle(short).outlineStyle !== "none" && box(short).left >= 0 && box(short).right <= innerWidth,
-          visuals: [bubbleStyle.backgroundColor, bubbleStyle.borderRadius, bubbleStyle.boxShadow],
+          visuals: [bubbleStyle.backgroundColor, bubbleStyle.border, bubbleStyle.borderTopLeftRadius, bubbleStyle.borderBottomRightRadius, bubbleStyle.boxShadow],
           inputVisuals: [inputStyle.backgroundColor, inputStyle.borderRadius, inputStyle.boxShadow],
           leftRows: [...document.querySelectorAll(".chat-agent,.tool-entry,.chat-summary")].every((row) => getComputedStyle(row).display === "grid"),
           summary: document.querySelector(".chat-summary .chat-speaker").textContent,
         };
       });
       expect(seen.shortFits, `${width}px/${pixels}px short width`).toBe(true);
-      expect(seen.shortContentWidth, `${width}px/${pixels}px short content width`).toBeLessThanOrEqual(1);
+      expect(seen.shortContentWidth, `${width}px/${pixels}px short content width`).toBeLessThanOrEqual(2);
       expect(seen.textInset, `${width}px/${pixels}px text inset`).toBeGreaterThan(0);
       expect(seen.right, `${width}px/${pixels}px right edge`).toBeCloseTo(12, 1);
       expect(seen.longRatio, `${width}px/${pixels}px long width`).toBeLessThanOrEqual(.801);
@@ -726,9 +782,10 @@ test("user bubbles hold short, long and attached content across the required ran
       expect(seen.nestedVerticalScrollers, `${width}px/${pixels}px nested scroller`).toBe(0);
       expect(seen.copied).toBe("short");
       expect(seen.focusWhole, `${width}px/${pixels}px focus ring`).toBe(true);
-      expect(seen.visuals).toEqual(["rgb(21, 24, 28)", "8px", seen.inputVisuals[2]]);
+      expect(seen.visuals).toEqual(["rgb(21, 24, 28)", "1px solid rgb(0, 0, 0)", "10px", "3px", "rgba(232, 238, 244, 0.1) 0px 1px 0px 0px inset, rgba(0, 0, 0, 0.38) 0px 3px 8px 0px"]);
       const picture = decodePNG(await page.locator(".chat-user .chat-content").first().screenshot()), pixel = (x, y) => [...picture.data.slice((y * picture.width + x) * 4, (y * picture.width + x) * 4 + 3)];
-      expect([pixel(0, 0), pixel(picture.width - 1, 0), pixel(0, picture.height - 1), pixel(picture.width - 1, picture.height - 1), pixel(Math.floor(picture.width / 2), 4)]).toEqual([[8,10,13],[8,10,13],[8,10,13],[8,10,13],[21,24,28]]);
+      const corners = [pixel(0, 0), pixel(picture.width - 1, 0), pixel(0, picture.height - 1), pixel(picture.width - 1, picture.height - 1)];
+      expect(corners.every((colour) => Math.max(...colour) < 14), "rounded corners expose only the dark page and shadow").toBe(true); expect(pixel(Math.floor(picture.width / 2), 4)).toEqual([21,24,28]);
       const colours = ["E8EEF4","FFFFFF","FF6B6B","FF9F43","FFD166","3CF08A","4DDFF7","6CA8FF","C792EA","FF85C2"], luminance = (hex) => { const c = [0,2,4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return .2126*c[0] + .7152*c[1] + .0722*c[2]; }, ratios = colours.map((colour) => (luminance(colour) + .05) / (luminance("15181C") + .05));
       expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5); if (width === 1280 && pixels === 12) console.log("2tq bubble contrast", ratios.map((ratio) => ratio.toFixed(2)).join(", "));
       expect(seen.leftRows).toBe(true);

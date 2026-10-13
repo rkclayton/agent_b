@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
-	if s.hardening == nil {
+	if s.hardeningManager() == nil {
 		writeError(w, http.StatusConflict, "host-hardening runtime is unavailable", "shell.service_account")
 		return
 	}
@@ -23,7 +23,7 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		status, err := s.hardening.Status(ctx, request)
+		status, err := s.hardeningManager().Status(ctx, request)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account")
 			return
@@ -123,7 +123,7 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 	}
 
 	operationContext, operationCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	result, runErr := s.hardening.Run(operationContext, body.Action, request)
+	result, runErr := s.hardeningManager().Run(operationContext, body.Action, request)
 	operationCancel()
 	if runErr != nil {
 		message := runErr.Error()
@@ -135,7 +135,7 @@ func (s *Server) hostHardening(w http.ResponseWriter, r *http.Request) {
 	}
 	s.progressHardening("Windows operation finished; checking the resulting policy…")
 	statusContext, statusCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	status, statusErr := s.hardening.Status(statusContext, request)
+	status, statusErr := s.hardeningManager().Status(statusContext, request)
 	statusCancel()
 	if statusErr != nil {
 		fail(http.StatusInternalServerError, "operation completed but status inspection failed: "+statusErr.Error(), "shell.service_account")

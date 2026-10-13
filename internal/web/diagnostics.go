@@ -349,7 +349,7 @@ func (s *Server) diagnosticsProbes(red *redactor) []diagnosticsSection {
 			})
 		},
 		func() diagnosticsSection {
-			if s.hardening == nil {
+			if s.hardeningManager() == nil {
 				return diagnosticsSection{Name: "hardening", Means: hardenMeans, Skipped: "this build has no hardening runtime"}
 			}
 			request, err := s.hardeningRequest("")
@@ -357,7 +357,7 @@ func (s *Server) diagnosticsProbes(red *redactor) []diagnosticsSection {
 				return diagnosticsSection{Name: "hardening", Means: hardenMeans, Skipped: red.text(err.Error())}
 			}
 			return red.bounded(ctx, "hardening", hardenMeans, func(ctx context.Context) (any, error) {
-				return s.hardening.Status(ctx, request)
+				return s.hardeningManager().Status(ctx, request)
 			})
 		},
 		func() diagnosticsSection {

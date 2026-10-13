@@ -73,12 +73,7 @@ type Server struct {
 	updater            *updater.Manager
 	shell              *tools.Shell
 	account            serviceaccount.Manager
-	hardening          hardening.Manager
-	hardeningMu        sync.RWMutex
-	hardeningOp        hardeningOperation
-	signing            signing.Manager
-	signingMu          sync.Mutex
-	signingStatus      signing.Status
+	protection         hostProtectionState
 	shellTest          func(context.Context) (string, error)
 	accountMu          sync.Mutex
 	credentialRejected bool
@@ -316,8 +311,8 @@ func (s *Server) SetNotifications(manager notificationManager, store *credential
 }
 func (s *Server) SetUpdater(manager *updater.Manager)                     { s.updater = manager }
 func (s *Server) SetServiceAccountManager(manager serviceaccount.Manager) { s.account = manager }
-func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.hardening = manager }
-func (s *Server) SetSigningManager(manager signing.Manager)               { s.signing = manager }
+func (s *Server) SetHardeningManager(manager hardening.Manager)           { s.protection.hardening = manager }
+func (s *Server) SetSigningManager(manager signing.Manager)               { s.protection.signing = manager }
 func (s *Server) SetHostWindowAction(action func(string, string) bool)    { s.hostWindowAction = action }
 func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, prompt *agent.PromptRenderer) {
 	s.scheduler = scheduler

@@ -9,12 +9,19 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"harness/internal/quietproc"
 )
 
 var shippedChatFaces = []string{"IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic"}
+
+type fontState struct {
+	mu     sync.Mutex
+	fonts  []string
+	loader func() ([]string, error)
+}
 
 func installedFontFamilies() ([]string, error) {
 	if runtime.GOOS != "windows" {
@@ -40,12 +47,12 @@ func installedFontFamilies() ([]string, error) {
 }
 
 func (s *Server) fontFamilies(refresh bool) ([]string, error) {
-	s.fontMu.Lock()
-	defer s.fontMu.Unlock()
-	if len(s.fonts) > 0 && !refresh {
-		return append([]string(nil), s.fonts...), nil
+	s.fontState.mu.Lock()
+	defer s.fontState.mu.Unlock()
+	if len(s.fontState.fonts) > 0 && !refresh {
+		return append([]string(nil), s.fontState.fonts...), nil
 	}
-	loader := s.fontLoader
+	loader := s.fontState.loader
 	if loader == nil {
 		loader = installedFontFamilies
 	}
@@ -80,7 +87,7 @@ func (s *Server) fontFamilies(refresh bool) ([]string, error) {
 	if len(result) == 0 {
 		return nil, errors.New("no font families found")
 	}
-	s.fonts = result
+	s.fontState.fonts = result
 	return append([]string(nil), result...), nil
 }
 

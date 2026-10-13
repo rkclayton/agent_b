@@ -696,13 +696,13 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 
 func TestFontFamiliesShipFirstCacheAndRefresh2rg(t *testing.T) {
 	calls := 0
-	server := &Server{fontLoader: func() ([]string, error) {
+	server := &Server{fontState: fontState{loader: func() ([]string, error) {
 		calls++
 		if calls == 1 {
 			return []string{"Zulu", "arial", "IBM Plex Sans", "Arial", " beta "}, nil
 		}
 		return []string{"Gamma"}, nil
-	}}
+	}}}
 	first, err := server.fontFamilies(false)
 	if err != nil {
 		t.Fatal(err)

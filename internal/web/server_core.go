@@ -114,9 +114,7 @@ type Server struct {
 	operatorFiles    *operatorfiles.Manager
 	profiles         *profiles.Manager
 	profileChanged   func(string) error
-	fontMu           sync.Mutex
-	fonts            []string
-	fontLoader       func() ([]string, error)
+	fontState        fontState
 	probeMu          sync.Mutex
 	probeCancels     map[string]*probeRun
 	// Item 2gy: how many inconclusive probes a connection has had in a row, which

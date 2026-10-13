@@ -128,7 +128,14 @@ function Invoke-AgentBShortReleaseRun {
             $result = & $Runner $CandidateDirectory $data $workspace $evidence $ExpectedCommit
         } else {
             $arguments = @((Join-Path (Split-Path -Parent $PSScriptRoot) 'tests\chat-acceptance.mjs'), '--app', $CandidateDirectory, '--data', $data, '--workspace', $workspace, '--evidence', $evidence, '--expected-commit', $ExpectedCommit, '--expected-dirty', 'false', '--headless', 'true', '--release-short', 'true')
-            $output = @(& node @arguments 2>&1); $result = [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
+            $previousPreference = $ErrorActionPreference
+            try {
+                # Windows PowerShell wraps native stderr as an ErrorRecord. The
+                # product's startup diagnostics are output, not a failed run.
+                $ErrorActionPreference = 'Continue'
+                $output = @(& node @arguments 2>&1); $exitCode = $LASTEXITCODE
+            } finally { $ErrorActionPreference = $previousPreference }
+            $result = [pscustomobject]@{ ExitCode = $exitCode; Output = ($output -join "`n") }
             $output | Write-Host
         }
         if ([int]$result.ExitCode -ne 0) { throw "SHORT RUN REFUSED: $($result.Output)" }

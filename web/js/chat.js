@@ -16,7 +16,8 @@ import { runTimeSentence } from "./run-summary.js";
 import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, shortToolTarget } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { registerMenu } from "./menu-behavior.js";
-import { liveActivityText, showsStreamCaret } from "./chat-activity.js";
+import { liveActivityLook, liveActivityText, showsStreamCaret } from "./chat-activity.js";
+import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
 import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecord } from "./transcript-copy.js";
 
@@ -1380,9 +1381,7 @@ function renderComposer(session) {
   const promptOnly = running && /^prompt /.test(activity);
   if (!composerWait) composerWait = waitElement(document, { line: "waiting for the model" });
   if (!composerRobot) {
-    composerRobot = document.createElement("span");
-    composerRobot.setAttribute("aria-hidden", "true");
-    composerRobot.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>';
+    composerRobot = createAgentRobot(document, { place: "chat" });
   }
   if (promptOnly) {
     const line = unreachable ? "waiting for the model to come back" : activity;
@@ -1394,7 +1393,10 @@ function renderComposer(session) {
   }
   setProperty(composerWait, "hidden", !promptOnly);
   if (running && !promptOnly) {
-    setAttribute(composerRobot, "class", `chat-run-robot ${session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running"}`);
+    updateAgentRobot(composerRobot, {
+      state: session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running",
+      doing: liveActivityLook(session),
+    });
   }
   setProperty(composerRobot, "hidden", !running || promptOnly);
   if (!composerText) {

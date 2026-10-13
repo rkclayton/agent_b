@@ -1,9 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveActivityText, modelRequestText, showsStreamCaret } from "./chat-activity.js";
+import { liveActivityLook, liveActivityText, modelRequestText, showsStreamCaret } from "./chat-activity.js";
 
 const running = (activity) => ({ run: { status: "running" }, activity });
+
+test("the robot look comes from the same live facts, one row per doing 2tj", () => {
+  for (const [look, activity] of [
+    ["reading", { stage: "call_model", stage_state: "enter", progress: { processed: 2048 }, stream: {} }],
+    ["reading", { stage: "call_model", stage_state: "enter", progress: {}, stream: {} }],
+    ["thinking", { stage: "call_model", stage_state: "enter", progress: {}, stream: { reasoning_chars: 605, total_chars: 605 } }],
+    ["writing", { stage: "call_model", stage_state: "enter", progress: {}, stream: { reasoning_chars: 605, total_chars: 750 } }],
+    ["writing", { stage: "call_model", stage_state: "enter", progress: {}, stream: { tool_calls: [{ name: "shell" }] } }],
+    ["tool", { stage: "execute", stage_state: "enter", active_tool: "read_file" }],
+    ["", { stage: "assemble", stage_state: "enter" }],
+  ]) assert.equal(liveActivityLook(running(activity)), look);
+  assert.equal(liveActivityLook({ run: { status: "idle" }, activity: {} }), "");
+});
 
 test("live activity gives each model phase a measured status", () => {
   assert.equal(liveActivityText(undefined), "");

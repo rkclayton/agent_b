@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -163,6 +163,45 @@ test("chat list rows, actions, independent state, resize persistence and capture
     [{ p1: { model_unreachable: true } }, "p1", "offline", "model unreachable"],
     [{ f1: { run: { status: "running" } } }, "", "running", "1 running"],
   ]) { await setStates(step[0], step[1]); await expect(robot).toHaveClass(new RegExp(step[2])); await expect(robot).toHaveAttribute("title", step[3]); await expect(robot).toHaveAttribute("aria-label", step[3]); expect(await robot.innerText()).toBe(""); }
+  await setStates({ p1: { run: { status: "running" }, activity: { stage: "call_model", stage_state: "enter", stream: { reasoning_chars: 80, total_chars: 80 } } } });
+  const liveRobot = page.locator(".chat-live-robot");
+  await expect(liveRobot).toHaveAttribute("data-doing", "thinking");
+  await expect(robot).not.toHaveAttribute("data-doing");
+  expect(await page.locator(".agent-robot-eye").evaluateAll((eyes) => eyes.map((eye) => getComputedStyle(eye).animationDuration))).toEqual(["5.3s", "5.3s", "4.1s", "4.1s"]);
+  const noFlipOrHop = await page.locator(".agent-robot").evaluateAll((robots) => {
+    const animations = document.getAnimations(); animations.forEach((animation) => animation.pause());
+    const first = robots.map((node) => node.getBoundingClientRect().top), failures = [];
+    for (let elapsed = 0; elapsed <= 10000; elapsed += 100) {
+      animations.forEach((animation) => { animation.currentTime = elapsed; });
+      robots.forEach((node, index) => { const transform = getComputedStyle(node).transform, scaleX = transform === "none" ? 1 : new DOMMatrix(transform).a; if (scaleX < 0 || Math.abs(node.getBoundingClientRect().top - first[index]) > .01) failures.push({ elapsed, index, transform }); });
+    }
+    animations.forEach((animation) => animation.play()); return failures;
+  });
+  expect(noFlipOrHop).toEqual([]);
+  const motionStates = {};
+  for (const state of ["idle", "running", "waiting", "offline"]) motionStates[state] = await robot.evaluate((node, value) => {
+    node.className = `agent-robot shell-app-robot ${value}`;
+    return { animations: node.getAnimations({ subtree: true }).map((animation) => animation.animationName), eye: getComputedStyle(node.querySelector(".agent-robot-eye")).transform, lamp: getComputedStyle(node.querySelector(".agent-robot-lamp")).fill };
+  }, state);
+  expect(motionStates.idle.animations).toEqual([]); expect(motionStates.offline.animations).toEqual([]);
+  expect(motionStates.running.animations.length).toBeGreaterThan(0); expect(motionStates.waiting.animations.length).toBeGreaterThan(0);
+  expect(motionStates.idle.lamp).toBe("rgb(8, 10, 13)"); expect(motionStates.offline.lamp).toBe("rgb(8, 10, 13)");
+  await setStates({ p1: { run: { status: "running" }, activity: { stage: "call_model", stage_state: "enter", stream: { reasoning_chars: 80, total_chars: 80 } } } });
+  await page.setViewportSize({ width: 1280, height: 860 }); await mkdir(robotEvidence, { recursive: true });
+  await expect(liveRobot).toBeVisible(); await expect(page.locator(".chat-notice-text")).toContainText("thinking");
+  await page.screenshot({ path: join(robotEvidence, "2tj-real-both-1280.png") });
+  await page.evaluate(async () => {
+    const { createAgentRobot, updateAgentRobot } = await import("/static/js/agent-robot.js");
+    const rows = [["reading", "running", "reading"], ["thinking", "running", "thinking"], ["writing", "running", "writing"], ["tool", "running", "tool"], ["waiting", "waiting", ""], ["offline", "offline", ""], ["idle", "idle", ""], ["working", "running", ""]];
+    const sheet = document.createElement("div"); sheet.id = "robot-evidence-sheet";
+    sheet.style.cssText = "position:fixed;z-index:2147483647;inset:0;background:#080A0D;color:#E8EEF4;padding:24px;display:grid;grid-template-columns:repeat(2,1fr);gap:12px;font:14px monospace";
+    for (const [label, state, doing] of rows) { const row = document.createElement("div"); row.style.cssText = "height:150px;border:1px solid #303943;display:grid;grid-template-columns:100px 100px 1fr;align-items:center;padding:16px;gap:12px"; for (const place of ["shell", "chat"]) { const box = document.createElement("div"); box.style.cssText = "width:80px;height:80px;display:grid;place-items:center"; const robot = createAgentRobot(document, { place }); updateAgentRobot(robot, { state, doing }); robot.style.transform = "scale(4)"; box.append(robot); row.append(box); } const words = document.createElement("span"); words.textContent = `${label} · 20px / 16px`; row.append(words); sheet.append(row); } document.body.append(sheet);
+  });
+  const evidenceCDP = await context.newCDPSession(page);
+  for (const scale of [1, 1.5]) { await evidenceCDP.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: scale, mobile: false }); await page.locator("#robot-evidence-sheet").screenshot({ path: join(robotEvidence, `2tj-states-${scale * 100}.png`) }); }
+  await evidenceCDP.send("Emulation.clearDeviceMetricsOverride"); await page.locator("#robot-evidence-sheet").evaluate((node) => node.remove());
+  const frameAfter = await page.evaluate(async () => { const samples = []; let before = performance.now(); for (let i = 0; i < 240; i += 1) await new Promise((resolve) => requestAnimationFrame((now) => { samples.push(now - before); before = now; resolve(); })); const sorted = [...samples].sort((a, b) => a - b); return { frames: samples.length, averageMs: samples.reduce((a, b) => a + b, 0) / samples.length, p95Ms: sorted[Math.floor(sorted.length * .95)], maxMs: sorted.at(-1) }; });
+  await writeFile(join(robotEvidence, "frame-after.json"), JSON.stringify(frameAfter, null, 2));
   expect(await robot.evaluate((node) => node.tabIndex)).toBe(-1);
   const selectedBeforeRobotClick = await page.evaluate(async () => (await import("/static/js/bus.js")).store.selection.session_id);
   await robot.click();
@@ -172,9 +211,9 @@ test("chat list rows, actions, independent state, resize persistence and capture
     await setStates(values); await page.screenshot({ path: join(robotEvidence, `1280-head-${state}.png`) });
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
-  for (const state of ["idle", "running", "waiting", "offline"]) { await robot.evaluate((node, value) => { node.className = `shell-app-robot chat-run-robot ${value}`; }, state); expect(await robot.evaluate((node) => ({ animation: getComputedStyle(node).animationDuration, color: getComputedStyle(node).color }))).toMatchObject({ animation: "0s", color: state === "running" ? "rgb(60, 240, 138)" : state === "idle" ? "rgb(112, 125, 139)" : "rgb(228, 98, 79)" }); }
+  for (const state of ["idle", "running", "waiting", "offline"]) { await robot.evaluate((node, value) => { node.className = `agent-robot shell-app-robot ${value}`; }, state); expect(await robot.evaluate((node) => ({ animations: [...node.querySelectorAll("*")].flatMap((part) => getComputedStyle(part).animationDuration.split(", ")).filter((duration) => duration !== "0s"), color: getComputedStyle(node).color }))).toMatchObject({ animations: [], color: state === "running" ? "rgb(60, 240, 138)" : state === "idle" ? "rgb(112, 125, 139)" : "rgb(228, 98, 79)" }); }
   await page.emulateMedia({ reducedMotion: "no-preference" }); await setStates({ f1: { run: { status: "running" } } }); await page.mouse.click(1000, 400); await mkdir(robotEvidence, { recursive: true });
-  await robot.evaluate((node) => { node.className = "shell-app-robot chat-run-robot idle"; });
+  await robot.evaluate((node) => { node.className = "agent-robot shell-app-robot idle"; });
   const cdp = await context.newCDPSession(page);
   for (const scale of [1, 1.5, 2]) for (const textSize of [9, 12, 32]) {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: scale, mobile: false });
@@ -311,7 +350,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     expect(lefts).toEqual([4, 4, 4]); if (size === 12 && width !== 1920) await page.screenshot({ path: join(edgeEvidence, `collapsed-${width}.png`) });
   }
   await expect(page.locator(".shell-left > .chat-list-top-actions")).toBeVisible(); await expect(page.locator(".chat-list-top-actions")).toHaveCount(1);
-  expect(await page.locator(".shell-left").evaluate((left) => [...left.children].map((child) => child.className))).toEqual(["shell-app-robot chat-run-robot running", "chat-list-top-actions", "shell-window-title"]);
+  expect(await page.locator(".shell-left").evaluate((left) => [...left.children].map((child) => child.className))).toEqual(["agent-robot shell-app-robot running", "chat-list-top-actions", "shell-window-title"]);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-new").click(); await expect(rows).toHaveCount(++rowCount);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-menu-button").click(); await expect(page.locator(".chat-list-main-menu")).toBeVisible(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.locator("#settings-page")).toBeVisible(); await page.getByTitle("Close").click(); await expect(page.locator(".shell-left > .chat-list-top-actions")).toBeVisible();

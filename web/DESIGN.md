@@ -88,6 +88,6 @@ An operator-requested connector add, edit, or remove uses that same card shape. 
 
 **Copy.** Plain verbs, sentence case: "Send", "Stop", "Browse…", "From attachments", "Jump to latest". Status words: idle, queued, running, paused, stopping, held, stopped, replay. Errors say what happened and what to do, in the interface's voice, without apologizing. Empty states invite an action.
 
-**Assets.** Three swappable SVG slots referenced by path only: `assets/mark.svg` (24×24), `assets/agent.svg` (20×20, chat), `assets/idle.svg` (96×96). Placeholders are simple geometric marks in Mute; never inline artwork into markup.
+**Assets.** The swappable SVG slots referenced by path are `assets/mark.svg` (24×24) and `assets/idle.svg` (96×96). The live robot is one named-part drawing in `js/agent-robot.js`, shared by its 20px top-bar and 16px chat placements so its stateful parts cannot diverge.
 
 **Operator-file binding.** Chat's paperclip says `From attachments` and reads the operator root's `attachments\\` folder. Settings → Security owns that folder's count and confirmed `Empty` action, 30-day log retention, the off-by-default mailbox-approval toggle and warning, and the non-destructive `AGENT_B.md` Adopt action. Removing legacy instruction files requires a separate checkbox that is off by default. These controls use existing wells, rows, palette, and 0-second reduced-motion behavior; they add no fixed chrome or motion.

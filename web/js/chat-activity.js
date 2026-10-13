@@ -47,6 +47,19 @@ export function liveActivityText(session, now = Date.now()) {
   }
 }
 
+export function liveActivityLook(session) {
+  if (session?.run?.status !== "running") return "";
+  const activity = session.activity || {};
+  if (activity.active_tool) return "tool";
+  if (activity.stage !== "call_model" || activity.stage_state !== "enter") return "";
+  const stream = activity.stream || {};
+  if (Array.isArray(stream.tool_calls) && stream.tool_calls.length) return "writing";
+  const reasoning = Number(stream.reasoning_chars || 0);
+  if (Math.max(0, Number(stream.total_chars || 0) - reasoning) > 0) return "writing";
+  if (reasoning > 0) return "thinking";
+  return "reading";
+}
+
 export function modelRequestText(activity = {}, busy = null) {
   const stream = activity.stream || {};
   const calls = Array.isArray(stream.tool_calls) ? stream.tool_calls : [];

@@ -4,9 +4,8 @@
 // message showed a sentence, a model load showed nothing at all, and each
 // surface invented its own. This is the one, and it is built to the vocabulary
 // the UI already speaks — monospace, the six colours, and step timing rather
-// than smooth easing, because every other animation in this product moves in
-// discrete frames (chat-run-robot is `steps(1, end)`), and a smoothly sweeping
-// bar would be the only organic thing on the screen.
+// than smooth easing. A smoothly sweeping progress bar would imply a known
+// direction and finish that an indeterminate wait does not have.
 //
 // (b) IT SAYS WHAT IS HAPPENING. The element cannot be built without a line: an
 // animation alone is decoration, and a reader watching a decoration cannot tell

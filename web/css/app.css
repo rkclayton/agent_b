@@ -2344,8 +2344,7 @@
 .settings-update-note { display: block; font: 12px/16px var(--mono); color: var(--mute); }
 
 /* Item 2m4: the one waiting element. Twelve cells, monospace line, step timing
-   — the same discrete vocabulary as .chat-run-robot rather than a smooth sweep,
-   which would be the only organic movement in the product.
+   rather than a smooth sweep that would imply progress the product cannot know.
 
    Indeterminate cycles a lit cell along the row and says nothing about how far
    through it is. Determinate lights --filled cells and stops there: the two are

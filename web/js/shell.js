@@ -8,6 +8,7 @@ import { connectionHealth } from "./settings-connections.js";
 import { beginNavigation } from "./navigation-telemetry.js";
 import { arrangeChats, menuLabels, panelDrag } from "./chat-list.js";
 import { registerMenu } from "./menu-behavior.js";
+import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
 const agentKey = (agent) => { const name = String(agent?.name || "").trim().toLowerCase(); return name === "agent_b" ? name : name.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); };
@@ -29,8 +30,7 @@ export function initShell(options = {}) {
   if (loaded && loaded.kind !== "chat") setSurface(loaded);
 
   const left = node("div", "shell-left");
-  const appRobot = node("span", "shell-app-robot chat-run-robot idle");
-  appRobot.setAttribute("role", "img"); appRobot.innerHTML = '<img src="/static/assets/agent.svg" alt=""><span class="chat-run-robot-eyes"></span>'; appRobot.querySelector("img").draggable = false;
+  const appRobot = createAgentRobot(document, { place: "shell" });
   const windowTitle = node("span", "shell-window-title");
   const productTitle = node("span", "shell-product-title"); productTitle.textContent = "Agent_b";
   const titleSeparator = node("span", "shell-title-separator"); titleSeparator.textContent = " - ";
@@ -503,7 +503,7 @@ export function initShell(options = {}) {
   function render(renderPanel = true) {
     const session = store.sessions[store.selection.session_id];
     const robot = appRobotStatus(store.sessions, store.selection.session_id);
-    setAttr(appRobot, "class", `shell-app-robot chat-run-robot ${robot.state}`); setAttr(appRobot, "title", robot.label); setAttr(appRobot, "aria-label", robot.label);
+    updateAgentRobot(appRobot, { state: robot.state, label: robot.label });
     // Item 2gl (v1.2.6): the window's own title. The overlay could not be made
     // to activate - measured on Edge 153 under --app= and with no unattended
     // way to install the app - so the system strip stays, and the least it can

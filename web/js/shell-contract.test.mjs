@@ -147,11 +147,11 @@ test("all shell motion is zero duration under reduced motion", () => {
 });
 
 test("the whole-app robot is a non-control in the drag strip and shares the composer rules", () => {
-  assert.match(shell, /node\("span", "shell-app-robot chat-run-robot idle"\)/);
+  assert.match(shell, /createAgentRobot\(document, \{ place: "shell" \}\)/);
   assert.match(shell, /left\.append\(appRobot\)/);
   assert.doesNotMatch(shell, /appRobot\.(?:onclick|onpointer|tabIndex)/);
-  assert.match(tokens, /\.chat-run-robot\{[^}]*animation:chat-run-robot/);
-  assert.doesNotMatch(chatCSS, /\.chat-run-robot\s*\{/);
+  assert.match(tokens, /\.agent-robot\.running/);
+  assert.doesNotMatch(chatCSS, /\.agent-robot\s*\{/);
 });
 
 // Item 2gh (v1.1.2/W5): the tab menu, measured and made to feel right. These

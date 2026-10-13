@@ -611,29 +611,6 @@ func (w *hostWindow) resizeController() {
 	comCall(w.controller, 6, uintptr(unsafe.Pointer(&client))) // put_Bounds
 }
 
-// hostFrameInsets reports what the window costs above the document: the
-// difference between the window's top edge and the client area's. It is the
-// number the order asks for, read from Windows rather than asserted.
-func hostFrameInsets(hwnd uintptr) (top int32, err error) {
-	var window, client rect
-	if ok, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&window))); ok == 0 {
-		return 0, fmt.Errorf("GetWindowRect failed")
-	}
-	if ok, _, _ := procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client))); ok == 0 {
-		return 0, fmt.Errorf("GetClientRect failed")
-	}
-	origin := point{}
-	procScreenToClient.Call(hwnd, uintptr(unsafe.Pointer(&origin)))
-	// origin is the window's client origin expressed in client coordinates of
-	// the point (0,0) on screen; the top inset is the client top in screen
-	// space minus the window top.
-	var clientOrigin point
-	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&clientOrigin)))
-	return clientOrigin.y - window.top, nil
-}
-
-var procClientToScreen = user32.NewProc("ClientToScreen")
-
 // runHostWindow opens the window and does not return until it closes. It runs
 // on the calling goroutine's OS thread: a window and its message pump belong to
 // one thread, and WebView2's completion handlers arrive on that pump.

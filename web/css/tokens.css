@@ -5,7 +5,7 @@
 /* Item 2lj (c): shipped because Agent_b runs offline. A font named but absent falls back to something else without saying so, and the reader who chose it would never know. Both are SIL OFL 1.1; see assets/fonts/LICENSE-FONTS.md. */
 @font-face{font-family:"Atkinson Hyperlegible";src:url("../assets/fonts/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:"OpenDyslexic";src:url("../assets/fonts/opendyslexic-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
-:root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--etch-fade:.0825;--chat-size:12px;--chat-face:var(--sans)}
+:root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--accent-plan:#5AC8FA;--raised-edge:#000;--raised-radius:calc(var(--chat-size,12px) * 5 / 6);--raised-radius-tight:calc(var(--chat-size,12px) / 4);--raised-fill:#15181C;--raised-fill-deep:#0D1014;--raised-shadow:inset 0 1px 0 rgba(232,238,244,.10),0 3px 8px rgba(0,0,0,.38);--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--app-header-height:32px;--etch-fade:.0825;--chat-size:12px;--chat-face:var(--sans)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{height:100dvh;overflow:hidden;background:var(--bezel);color:var(--ink);font:400 13px/20px var(--sans)}
@@ -99,7 +99,8 @@ button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,
 .settings-nav button .shell-page-chip{display:inline-block;vertical-align:-2px;margin-right:6px}
 .settings-nav button:hover .shell-page-chip{opacity:.8}
 .settings-nav button.selected .shell-page-chip{opacity:1}
-.shell-menu{position:fixed;z-index:40;top:30px;left:0;width:min(680px,calc(100vw - 16px));max-height:calc(100vh - 50px);overflow-x:hidden;overflow-y:auto;padding:2px;background:var(--bezel);border:1px solid rgba(112,125,139,.28)}
+.shell-menu{position:fixed;z-index:40;top:30px;left:0;width:min(680px,calc(100vw - 16px));max-height:calc(100vh - 50px);overflow-x:hidden;overflow-y:auto;padding:2px}
+.chat-bubble,.chat-work-summary,.chat-narration-line .chat-step-summary,.thinking-line,.file-chip,.shell-menu,.chat-attach-menu,.setting-menu,.approval-card,.plan-proposal,.settings-page,.confirm-popover,.settings-error-panel,.chat-jump,.chat-input-wrap,.chat-live-status{background:var(--raised-fill)!important;border:1px solid var(--raised-edge)!important;border-radius:var(--raised-radius)!important;box-shadow:var(--raised-shadow)!important}
 .shell-menu-empty{display:block;padding:2px 5px;color:var(--mute);font:12px/20px var(--mono)}
 .history-controls{margin-left:auto;display:flex;align-items:center;gap:8px}
 .history-controls #drop-last-message{min-height:22px;padding:1px 6px;font-size:12px;font-weight:400}

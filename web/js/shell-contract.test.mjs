@@ -16,6 +16,15 @@ const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf
 // Settings already adopts, so there is one page to hold the contract.
 const pages = await Promise.all(["index.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
 
+test("new folder leaves the menu for its own far-edge button 2u6", () => {
+	assert.match(shell, /iconButton\("folder-plus", "New folder", "chat-list-new-folder"\)/);
+	assert.match(shell, /newFolderButton\.onclick = \(\) => \{ const name = prompt\("New folder name"\); if \(name\) void act\(\{ action: "add", parent: "", name \}\); \}/);
+	assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)/);
+	assert.doesNotMatch(shell, /button\("Folder", "", "chat-list-menu-action"\)/);
+	assert.match(shell, /if \(hasD\) \{[\s\S]*newChatMenu\.append\(label, plan, rule\);[\s\S]*\}\s*newChatMenu\.append\(openSettings\)/);
+	assert.match(chatCSS, /\.chat-list-new-folder\{[^}]*margin-left:auto[^}]*width:18px[^}]*height:18px[^}]*border-radius:50%/);
+});
+
 class MenuRoot extends EventTarget {
   click(target) { for (const type of ["pointerdown", "click"]) { const event = new Event(type); Object.defineProperty(event, "target", { value: target }); this.dispatchEvent(event); } }
   key(key) { const event = new Event("keydown", { cancelable: true }); Object.defineProperty(event, "key", { value: key }); this.dispatchEvent(event); }
@@ -109,7 +118,8 @@ test("compact window controls continue the top strip", () => {
 test("chat list keeps compact controls and transient chrome", () => {
   assert.match(shell, /iconButton\("menu", "", "chat-list-primary-action chat-list-menu-button"\)/);
   assert.match(shell, /iconButton\("plus", "New chat", "chat-list-primary-action chat-list-new"\)/);
-  assert.match(shell, /label\.textContent = "New"[\s\S]*button\("Chat"[\s\S]*button\("Folder"[\s\S]*button\("Settings"/);
+  assert.match(shell, /button\("Settings"[\s\S]*if \(hasD\) \{[\s\S]*label\.textContent = "New"[\s\S]*Open plan chat/);
+  assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)|button\("Folder", "", "chat-list-menu-action"\)/);
   assert.doesNotMatch(shell, /rootHeading\.textContent = "Chats"/);
   assert.match(shell, /classList\.add\("menu-open"\)/);
   assert.match(shell, /shell-session-activity/);

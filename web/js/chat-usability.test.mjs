@@ -125,10 +125,34 @@ test("A native attachment context refusal is visible in its bubble", () => {
 });
 
 test("one named bubble rule dresses messages and every attachment 2u1", () => {
-  assert.match(css, /\.chat-bubble\s*\{[^}]*border:\s*1px solid #000[^}]*border-radius:\s*10px[^}]*box-shadow:[^}]*inset[^}]*0 3px 8px/);
+  assert.match(tokens, /\.chat-bubble[^}]*\{[^}]*border:1px solid var\(--raised-edge\)[^}]*border-radius:var\(--raised-radius\)[^}]*box-shadow:var\(--raised-shadow\)/);
   assert.match(chat, /content\.className = "chat-content chat-bubble"/);
   assert.match(chat, /createAttachmentBubble\(document, file/);
   assert.match(deliverables, /root\.className = "attachment-bubble chat-bubble"/);
+});
+
+test("one raised definition dresses every raised surface 2u4", () => {
+  assert.match(tokens, /--raised-edge:#000;--raised-radius:calc\(var\(--chat-size,12px\) \* 5 \/ 6\);--raised-radius-tight:calc\(var\(--chat-size,12px\) \/ 4\);--raised-fill:#15181C;--raised-fill-deep:#0D1014;--raised-shadow:inset 0 1px 0 rgba\(232,238,244,\.10\),0 3px 8px rgba\(0,0,0,\.38\)/);
+  for (const selector of [".chat-bubble", ".chat-work-summary", ".chat-step-summary", ".thinking-line", ".file-chip", ".shell-menu", ".chat-attach-menu", ".setting-menu", ".approval-card", ".plan-proposal", ".settings-page", ".confirm-popover", ".settings-error-panel", ".chat-jump", ".chat-input-wrap", ".chat-live-status"])
+    assert.match(tokens, new RegExp(selector.replaceAll(".", "\\.")));
+  assert.match(tokens, /background:var\(--raised-fill\)!important;border:1px solid var\(--raised-edge\)!important;border-radius:var\(--raised-radius\)!important;box-shadow:var\(--raised-shadow\)!important/);
+});
+
+test("the message box folds its buttons and status remains the newest visible entry 2u2", () => {
+  assert.match(html, /class="chat-input-wrap">\s*<div id="chat-attachments"[\s\S]*?<textarea id="chat-task"/);
+  assert.match(css, /\.chat-input-wrap\s*\{[^}]*display:grid[^}]*height:112px/s);
+  assert.match(css, /data-composer-layout="row"[^}]*\.chat-input-actions\s*\{[^}]*flex-direction:row/s);
+  assert.match(css, /data-composer-layout="shut"[^}]*\.chat-input-actions\s*\{[^}]*display:none/s);
+  assert.match(css, /\.chat-live-status\s*\{[^}]*position:sticky[^}]*bottom:calc\(var\(--ct\) \* 2 \/ 3\)[^}]*width:max-content/s);
+  assert.match(chat, /if \(showStatus && \(statusLine\.parentElement !== log \|\| log\.lastElementChild !== statusLine\)\) log\.append\(statusLine\)/);
+});
+
+test("every chat chip derives its box and glyph measures from the chat text size 2u3", () => {
+  assert.match(tokens, /--raised-radius:calc\(var\(--chat-size,12px\) \* 5 \/ 6\);--raised-radius-tight:calc\(var\(--chat-size,12px\) \/ 4\)/);
+  for (const selector of [".chat-work-summary", ".chat-narration-line .chat-step-summary", ".file-chip", ".thinking-line", ".tool-tick", ".chat-live-status", ".attachment-bubble"])
+    assert.match(css, new RegExp(selector.replaceAll(".", "\\.") + "\\s*\\{[^}]*calc\\(var\\(--ct\\)", "s"));
+  assert.match(css, /\.attachment-bubble-preview,\.attachment-bubble-type\{[^}]*width:calc\(var\(--ct\) \* 19 \/ 6\)[^}]*height:calc\(var\(--ct\) \* 19 \/ 6\)/);
+  assert.match(css, /\.attachment-bubble-remove\{[^}]*width:calc\(var\(--ct\) \* 2\)[^}]*height:calc\(var\(--ct\) \* 2\)/);
 });
 
 test("attachment remove drops one ready file and cancels only a readable PDF in progress 2u1", () => {
@@ -196,7 +220,7 @@ test("the transcript-tail status owns queue operator pending and unreachable sta
   assert.match(chat, /Run as you · until/);
   assert.match(chat, /filter\(\(entry\) => !\["operator\.context", "message\.queued", "run\.queued"\]/);
   assert.match(chat, /log\.lastElementChild !== statusLine/);
-  assert.match(css, /\.chat-live-status \{[^}]*padding:2px 4px/);
+  assert.match(css, /\.chat-live-status \{[^}]*padding:calc\(var\(--ct\) \/ 3\) calc\(var\(--ct\) \* 2 \/ 3\)/);
   assert.match(css, /\.chat-resize-handle \{ height:4px; min-height:4px; cursor:row-resize/);
 });
 
@@ -258,9 +282,9 @@ test("Composer is five lines with no placeholder and expands upward", () => {
 	assert.match(css, /--composer-height/);
 	assert.doesNotMatch(css, /\.chat-composer\.expanded textarea/);
 	assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\)/);
-	assert.match(css, /\.chat-pending-attachments,[\s\S]*\.chat-input-wrap\s*\{\s*grid-column:\s*1/);
-	assert.match(css, /\.chat-input-wrap \{[^}]*border-radius:0;[^}]*box-shadow:inset/);
-	assert.match(css, /\.chat-composer textarea \{[\s\S]*?padding:\s*7px 64px 7px 9px;[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/);
+	assert.match(html, /class="chat-input-wrap">\s*<div id="chat-attachments"[\s\S]*?<textarea id="chat-task"/);
+	assert.match(tokens, /\.chat-input-wrap[^}]*\{[^}]*background:var\(--raised-fill\)!important[^}]*border:1px solid var\(--raised-edge\)!important/);
+	assert.match(css, /\.chat-composer textarea \{[\s\S]*?padding:\s*7px 42px 7px 9px;[\s\S]*?background:\s*transparent;[\s\S]*?border:\s*0;/);
 	assert.match(css, /\.chat-input-actions \{[^}]*right:6px;[^}]*bottom:6px;[^}]*flex-direction:column/);
 	assert.doesNotMatch(css, /#chat-expand/);
 	assert.doesNotMatch(html, /id="chat-expand"/);
@@ -431,8 +455,8 @@ test("Chats is the minimal ordered profile reading approval context delete surfa
 test("user messages are right-side composer-matched bubbles without changing other rows 2sl", () => {
   assert.match(css, /\.chat-user\s*\{[^}]*display:flex[^}]*justify-content:flex-end[^}]*padding-right:12px/s);
   assert.doesNotMatch(chat, /chat-speaker/);
-  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*border-bottom-right-radius:3px/s);
-  assert.match(css, /\.chat-bubble\s*\{[^}]*background:#15181C[^}]*border:1px solid #000[^}]*border-radius:10px[^}]*box-shadow:inset/s);
+  assert.match(css, /\.chat-user \.chat-content\s*\{[^}]*width:max-content[^}]*max-width:80%[^}]*border-bottom-right-radius:var\(--raised-radius-tight\)!important/s);
+  assert.match(tokens, /\.chat-bubble[^}]*\{[^}]*background:var\(--raised-fill\)!important[^}]*border:1px solid var\(--raised-edge\)!important/);
   assert.match(chat, /view\.userText\.className = "chat-user-text"/);
   assert.match(css, /\.chat-user-text,\.chat-response-answer,\.chat-composer textarea\s*\{\s*color:var\(--chat-ink,var\(--ink\)\)/);
   assert.match(css, /\.chat-content code,\.chat-content pre\s*\{\s*color:var\(--ink\)/);
@@ -472,7 +496,7 @@ test("the 2qe palette has a signal green and accessible ink and mute contrast", 
 });
 
 test("the live status is transcript text and the composer edge is a four-pixel handle 2qm", () => {
-  assert.match(css, /\.chat-live-status\s*\{[^}]*padding:2px 4px[^}]*font:500 calc\(var\(--ct\) \* 11 \/ 12\)\/var\(--ct\) var\(--mono\)/s);
+  assert.match(css, /\.chat-live-status\s*\{[^}]*padding:calc\(var\(--ct\) \/ 3\) calc\(var\(--ct\) \* 2 \/ 3\)[^}]*font:500 calc\(var\(--ct\) \* 11 \/ 12\)\/var\(--ct\) var\(--mono\)/s);
   assert.match(css, /\.chat-composer\s*\{[^}]*gap:\s*0/s);
   assert.match(css, /\.chat-resize-handle\s*\{[^}]*height:4px[^}]*cursor:row-resize/s);
   assert.doesNotMatch(html + css, /chat-status-strip/);

@@ -77,6 +77,7 @@ export function collectLayoutSnapshot(rootSelector = "body") {
 const args = process.argv.slice(2);
 const valueAfter = (flag) => { const at = args.indexOf(flag); return at < 0 ? "" : args[at + 1] || ""; };
 const sizes = [{ name: "minimum", width: 304, height: 254 }, { name: "1280x860", width: 1280, height: 860 }, { name: "1920x1080", width: 1920, height: 1080 }];
+export const chatScaleMatrix = [9, 12, 18, 32].flatMap((textSize) => [100, 150, 200].map((displayScale) => ({ textSize, displayScale })));
 const safe = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 async function releaseCheck(path) {

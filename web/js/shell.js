@@ -39,7 +39,8 @@ export function initShell(options = {}) {
   const listMenuButton = iconButton("menu", "", "chat-list-primary-action chat-list-menu-button");
   listMenuButton.setAttribute("aria-label", "Chat menu"); listMenuButton.removeAttribute("title");
   const newChatButton = iconButton("plus", "New chat", "chat-list-primary-action chat-list-new");
-  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton);
+  const newFolderButton = iconButton("folder-plus", "New folder", "chat-list-new-folder");
+  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton, newFolderButton);
   const newChatMenu = node("div", "shell-menu shell-new-menu chat-list-main-menu");
   newChatMenu.hidden = true;
   const menuControllers = new WeakMap();
@@ -245,23 +246,20 @@ export function initShell(options = {}) {
 
   function showListMenu(configured, hasD, act) {
     newChatMenu.replaceChildren();
-    const label = node("span", "chat-list-menu-label"); label.textContent = "New";
-    const chat = button("Chat", "", "chat-list-menu-action"); chat.onclick = () => void createChat("agent_b");
-    const folder = button("Folder", "", "chat-list-menu-action"); folder.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
-    newChatMenu.append(label, chat, folder);
-    if (hasD) {
-      const name = configured?.name || "Agent";
-      const plan = button(`agent_d · ${name} — plan`, "Open plan chat", "chat-list-menu-action");
-      plan.onclick = () => void createChat("agent_d", configured);
-      newChatMenu.append(plan);
-    }
-    const rule = document.createElement("hr");
     const openSettings = button("Settings", "", "chat-list-menu-action");
     openSettings.onclick = () => {
       beginNavigation({ kind: "settings", from: "chat", to: "settings", fullDocument: false, chatID: store.active, mutationToken: store.mutation_token });
       document.dispatchEvent(new CustomEvent("settings.open"));
     };
-    newChatMenu.append(rule, openSettings);
+    if (hasD) {
+      const label = node("span", "chat-list-menu-label"); label.textContent = "New";
+      const name = configured?.name || "Agent";
+      const plan = button(`agent_d · ${name} — plan`, "Open plan chat", "chat-list-menu-action");
+      plan.onclick = () => void createChat("agent_d", configured);
+      const rule = document.createElement("hr");
+      newChatMenu.append(label, plan, rule);
+    }
+    newChatMenu.append(openSettings);
     revealMenu(newChatMenu, listMenuButton);
   }
 
@@ -293,6 +291,7 @@ export function initShell(options = {}) {
         renderChatPanel();
       } catch (error) { report(error.message); }
     };
+    newFolderButton.onclick = () => { const name = prompt("New folder name"); if (name) void act({ action: "add", parent: "", name }); };
     listMenuButton.onclick = () => {
       if (!newChatMenu.hidden) return void menuControllers.get(newChatMenu)?.close();
       const current = configuredAgent(store.sessions[store.selection.session_id]);

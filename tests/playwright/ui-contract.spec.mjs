@@ -2,10 +2,12 @@ import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { decodePNG } from "../png.mjs";
+import { chatScaleMatrix } from "../layout-gate.mjs";
 
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 
 const appCSS = await readFile(new URL("../../web/css/app.css", import.meta.url), "utf8");
+const tokensCSS = await readFile(new URL("../../web/css/tokens.css", import.meta.url), "utf8");
 const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
 const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), "utf8");
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
@@ -193,7 +195,7 @@ test("the composer collapses to zero, remembers it, and opens from the same hand
   const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
   const body = `<!doctype html><html><head><style>
     :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --mono:monospace; }
-    body { margin:0 } #wrap { height:600px; display:grid; grid-template-rows: 1fr auto auto }
+    body { margin:0 } #wrap { height:600px; display:grid; grid-template-rows: 1fr auto }
     #chat-log { overflow-y:auto } ${chatCSS}
   </style></head><body><div id="wrap">
     <main id="chat-log"><p>transcript</p></main>
@@ -259,12 +261,14 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
   const body = `<!doctype html><html><head><style>
     :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --mono:monospace; }
-    body { margin:0 } #wrap { height:600px; display:grid; grid-template-rows: 1fr auto auto }
+    body { margin:0 } #wrap { height:600px; display:grid; grid-template-rows: 1fr auto }
     #chat-log { overflow-y:auto } ${chatCSS}
   </style></head><body><div id="wrap">
     <main id="chat-log"><p>transcript</p></main>
-    <div id="chat-resize-handle" class="chat-resize-handle" role="separator" title="Drag to resize the message box"></div>
-    <footer id="chat-composer" class="chat-composer"><textarea id="chat-input"></textarea></footer>
+    <footer id="chat-composer" class="chat-composer">
+      <div id="chat-resize-handle" class="chat-resize-handle" role="separator" title="Drag to resize the message box"></div>
+      <div class="chat-composer-row"><div class="chat-input-wrap"><textarea id="chat-input"></textarea></div></div>
+    </footer>
   </div>
   <script type="module">
     import { installComposerResize } from "/js/composer-resize.js";
@@ -312,6 +316,126 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   // that plus its own padding.
   expect(Number(remembered)).toBe(Number.parseFloat(applied));
   expect(shorter).toBeGreaterThanOrEqual(Number(remembered));
+});
+
+test("composer controls stay inside at every four pixels and live status stays visible", async ({ page }) => {
+  const [tokensCSS, chatCSS] = await Promise.all([
+    readFile(new URL("../../web/css/tokens.css", import.meta.url), "utf8"),
+    readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8"),
+  ]);
+  const body = `<!doctype html><html><head><style>${tokensCSS}${chatCSS}
+    body{margin:0}.chat-page{height:600px}.chat-log{display:block}.chat-entry{height:52px}
+  </style></head><body class="chat-page"><header class="app-shell"></header><div class="chat-budget"></div>
+    <main id="chat-log" class="chat-log">${"<div class=\"chat-entry\">entry</div>".repeat(30)}<div id="chat-status-line" class="chat-live-status"><span>reading settings.js · 12s</span></div></main>
+    <footer id="chat-composer" class="chat-composer"><div class="chat-resize-handle"></div><div class="chat-composer-row"><div class="chat-input-wrap"><div class="chat-pending-attachments"></div><textarea id="chat-input">${"word ".repeat(40)}</textarea><span class="chat-input-actions"><button class="composer-control">a</button><button class="composer-control">m</button><span class="chat-submit-actions"><button class="composer-control">s</button></span></span></div></div></footer>
+    <script type="module">import { composerLayoutForHeight } from "/js/composer-resize.js";window.composerLayoutForHeight=composerLayoutForHeight;</script>
+  </body></html>`;
+  await page.route("**/*", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/composer-fold.html") return route.fulfill({ contentType: "text/html", body });
+    return route.fulfill({ path: webRoot + path.replace(/^\//, "") });
+  });
+  await page.goto("http://composer.test/composer-fold.html");
+  await page.waitForFunction(() => typeof window.composerLayoutForHeight === "function");
+  for (let height = 180; height >= 0; height -= 4) {
+    const measured = await page.evaluate((value) => {
+      const composer = document.getElementById("chat-composer");
+      composer.style.setProperty("--composer-height", `${value}px`);
+      composer.dataset.composerLayout = window.composerLayoutForHeight(value);
+      const wrap = document.querySelector(".chat-input-wrap").getBoundingClientRect();
+      const actions = document.querySelector(".chat-input-actions");
+      return { layout:composer.dataset.composerLayout, wrap, display:getComputedStyle(actions).display, direction:getComputedStyle(actions).flexDirection, buttons:[...actions.querySelectorAll("button")].map((button) => button.getBoundingClientRect()) };
+    }, height);
+    if (measured.layout === "shut") expect(measured.display, `buttons at ${height}px`).toBe("none");
+    else {
+      expect(measured.direction, `fold at ${height}px`).toBe(measured.layout === "row" ? "row" : "column");
+      for (const button of measured.buttons) {
+        expect(button.left, `left at ${height}px`).toBeGreaterThanOrEqual(measured.wrap.left - .1);
+        expect(button.right, `right at ${height}px`).toBeLessThanOrEqual(measured.wrap.right + .1);
+        expect(button.top, `top at ${height}px`).toBeGreaterThanOrEqual(measured.wrap.top - .1);
+        expect(button.bottom, `bottom at ${height}px`).toBeLessThanOrEqual(measured.wrap.bottom + .1);
+      }
+    }
+  }
+  const padding = await page.evaluate(() => {
+    const composer = document.getElementById("chat-composer");
+    composer.style.setProperty("--composer-height", "44px");
+    composer.dataset.composerLayout = window.composerLayoutForHeight(44);
+    return Number.parseFloat(getComputedStyle(document.getElementById("chat-input")).paddingRight);
+  });
+  expect(padding, "a long line can run beneath row controls").toBeGreaterThanOrEqual(90);
+  const sticky = await page.evaluate(() => {
+    const log = document.getElementById("chat-log");
+    log.scrollTop = log.scrollHeight;
+    log.scrollTop = Math.max(0, log.scrollTop - 2000);
+    const outer = log.getBoundingClientRect(), status = document.getElementById("chat-status-line").getBoundingClientRect();
+    return { outer, status, last:log.lastElementChild.id };
+  });
+  expect(sticky.last).toBe("chat-status-line");
+  expect(sticky.status.top).toBeGreaterThanOrEqual(sticky.outer.top);
+  expect(sticky.status.bottom).toBeLessThanOrEqual(sticky.outer.bottom);
+});
+
+test("every chat chip holds its text across the layout scale matrix", async ({ page }) => {
+  const tokensCSS = await readFile(new URL("../../web/css/tokens.css", import.meta.url), "utf8");
+  await mkdir("logs/evidence/rel-1.62.91/captures", { recursive:true });
+  for (const { textSize, displayScale } of chatScaleMatrix) {
+    await page.setViewportSize({ width: 1280, height: 1800 });
+    await page.setContent(`<style>${tokensCSS}${chatCSS}body{margin:0}.chat-page{--chat-size:${textSize}px;display:block;height:auto;overflow:visible}.fixture{width:360px;padding:12px;transform:scale(${displayScale / 100});transform-origin:top left;display:grid;grid-template-columns:minmax(0,1fr);gap:calc(var(--ct)/2)}.file-chips{margin:0}</style><div class="chat-page"><main class="fixture">
+      <button data-chip class="chat-work-summary">worked · 1m 24s</button>
+      <div class="chat-narration-line"><button data-chip class="chat-step-summary">call_service · calendar</button></div>
+      <button data-chip class="thinking-line"><span class="thought-glyph"><svg viewBox="0 0 11 9"></svg></span>thought for 12s</button>
+      <div class="file-chips" data-wrap><span data-chip class="file-chip"><span class="file-chip-name">report-long-name.pdf</span><span class="file-chip-size">42 KB</span></span><span data-chip class="file-chip"><span class="file-chip-name">notes.txt</span></span></div>
+      <button data-chip class="tool-tick"><span>read_file</span><span class="tool-key">a-long-file-name.txt</span><span>done</span></button>
+      <div data-chip class="attachment-bubble chat-bubble"><span class="attachment-bubble-type">PDF</span><span class="attachment-bubble-words"><span class="attachment-bubble-name">manual.pdf</span><span class="attachment-bubble-state">ready</span></span><button class="attachment-bubble-remove">×</button></div>
+      <div data-chip class="chat-live-status">reading settings.js · 12s</div>
+      <div data-chip class="chat-content chat-bubble">make the text larger</div>
+    </main></div>`);
+    const result = await page.evaluate(() => {
+      const root = document.querySelector(".fixture").getBoundingClientRect();
+      const chips = [...document.querySelectorAll("[data-chip]")];
+      const boxes = chips.map((node) => { const style=getComputedStyle(node); return { name:node.className, box:node.getBoundingClientRect(), whole:node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1, size:[node.clientWidth,node.clientHeight,node.scrollWidth,node.scrollHeight], widths:[style.width,style.minWidth,style.maxWidth,style.whiteSpace] }; });
+      const overlaps = [];
+      for (let left = 0; left < boxes.length; left++) for (let right = left + 1; right < boxes.length; right++) {
+        const a = boxes[left].box, b = boxes[right].box;
+        if (Math.min(a.right,b.right)-Math.max(a.left,b.left)>1 && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>1 && !chips[left].contains(chips[right]) && !chips[right].contains(chips[left])) overlaps.push([boxes[left].name,boxes[right].name]);
+      }
+      const wrap = document.querySelector("[data-wrap]");
+      return { root, boxes, overlaps, wrapWhole:wrap.scrollWidth <= wrap.clientWidth + 1 };
+    });
+    expect(result.boxes.filter(({ whole }) => !whole), `${textSize}px at ${displayScale}% clipped text`).toEqual([]);
+    expect(result.overlaps, `${textSize}px at ${displayScale}% overlapped`).toEqual([]);
+    expect(result.wrapWhole, `${textSize}px at ${displayScale}% did not wrap`).toBe(true);
+    expect(result.boxes.filter(({ box }) => box.left < result.root.left - 2 || box.right > result.root.right + 2), `${textSize}px/${displayScale}% outside chat`).toEqual([]);
+    if (displayScale === 100 || textSize === 12) await page.screenshot({ path:`logs/evidence/rel-1.62.91/captures/after-${textSize}px-${displayScale}.png`, animations:"disabled" });
+  }
+});
+
+test("shared raised look and composer states match the approved page", async ({ page }) => {
+  const tokensCSS = await readFile(new URL("../../web/css/tokens.css", import.meta.url), "utf8");
+  await mkdir("logs/evidence/rel-1.62.91/captures", { recursive:true });
+  await page.setContent(`<style>${tokensCSS}${appCSS}${chatCSS}
+    body{overflow:auto}.look-page{--ct:12px;--lead:20px;--lead-tight:16px;min-height:100vh;padding:24px;background:var(--well);font:12px/20px var(--sans)}.look-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,42%);gap:24px}.look-stack{display:grid;align-content:start;gap:12px}.look-row{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}.capture-menu{position:static}.capture-settings{position:static;transform:none;width:100%;height:320px;display:grid}.capture-composer{padding:0}.capture-composer .chat-input-wrap{height:112px}.capture-composer.short .chat-input-wrap{height:44px}.capture-composer .chat-input-actions{display:flex}.capture-composer.short .chat-input-actions{flex-direction:row}.capture-shut{height:4px}.capture-shut .chat-input-actions,.capture-shut textarea{display:none}.capture-shut .chat-resize-handle{display:block}.capture-table{border-collapse:collapse}.capture-table td{padding:4px 8px;border-bottom:1px solid var(--mute)}
+  </style><main class="look-page"><div class="look-grid"><section class="look-stack">
+    <div class="chat-content chat-bubble">make the settings window use the available space</div>
+    <button class="chat-work-summary">worked · 1m 24s</button><div class="chat-narration-line"><button class="chat-step-summary">call_service · calendar</button></div><button class="thinking-line">thought for 12s</button>
+    <div class="file-chips"><span class="file-chip"><span class="file-chip-name">report.pdf</span><span class="file-chip-size">42 KB</span></span></div>
+    <div class="approval-card"><span>Approval needed</span><span>shell · outside folder</span><div class="approval-actions"><button>Allow once</button><button>Deny</button></div></div>
+    <div class="chat-live-status">reading settings.js · 12s</div>
+    <div class="tool-tick"><span>read_file</span><span>fixture.txt</span><span>done</span></div><table class="capture-table"><tbody><tr><td>field</td><td>value</td></tr></tbody></table><button id="plain-control">Plain button</button>
+    <div class="shell-menu capture-menu"><button>Settings</button></div>
+  </section><section class="look-stack"><div class="settings-page capture-settings"><header class="settings-head">Settings</header><div class="settings-content">Connections</div></div>
+    <div class="chat-composer capture-composer"><div class="chat-input-wrap"><textarea>tall message box</textarea><span class="chat-input-actions"><button>a</button><button>m</button><button>s</button></span></div></div>
+    <div class="chat-composer capture-composer short"><div class="chat-input-wrap"><textarea>short message box</textarea><span class="chat-input-actions"><button>a</button><button>m</button><button>s</button></span></div></div>
+    <div class="capture-shut"><div class="chat-resize-handle"></div></div>
+  </section></div></main>`);
+  const measured = await page.evaluate(() => {
+    const style = (selector) => { const value=getComputedStyle(document.querySelector(selector)); return [value.backgroundColor,value.borderTopColor,value.borderTopWidth,value.borderRadius,value.boxShadow]; };
+    return { bubble:style(".chat-bubble"), chip:style(".file-chip"), menu:style(".shell-menu"), card:style(".approval-card"), settings:style(".settings-page"), composer:style(".chat-input-wrap"), status:style(".chat-live-status"), tool:style(".tool-tick"), table:style("table"), button:style("#plain-control") };
+  });
+  for (const name of ["chip","menu","card","settings","composer","status"]) expect(measured[name], name).toEqual(measured.bubble);
+  for (const name of ["tool","table","button"]) expect(measured[name], `${name} acquired the raised look`).not.toEqual(measured.bubble);
+  for (const viewport of [{width:1280,height:860},{width:1920,height:1080}]) { await page.setViewportSize(viewport); await page.screenshot({ path:`logs/evidence/rel-1.62.91/captures/raised-composer-${viewport.width}.png`, animations:"disabled" }); }
 });
 
 // Item 2ps / I12: retained history must not make the first usable browser frame
@@ -666,6 +790,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
 // have, at the wide width and at the phone viewport both.
 function chatPage(pixels, face) {
   return `<!doctype html><html><head><style>
+    ${tokensCSS}
     :root { --bezel:#0D1014; --well:#080A0D; --ink:#E8EEF4; --mute:#707D8B; --trace:#F2B233; --alarm:#E4624F; --signal:#3CF08A;
       --accent-plan:#5AC8FA; --sans:sans-serif; --mono:monospace;
       --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px;
@@ -782,7 +907,10 @@ test("user bubbles hold short, long and attached content across the required ran
       expect(seen.nestedVerticalScrollers, `${width}px/${pixels}px nested scroller`).toBe(0);
       expect(seen.copied).toBe("short");
       expect(seen.focusWhole, `${width}px/${pixels}px focus ring`).toBe(true);
-      expect(seen.visuals).toEqual(["rgb(21, 24, 28)", "1px solid rgb(0, 0, 0)", "10px", "3px", "rgba(232, 238, 244, 0.1) 0px 1px 0px 0px inset, rgba(0, 0, 0, 0.38) 0px 3px 8px 0px"]);
+      expect(seen.visuals.slice(0, 2)).toEqual(["rgb(21, 24, 28)", "1px solid rgb(0, 0, 0)"]);
+      expect(parseFloat(seen.visuals[2])).toBeCloseTo(pixels * 5 / 6, 1);
+      expect(parseFloat(seen.visuals[3])).toBeCloseTo(pixels / 4, 1);
+      expect(seen.visuals[4]).toBe("rgba(232, 238, 244, 0.1) 0px 1px 0px 0px inset, rgba(0, 0, 0, 0.38) 0px 3px 8px 0px");
       const picture = decodePNG(await page.locator(".chat-user .chat-content").first().screenshot()), pixel = (x, y) => [...picture.data.slice((y * picture.width + x) * 4, (y * picture.width + x) * 4 + 3)];
       const corners = [pixel(0, 0), pixel(picture.width - 1, 0), pixel(0, picture.height - 1), pixel(picture.width - 1, picture.height - 1)];
       expect(corners.every((colour) => Math.max(...colour) < 14), "rounded corners expose only the dark page and shadow").toBe(true); expect(pixel(Math.floor(picture.width / 2), 4)).toEqual([21,24,28]);

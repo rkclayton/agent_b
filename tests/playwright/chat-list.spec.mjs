@@ -66,17 +66,19 @@ test("chat list rows, actions, independent state, resize persistence and capture
   const rows = page.locator(".chat-list-row[data-session]");
   await expect(rows).toHaveCount(5);
   const listTop = page.locator(".chat-list-top-actions");
-  await expect(listTop.locator(":scope > button")).toHaveCount(2);
+  await expect(listTop.locator(":scope > button")).toHaveCount(3);
   await expect(listTop.locator(":scope > button").first()).not.toHaveAttribute("title", /.+/);
   await expect(listTop.locator(":scope > button").nth(1)).toHaveAttribute("title", "New chat");
+  await expect(listTop.locator(":scope > button").nth(2)).toHaveAttribute("title", "New folder");
+  await expect(listTop.locator(":scope > button").nth(2)).toHaveAttribute("aria-label", "New folder");
   expect(await listTop.innerText()).toBe("");
   await expect(page.locator(".shell-settings")).toHaveCount(0);
   await page.locator(".chat-list-menu-button").click();
   const listMenu = page.locator(".chat-list-main-menu");
-  await expect(listMenu.locator(":scope > *")).toHaveCount(5);
-  await expect(listMenu.locator(":scope > span")).toHaveText("New");
-  await expect(listMenu.locator(":scope > button")).toHaveText(["Chat", "Folder", "Settings"]);
-  await expect(listMenu.locator(":scope > hr")).toHaveCount(1);
+  await expect(listMenu.locator(":scope > *")).toHaveCount(1);
+  await expect(listMenu.locator(":scope > span")).toHaveCount(0);
+  await expect(listMenu.locator(":scope > button")).toHaveText(["Settings"]);
+  await expect(listMenu.locator(":scope > hr")).toHaveCount(0);
   await page.keyboard.press("Escape");
   expect(await rows.evaluateAll((items) => items.map((item) => item.dataset.session))).toEqual(["p2", "p1", "f1", "f2", "root"]);
   await expect(page.locator('[data-session="worker"]')).toHaveCount(0);
@@ -249,14 +251,27 @@ test("chat list rows, actions, independent state, resize persistence and capture
   for (const panelWidth of [240, 96]) for (const textSize of [9, 12, 32]) {
     await page.evaluate(({ panelWidth, textSize }) => { document.documentElement.style.setProperty("--chat-list-width", `${panelWidth}px`); document.documentElement.style.setProperty("--chat-size", `${textSize}px`); document.documentElement.dataset.chatListWrap = String(textSize >= 28); }, { panelWidth, textSize });
     const top = await page.locator(".chat-list-top-row").evaluate((row) => ({ height: row.getBoundingClientRect().height, buttons: [...row.querySelectorAll("button")].map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]), text: row.innerText }));
-    expect(top, `${panelWidth}px / ${textSize}px`).toEqual({ height: 24, buttons: [[24, 24], [24, 24]], text: "" });
+    expect(top, `${panelWidth}px / ${textSize}px`).toEqual({ height: 24, buttons: [[24, 24], [24, 24], [18, 18]], text: "" });
     await page.locator(".chat-list").evaluate((list) => { list.scrollTop = 100; });
     expect(await page.locator(".chat-list-top-row").evaluate((row) => row.getBoundingClientRect().top - row.closest(".chat-list-panel").getBoundingClientRect().top)).toBe(0);
     await page.screenshot({ path: join(listEvidence, `${panelWidth}-${textSize}-open.png`) });
   }
   await page.evaluate(() => { document.documentElement.style.setProperty("--chat-list-width", "240px"); document.documentElement.style.removeProperty("--chat-size"); document.documentElement.dataset.chatListWrap = "false"; });
-  await page.locator(".chat-list-menu-button").click(); page.once("dialog", (dialog) => dialog.accept("Fixture folder")); await listMenu.getByRole("button", { name: "Folder", exact: true }).click();
+  const folderEvidence = "logs/evidence/rel-1.62.91/captures"; await mkdir(folderEvidence, { recursive:true });
+  for (const width of [1280, 304]) {
+    await page.setViewportSize({ width, height:860 });
+    const geometry = await page.locator(".chat-list-top-row").evaluate((row) => { const edge=row.getBoundingClientRect(), folder=row.querySelector(".chat-list-new-folder").getBoundingClientRect(), plus=row.querySelector(".chat-list-new").getBoundingClientRect(); return { gap:edge.right-folder.right, folder:[folder.width,folder.height], plus:[plus.width,plus.height] }; });
+    expect(geometry.gap).toBeLessThanOrEqual(8); expect(geometry.folder).toEqual([18,18]); expect(geometry.plus).toEqual([24,24]);
+    await page.screenshot({ path:join(folderEvidence,`chat-list-${width}-rest.png`) });
+    await page.locator(".chat-list-new-folder").hover(); await page.screenshot({ path:join(folderEvidence,`chat-list-${width}-folder-hover.png`) });
+    await page.locator(".chat-list-menu-button").click(); await page.screenshot({ path:join(folderEvidence,`chat-list-${width}-menu.png`) }); await page.keyboard.press("Escape");
+  }
+  await page.setViewportSize({ width:1400, height:800 });
+  page.once("dialog", (dialog) => dialog.accept("Fixture folder")); await page.locator(".chat-list-new-folder").click();
   await expect(page.locator('.chat-list-folder[data-folder="Fixture folder"]')).toBeVisible();
+  const foldersBeforeCancel = await page.locator(".chat-list-folder").count();
+  page.once("dialog", (dialog) => dialog.dismiss()); await page.locator(".chat-list-new-folder").click();
+  await expect(page.locator(".chat-list-folder")).toHaveCount(foldersBeforeCancel);
   await page.locator(".chat-list-menu-button").click(); await listMenu.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.locator("#settings-page")).toBeVisible(); await expect(page.getByTitle("Close")).toBeVisible();
   await page.keyboard.press("Escape"); await expect(page.locator("#settings-page")).toBeHidden(); await expect(page.getByTitle("Close")).toBeHidden();
@@ -331,13 +346,11 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(rows).toHaveCount(++rowCount);
   expect(actions.at(-1).role).not.toBe("d");
   await expect(page.locator(".shell-new-menu")).toBeHidden();
-  await page.locator(".chat-list-menu-button").click();
-  await expect(page.locator(".shell-new-menu")).toBeVisible();
-  await page.locator(".shell-new-menu").getByRole("button", { name: "Chat", exact: true }).click();
-  await expect(rows).toHaveCount(++rowCount);
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.store.config.agents[0].d = "fixture"; bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
   await page.locator(".chat-list-menu-button").click();
-  await expect(page.locator(".shell-new-menu > button")).toHaveText(["Chat", "Folder", "agent_d · agent_b — plan", "Settings"]);
+  await expect(page.locator(".shell-new-menu > button")).toHaveText(["agent_d · agent_b — plan", "Settings"]);
+  await expect(page.locator(".shell-new-menu > .chat-list-menu-label")).toHaveText("New");
+  await expect(page.locator(".shell-new-menu > hr")).toHaveCount(1);
   await page.getByTitle("Open plan chat").click(); await expect(rows).toHaveCount(++rowCount); expect(actions.at(-1).role).toBe("d");
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.store.config.agents[0].d = "fixture"; bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
   await page.locator(".chat-list-new").click(); await expect(rows).toHaveCount(++rowCount); expect(actions.at(-1).role).not.toBe("d");

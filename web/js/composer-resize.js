@@ -13,6 +13,13 @@
 export const COMPOSER_MIN = 0;
 export const TRANSCRIPT_MIN = 120;
 export const HEIGHT_KEY = "agentb.composer-height";
+export const COMPOSER_COLUMN_MIN = 90;
+export const COMPOSER_ACTIONS_MIN = 36;
+
+export function composerLayoutForHeight(height) {
+  if (height < COMPOSER_ACTIONS_MIN) return "shut";
+  return height < COMPOSER_COLUMN_MIN ? "row" : "column";
+}
 
 export function clampComposerHeight(height, { current, transcript }) {
   const ceiling = Math.max(COMPOSER_MIN, transcript + current - TRANSCRIPT_MIN);
@@ -26,9 +33,13 @@ export function installComposerResize({ handle, strip = handle, composer, input,
     const raw = Number.parseFloat(composer.style.getPropertyValue("--composer-height"));
     return Number.isFinite(raw) ? raw : input.getBoundingClientRect().height;
   };
+  const applyLayout = (height) => {
+    composer.dataset.composerLayout = composerLayoutForHeight(height);
+  };
   const apply = (height) => {
     const value = clampComposerHeight(height, { current: currentHeight(), transcript: log?.clientHeight || 0 });
     composer.style.setProperty("--composer-height", `${value}px`);
+    applyLayout(value);
     return value;
   };
 
@@ -36,6 +47,9 @@ export function installComposerResize({ handle, strip = handle, composer, input,
     const remembered = Number.parseFloat(store?.getItem(HEIGHT_KEY) ?? "");
     if (Number.isFinite(remembered)) composer.style.setProperty("--composer-height", `${Math.max(COMPOSER_MIN, remembered)}px`);
   } catch { /* the composer simply keeps the height it has always had */ }
+  applyLayout(currentHeight());
+  const measuredBox = input.closest?.(".chat-input-wrap") || input;
+  new ResizeObserver(() => applyLayout(currentHeight())).observe(measuredBox);
 
   strip.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;

@@ -59,8 +59,11 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
   const panel = page.locator(".chat-list-panel");
   await expect(panel).toBeVisible();
-  await expect(panel.getByTitle("New folder", { exact: true })).toHaveCount(0);
-  await panel.locator(".chat-list-menu-button").click(); await expect(page.locator(".chat-list-main-menu").getByRole("button", { name: "Folder", exact: true })).toBeVisible(); await page.locator("#chat-log").click();
+  await expect(panel.getByTitle("New folder", { exact: true })).toBeVisible();
+  await panel.locator(".chat-list-menu-button").click();
+  await expect(page.locator(".chat-list-main-menu").getByRole("button", { name: "Folder", exact: true })).toHaveCount(0);
+  await expect(page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+  await page.locator("#chat-log").click();
   await expect(panel.getByTitle("New folder in A")).toBeHidden();
 
   page.once("dialog", (dialog) => dialog.accept("B"));

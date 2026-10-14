@@ -13,6 +13,7 @@ import (
 
 	"harness/internal/session"
 )
+
 type Code struct{ diagnostics *languageDiagnostics }
 type codePosition struct{ Line, Character int }
 type codeRange struct{ Start, End codePosition }
@@ -30,6 +31,7 @@ type codeEntry struct {
 	kind, name, path string
 	line, column     int
 }
+
 func NewCode(diagnostics *languageDiagnostics) *Code { return &Code{diagnostics: diagnostics} }
 func (*Code) Name() string                           { return "code" }
 func (*Code) Description() string {
@@ -50,7 +52,10 @@ func (c *Code) Call(ctx context.Context, s *session.Session, args map[string]any
 	if action != "definition" && action != "references" && action != "outline" && action != "symbols" {
 		return "", fmt.Errorf("action must be definition, references, outline, or symbols")
 	}
-	root := s.Workspace
+	root, err := session.RealPath(s.Workspace)
+	if err != nil {
+		return "", err
+	}
 	if path != "" {
 		resolved, err := Resolve(root, path)
 		if err != nil {
@@ -79,7 +84,7 @@ func (c *Code) Call(ctx context.Context, s *session.Session, args map[string]any
 	}
 	candidates = narrowCodeEntries(candidates, filterPath, line, name)
 	if len(candidates) != 1 {
-		return boundedCode("candidates:", displayCodeEntries(root, candidates)), nil
+		return boundedCode(root, "candidates:", candidates), nil
 	}
 	selected := candidates[0]
 	params := map[string]any{"textDocument": map[string]any{"uri": fileURI(selected.path)}, "position": map[string]any{"line": selected.line - 1, "character": selected.column}}
@@ -102,7 +107,7 @@ func (c *Code) Call(ctx context.Context, s *session.Session, args map[string]any
 		_ = json.Unmarshal(raw, &locations)
 	}
 	entries := c.locations(root, locations)
-	return boundedCode(action+":", displayCodeEntries(root, entries)), nil
+	return boundedCode(root, action+":", entries), nil
 }
 func (c *Code) sourceFile(root string) string {
 	var files []string
@@ -146,7 +151,7 @@ func (c *Code) symbols(ctx context.Context, root, path, name string) (string, er
 	if result := codeStatus(status, filepath.Ext(path)); result != "" {
 		return result, nil
 	}
-	return boundedCode("symbols:", displayCodeEntries(root, entries)), nil
+	return boundedCode(root, "symbols:", entries), nil
 }
 func (c *Code) outline(ctx context.Context, root, path string) (string, error) {
 	info, err := os.Stat(path)
@@ -176,7 +181,7 @@ func (c *Code) outline(ctx context.Context, root, path string) (string, error) {
 			entries = append(entries, codeEntry{kind: codeKind(symbol.Kind), name: symbol.Name, path: file, line: symbol.Range.Start.Line + 1})
 		}
 	}
-	return boundedCode("outline:", displayCodeEntries(root, entries)), nil
+	return boundedCode(root, "outline:", entries), nil
 }
 func narrowCodeEntries(entries []codeEntry, path string, line int, name string) []codeEntry {
 	out := entries[:0]
@@ -213,15 +218,19 @@ func (c *Code) locations(root string, locations []codeLocation) []codeEntry {
 	}
 	return entries
 }
-func boundedCode(heading string, entries []codeEntry) string {
+func boundedCode(root, heading string, entries []codeEntry) string {
 	lines := []string{heading}
 	omitted := max(0, len(entries)-50)
 	for _, entry := range entries[:min(50, len(entries))] {
+		path := entry.path
+		if relative, err := filepath.Rel(root, path); err == nil {
+			path = relative
+		}
 		line := ""
 		if entry.kind != "" {
-			line = entry.kind + " " + entry.name + " " + filepath.ToSlash(entry.path) + fmt.Sprintf(":%d", entry.line)
+			line = entry.kind + " " + entry.name + " " + filepath.ToSlash(path) + fmt.Sprintf(":%d", entry.line)
 		} else {
-			line = filepath.ToSlash(entry.path) + fmt.Sprintf(":%d", entry.line)
+			line = filepath.ToSlash(path) + fmt.Sprintf(":%d", entry.line)
 			if entry.name != "" {
 				line += " " + entry.name
 			}
@@ -237,15 +246,6 @@ func boundedCode(heading string, entries []codeEntry) string {
 		lines = append(lines, fmt.Sprintf("%d more", omitted))
 	}
 	return strings.Join(lines, "\n")
-}
-func displayCodeEntries(root string, entries []codeEntry) []codeEntry {
-	out := append([]codeEntry(nil), entries...)
-	for index := range out {
-		if relative, err := filepath.Rel(root, out[index].path); err == nil {
-			out[index].path = relative
-		}
-	}
-	return out
 }
 func estimateCodeTokens(text string) int { return int(math.Ceil(float64(len([]rune(text))) / 3.6)) }
 func codeStatus(status lspQueryStatus, extension string) string {

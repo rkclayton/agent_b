@@ -51,13 +51,12 @@ button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,
 .shell-session-activity{min-width:0;overflow:hidden;color:var(--mute);font:12px/20px var(--mono);text-overflow:clip;white-space:nowrap}
 .shell-session-title{flex:0 1 auto;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;background:transparent;color:var(--mute);font:12px/20px var(--mono)}
 @media(max-width:600px){.shell-session-activity{display:none}}
-.shell-connection-menu{min-width:280px}
-/* and (c): four columns now, because the model is what the operator
- is choosing between and the row did not show it. The menu is 680px wide and
- the name column was flooring at 90 — it gets room, and its type is set one
- step smaller for this row alone so a long name fits WHOLE. */
-.shell-connection-choice{display:grid;grid-template-columns:minmax(80px,auto) minmax(180px,2fr) minmax(90px,1fr) auto;gap:10px;width:100%;text-align:left;font:12px/18px var(--mono)}
+@media(max-width:360px){.shell-session-lamp{display:none}}
+.shell-connection-menu{min-width:300px}
+.shell-connection-choice{display:grid;gap:2px;width:100%;text-align:left;font:11px/16px var(--mono)}
 .shell-connection-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shell-connection-choice .shell-agent-name{color:var(--ink);font:13px/18px var(--mono)}
+.shell-agent-route{display:grid;grid-template-columns:minmax(100px,auto) minmax(90px,1fr) auto;gap:10px;color:var(--mute)}
 /* (c): NO ELLIPSIS ON A MODEL NAME. The rule above applies to every other cell;
    this one is allowed to be smaller rather than cut, because a truncated model
    name identifies nothing and that is the whole defect. */
@@ -68,6 +67,8 @@ button:hover{background:rgba(232,238,244,.12)}button:active{background:rgba(232,
 .shell-connection-choice span.shell-connection-model{overflow:visible;text-overflow:clip;font-size:11px}
 .shell-connection-untested{color:var(--mute);font-style:italic}
 .shell-connection-choice.selected{color:var(--trace)}
+.shell-connection-choice.selected .shell-agent-name{color:var(--trace)}
+.shell-connection-choice.pending .shell-agent-name::after{content:" · next run";color:var(--trace);font-size:11px}
 .shell-state.stopping{color:var(--trace)}
 .shell-add{width:28px;padding:0;font-size:18px}
 .shell-state,.shell-connection{max-width:180px;overflow:hidden;color:var(--mute);font:12px/16px var(--mono);text-overflow:ellipsis;white-space:nowrap}

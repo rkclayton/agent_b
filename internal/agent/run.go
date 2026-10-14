@@ -175,29 +175,36 @@ func (r *Runner) Configure(cfg config.Config) {
 
 func (r *Runner) refreshAgent(s *session.Session) (*config.Connection, bool) {
 	snapshot := s.Snapshot()
-	connection, ok := r.connection(snapshot.ConnectionID)
-	if !ok {
-		return nil, false
+	if snapshot.AgentID == "" {
+		return r.connection(snapshot.ConnectionID)
 	}
 	cfg := r.cfg()
 	agentID := snapshot.AgentID
 	agent, ok := cfg.Agent(agentID)
-	if snapshot.Role == "" || snapshot.Role == "b" {
-		agent, ok = cfg.ProfileForConnection(snapshot.ConnectionID)
-		if snapshot.AgentID == "" || !ok {
-			// Direct runner fixtures and released callers can provide a connection
-			// without a complete Config. Routing remains connection-authoritative;
-			// only profile refresh is unavailable in that compatibility case.
-			return connection, true
+	changedProfile := false
+	if !ok {
+		agentID = cfg.DefaultAgentID()
+		agent, ok = cfg.Agent(agentID)
+		changedProfile = ok
+		if !ok {
+			// Direct runner fixtures can provide a connection without a complete Config.
+			return r.connection(snapshot.ConnectionID)
 		}
-		agentID = config.AgentID(agent.Name)
-	} else if !ok {
+	}
+	role := snapshot.Role
+	if role == "" {
+		role = "b"
+	}
+	connection, ok := cfg.AgentConnection(agentID, role)
+	if !ok {
+		if expected := agent.ConnectionFor(role); expected == "" || expected == snapshot.ConnectionID {
+			return r.connection(snapshot.ConnectionID)
+		}
 		return nil, false
 	}
-	changedProfile := snapshot.AgentID != "" && snapshot.AgentID != agentID
 	s.ApplyAgentConfig(agentID, *agent, *connection)
-	if changedProfile && agentID == "agent_b" {
-		r.bus.Publish(events.New(events.SessionUpdated, snapshot.ID, "", map[string]any{"session_id": snapshot.ID, "agent_id": agentID, "connection_id": snapshot.ConnectionID, "notice": "Agent profile deleted; using agent_b."}))
+	if changedProfile {
+		r.bus.Publish(events.New(events.SessionUpdated, snapshot.ID, "", map[string]any{"session_id": snapshot.ID, "agent_id": agentID, "connection_id": connection.ID, "notice": "Agent profile deleted; using agent_b."}))
 	}
 	return connection, true
 }

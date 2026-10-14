@@ -185,7 +185,7 @@ func (s *Server) phoneAgents() []map[string]any {
 	result := make([]map[string]any, 0, len(cfg.Agents))
 	for _, agent := range cfg.Agents {
 		connectionID, model := "", ""
-		if connection, ok := cfg.ConnectionForProfile(config.AgentID(agent.Name)); ok {
+		if connection, ok := cfg.AgentConnection(config.AgentID(agent.Name), "b"); ok {
 			connectionID, model = connection.ID, connection.Model
 		}
 		result = append(result, map[string]any{"id": config.AgentID(agent.Name), "name": agent.Name, "connection_id": connectionID, "model": model})

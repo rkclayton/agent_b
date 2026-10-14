@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { auditLayoutSnapshot, collectLayoutSnapshot } from "../layout-gate.mjs";
 
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
@@ -382,6 +383,45 @@ test("chat list rows, actions, independent state, resize persistence and capture
   const text = await page.locator(".chat-list-panel").evaluate((panel) => { const out = [], walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT); for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent.trim()) out.push(node.textContent.trim()); return out; });
   expect(text.some((value) => /[.!?](?:\s|$)/.test(value))).toBe(false);
   await context.close();
+});
+
+test("the chat switcher is an agent menu with queued changes and measured captures 2us", async ({ browser }) => {
+  const evidence = "logs/evidence/rel-1.62.105/captures";
+  await mkdir(evidence, { recursive: true });
+  const connections = [{ id: "shared", label: "Shared", model: "alpha-model" }, { id: "other", label: "Other", model: "beta-model" }];
+  const agents = [{ name: "agent_b", b: "shared" }, { name: "Reviewer", b: "shared" }, { name: "Writer", b: "other" }];
+  const session = { schema_version: 1, complete: true, id: "chat", label: "Chat", agent_id: "agent_b", agent_name: "agent_b", role: "b", connection_id: "shared", b_connection: "Shared", created_at: "2026-10-13T00:00:00Z", run: { status: "running" }, tools: [], messages: [], budget: {}, activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };
+  const snapshot = () => ({ sessions: { chat: session }, connections, config: { agents, connections }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "fixture", names: ["fixture"] }, build: {} });
+  const open = async (scale) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: scale });
+    await context.addInitScript(({ data }) => {
+      sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "chat", surface: { kind: "chat", key: "chat" } }));
+      class FixtureEvents { constructor() { this.listeners = new Map(); setTimeout(() => { const event = { data: JSON.stringify({ type: "snapshot", data }) }; for (const listener of this.listeners.get("snapshot") || []) listener(event); }); } addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); } close() {} }
+      globalThis.EventSource = FixtureEvents; globalThis.chrome = { webview: {} };
+    }, { data: snapshot() });
+    const page = await context.newPage();
+    await page.route("**/*", async (route) => {
+      const request = route.request(), url = new URL(request.url());
+      if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+      if (url.pathname === "/api/state") return route.fulfill({ contentType: "application/json", body: JSON.stringify(snapshot()) });
+      if (url.pathname === "/api/chats/tree") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ folders: [], chats: [{ id: "chat", folder: "" }] }) });
+      if (url.pathname === "/api/sessions/chat" && request.method() === "POST") return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ status: "pending" }) });
+      if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+      return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+    });
+    await page.goto("http://localhost:59999/chat?setup=skip&session=chat", { waitUntil: "domcontentloaded" });
+    await page.locator(".shell-session-title").click();
+    return { context, page };
+  };
+  const normal = await open(1), rows = normal.page.locator(".shell-connection-choice");
+  await expect(rows).toHaveCount(3); await expect(rows.locator(".shell-agent-name")).toHaveText(["agent_b", "Reviewer", "Writer"]); await expect(rows.first()).toHaveClass(/selected/);
+  await expect(rows.nth(0)).toContainText("Shared"); await expect(rows.nth(0)).toContainText("alpha-model"); await expect(rows.nth(2)).toContainText("Other"); await expect(rows.nth(2)).toContainText("beta-model"); await expect(rows.nth(0)).toContainText("checking");
+  const type = await rows.first().evaluate((row) => ({ name: parseFloat(getComputedStyle(row.querySelector(".shell-agent-name")).fontSize), detail: parseFloat(getComputedStyle(row.querySelector(".shell-agent-route")).fontSize) })); expect(type.name).toBeGreaterThan(type.detail);
+  expect(auditLayoutSnapshot(await normal.page.evaluate(collectLayoutSnapshot, ".shell-connection-menu"))).toEqual([]); await normal.page.screenshot({ path: join(evidence, "agent-menu-1280x860.png") });
+  await rows.nth(1).click(); await expect(normal.page.locator(".shell-session-title")).toContainText("next run");
+  await normal.page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.store.config.agents.push({ name: "Detached", b: "gone" }); bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
+  await normal.page.locator(".shell-session-title").click(); await expect(normal.page.locator(".shell-connection-choice").nth(3)).toContainText("no connection"); await expect(normal.page.locator(".shell-connection-choice").nth(3)).toBeDisabled(); await normal.context.close();
+  const scaled = await open(1.75); await scaled.page.screenshot({ path: join(evidence, "agent-menu-1280x860-175.png") }); await scaled.context.close();
 });
 
 test("removing the gear leaves no gap and keeps the window controls at the edge 2si", async ({ browser }) => {

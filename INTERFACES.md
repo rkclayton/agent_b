@@ -798,8 +798,8 @@ and request ownership of an already mirrored chat — is stated in the app-messa
 
 Item 2s6 supersedes the earlier `chat.create` restriction in this section:
 app-message state includes safe `connections` plus compatibility `agents:[{id,name,connection_id,model}]`,
-and `chat.create` accepts `{label?,agent_id?,connection_id?}`. `connection_id` selects the chat's connection directly.
-A released client sending `agent_id` maps it to the first connection naming that profile; an unnamed connection uses `agent_b`.
+and `chat.create` accepts `{label?,agent_id?,connection_id?}`. `agent_id` selects the chat's agent and that agent's current connection.
+The legacy `connection_id` maps to the agent named by that connection; an unnamed connection uses `agent_b`.
 An unknown id is refused without creating a chat; `role` and `source_session_id` remain refused.
 
 Item 2qk additively extends the chat list and paired-phone surface. Top-level state carries `folders:[path...]`.

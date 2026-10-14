@@ -491,7 +491,11 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "no connection named "+snapshot.BConnection, "connection_id")
 			return
 		}
-		if err := s.registry.SetConnection(id, target); err != nil {
+		if err := s.writeAgentRole(string(snapshot.AgentID), roleB, target); err != nil {
+			writeError(w, http.StatusConflict, err.Error(), "connection_id")
+			return
+		}
+		if err := s.registry.ApplyAgentBinding(string(snapshot.AgentID)); err != nil {
 			writeError(w, http.StatusConflict, err.Error(), "connection_id")
 			return
 		}

@@ -134,7 +134,7 @@ func TestChatCreateAcceptsOneConnectionAndRefusesUnknownWithoutCreating2ow(t *te
 		t.Errorf("the created chat does not carry the label: %s", created.Body)
 	}
 	selected := dispatch(t, server, `{"v":1,"kind":"request","id":"bc","route":"chat.create","body":{"label":"on remote","connection_id":"remote"}}`)
-	if selected.Status != 201 || !strings.Contains(string(selected.Body), `"connection_id":"remote"`) {
+	if selected.Status != 201 || !strings.Contains(string(selected.Body), `"agent_id":"agent_b"`) || !strings.Contains(string(selected.Body), `"connection_id":"local"`) {
 		t.Fatalf("selected=%d %s", selected.Status, selected.Body)
 	}
 	agentID := server.ConfigSnapshot().DefaultAgentID()

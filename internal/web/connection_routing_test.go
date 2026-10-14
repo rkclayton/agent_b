@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,44 +19,13 @@ import (
 	"harness/internal/tools"
 )
 
-// Item 2mi: THE GATE OBSERVES TRAFFIC, NOT CONFIGURATION.
-//
-// Written before the thing it protects, on purpose. A gate that reads
-// configuration would have passed through the entire defect this exists for:
-// every config-layer read looked correct while the chat switcher was setting
-// the AGENT's connection rather than the chat's, and only watching where the
-// request landed settles it.
-//
-// rel-1.24.0/W2 read the run loop first, as the item requires, and the
-// classification is:
-//
-//	FOLLOW THE SESSION'S ConnectionID
-//	  internal/agent/run.go:119   the turn itself
-//	  internal/agent/run.go:222   the continuation call
-//	  internal/agent/run.go:334   the retry call
-//	  internal/agent/run.go:147   a delegate child, through the CHILD's session
-//
-//	FOLLOW AN AGENT ROLE
-//	  internal/agent/compaction_summary.go   agent.C, the compaction summary
-//	  internal/agent/progress_aux.go         agent.C, the auxiliary progress model
-//	  internal/agent/scheduler.go:354        agent.C, presence only — arms a
-//	                                         detector, sends nothing
-//	  internal/web/agent_connection.go       SETS agent.B — the header switcher
-//
-// So a chat's own turns follow the chat, and only the two auxiliary models
-// follow the agent. The header's menu writes agent.B, which no run-time request
-// path reads.
-//
-// AND THE GATE PASSES TODAY, which the order did not expect and is worth saying
-// plainly. registry.SetConnection rebinds a live, healthy session and the next
-// run lands on the new endpoint — the mechanism underneath is already per-chat.
-// What does not exist is a way for the operator to REACH it: SetConnection is
-// called only from the rebind recovery path, which refuses when the connection
-// is not missing. That is 2mh, and this gate is what will hold it honest.
+// The gate observes the request, not only configuration: the chat's agent owns
+// the endpoint, opening prompt and toolset even when its stored connection is stale.
 
 type countingEndpoint struct {
 	server *httptest.Server
 	hits   atomic.Int32
+	body   atomic.Value
 }
 
 func newCountingEndpoint(t *testing.T, name string) *countingEndpoint {
@@ -63,6 +33,8 @@ func newCountingEndpoint(t *testing.T, name string) *countingEndpoint {
 	endpoint := &countingEndpoint{}
 	endpoint.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		endpoint.hits.Add(1)
+		data, _ := io.ReadAll(r.Body)
+		endpoint.body.Store(string(data))
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"content": "from " + name}, "finish_reason": "stop"}},
 			"usage":   map[string]any{"prompt_tokens": 1, "completion_tokens": 1},
@@ -119,9 +91,9 @@ func TestEachChatsRunLandsOnItsOwnConnection2mi(t *testing.T) {
 	if got := onBeta.Snapshot(); got.ConnectionID != "beta" || got.AgentID != "helper" || got.PromptAddendum != "beta profile" {
 		t.Fatalf("beta chat route=%q profile=%q prompt=%q", got.ConnectionID, got.AgentID, got.PromptAddendum)
 	}
-	// The connection is authoritative. Even stale compatibility profile state
-	// is repaired from it before the request leaves the process.
-	onBeta.AgentID = "agent_b"
+	// The agent is authoritative. Even stale connection state is repaired from
+	// that agent before the request leaves the process.
+	onBeta.ConnectionID = "alpha"
 
 	promptPath := filepath.Join(root, "system.md")
 	if err := os.WriteFile(promptPath, []byte("system {{tools}} {{memory}}"), 0o600); err != nil {
@@ -149,6 +121,12 @@ func TestEachChatsRunLandsOnItsOwnConnection2mi(t *testing.T) {
 	// THE ASSERTION IS WHICH ENDPOINT RECEIVED THE REQUEST.
 	if alpha.hits.Load() == 0 || beta.hits.Load() == 0 {
 		t.Fatalf("each chat's run must land on its own connection: alpha=%d beta=%d", alpha.hits.Load(), beta.hits.Load())
+	}
+	if body, _ := alpha.body.Load().(string); !strings.Contains(body, "alpha profile") || strings.Contains(body, "beta profile") {
+		t.Fatalf("alpha request did not carry its agent: %s", body)
+	}
+	if body, _ := beta.body.Load().(string); !strings.Contains(body, "beta profile") || strings.Contains(body, "alpha profile") {
+		t.Fatalf("beta request did not carry its agent: %s", body)
 	}
 	if err := registry.SetConnection(onAlpha.ID, "beta"); err != nil {
 		t.Fatal(err)

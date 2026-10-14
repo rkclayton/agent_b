@@ -107,7 +107,7 @@ function createShell(options = {}) {
 
   const right = node("div", "shell-right");
   const sessionActivity = node("time", "shell-session-activity");
-  const sessionHeading = button("", "Switch connection", "shell-session-title");
+  const sessionHeading = button("", "Switch agent", "shell-session-title");
 	let headerTelemetry = "";
   const connectionMenu = node("div", "shell-menu shell-connection-menu");
   connectionMenu.hidden = true;
@@ -177,32 +177,40 @@ function createShell(options = {}) {
   }
 
   function connectionState(connection) {
-    return connectionHealth(store, connection.id).word;
+    return connectionHealth(store, connection.id).word || "unknown";
   }
 
-  let pendingNewConnection = "";
+  const pendingSessionAgents = new Map();
   function renderConnectionMenu() {
     const session = store.sessions[store.selection.session_id];
     connectionMenu.replaceChildren();
     const user = node("span", "shell-menu-empty");
     user.textContent = `User · ${store.profiles?.active || store.config.profiles?.active || "unknown"}`;
     connectionMenu.append(user);
-    for (const connection of store.connections || store.config.connections || []) {
-      const id = connection.id;
-      const rawModel = String(connection.model || "").trim();
-      const named = rawModel && rawModel !== "model";
+    const connections = store.connections || store.config.connections || [];
+    for (const agent of store.config.agents || []) {
+      const id = agentKey(agent);
+      const connection = connections.find((candidate) => candidate.id === agent.b);
+      const connectionLabel = connection ? (connection.label || connection.id) : "no connection";
+      const rawModel = String(connection?.model || "").trim();
+      const named = !!connection && rawModel && rawModel !== "model";
       const modelLabel = named ? rawModel.split(/[\/]/).pop() : "not tested";
-      const row = button("", `Use ${connection.label || id}`, `shell-connection-choice ${(session?.connection_id || pendingNewConnection) === id ? "selected" : ""}`);
-      row.innerHTML = `<span>${escapeHTML(connection.label || id)}</span>`
-        + `<span class="shell-connection-model${named ? "" : " shell-connection-untested"}" title="${escapeHTML(named ? rawModel : "this agent's model has not been tested")}">${escapeHTML(modelLabel)}</span>`
-        + `<span>${escapeHTML(connectionState(connection, session))}</span>`;
+      const selected = session?.agent_id === id;
+      const pending = pendingSessionAgents.get(session?.id) === id;
+      const row = button("", `Use ${agent.name}`, `shell-connection-choice${selected ? " selected" : ""}${pending ? " pending" : ""}`);
+      row.disabled = !connection;
+      row.innerHTML = `<span class="shell-agent-name">${escapeHTML(agent.name)}</span>`
+        + `<span class="shell-agent-route"><span>${escapeHTML(connectionLabel)}</span>`
+        + `<span class="shell-connection-model${named ? "" : " shell-connection-untested"}" title="${escapeHTML(named ? rawModel : "this agent's model has not been tested")}">${escapeHTML(connection ? modelLabel : "")}</span>`
+        + `<span>${escapeHTML(connection ? connectionState(connection, session) : "")}</span></span>`;
       row.onclick = async () => {
         try {
           const current = store.sessions[store.selection.session_id];
           if (current) {
-            await api(`/api/sessions/${encodeURIComponent(current.id)}`, { connection_id: id });
+            const result = await api(`/api/sessions/${encodeURIComponent(current.id)}`, { agent_id: id });
+            if (result.status === "pending") pendingSessionAgents.set(current.id, id);
             reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          } else pendingNewConnection = id;
+          }
           connectionMenu.hidden = true;
           sessionHeading.setAttribute("aria-expanded", "false");
         } catch (error) { report(error.message); }
@@ -498,10 +506,9 @@ function createShell(options = {}) {
     const source = store.sessions[store.selection.session_id] || Object.values(store.sessions).sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0))[0];
     try {
       const configuredID = configured ? agentKey(configured) : agentKey(configuredAgent(source));
-	  const connectionID = pendingNewConnection || source?.connection_id || (store.connections || store.config.connections || [])[0]?.id || "";
       const body = agentID === "agent_d"
         ? { agent_id: configuredID, role: "d" }
-        : { connection_id: connectionID };
+        : { agent_id: configuredID || agentID };
       const result = await api("/api/sessions", body);
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       setSelection(agentID, result.session.id);
@@ -512,6 +519,8 @@ function createShell(options = {}) {
 
   function render(renderPanel = true) {
     const session = store.sessions[store.selection.session_id];
+    const pendingAgent = pendingSessionAgents.get(session?.id);
+    if (pendingAgent && session?.agent_id === pendingAgent) pendingSessionAgents.delete(session.id);
     const robot = appRobotStatus(store.sessions, store.selection.session_id);
     updateAgentRobot(appRobot, { state: robot.state, label: robot.label });
     // the window's own title. The overlay could not be made
@@ -538,7 +547,7 @@ function createShell(options = {}) {
     if (sessionLamp.dataset.state !== health.lamp) sessionLamp.dataset.state = health.lamp;
     setProperty(sessionLamp, "title", health.word);
 	const notRunnableReason = String(session?.not_runnable_reason || "").trim();
-    const heading = session ? (session.runnable === false ? (notRunnableReason || "Chat is not runnable") : sessionTitle(session)) : "No chat selected";
+    const heading = session ? (session.runnable === false ? (notRunnableReason || "Chat is not runnable") : `${sessionTitle(session)}${pendingSessionAgents.has(session.id) ? " · next run" : ""}`) : "No chat selected";
 	const state = session ? (session.runnable === false ? "not_runnable" : "named") : "no_chat";
 	const reason = state === "not_runnable" ? headerReasonCode(notRunnableReason) : "none";
 	const telemetry = `${state}:${reason}`;

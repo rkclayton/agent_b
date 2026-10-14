@@ -64,7 +64,7 @@ func TestAgentConnectionChangeWaitsForIdleThenUsesNewServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "first request did not reach original server")
-	response := postSessionUpdate(t, fixture.server, `{"connection_id":"new"}`)
+	response := postAgentConnection(t, fixture.server, "coder", `{"action":"set","role":"b","connection_id":"new"}`)
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
@@ -116,7 +116,7 @@ func TestAgentConnectionChangeAppliesAfterStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSignal(t, oldStarted, "request did not reach original server")
-	if response := postSessionUpdate(t, fixture.server, `{"connection_id":"new"}`); response.Code != http.StatusAccepted {
+	if response := postAgentConnection(t, fixture.server, "coder", `{"action":"set","role":"b","connection_id":"new"}`); response.Code != http.StatusAccepted {
 		t.Fatalf("pending status=%d body=%s", response.Code, response.Body)
 	}
 	eventStream, unsubscribe := fixture.server.bus.Subscribe()

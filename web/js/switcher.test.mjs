@@ -7,12 +7,12 @@ import test from "node:test";
 const shell = fs.readFileSync(new URL("./shell.js", import.meta.url), "utf8");
 const tokens = fs.readFileSync(new URL("../css/tokens.css", import.meta.url), "utf8");
 
-test("the switcher row names the model, not only the label", () => {
-  // (b): at any width, "server-2" identifies nothing. The model is what the
-  // operator is choosing between.
+test("each agent row names its connection and model", () => {
   const row = shell.slice(shell.indexOf("function renderConnectionMenu"), shell.indexOf("row.onclick"));
+  assert.match(row, /for \(const agent of store\.config\.agents/);
+  assert.match(row, /shell-agent-name/);
   assert.match(row, /shell-connection-model/);
-  assert.match(row, /String\(connection\.model \|\| ""\)/);
+  assert.match(row, /String\(connection\?\.model \|\| ""\)/);
 });
 
 test("a path is shown by its basename, with the whole string on hover", () => {
@@ -29,13 +29,8 @@ test("an untested connection says so rather than naming a model that does not ex
   assert.match(row, /not tested/);
 });
 
-test("the model name is not ellipsised and the column has room", () => {
-  // (c): the menu is 680px and the name column was flooring at 90.
-  // Item 2mh (c): the rule has to BEAT `.shell-connection-choice span`, which is a
-  // class and an element. Measured in the running app at rel-1.31.0: the bare class
-  // lost and the browser computed ellipsis on the model name.
+test("the agent name is largest and the model is not ellipsised", () => {
   assert.match(tokens, /\.shell-connection-choice span\.shell-connection-model\{[^}]*text-overflow:clip/);
-  const grid = /\.shell-connection-choice\{[^}]*grid-template-columns:([^;}]+)/.exec(tokens);
-  assert.ok(grid, "the row's grid is gone");
-  assert.match(grid[1], /minmax\(180px/, "the model column did not get room");
+  assert.match(tokens, /\.shell-connection-choice \.shell-agent-name\{[^}]*font:13px\/18px/);
+  assert.match(tokens, /\.shell-agent-route\{[^}]*font:11px\/16px|\.shell-connection-choice\{[^}]*font:11px\/16px/);
 });

@@ -125,7 +125,10 @@ func (r *Registry) createLike(sourceID, createdBy string) (*Session, error) {
 	}
 	agentID := snapshot.AgentID
 	if _, found := r.resolveAgent(agentID); agentID == "" || !found {
-		agentID = snapshot.ConnectionID
+		agentID = r.config().DefaultAgentID()
+		if agentID == "" {
+			agentID = snapshot.ConnectionID
+		}
 	}
 	return r.create("", agentID, "", enabled, "b", "", createdBy)
 }
@@ -150,9 +153,15 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	if _, exists := r.sessions[saved.ID]; exists {
 		return nil, fmt.Errorf("restore session %s: duplicate id", saved.ID)
 	}
-	agent, ok := r.resolveAgent(saved.AgentID)
+	agentID := saved.AgentID
+	if agentID == "" && saved.ConnectionID != "" {
+		if legacy, found := r.config().ProfileForConnection(saved.ConnectionID); found {
+			agentID = config.AgentID(legacy.Name)
+		}
+	}
+	agent, ok := r.resolveAgent(agentID)
 	if !ok {
-		return nil, fmt.Errorf("restore session %s: unknown agent %s", saved.ID, saved.AgentID)
+		return nil, fmt.Errorf("restore session %s: unknown agent %s", saved.ID, agentID)
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, saved.CreatedAt)
 	if err != nil {
@@ -177,34 +186,10 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	if role == "" {
 		role = "b"
 	}
-	connectionID := saved.ConnectionID
-	var connection *config.Connection
-	var connectionFound bool
-	if connectionID != "" {
-		if role == "" || role == "b" {
-			desired := config.AgentID(saved.AgentID)
-			for _, candidate := range r.config().Connections {
-				profile := config.AgentID(candidate.AgentProfile)
-				if profile == "" {
-					profile = "agent_b"
-				}
-				if profile == desired && (candidate.ID == connectionID || strings.HasPrefix(candidate.ID, connectionID+"-")) {
-					connectionID = candidate.ID
-					break
-				}
-			}
-		}
-		connection, connectionFound = r.connections(connectionID)
-		if connectionFound && (role == "" || role == "b") {
-			if selected, found := r.config().ProfileForConnection(connectionID); found {
-				agent = selected
-			}
-		}
-	} else {
-		connection, connectionFound = r.agentConnection(config.AgentID(agent.Name), role)
-		if connectionFound {
-			connectionID = connection.ID
-		}
+	connectionID := agent.ConnectionFor(role)
+	connection, connectionFound := r.agentConnection(config.AgentID(agent.Name), role)
+	if connectionFound {
+		connectionID = connection.ID
 	}
 	connectionRunnable, connectionReason := restoredConnectionRunnable(connectionID, connectionFound, saved.Runnable, saved.NotRunnableReason)
 	planID, planDir, planRepo := "", "", ""
@@ -903,86 +888,14 @@ func (r *Registry) RenameBy(id, label, by string) error {
 	return nil
 }
 func (r *Registry) SetConnection(id, connectionID string) error {
-	s, ok := r.Get(id)
-	if !ok {
-		return fmt.Errorf("session not found")
-	}
-	connection, ok := r.connections(connectionID)
-	if !ok {
+	if _, ok := r.connections(connectionID); !ok {
 		return fmt.Errorf("connection_id: unknown connection %s", connectionID)
-	}
-	runnable, reason := runnable(connection, r.config().Context.Accounting)
-	if !runnable {
-		return fmt.Errorf("connection_id: %s", reason)
 	}
 	profile, ok := r.config().ProfileForConnection(connectionID)
 	if !ok {
 		return fmt.Errorf("connection_id: connection %s names an unknown agent profile", connectionID)
 	}
-	profileID := config.AgentID(profile.Name)
-
-	s.mu.Lock()
-	if s.Closed {
-		s.mu.Unlock()
-		return fmt.Errorf("session is closed")
-	}
-	if s.Run.Status != "idle" {
-		s.mu.Unlock()
-		return fmt.Errorf("session is running")
-	}
-	workspace, scratch, previousAgent := s.Workspace, s.Scratch, s.AgentName
-	memoryBlock, memoryPath := s.MemoryBlock, s.MemoryPath
-	s.mu.Unlock()
-
-	if r.memory != nil {
-		var err error
-		memoryBlock, memoryPath, err = r.folderMemory(scratch, workspace, connectionID)
-		if err != nil {
-			return err
-		}
-	}
-	agentMemoryBlock, agentMemoryPath := "", ""
-	if r.agentMemory != nil {
-		var err error
-		agentMemoryBlock, agentMemoryPath, err = r.agentMemory(context.Background(), profileID, connectionID)
-		if err != nil {
-			return err
-		}
-	}
-
-	s.mu.Lock()
-	if s.Closed {
-		s.mu.Unlock()
-		return fmt.Errorf("session is closed")
-	}
-	if s.Run.Status != "idle" {
-		s.mu.Unlock()
-		return fmt.Errorf("session is running")
-	}
-	s.mu.Unlock()
-	s.ApplyAgentConfig(profileID, *profile, *connection)
-	s.mu.Lock()
-	s.Runnable, s.NotRunnableReason = true, ""
-	s.MemoryBlock, s.MemoryPath = memoryBlock, memoryPath
-	s.AgentMemoryBlock, s.AgentMemoryPath = agentMemoryBlock, agentMemoryPath
-	s.Budget = initialBudget(connection)
-	s.mu.Unlock()
-
-	r.bus.Publish(events.New(events.SessionUpdated, id, "", map[string]any{
-		"session_id":           id,
-		"connection_id":        connectionID,
-		"agent_id":             profileID,
-		"agent_name":           profile.Name,
-		"b_connection":         connection.Label,
-		"runnable":             true,
-		"not_runnable_reason":  "",
-		"memory_path":          memoryPath,
-		"memory_content":       memoryBlock,
-		"agent_memory_path":    agentMemoryPath,
-		"agent_memory_content": agentMemoryBlock,
-		"notice":               "Agent changed from " + previousAgent + " to " + profile.Name + ".",
-	}))
-	return nil
+	return r.SetAgent(id, config.AgentID(profile.Name))
 }
 
 func (r *Registry) SetAgent(id, agentID string) error {
@@ -994,16 +907,6 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	if !ok {
 		return fmt.Errorf("agent_id: unknown agent %s", agentID)
 	}
-	if snapshot := s.Snapshot(); snapshot.Role == "" || snapshot.Role == "b" {
-		connection, found := r.config().ConnectionForProfile(config.AgentID(agent.Name))
-		if !found && agent.B != "" {
-			connection, found = r.connections(agent.B)
-		}
-		if !found {
-			return fmt.Errorf("agent_id: profile %s has no connection", agentID)
-		}
-		return r.SetConnection(id, connection.ID)
-	}
 	snapshot := s.Snapshot()
 	previousAgent := snapshot.AgentName
 	connectionID := agent.ConnectionFor(snapshot.Role)
@@ -1014,6 +917,7 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	if !ok {
 		return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
 	}
+	connectionID = connection.ID
 	agentID = config.AgentID(agent.Name)
 	runnable, reason := runnable(connection, r.config().Context.Accounting)
 	if !runnable {
@@ -1081,13 +985,10 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		if snapshot.Run.Status == "running" || snapshot.Run.Status == "stopping" {
 			return fmt.Errorf("agent_id: session %s is running", snapshot.ID)
 		}
-		connectionID := snapshot.ConnectionID
-		connection, ok := r.connections(connectionID)
-		if snapshot.Role != "" && snapshot.Role != "b" {
-			connection, ok = r.agentConnection(agentID, snapshot.Role)
-			if ok {
-				connectionID = connection.ID
-			}
+		connection, ok := r.agentConnection(agentID, snapshot.Role)
+		connectionID := ""
+		if ok {
+			connectionID = connection.ID
 		}
 		if !ok {
 			return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
@@ -1113,6 +1014,7 @@ func (r *Registry) ApplyAgentBinding(agentID string) error {
 		}
 		item.ApplyAgentConfig(agentID, *agent, *connection)
 		item.mu.Lock()
+		item.Runnable, item.NotRunnableReason = true, ""
 		item.MemoryBlock, item.MemoryPath = memoryBlock, memoryPath
 		item.AgentMemoryBlock, item.AgentMemoryPath = agentMemoryBlock, agentMemoryPath
 		item.Budget = initialBudget(connection)

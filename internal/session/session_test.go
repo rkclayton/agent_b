@@ -388,7 +388,7 @@ func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
 	}
 }
 
-func TestRestoreKeepsThreeChatBindingsAndFallsBackOnlyWhenEmpty(t *testing.T) {
+func TestRestoreFollowsTheChatsAgentBinding(t *testing.T) {
 	logs := t.TempDir()
 	writers, err := events.NewWriters(logs)
 	if err != nil {
@@ -402,7 +402,7 @@ func TestRestoreKeepsThreeChatBindingsAndFallsBackOnlyWhenEmpty(t *testing.T) {
 	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}, Agents: []config.Agent{{Name: "Agent", B: "server", Toolset: config.FullToolset()}}}
 	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { value, ok := connections[id]; return value, ok }, 40, func() config.Config { return cfg })
 	created := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, row := range []struct{ id, saved, want string }{{"s13", "server", "server"}, {"s15", "local", "local"}, {"s16", "", "server"}} {
+	for _, row := range []struct{ id, saved, want string }{{"s13", "server", "server"}, {"s15", "local", "server"}, {"s16", "", "server"}} {
 		saved := Snapshot{ID: row.id, AgentID: "agent", ConnectionID: row.saved, Role: "b", CreatedAt: created, Workspace: t.TempDir(), Runnable: true, Run: RunState{Status: "idle"}}
 		restored, restoreErr := registry.Restore(saved)
 		if restoreErr != nil {
@@ -441,7 +441,7 @@ func TestRestoreUnknownConnectionIsNeverRunnable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := restored.Snapshot()
-	if got.Runnable || got.NotRunnableReason != "connection retired no longer exists" {
+	if got.Runnable || got.NotRunnableReason != "connection server no longer exists" {
 		t.Fatalf("unknown connection restore = runnable=%v reason=%q", got.Runnable, got.NotRunnableReason)
 	}
 }

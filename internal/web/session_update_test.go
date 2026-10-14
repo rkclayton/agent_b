@@ -22,7 +22,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 	second := runnableTestConnection("second")
 	second.Context.ReserveOutput = 2048
 	cfg.Connections = append(cfg.Connections, second, config.Connection{ID: "incomplete", Label: "Incomplete"})
-	cfg.Agents = []config.Agent{{Name: "First", B: "first", Toolset: config.FullToolset()}, {Name: "Second", B: "second", Toolset: config.FullToolset()}, {Name: "Incomplete", B: "incomplete", Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{{Name: "First", B: "first", Prompt: "first prompt", Toolset: []string{"read_file"}}, {Name: "Second", B: "second", Prompt: "second prompt", Toolset: []string{"list_dir"}}, {Name: "Same connection", B: "second", Prompt: "same connection prompt", Toolset: []string{"write_file"}}, {Name: "Incomplete", B: "incomplete", Toolset: config.FullToolset()}}
 
 	bus := events.NewBus()
 	eventStream, unsubscribe := bus.Subscribe()
@@ -55,6 +55,16 @@ func TestSessionAgentReassignment(t *testing.T) {
 	if body.Session.ConnectionID != "second" || !body.Session.Runnable {
 		t.Fatalf("unexpected session: %+v", body.Session)
 	}
+	if got := item.Snapshot(); got.AgentID != "second" || got.PromptAddendum != "second prompt" || !item.ToolEnabled("list_dir") || item.ToolEnabled("read_file") {
+		t.Fatalf("agent did not own prompt and tools: %+v", got)
+	}
+	response = postSessionUpdate(t, server, `{"agent_id":"same-connection"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("same-connection status=%d body=%s", response.Code, response.Body)
+	}
+	if got := item.Snapshot(); got.AgentID != "same-connection" || got.ConnectionID != "second" || got.PromptAddendum != "same connection prompt" || !item.ToolEnabled("write_file") || item.ToolEnabled("list_dir") {
+		t.Fatalf("same connection did not change agent-owned request state: %+v", got)
+	}
 	if len(body.Session.Messages) != 1 || body.Session.Messages[0].Content != "keep me" {
 		t.Fatalf("messages were not preserved: %+v", body.Session.Messages)
 	}
@@ -70,18 +80,27 @@ func TestSessionAgentReassignment(t *testing.T) {
 	}
 
 	item.SetRun(session.RunState{Status: "running"})
-	response = postSessionUpdate(t, server, `{"connection_id":"first"}`)
+	response = postSessionUpdate(t, server, `{"agent_id":"first"}`)
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"pending"`) {
 		t.Fatalf("running status=%d body=%s", response.Code, response.Body)
 	}
-	if snapshot := item.Snapshot(); snapshot.ConnectionID != "second" {
+	if snapshot := item.Snapshot(); snapshot.AgentID != "same-connection" || snapshot.ConnectionID != "second" {
 		t.Fatalf("running update changed server to %q", snapshot.ConnectionID)
 	}
 
 	item.SetRun(session.RunState{Status: "idle"})
-	server.applyPendingSessionConnections()
-	if snapshot := item.Snapshot(); snapshot.ConnectionID != "first" {
-		t.Fatalf("idle did not apply pending connection: %q", snapshot.ConnectionID)
+	server.applyPendingSessionAgents()
+	if snapshot := item.Snapshot(); snapshot.AgentID != "first" || snapshot.ConnectionID != "first" {
+		t.Fatalf("idle legacy connection update=%+v", snapshot)
+	}
+	server.mu.Lock()
+	server.cfg.Agents[0].B = "second"
+	server.mu.Unlock()
+	if err := registry.ApplyAgentBinding("first"); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := item.Snapshot(); snapshot.AgentID != "first" || snapshot.ConnectionID != "second" || snapshot.PromptAddendum != "first prompt" {
+		t.Fatalf("chat did not follow its agent binding: %+v", snapshot)
 	}
 	response = postSessionUpdate(t, server, `{"agent_id":"incomplete"}`)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "base_url is empty") {

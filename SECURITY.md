@@ -184,7 +184,7 @@ Protected plan and repository-policy writes are canonicalized separately before 
 The service-identity split defaults off. When its stored credential works,
 Agent_b creates shell processes under the configured low-privilege Windows identity with an explicit minimal environment.
 Its `PATH` contains only Windows system directories and the Windows PowerShell directory, so other tools require absolute paths.
-Until the identity is provisioned and verified, `write_file`, `edit_file`, `shell`, `run_script`,
+Until the identity is provisioned and verified, `write_file`, `edit_file`, `shell`, `process` starts, `run_script`,
 and `call_service` do not run and return `service identity not set up`;
 read-only file tools remain available through the non-elevated harness process so setup can be diagnosed.
 Startup never silently turns a failed split off or falls through to operator execution. The only deliberate process-global exception is the existing timed,
@@ -342,7 +342,7 @@ so an agent default can tighten approval but can never loosen it.
 
 Agent_b has two user-facing prompts. **Allow this** governs a risky action under `approval.mode` or a trusted repository policy:
 the shipped `boundary-only` default runs tools without generic pre-execution confirmation, `mutating` pauses `write_file`, `edit_file`, `shell`,
-`run_script`, and every `call_service` method except GET and HEAD, and `all` pauses every tool call. A service with
+`run_script`, `process` starts, and every `call_service` method except GET and HEAD, and `all` pauses every tool call. A service with
 `require_confirmation:true` always raises **Allow this** before its call in any mode; unattended and scheduled runs decline it without sending.
 **Run as you** governs every need for the operator's Windows identity: configured operator commands,
 built-in file operations outside the service account's reach, and operator-only interpreters. Every card offers **Yes, for this chat**, **Just once**,

@@ -101,7 +101,7 @@ func AgentID(name string) string {
 
 // New tools append; every older tool keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image", "todo", "ask"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image", "todo", "ask", "process"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration

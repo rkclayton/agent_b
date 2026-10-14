@@ -819,10 +819,10 @@ func TestAttachmentConfigIsAdditiveCurrentSchema(t *testing.T) {
 }
 
 // Items 2s3 and 2rj: each new tool follows every established configurable tool.
-func TestFullToolsetContractKeepsExistingOrderThenTodoAndAsk(t *testing.T) {
-	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service,delegate,cronjob,image,todo,ask"
+func TestFullToolsetContractKeepsExistingOrderThenProcess(t *testing.T) {
+	want := "read_file,list_dir,write_file,edit_file,search,shell,remember,recall,fetch_url,web_search,run_script,call_service,delegate,cronjob,image,todo,ask,process"
 	got := FullToolset()
-	if len(got) != 17 || strings.Join(got, ",") != want {
+	if len(got) != 18 || strings.Join(got, ",") != want {
 		t.Fatalf("full toolset=%v", got)
 	}
 }

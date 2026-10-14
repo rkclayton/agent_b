@@ -355,6 +355,10 @@ func cleanConsoleOutput(value string) string {
 type lockedBuffer struct {
 	mu       sync.Mutex
 	b        bytes.Buffer
+	ring     []byte
+	start    int
+	size     int
+	total    int64
 	partial  string
 	observer func(string)
 }
@@ -362,10 +366,25 @@ type lockedBuffer struct {
 func newLockedBuffer(ctx context.Context) *lockedBuffer {
 	return &lockedBuffer{observer: outputObserver(ctx)}
 }
+func newProcessWindow(size int) *lockedBuffer { return &lockedBuffer{ring: make([]byte, size)} }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
-	n, err := b.b.Write(p)
+	n, err := len(p), error(nil)
+	if len(b.ring) == 0 {
+		n, err = b.b.Write(p)
+	} else {
+		for _, value := range p {
+			if b.size < len(b.ring) {
+				b.ring[(b.start+b.size)%len(b.ring)] = value
+				b.size++
+			} else {
+				b.ring[b.start] = value
+				b.start = (b.start + 1) % len(b.ring)
+			}
+		}
+		b.total += int64(len(p))
+	}
 	observer := b.observer
 	line := ""
 	if observer != nil {
@@ -391,7 +410,33 @@ func (b *lockedBuffer) Write(p []byte) (int, error) {
 	}
 	return n, err
 }
-func (b *lockedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return b.b.String() }
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.ring) == 0 {
+		return b.b.String()
+	}
+	return string(b.ringBytes())
+}
+func (b *lockedBuffer) ringBytes() []byte {
+	out := make([]byte, b.size)
+	first := copy(out, b.ring[b.start:min(b.start+b.size, len(b.ring))])
+	copy(out[first:], b.ring[:b.size-first])
+	return out
+}
+func (b *lockedBuffer) Read(offset int64) (string, int64, int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	base := b.total - int64(b.size)
+	if offset < base {
+		offset = base
+	}
+	if offset > b.total {
+		offset = b.total
+	}
+	all := b.ringBytes()
+	return string(all[offset-base:]), offset, b.total
+}
 func cutOutput(value string, head, tail int) string {
 	value = strings.TrimRight(normalizeLF(value), "\n")
 	if value == "" {

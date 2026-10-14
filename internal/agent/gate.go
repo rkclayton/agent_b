@@ -112,7 +112,7 @@ func approvalRequired(mode, name string) bool {
 	case config.ApprovalModeBoundaryOnly, config.ApprovalModeOff:
 		return false
 	case config.ApprovalModeMutating:
-		return name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script"
+		return name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script" || name == "process"
 	case config.ApprovalModeAll:
 		return true
 	default:

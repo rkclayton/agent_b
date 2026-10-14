@@ -52,15 +52,18 @@ func applyDefaults(c *Config) {
 	previousFull := FullToolset()[:13]
 	priorCurrent := FullToolset()[:14]
 	beforeTodoAsk := FullToolset()[:15]
+	beforeProcess := FullToolset()[:17]
 	for index := range c.Agents {
-		if equalStrings(c.Agents[index].Toolset, legacyFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob", "image", "todo", "ask")
+		if equalStrings(c.Agents[index].Toolset, beforeProcess) {
+			c.Agents[index].Toolset = append(append([]string(nil), beforeProcess...), "process")
+		} else if equalStrings(c.Agents[index].Toolset, legacyFull) {
+			c.Agents[index].Toolset = append(append([]string(nil), legacyFull...), "delegate", "cronjob", "image", "todo", "ask", "process")
 		} else if equalStrings(c.Agents[index].Toolset, previousFull) {
-			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob", "image", "todo", "ask")
+			c.Agents[index].Toolset = append(append([]string(nil), previousFull...), "cronjob", "image", "todo", "ask", "process")
 		} else if equalStrings(c.Agents[index].Toolset, priorCurrent) {
-			c.Agents[index].Toolset = append(append([]string(nil), priorCurrent...), "image", "todo", "ask")
+			c.Agents[index].Toolset = append(append([]string(nil), priorCurrent...), "image", "todo", "ask", "process")
 		} else if equalStrings(c.Agents[index].Toolset, beforeTodoAsk) {
-			c.Agents[index].Toolset = append(append([]string(nil), beforeTodoAsk...), "todo", "ask")
+			c.Agents[index].Toolset = append(append([]string(nil), beforeTodoAsk...), "todo", "ask", "process")
 		}
 	}
 	if c.ConfigVersion == 0 {

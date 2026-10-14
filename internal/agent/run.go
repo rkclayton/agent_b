@@ -544,6 +544,8 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 }
 
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
+	processStart := name == "process" && args["action"] == "start"
+	shellStart := name == "shell" || processStart
 	if name == "shell" || name == "run_script" {
 		lastPublished := time.Time{}
 		var progressMu sync.Mutex
@@ -584,7 +586,10 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			switch name {
 			case "read_file", "list_dir", "search", "search_text", "find_files":
 				return r.callFileAsOperator(ctx, s, name, args)
-			case "write_file", "edit_file", "shell", "run_script", "call_service":
+			case "write_file", "edit_file", "shell", "process", "run_script", "call_service":
+				if name == "process" && !processStart {
+					break
+				}
 				if s.Scratch && (name == "write_file" || name == "edit_file") {
 					break
 				}
@@ -596,14 +601,14 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		if fileGrantTool(name) {
 			return r.callFileAsOperator(ctx, s, name, args)
 		}
-		if name == "shell" || name == "run_script" {
+		if shellStart || name == "run_script" {
 			return r.callShellAsOperator(ctx, s, name, args)
 		}
 	}
 	if fileGrantTool(name) && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.hasFileGrant(s.ID, runID) {
 		return r.callFileAsOperator(ctx, s, name, args)
 	}
-	if name == "shell" && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
+	if shellStart && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if r.hasShellGrant(s.ID, runID, shellGrantBoundary, "") {
 			return r.callShellAsOperator(ctx, s, name, args)
 		}
@@ -611,7 +616,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			return r.executeOperatorCommand(ctx, s, runID, callID, name, args, command)
 		}
 	}
-	if name == "shell" && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) && !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
+	if shellStart && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) && !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
 		identity := "operator"
 		if cfg.Shell.ServiceAccount.Enabled {
 			identity = "service"
@@ -685,13 +690,15 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if name == "run_script" && cfg.Shell.ServiceAccount.Enabled && !r.hasPolicyChatGrant(s.ID, name) {
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
-	} else if name == "shell" && r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
+	} else if shellStart && r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
 		// An operator-approved repository default grants this displayed command
 		// pattern for the run under the already-configured identity.
-	} else if name == "shell" && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.gate.requiredFor(s, name) {
+	} else if shellStart && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.gate.requiredFor(s, "shell") {
 		if !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
 			decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 		}
+	} else if name == "process" && !processStart && r.gate.modeFor(s) != config.ApprovalModeAll {
+		// Managing a process already approved for this run is not a new execution.
 	} else if !r.hasPolicyChatGrant(s.ID, name) && r.tools.PolicyApprovalRequired(name, r.gate.modeFor(s), args) {
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if r.hasPolicyChatGrant(s.ID, name) {
@@ -705,16 +712,16 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if !approvalGranted(decision) {
 		return tools.CallOutcome{Content: "error: call denied by user"}
 	}
-	if name == "shell" && decision == "run" {
+	if shellStart && decision == "run" {
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: "service"})
 	}
-	if name == "shell" && decision == "session" {
+	if shellStart && decision == "session" {
 		r.grantShellSession(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: "service"})
 	}
 	if decision == "session" && !connectorChange {
 		r.grantPolicyChat(s.ID, name)
 	}
-	if name == "shell" && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {
+	if shellStart && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {
 		args = resolveRepoGrantedExecutable(cfg, args)
 	}
 	var outcome tools.CallOutcome
@@ -729,7 +736,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	command, _ := args["command"].(string)
 	subject := "tool call"
 	scope := "rerun this exact tool call once"
-	if name == "shell" || name == "run_script" {
+	if shellStart || name == "run_script" {
 		subject = "command"
 		scope = "rerun this exact command once"
 	}
@@ -800,10 +807,10 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			overrideDecision = "once"
 		}
 	}
-	if name == "shell" && overrideDecision == "run" {
+	if shellStart && overrideDecision == "run" {
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantBoundary, Identity: "operator"})
 	}
-	if name == "shell" && overrideDecision == "session" {
+	if shellStart && overrideDecision == "session" {
 		r.grantShellSession(s, runID, shellRunGrant{Rule: shellGrantBoundary, Identity: "operator"})
 	}
 	if fileGrantTool(name) && overrideDecision == "run" {
@@ -835,7 +842,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	// interpreter's own error without teaching the model that the retry itself
 	// could not be made. Launch/identity failures do not have this shape and keep
 	// the harness note below.
-	if (name == "shell" || name == "run_script") && strings.HasPrefix(overrideContent, "error: command failed\nexit=") {
+	if (shellStart || name == "run_script") && strings.HasPrefix(overrideContent, "error: command failed\nexit=") {
 		outcome.Content, outcome.OK, outcome.OperatorContext = overrideContent, false, true
 		return outcome
 	}

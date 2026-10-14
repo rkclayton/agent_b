@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 
 	"harness/internal/config"
@@ -19,7 +20,12 @@ type runningShellProcess interface {
 	KillTree()
 }
 
-type execShellProcess struct{ cmd *exec.Cmd }
+type interactiveShellProcess interface{ WriteInput([]byte) error }
+
+type execShellProcess struct {
+	cmd   *exec.Cmd
+	input io.WriteCloser
+}
 
 func startHarnessProcess(executable string, argv []string, workspace string, output *lockedBuffer) (runningShellProcess, error) {
 	return startHarnessProcessWithInput(executable, argv, workspace, nil, output)
@@ -39,6 +45,22 @@ func startHarnessProcessWithInput(executable string, argv []string, workspace st
 	return &execShellProcess{cmd: cmd}, nil
 }
 
+func startHarnessBackgroundProcess(executable string, argv []string, workspace string, output *lockedBuffer) (runningShellProcess, error) {
+	cmd := exec.Command(executable, argv...)
+	cmd.Dir = workspace
+	setupProcess(cmd)
+	cmd.Stdout, cmd.Stderr = output, output
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		_ = input.Close()
+		return nil, err
+	}
+	return &execShellProcess{cmd: cmd, input: input}, nil
+}
+
 func (p *execShellProcess) Wait() (int, error) {
 	err := p.cmd.Wait()
 	if err == nil {
@@ -51,6 +73,13 @@ func (p *execShellProcess) Wait() (int, error) {
 }
 
 func (p *execShellProcess) KillTree() { killProcessTree(p.cmd.Process.Pid) }
+func (p *execShellProcess) WriteInput(value []byte) error {
+	if p.input == nil {
+		return errors.New("process input is closed")
+	}
+	_, err := p.input.Write(value)
+	return err
+}
 
 type serviceProcessStarter func(string, []string, string, []string, config.ShellServiceAccount, []byte, *lockedBuffer) (runningShellProcess, error)
 type serviceProcessInputStarter func(string, []string, string, []string, config.ShellServiceAccount, []byte, []byte, *lockedBuffer) (runningShellProcess, error)

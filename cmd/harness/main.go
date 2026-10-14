@@ -502,6 +502,8 @@ func main() {
 	cronManager := cron.New(profileRoot, nil, nil)
 	imageTool := tools.NewImage()
 	imageTool.Configure(*cfg)
+	processTool := tools.NewProcess(shellTool)
+	defer processTool.KillAll()
 	toolRegistry := tools.New(
 		fileIdentity.Wrap(tools.NewReadFile(cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(cfg.Tools.ListDir)),
@@ -524,6 +526,7 @@ func main() {
 		imageTool,
 		tools.NewTodo(),
 		tools.NewAsk(),
+		processTool,
 	)
 	// the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.

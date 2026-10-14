@@ -90,6 +90,7 @@ func (r *Runner) runInPhases(ctx context.Context, s *session.Session, runID stri
 	defer x.cleanupWall()
 	defer func() { x.cleanupDelivery(&reason, &detail, turns) }()
 	defer x.cleanupShellGrants()
+	defer x.r.tools.KillRunProcesses(s.ID, runID)
 	defer x.cleanupFileGrant()
 	defer x.cleanupFinalBudget()
 	if outcome := x.start(); outcome.stop {

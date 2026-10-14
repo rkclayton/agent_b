@@ -76,6 +76,7 @@ type policyApprovalTool interface {
 type questionTool interface {
 	Question(map[string]any) (string, []string, error)
 }
+type runProcessCleaner interface{ KillRun(string, string) }
 
 func toolAvailable(tool Tool, enabled map[string]bool) bool {
 	if available, ok := tool.(alwaysAvailable); ok && available.AlwaysAvailable() {
@@ -106,6 +107,13 @@ func (r *Registry) PreflightServiceIdentity() error {
 		}
 	}
 	return nil
+}
+func (r *Registry) KillRunProcesses(sessionID, runID string) {
+	for _, tool := range r.ordered {
+		if cleaner, ok := tool.(runProcessCleaner); ok {
+			cleaner.KillRun(sessionID, runID)
+		}
+	}
 }
 func (r *Registry) PolicyApprovalRequired(name, mode string, args map[string]any) bool {
 	tool, ok := r.byName[name].(policyApprovalTool)

@@ -4,6 +4,7 @@ package tools
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -70,6 +71,7 @@ var (
 type serviceShellProcess struct {
 	process  syscall.Handle
 	job      syscall.Handle
+	input    *os.File
 	output   *os.File
 	copyDone chan error
 	once     sync.Once
@@ -80,6 +82,14 @@ func startServiceAccountProcess(executable string, argv []string, workspace stri
 }
 
 func startServiceAccountProcessWithInput(executable string, argv []string, workspace string, environment []string, account config.ShellServiceAccount, password, input []byte, output *lockedBuffer) (runningShellProcess, error) {
+	return startServiceAccountProcessMode(executable, argv, workspace, environment, account, password, input, output, false)
+}
+
+func startServiceAccountBackgroundProcess(executable string, argv []string, workspace string, environment []string, account config.ShellServiceAccount, password []byte, output *lockedBuffer) (runningShellProcess, error) {
+	return startServiceAccountProcessMode(executable, argv, workspace, environment, account, password, nil, output, true)
+}
+
+func startServiceAccountProcessMode(executable string, argv []string, workspace string, environment []string, account config.ShellServiceAccount, password, input []byte, output *lockedBuffer, keepInput bool) (runningShellProcess, error) {
 	qualified := account.Account
 	if account.Domain != "" && account.Domain != "." {
 		qualified = account.Domain + `\` + account.Account
@@ -223,7 +233,7 @@ func startServiceAccountProcessWithInput(executable string, argv []string, works
 		}
 		_ = writer.Close()
 		stdinWrite = 0
-	} else {
+	} else if !keepInput {
 		// Closing the parent's write end makes the child's inherited stdin read as EOF.
 		syscall.CloseHandle(stdinWrite)
 		stdinWrite = 0
@@ -236,11 +246,16 @@ func startServiceAccountProcessWithInput(executable string, argv []string, works
 	outputWrite = 0
 	outputFile := os.NewFile(uintptr(outputRead), "service-shell-output")
 	outputRead = 0
+	var inputFile *os.File
+	if keepInput {
+		inputFile = os.NewFile(uintptr(stdinWrite), "agentb-service-stdin")
+		stdinWrite = 0
+	}
 	done := make(chan error, 1)
 	go func() {
 		done <- copyServiceOutput(output, outputFile)
 	}()
-	return &serviceShellProcess{process: process.Process, job: syscall.Handle(job), output: outputFile, copyDone: done}, nil
+	return &serviceShellProcess{process: process.Process, job: syscall.Handle(job), input: inputFile, output: outputFile, copyDone: done}, nil
 }
 
 func copyServiceOutput(output io.Writer, input io.Reader) error {
@@ -280,8 +295,19 @@ func (p *serviceShellProcess) KillTree() {
 	}
 }
 
+func (p *serviceShellProcess) WriteInput(value []byte) error {
+	if p.input == nil {
+		return errors.New("process input is closed")
+	}
+	_, err := p.input.Write(value)
+	return err
+}
+
 func (p *serviceShellProcess) close() {
 	p.once.Do(func() {
+		if p.input != nil {
+			_ = p.input.Close()
+		}
 		_ = p.output.Close()
 		_ = syscall.CloseHandle(p.process)
 		_ = syscall.CloseHandle(p.job)

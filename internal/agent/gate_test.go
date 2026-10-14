@@ -96,10 +96,10 @@ func TestGateRequiredMatrix(t *testing.T) {
 	}{
 		{mode: config.ApprovalModeOff, want: map[string]bool{}},
 		{mode: config.ApprovalModeBoundaryOnly, want: map[string]bool{}},
-		{mode: config.ApprovalModeMutating, want: map[string]bool{"write_file": true, "edit_file": true, "shell": true, "run_script": true}},
-		{mode: config.ApprovalModeAll, want: map[string]bool{"read_file": true, "write_file": true, "edit_file": true, "shell": true, "run_script": true, "fetch_url": true}},
+		{mode: config.ApprovalModeMutating, want: map[string]bool{"write_file": true, "edit_file": true, "shell": true, "run_script": true, "process": true}},
+		{mode: config.ApprovalModeAll, want: map[string]bool{"read_file": true, "write_file": true, "edit_file": true, "shell": true, "run_script": true, "process": true, "fetch_url": true}},
 	}
-	tools := []string{"read_file", "write_file", "edit_file", "shell", "run_script", "fetch_url"}
+	tools := []string{"read_file", "write_file", "edit_file", "shell", "run_script", "process", "fetch_url"}
 	for _, test := range tests {
 		t.Run(test.mode, func(t *testing.T) {
 			cfg := config.Defaults(t.TempDir())
@@ -109,6 +109,38 @@ func TestGateRequiredMatrix(t *testing.T) {
 				if got := gate.required(name); got != test.want[name] {
 					t.Errorf("required(%q)=%v, want %v", name, got, test.want[name])
 				}
+			}
+		})
+	}
+}
+
+func TestProcessStartAsksExactlyWhenShellAsks(t *testing.T) {
+	for _, name := range []string{"shell", "process"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Defaults(t.TempDir())
+			cfg.Approval.Mode = config.ApprovalModeMutating
+			shell := toolpkg.NewShell(cfg.Shell)
+			registry := toolpkg.New(shell, toolpkg.NewProcess(shell))
+			runner := NewRunner(events.NewBus(), registry, nil, nil, func() config.Config { return cfg })
+			stream, stop := runner.bus.Subscribe()
+			defer stop()
+			item := &session.Session{ID: name, Workspace: cfg.Workspace, ToolsEnabled: map[string]bool{name: true}, Run: session.RunState{Status: "running", RunID: "run"}}
+			args := map[string]any{"command": "Write-Output ok"}
+			if name == "process" {
+				args["action"] = "start"
+			}
+			done := make(chan toolpkg.CallOutcome, 1)
+			go func() { done <- runner.executeTool(context.Background(), item, "run", "call", name, args) }()
+			event := <-stream
+			if event.Type != events.ApprovalRequired {
+				t.Fatalf("event=%s", event.Type)
+			}
+			if err := runner.Gate().Decide(item.ID, "call", "deny"); err != nil {
+				t.Fatal(err)
+			}
+			<-stream
+			if outcome := <-done; outcome.OK || !strings.Contains(outcome.Content, "denied") {
+				t.Fatalf("outcome=%+v", outcome)
 			}
 		})
 	}

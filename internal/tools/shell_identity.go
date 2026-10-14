@@ -165,6 +165,26 @@ func (s *Shell) start(cfg config.Shell, workspace string, argv []string, output 
 	return nil, false, &operatorOverrideRequired{reason: reason}
 }
 
+func (s *Shell) startBackground(cfg config.Shell, workspace string, argv []string, output *lockedBuffer, forceOperator bool) (runningShellProcess, bool, error) {
+	if forceOperator || cfg.OperatorContext || !cfg.ServiceAccount.Enabled {
+		process, err := startHarnessBackgroundProcess(shellHostFor(cfg).Executable, argv, workspace, output)
+		return process, false, err
+	}
+	if s.credential != nil {
+		password, err := s.credential.Read()
+		if err == nil {
+			defer clearBytes(password)
+			process, spawnErr := startServiceAccountBackgroundProcess(shellHostFor(cfg).Executable, argv, workspace, minimalShellEnvironment(cfg.ServiceAccount, workspace), cfg.ServiceAccount, password, output)
+			if spawnErr == nil {
+				s.setIdentity(s.configuredIdentityStatus())
+				return process, true, nil
+			}
+			return nil, false, &operatorOverrideRequired{reason: serviceSpawnReason(spawnErr)}
+		}
+	}
+	return nil, false, &operatorOverrideRequired{reason: "service-account credential is unavailable"}
+}
+
 func (s *Shell) startInput(cfg config.Shell, executable string, argv []string, input []byte, workspace string, output *lockedBuffer, forceOperator bool) (runningShellProcess, bool, error) {
 	if forceOperator || cfg.OperatorContext || !cfg.ServiceAccount.Enabled {
 		process, err := startHarnessProcessWithInput(executable, argv, workspace, input, output)

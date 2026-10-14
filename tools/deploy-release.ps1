@@ -2,7 +2,9 @@
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^v\d+\.\d+\.\d+$')][string]$Tag,
     [string]$SigningThumbprint = '',
-    [switch]$ResumeStagedCandidate
+    [switch]$ResumeStagedCandidate,
+    [ValidateSet('', 'set aside on his word, 2026-10-14 15:37')]
+    [string]$CompactionProofOperatorSkip = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,8 +106,12 @@ if ($LASTEXITCODE -ne 0) { throw "DEPLOY REFUSED: candidate verification exited 
 Complete-ReleaseStep 'build-sign-release-key'
 }
 
-& node (Join-Path $repository 'tools\compaction-proof.mjs') --mode gate --source $repository --record (Join-Path $repository 'tests\compaction-proof.json') --app (Join-Path $candidate 'Agent_b.exe')
-if ($LASTEXITCODE -ne 0) { throw 'BUILT, NOT RELEASED: compaction is not proved' }
+if ($CompactionProofOperatorSkip) {
+    Write-Host "COMPACTION PROOF: $CompactionProofOperatorSkip"
+} else {
+    & node (Join-Path $repository 'tools\compaction-proof.mjs') --mode gate --source $repository --record (Join-Path $repository 'tests\compaction-proof.json') --app (Join-Path $candidate 'Agent_b.exe')
+    if ($LASTEXITCODE -ne 0) { throw 'BUILT, NOT RELEASED: compaction is not proved' }
+}
 Complete-ReleaseStep 'compaction-proof'
 
 # Item 2t5: the setup's outer signature being Valid does not prove that its

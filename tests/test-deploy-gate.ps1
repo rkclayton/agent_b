@@ -16,6 +16,9 @@ foreach ($forbidden in @('layout-gate.mjs', '--candidate $candidate', 'test-sign
 foreach ($required in @('tools\compaction-proof.mjs', 'tests\compaction-proof.json', 'BUILT, NOT RELEASED: compaction is not proved')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy is missing compaction proof contract: $required" }
 }
+foreach ($required in @('CompactionProofOperatorSkip', 'set aside on his word, 2026-10-14 15:37', 'COMPACTION PROOF:')) {
+    if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy is missing the named operator proof skip: $required" }
+}
 $verify = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\verify-deploy-candidate.ps1')
 $sign = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\sign-release.ps1')
 if ($sign -notmatch 'NotAfter -le \[DateTime\]::Now\.AddDays\(30\)' -or $sign -notmatch 'SIGNING REFUSED:.+more than 30 days remaining') {

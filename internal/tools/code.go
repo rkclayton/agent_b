@@ -13,7 +13,6 @@ import (
 
 	"harness/internal/session"
 )
-
 type Code struct{ diagnostics *languageDiagnostics }
 type codePosition struct{ Line, Character int }
 type codeRange struct{ Start, End codePosition }
@@ -39,7 +38,6 @@ func (*Code) Description() string {
 func (*Code) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"type": "string", "enum": []string{"definition", "references", "outline", "symbols"}}, "name": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"}, "line": map[string]any{"type": "integer", "minimum": 1}}, "required": []string{"action"}}
 }
-
 func (c *Code) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	name, _ := args["name"].(string)
@@ -180,7 +178,6 @@ func (c *Code) outline(ctx context.Context, root, path string) (string, error) {
 	}
 	return boundedCode("outline:", displayCodeEntries(root, entries)), nil
 }
-
 func narrowCodeEntries(entries []codeEntry, path string, line int, name string) []codeEntry {
 	out := entries[:0]
 	for _, entry := range entries {
@@ -197,7 +194,6 @@ func narrowCodeEntries(entries []codeEntry, path string, line int, name string) 
 	}
 	return out
 }
-
 func (c *Code) locations(root string, locations []codeLocation) []codeEntry {
 	entries := make([]codeEntry, 0, len(locations))
 	for _, location := range locations {
@@ -217,7 +213,6 @@ func (c *Code) locations(root string, locations []codeLocation) []codeEntry {
 	}
 	return entries
 }
-
 func boundedCode(heading string, entries []codeEntry) string {
 	lines := []string{heading}
 	omitted := max(0, len(entries)-50)

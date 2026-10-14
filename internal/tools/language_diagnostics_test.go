@@ -144,6 +144,11 @@ func TestLanguageServerFixtureProcess(t *testing.T) {
 		var message map[string]any
 		_ = json.Unmarshal(body, &message)
 		if message["method"] == "initialize" {
+			if params, ok := message["params"].(map[string]any); ok {
+				if rootURI, ok := params["rootUri"].(string); ok {
+					fixtureRoot = uriPath(rootURI)
+				}
+			}
 			fixtureLSPWrite(map[string]any{"jsonrpc": "2.0", "id": message["id"], "result": map[string]any{"capabilities": map[string]any{"textDocumentSync": 1}}})
 			continue
 		}

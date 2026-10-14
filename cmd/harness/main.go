@@ -453,6 +453,9 @@ func main() {
 	shellTool.SetFileCoordinator(coordinator)
 	shellTool.Configure(*cfg)
 	shellTool.SetCredentialStore(credentialStore)
+	diagnostics := tools.NewLanguageDiagnostics(shellTool, cfg.Tools.Diagnostics)
+	coordinator.SetDiagnostics(diagnostics)
+	defer diagnostics.Close()
 	web.SetShellSecurity(credentialStore, shellTool)
 	web.SetServiceAccountManager(serviceaccount.NewNative())
 	if cfg.Shell.ServiceAccount.Enabled {

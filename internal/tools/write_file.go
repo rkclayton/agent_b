@@ -13,16 +13,18 @@ import (
 )
 
 type FileCoordinator struct {
-	workspaces *session.WorkspaceRegistry
-	label      func(string) string
-	bus        *events.Bus
-	undo       *FileUndoStore
+	workspaces  *session.WorkspaceRegistry
+	label       func(string) string
+	bus         *events.Bus
+	undo        *FileUndoStore
+	diagnostics *languageDiagnostics
 }
 
 func NewFileCoordinator(workspaces *session.WorkspaceRegistry, label func(string) string, bus *events.Bus) *FileCoordinator {
 	return &FileCoordinator{workspaces: workspaces, label: label, bus: bus}
 }
-func (c *FileCoordinator) SetUndoStore(store *FileUndoStore) { c.undo = store }
+func (c *FileCoordinator) SetUndoStore(store *FileUndoStore)         { c.undo = store }
+func (c *FileCoordinator) SetDiagnostics(value *languageDiagnostics) { c.diagnostics = value }
 func (c *FileCoordinator) prepareUndo(s *session.Session, resolved string) error {
 	if c == nil || c.undo == nil {
 		return nil
@@ -240,5 +242,11 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if sheetSummary != "" {
 		return prefix + fmt.Sprintf("ok: wrote %s (%s)", cleanRel(path), sheetSummary), nil
 	}
-	return prefix + fmt.Sprintf("ok: wrote %s (%d lines)", cleanRel(path), lines), nil
+	result := prefix + fmt.Sprintf("ok: wrote %s (%d lines)", cleanRel(path), lines)
+	if w.coordinator != nil && w.coordinator.diagnostics != nil {
+		if check, ok := w.coordinator.diagnostics.Check(ctx, root, resolved); ok && check != "" {
+			result += "\n\n" + check
+		}
+	}
+	return result, nil
 }

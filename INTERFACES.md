@@ -213,7 +213,11 @@ Documented empty/no-match results are successful outcomes.
   configured ignored directories, depth 1 by default and 3 maximum, and a configured result cap.
   Inaccessible descendants are skipped and counted instead of aborting the enumeration. Directories end in `/`; an empty result is `directory is empty`.
 - `write_file {path,content}` atomically creates or replaces a file, creates parent directories, and refuses content over 512 KiB.
-  A successful result reports the path and written line count.
+  A successful result reports the path and written line count. After a successful write or edit, `tools.diagnostics` maps the file extension to a local
+  language-server command. If its executable is installed, Agent_b starts it under the same OS identity as `shell`, reuses it for that folder, and sends
+  LSP 3.18 `initialize`, `initialized`, then `textDocument/didOpen` or `didChange`. Up to twenty `publishDiagnostics` entries are appended as
+  `line:column severity message`, followed by the remaining count. A three-second silence says `no diagnostics in 3 s` without undoing the write.
+  Missing commands preserve the result byte for byte. Servers stop at app exit or after ten idle minutes; at most sixteen are retained.
 - `edit_file {path,old_string,new_string}` requires one unique match and keeps this three-string schema. It preserves UTF-8 BOM and the file's CRLF/LF style,
   then atomically replaces or deletes through ordered exact, whitespace-normalized (including indentation and model-emitted smart quote/dash normalization),
   and unique block-anchor/loose-middle strategies. Ambiguous or absent matches are errors;

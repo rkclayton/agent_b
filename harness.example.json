@@ -41,6 +41,16 @@
     },
     "find_files": {
       "skip_roots": ["Windows", "$Recycle.Bin", "System Volume Information", "ProgramData\\Microsoft\\Windows Defender*", "Program Files\\Windows Defender*"]
+    },
+    "diagnostics": {
+      ".go": ["gopls"],
+      ".ts": ["typescript-language-server", "--stdio"],
+      ".tsx": ["typescript-language-server", "--stdio"],
+      ".js": ["typescript-language-server", "--stdio"],
+      ".jsx": ["typescript-language-server", "--stdio"],
+      ".py": ["pyright-langserver", "--stdio"],
+      ".cs": ["OmniSharp", "-lsp"],
+      ".rs": ["rust-analyzer"]
     }
   },
   "shell": {

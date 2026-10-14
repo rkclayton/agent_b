@@ -212,14 +212,15 @@ type Memory struct {
 	MaxTokens int    `json:"max_tokens"`
 }
 type Tools struct {
-	ReadFile    ReadFileTool   `json:"read_file"`
-	Attachments AttachmentTool `json:"attachments"`
-	ListDir     ListDirTool    `json:"list_dir"`
-	Grep        GrepTool       `json:"grep"`
-	Shell       ShellTool      `json:"shell"`
-	Fetch       FetchTool      `json:"fetch"`
-	WebSearch   WebSearchTool  `json:"web_search"`
-	FindFiles   FindFilesTool  `json:"find_files"`
+	ReadFile    ReadFileTool        `json:"read_file"`
+	Attachments AttachmentTool      `json:"attachments"`
+	ListDir     ListDirTool         `json:"list_dir"`
+	Grep        GrepTool            `json:"grep"`
+	Shell       ShellTool           `json:"shell"`
+	Fetch       FetchTool           `json:"fetch"`
+	WebSearch   WebSearchTool       `json:"web_search"`
+	FindFiles   FindFilesTool       `json:"find_files"`
+	Diagnostics map[string][]string `json:"diagnostics"`
 }
 
 type AttachmentTool struct {

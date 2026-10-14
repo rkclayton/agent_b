@@ -208,6 +208,11 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	if check := syntaxCheck(resolved, displayPath); check != "" {
 		result += "\n\n" + check
 	}
+	if e.coordinator != nil && e.coordinator.diagnostics != nil {
+		if check, ok := e.coordinator.diagnostics.Check(ctx, root, resolved); ok && check != "" {
+			result += "\n\n" + check
+		}
+	}
 	return prefix + result, nil
 }
 

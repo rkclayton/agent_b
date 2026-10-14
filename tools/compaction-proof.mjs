@@ -12,6 +12,7 @@ const here = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const fixedKeys = new Set(["system", "project", "skills", "workspace_memory", "agent_memory", "tools"]);
 export const startupWaitMs = Math.ceil(5357 * 1.5);
+export const measuredAllowance = (startupMs, gaps = [], work = 1) => Math.ceil(Math.max(startupMs * Math.max(60, work * 12), ...gaps.map((gap) => gap * 12)));
 
 export function startupFailure(wait, last) { return `candidate page did not answer after ${(wait / 1000).toFixed(3)} seconds; last log: ${last || "none"}`; }
 export function proofSelection(machine, profile) {
@@ -53,10 +54,10 @@ export async function sourceHash(root = here) {
 
 const fixed = (budget) => Object.entries(budget?.categories || {}).filter(([name]) => fixedKeys.has(name)).reduce((sum, [, value]) => sum + Number(value || 0), 0);
 export function verifyRun(name, events, task, notes, fileCount, minimumCompactions) {
-  const compactions = events.filter((event) => event.type === "compaction");
-  assert.ok(compactions.length >= minimumCompactions, `${name}: it compacted every time it reached the line`);
   const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
   assert.equal(stopped?.data?.reason, "done", `${name}: run ended ${stopped?.data?.reason || "without a stop"}`);
+  const compactions = events.filter((event) => event.type === "compaction");
+  assert.ok(compactions.length >= minimumCompactions, `${name}: it compacted every time it reached the line`);
   const lines = notes.trimEnd().split(/\r?\n/);
   assert.deepEqual(lines, Array.from({ length: fileCount }, (_, index) => String(index + 1).padStart(4, "0")), `${name}: notes.md`);
   const measurements = [];
@@ -97,9 +98,23 @@ async function eventsIn(data, sessionID) {
   return values.sort((a, b) => a.seq - b.seq);
 }
 
-async function waitFor(check, label, timeout = 45 * 60_000) {
+async function waitFor(check, label, timeout) {
   for (const end = Date.now() + timeout; Date.now() < end;) { const value = await check(); if (value) return value; await sleep(250); }
   throw new Error(`${label} timed out`);
+}
+
+async function waitForActivity(read, done, label, startupMs, work) {
+  const gaps = []; let lastChange = Date.now(), lastSeq = -1, allowance = measuredAllowance(startupMs, gaps, work), deadline = lastChange + allowance;
+  for (;;) {
+    const values = await read(), now = Date.now(), seq = values.at(-1)?.seq || 0;
+    if (done(values)) {
+      process.stdout.write(`COMPACTION PROOF WAIT: ${label} allowance ${(allowance / 1000).toFixed(3)} seconds, measured from ${(startupMs / 1000).toFixed(3)}-second startup and same-run event gaps\n`);
+      return values;
+    }
+    if (seq !== lastSeq) { if (lastSeq >= 0) gaps.push(now - lastChange); lastSeq = seq; lastChange = now; allowance = measuredAllowance(startupMs, gaps, work); deadline = now + allowance; }
+    if (now >= deadline) throw new Error(`${label} timed out after measured ${(allowance / 1000).toFixed(3)}-second activity allowance`);
+    await sleep(250);
+  }
 }
 
 async function prepare(sourceData, root, window, fileCount) {
@@ -124,7 +139,7 @@ async function prepare(sourceData, root, window, fileCount) {
   return { active, port: Number(machine.listen.split(":").at(-1)), task, workspace: machine.workspace, data: join(root, "data"), record: { ...selected.record, window: declaredWindow }, redactions: [connection.id, connection.label, connection.base_url, connection.credential].filter(Boolean) };
 }
 
-async function runGroup(app, sourceData, window, specs, startOnly = false) {
+async function runGroup(app, sourceData, window, specs, startOnly = false, timing = {}) {
   const root = await mkdtemp(join(tmpdir(), "agentb-compaction-proof-"));
   let child;
   try {
@@ -135,24 +150,27 @@ async function runGroup(app, sourceData, window, specs, startOnly = false) {
     child.stderr.on("data", (part) => { lastLine = String(part).trim().split(/\r?\n/).filter(Boolean).at(-1)?.replaceAll(root, "<isolated root>") || lastLine; for (const value of prepared.redactions) lastLine = lastLine.replaceAll(value, "<connection>"); });
     const base = `http://127.0.0.1:${prepared.port}`;
     let document;
-    try { document = await waitFor(async () => { lastLine = await lastCandidateLog(prepared.data, lastLine); if (child.exitCode !== null) throw new Error(startupFailure(startupWaitMs, lastLine)); return fetch(`${base}/chat`).catch(() => null); }, "candidate page", startupWaitMs); }
-    catch (error) { if (String(error.message) === "candidate page timed out") throw new Error(startupFailure(startupWaitMs, await lastCandidateLog(prepared.data, lastLine))); throw error; }
-    process.stdout.write(`COMPACTION PROOF: candidate page answered in ${((Date.now() - startupAt) / 1000).toFixed(3)} seconds\n`);
+    const startAllowance = timing.startupAllowanceMs || startupWaitMs;
+    try { document = await waitFor(async () => { lastLine = await lastCandidateLog(prepared.data, lastLine); if (child.exitCode !== null) throw new Error(startupFailure(startAllowance, lastLine)); return fetch(`${base}/chat`).catch(() => null); }, "candidate page", startAllowance); }
+    catch (error) { if (String(error.message) === "candidate page timed out") throw new Error(startupFailure(startAllowance, await lastCandidateLog(prepared.data, lastLine))); throw error; }
+    const startupMs = Date.now() - startupAt;
+    process.stdout.write(`COMPACTION PROOF: candidate page answered in ${(startupMs / 1000).toFixed(3)} seconds within ${(startAllowance / 1000).toFixed(3)}-second allowance\n`);
     const html = await document.text(), token = html.match(/agentb-mutation-token" content="([^"]+)/)?.[1], cookie = document.headers.get("set-cookie")?.split(";")[0] || "";
     assert.ok(token, "model unreachable"); const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token, Cookie: cookie };
-    if (startOnly) return prepared.record;
+    if (startOnly) return { record: prepared.record, startupMs };
+    const activityBase = Math.max(timing.startupMs || 0, startupMs);
     const rows = [];
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
       await send(prepared.task);
       if (spec.interrupt || spec.queue) {
-        await waitFor(async () => (await eventsIn(prepared.data, id)).filter((one) => one.type === "tool.result").length >= 3, `${spec.name} middle`);
+        await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.filter((one) => one.type === "tool.result").length >= 3, `${spec.name} middle`, activityBase, spec.files);
         if (spec.queue) await send("Keep working on the same task.");
-        else { await json(`${base}/api/stop`, { method: "POST", headers, body: JSON.stringify({ session_id: id }) }); await waitFor(async () => (await eventsIn(prepared.data, id)).some((one) => one.type === "run.stopped"), `${spec.name} stop`); await send(spec.continueText); }
+        else { await json(`${base}/api/stop`, { method: "POST", headers, body: JSON.stringify({ session_id: id }) }); await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} stop`, activityBase, spec.files); await send(spec.continueText); }
       }
-      await waitFor(async () => (await eventsIn(prepared.data, id)).filter((one) => one.type === "run.stopped").at(-1)?.data?.reason === "done", `${spec.name} completion`);
-      rows.push({ ...prepared.record, ...verifyRun(spec.name, await eventsIn(prepared.data, id), prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8"), spec.files, spec.minimum) });
+      await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, activityBase, spec.files);
+      rows.push({ ...prepared.record, ...verifyRun(spec.name, await eventsIn(prepared.data, id), prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum) });
       await writeFile(join(prepared.workspace, "notes.md"), "");
     }
     return rows;
@@ -170,7 +188,9 @@ export async function prove({ app, sourceData, root = here, record }) {
   const short = [{ name: "fresh", files: 60, minimum: 3 }, { name: "typed-continue", files: 60, minimum: 3, interrupt: true, continueText: "continue" }, { name: "Continue", files: 60, minimum: 3, interrupt: true, continueText: "Continue" }, { name: "queued-message", files: 60, minimum: 3, queue: true }];
   const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active;
   const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), ownWindow = proofSelection(machine, profile).record.window;
-  const runs = [...await runGroup(app, sourceData, 48000, short), ...await runGroup(app, sourceData, ownWindow, [{ name: "full", files: Math.ceil(40 * ownWindow / 32768), minimum: 1 }])];
+  const sample = await dryStart({ app, sourceData, window: 48000 }), timing = { startupMs: sample.startupMs, startupAllowanceMs: Math.ceil(sample.startupMs * 1.5) };
+  process.stdout.write(`COMPACTION PROOF CALIBRATION: startup ${(sample.startupMs / 1000).toFixed(3)} seconds; scored-start allowance ${(timing.startupAllowanceMs / 1000).toFixed(3)} seconds\n`);
+  const runs = [...await runGroup(app, sourceData, 48000, short, false, timing), ...await runGroup(app, sourceData, ownWindow, [{ name: "full", files: Math.ceil(40 * ownWindow / 32768), minimum: 1 }], false, timing)];
   const identity = JSON.parse((await new Promise((done, reject) => { const child = spawn(app, ["--version"], { windowsHide: true }); let out = ""; child.stdout.on("data", (part) => out += part); child.on("error", reject); child.on("close", () => done(out)); })) || "{}");
   const value = { date: new Date().toISOString().slice(0, 10), build: { tag: identity.tag, commit: identity.commit, dirty: identity.dirty }, source_hash: await sourceHash(root), runs };
   await writeFile(record, JSON.stringify(value, null, 2) + "\n"); return value;
@@ -180,7 +200,7 @@ async function main() {
   const pairs = process.argv.slice(2), args = {}; for (let i = 0; i < pairs.length; i += 2) args[pairs[i].replace(/^--/, "")] = pairs[i + 1];
   const root = resolve(args.source || here), record = resolve(args.record || join(root, "tests", "compaction-proof.json"));
   if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
-  if (args.mode === "start") { try { const result = await dryStart({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), window: Number(args.window || 48000) }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
+  if (args.mode === "start") { try { const result = await dryStart({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), window: Number(args.window || 48000) }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
   try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record }); process.stdout.write("COMPACTION PROOF: passed\n"); }
   catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
 }

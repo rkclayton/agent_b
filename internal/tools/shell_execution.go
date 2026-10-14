@@ -69,6 +69,7 @@ func (s *Shell) Description() string {
 		description += "Shell has no public network (enforced outside the tool layer); use web_search or fetch_url for public network reads. "
 	}
 	description += "Use run_script for multi-line source. This is PowerShell, not cmd.exe: use Set-Location, not `cd /d`. " + syntax
+	description += " Run `& $env:AGENTB_EXE browser` with no further arguments to read its page-rendering and driving verbs on demand."
 	if cfg.ServiceAccount.Enabled && len(operatorCommands) > 0 {
 		description += " Git and other configured commands need one decision per run; expect one prompt, not one per call."
 	}

@@ -176,6 +176,25 @@ func TestNonzeroShellExitProducesFailedToolResultEvent(t *testing.T) {
 	}
 }
 
+func TestBrowserScreenshotResultNamesOneModelAttachment2qt(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "screenshots", "page.png")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, smallPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metadata := browserScreenshotMetadata(&session.Session{Workspace: workspace}, "shell", "browser screenshot: screenshots/page.png\n")
+	file, _ := metadata["file"].(map[string]any)
+	if file["path"] != "screenshots/page.png" || file["bytes"].(int64) <= 0 {
+		t.Fatalf("metadata=%#v", metadata)
+	}
+	if browserScreenshotMetadata(&session.Session{Workspace: workspace}, "shell", "browser screenshot: ../page.png") != nil {
+		t.Fatal("outside screenshot accepted")
+	}
+}
+
 func TestRememberRefusesImmediateToolResultEchoAndAcceptsDurableFact2kt(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)

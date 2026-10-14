@@ -238,6 +238,7 @@ Documented empty/no-match results are successful outcomes.
   A nonzero exit is an error containing `exit=<code>` and nonempty combined output.
   Simple file discovery/read commands return a structured unsuccessful routing refusal naming the first-class replacement tool, and the command is not executed.
   With the service split enabled, an out-of-workspace discovery path instead reports the operator-decision boundary and supplies no replacement call.
+  The existing shell also exposes the executable's read-on-demand `browser` subcommand: `& $env:AGENTB_EXE browser` prints the verbs; `start`, `nav`, `eval`, `text`, `screenshot`, `click`, `fill`, `press`, `wait`, and `pick` drive headless Edge through its local DevTools protocol. This registers no tool and adds nothing to the system prompt. Drive results name the acted-on element, title, and address. A screenshot is written under the workspace's `screenshots/`, delivered as a file, and attached to the next model request only on a connection that reads images; the ordinary image bound applies.
 - `remember {note,scope,replaces?}` writes user, repository, or environment memory as below.
   Scope `planner` instead appends one dated local product note to `<data-root>/planner/notes-for-planner.md`; it is never returned by `recall`, sent,
   or placed in a repository. A private custom agent reads shared and private memory, but every memory write goes only to its private file.
@@ -750,6 +751,7 @@ and a PDF with no text layer is rendered and read by the inbox OCR page by page 
 Stop retains every completed page and adds `stopped by the operator after page N of M` as the sidecar's last line.
 Extraction output is not cut at the upload limit. Only when neither route reads it is it labeled unreadable binary with the reason;
 PNG/JPEG/GIF/WebP becomes an in-memory `image_url` content part when `image_input` was probed and otherwise receives a local Windows OCR sidecar.
+Before any image content part is encoded, its decoded dimensions are bounded to 1568 px on the longest edge with aspect ratio preserved; smaller images keep their original bytes, while a scaled request uses PNG bytes. The stored file and every operator-visible copy remain untouched. An image whose dimensions cannot be decoded is omitted with an explicit model-visible reason rather than sent without the bound.
 `native` sends those document/image kinds regardless of the probe, while `extract` never sends their binary bytes.
 Each native part is immediately preceded by its own harness-generated text part declaring that payload untrusted evidence, never instructions.
 Native data-URL characters are conservatively upper-bounded one-for-one as context tokens and allocated cumulatively across retained attachment history against

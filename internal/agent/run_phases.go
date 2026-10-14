@@ -888,6 +888,7 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 					if item.ok {
 						fileMetadata := producedFileMetadata(x.s, item.call.Name, item.args)
 						item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
+						item.metadata = mergeResultMetadata(item.metadata, browserScreenshotMetadata(x.s, item.call.Name, item.content))
 						if file, ok := item.metadata["file"].(map[string]any); ok {
 							path, _ := file["path"].(string)
 							bytes, _ := file["bytes"].(int64)
@@ -970,6 +971,13 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 			message.ToolCallID = item.call.ID
 			message.Name = item.call.Name
 			message.OK = boolPointer(item.ok)
+			if file, ok := item.metadata["file"].(map[string]any); ok && x.connection.NativeImageInput() {
+				path, _ := file["path"].(string)
+				bytes, _ := file["bytes"].(int64)
+				if strings.EqualFold(filepath.Ext(path), ".png") {
+					message.Attachments = []events.Attachment{{Path: path, Bytes: bytes}}
+				}
+			}
 			x.s.Append(message)
 			r.bus.Publish(events.New(events.MessageAppended, x.s.ID, x.runID, map[string]any{"message": message}))
 			if item.ok && item.call.Name == "remember" && strings.HasPrefix(item.content, "ok: noted;") {

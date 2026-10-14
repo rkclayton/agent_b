@@ -76,12 +76,12 @@ func TestShellDescriptionNamesConfiguredDialect(t *testing.T) {
 	if powerShell7() != "" {
 		want = "PowerShell 7: `&&` and `||` work."
 	}
-	if got := shell.Description(); !strings.HasSuffix(got, want) {
+	if got := shell.Description(); !strings.Contains(got, want) || !strings.Contains(got, "$env:AGENTB_EXE browser") {
 		t.Fatalf("PowerShell description = %q", got)
 	}
 
 	shell.Configure(config.Config{Shell: config.Shell{Command: []string{"bash", "-c"}}})
-	if got := shell.Description(); !strings.HasSuffix(got, "Use bash syntax.") {
+	if got := shell.Description(); !strings.Contains(got, "Use bash syntax.") || !strings.Contains(got, "$env:AGENTB_EXE browser") {
 		t.Fatalf("configured description = %q", got)
 	}
 }
@@ -144,6 +144,21 @@ func TestOperatorCommandMatchesResolvedFirstExecutableOnly(t *testing.T) {
 	}
 	if _, ok := shell.OperatorCommand(map[string]any{"command": fmt.Sprintf("& %q status", fake)}); ok {
 		t.Fatal("same-basename workspace executable matched configured git")
+	}
+}
+
+func TestBrowserSubcommandAlwaysRequiresOperatorIdentity2qt(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell := NewShell(config.Defaults(t.TempDir()).Shell)
+	command, ok := shell.OperatorCommand(map[string]any{"command": fmt.Sprintf("& %q browser text", executable)})
+	if !ok || command.Name != "browser" {
+		t.Fatalf("command=%+v ok=%v", command, ok)
+	}
+	if command, ok = shell.OperatorCommand(map[string]any{"command": "& $env:AGENTB_EXE browser text"}); !ok || command.Name != "browser" {
+		t.Fatalf("environment command=%+v ok=%v", command, ok)
 	}
 }
 

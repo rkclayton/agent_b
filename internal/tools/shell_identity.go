@@ -49,9 +49,26 @@ func (s *Shell) OperatorCommandWith(args map[string]any, additional []string) (O
 	if len(words) == 0 {
 		return OperatorCommand{}, false
 	}
+	if len(words) > 1 && strings.EqualFold(words[1], "browser") && strings.EqualFold(cleanShellScriptToken(words[0]), "$env:AGENTB_EXE") {
+		if current, err := os.Executable(); err == nil {
+			current, _ = filepath.Abs(current)
+			return OperatorCommand{Name: "browser", Executable: filepath.Clean(current)}, true
+		}
+	}
 	resolved, ok := resolveOperatorExecutable(words[0])
 	if !ok {
 		return OperatorCommand{}, false
+	}
+	if len(words) > 1 && strings.EqualFold(words[1], "browser") {
+		if current, err := os.Executable(); err == nil {
+			current, _ = filepath.Abs(current)
+			if evaluated, evalErr := filepath.EvalSymlinks(current); evalErr == nil {
+				current = evaluated
+			}
+			if strings.EqualFold(filepath.Clean(current), resolved) {
+				return OperatorCommand{Name: "browser", Executable: resolved}, true
+			}
+		}
 	}
 	_, configured := s.configWithOperatorCommands()
 	configured = append(configured, additional...)

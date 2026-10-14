@@ -50,6 +50,12 @@ import (
 )
 
 func main() {
+	if executable, err := os.Executable(); err == nil {
+		_ = os.Setenv("AGENTB_EXE", executable)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "browser" {
+		os.Exit(runBrowserCommand(os.Args[2:]))
+	}
 	if setupExecutable(os.Args[0]) {
 		if err := validateSetupArguments(os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)

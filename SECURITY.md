@@ -193,6 +193,8 @@ and process-tree termination through a Windows job object, but it still requires
 A separate account limits reach; it is not a sandbox and does not contain an exploit.
 Follow [Windows host hardening](docs/HARDENING.md) before relying on the split.
 
+Browser commands always take the existing **Run as you** approval because the service identity has no public network. They launch headless Edge with a fresh isolated profile under the operator's temp directory, never the operator's signed-in browser profile; therefore cookies, saved logins, extensions, and open tabs are not in reach. The local debugging endpoint binds loopback, the command state is user-only, and an idle watcher kills the browser and removes that isolated profile after ten minutes. Page content remains untrusted, and browser approval does not replace any later file or command approval.
+
 Office files (item 2ep) add no dependency: `.xlsx`/`.docx` ingest and `.xlsx` output use only the Go standard library (`archive/zip`, `encoding/xml`,
 which never resolves external entities), within the attachment byte bound. Written workbook cells are inline strings or numbers, never formulas.
 The Chat delivery chip's open action runs in the harness process as the operator and opens only document types,

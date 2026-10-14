@@ -591,6 +591,30 @@ func producedFileMetadata(s *session.Session, name string, args map[string]any) 
 	}}
 }
 
+func browserScreenshotMetadata(s *session.Session, name, content string) map[string]any {
+	if name != "shell" {
+		return nil
+	}
+	const prefix = "browser screenshot: "
+	line := strings.TrimSpace(content)
+	if !strings.HasPrefix(line, prefix) {
+		return nil
+	}
+	requested := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if !strings.EqualFold(filepath.Ext(requested), ".png") {
+		return nil
+	}
+	resolved, err := tools.Resolve(s.Workspace, requested)
+	if err != nil {
+		return nil
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	return map[string]any{"file": map[string]any{"path": filepath.ToSlash(requested), "bytes": info.Size()}}
+}
+
 func mergeResultMetadata(current, added map[string]any) map[string]any {
 	if len(added) == 0 {
 		return current

@@ -41,10 +41,10 @@ func TestConnectorChangeAlwaysUsesApprovalAndHotReloadsForRead(t *testing.T) {
 	})
 	runner := NewRunner(bus, toolpkg.New(serviceTool), nil, nil, func() config.Config { return cfg })
 	s := &session.Session{ID: "connector", ToolsEnabled: map[string]bool{"call_service": true}, Run: session.RunState{Status: "running"}}
-	valid := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "mcp", "auth": "none"}}}
+	valid := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "http", "auth": "none", "allowed_methods": []any{"POST"}}}}
 
 	done := make(chan toolpkg.CallOutcome, 1)
-	bad := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "mcp", "auth": "pasted-secret"}}}
+	bad := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "http", "auth": "pasted-secret", "allowed_methods": []any{"POST"}}}}
 	go func() { done <- runner.executeTool(context.Background(), s, "run", "bad", "call_service", bad) }()
 	badEvent := <-eventCh
 	badArgs := badEvent.Data.(map[string]any)["args"].(map[string]any)
@@ -83,9 +83,55 @@ func TestConnectorChangeAlwaysUsesApprovalAndHotReloadsForRead(t *testing.T) {
 	if outcome := <-done; !outcome.OK || writes != 1 {
 		t.Fatalf("approved outcome=%+v writes=%d", outcome, writes)
 	}
-	read := runner.executeTool(context.Background(), s, "run", "read", "call_service", map[string]any{"service": "broker", "method": "POST", "body": map[string]any{"method": "tools/list"}})
+	read := runner.executeTool(context.Background(), s, "run", "read", "call_service", map[string]any{"service": "broker", "method": "POST", "path": "rpc", "body": map[string]any{"method": "tools/list"}})
 	if !read.OK || !strings.Contains(read.Content, `"tools"`) {
 		t.Fatalf("read=%+v", read)
+	}
+}
+
+func TestMCPApprovalCardShowsFullTargetAndPromptBytesStayStable2rm(t *testing.T) {
+	for _, test := range []struct {
+		name, target string
+		entry        map[string]any
+	}{
+		{name: "address", target: "https://mcp.example.test/rpc", entry: map[string]any{"name": "remote", "url": "https://mcp.example.test/rpc", "kind": "mcp", "auth": "none"}},
+		{name: "command", target: "fixture-server --stdio --label full-target", entry: map[string]any{"name": "local", "command": "fixture-server --stdio --label full-target", "kind": "mcp", "auth": "none"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bus := events.NewBus()
+			eventsSeen, unsubscribe := bus.Subscribe()
+			defer unsubscribe()
+			cfg := config.Defaults(t.TempDir())
+			serviceTool := toolpkg.NewCallService(nil)
+			serviceTool.SetConnectorWriter(func(toolpkg.ConnectorChange) error { return nil })
+			runner := NewRunner(bus, toolpkg.New(serviceTool), nil, nil, func() config.Config { return cfg })
+			s := &session.Session{ID: "mcp-card-" + test.name, ToolsEnabled: map[string]bool{"call_service": true}, Run: session.RunState{Status: "running"}}
+			done := make(chan toolpkg.CallOutcome, 1)
+			go func() {
+				done <- runner.executeTool(context.Background(), s, "run", "card", "call_service", map[string]any{"connector": map[string]any{"operation": "add", "entry": test.entry}})
+			}()
+			event := <-eventsSeen
+			encoded, _ := json.Marshal(event.Data)
+			if event.Type != events.ApprovalRequired || !strings.Contains(string(encoded), test.target) {
+				t.Fatalf("approval card=%s data=%s", event.Type, encoded)
+			}
+			if err := runner.Gate().Decide(s.ID, "card", "deny"); err != nil {
+				t.Fatal(err)
+			}
+			<-eventsSeen
+			<-done
+		})
+	}
+
+	renderer := &PromptRenderer{text: "system tools={{tools}}"}
+	connection := &config.Connection{}
+	s := &session.Session{Workspace: "fixture"}
+	httpRegistry := toolpkg.New(toolpkg.NewCallService(map[string]config.Service{"service": {Kind: "http", BaseURL: "https://example.test", Auth: "none", AllowedMethods: []string{"GET"}, TimeoutS: 5, MaxBodyKB: 64}}))
+	mcpRegistry := toolpkg.New(toolpkg.NewCallService(map[string]config.Service{"service": {Kind: "mcp", BaseURL: "https://example.test", Auth: "none", AllowedMethods: []string{"POST"}, TimeoutS: 5, MaxBodyKB: 64}}))
+	httpPrompt := renderer.Render(connection, s, httpRegistry.Names(map[string]bool{"call_service": true}), "")
+	mcpPrompt := renderer.Render(connection, s, mcpRegistry.Names(map[string]bool{"call_service": true}), "")
+	if httpPrompt != mcpPrompt {
+		t.Fatalf("system prompt changed: http=%q mcp=%q", httpPrompt, mcpPrompt)
 	}
 }
 

@@ -493,6 +493,9 @@ func main() {
 	fetchTool := tools.NewFetch(cfg.Tools.Fetch)
 	delegateTool := tools.NewDelegate()
 	callServiceTool := tools.NewCallService(cfg.Services)
+	callServiceTool.SetShell(shellTool)
+	defer callServiceTool.Close()
+	go callServiceTool.RunMCPMaintenance()
 	// the named-credential store lives beside the connection credentials, under
 	// the operator data root, and the tool reads it through one seam.
 	vault := credential.NewVault(paths.Data)

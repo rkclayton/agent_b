@@ -699,7 +699,9 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
 
 Every parsed key appears in `harness.example.json`; connector entries are
 `services.<name>.{kind,base_url,auth,allowed_methods,timeout_s,max_body_kb,require_confirmation,openapi}`;
-`openapi` is present only on a connector that imported a document and is `{source,snapshot,sha256,operations}`. `kind` is `http` or `mcp`; MCP entries use POST.
+`openapi` is present only on a connector that imported a document and is `{source,snapshot,sha256,operations}`. `kind` is `http` or `mcp`.
+An MCP connector has either an HTTP(S) `base_url` for the MCP 2025-06-18 Streamable HTTP transport or the internal `command:<full command>` representation written from an approved proposal's `command`; command connectors use `auth: none`.
+`call_service {service,list:true}` initializes the server and returns tool names with one-line descriptions. `{service,tool,arguments}` calls a tool, and adding `schema:true` returns only that named tool's input schema. MCP responses are untrusted and bounded by `max_body_kb`; no server schema is added to the system prompt. A stdio server starts on first use under `shell`'s configured identity and working folder, and stops after ten idle minutes or with the app. A saved MCP entry used as raw HTTP is refused with an instruction to change its kind to `http`.
 Auth is `none`, `stored:<name>`, `entra:<name>` or `exec:<argv>`;
 `static_bearer:<env>` is retired and is migrated into the credential store on load (verified by read-back;
 an empty variable leaves the connector unauthenticated and never falls back to the environment).

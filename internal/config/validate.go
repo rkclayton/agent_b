@@ -216,7 +216,8 @@ func (c Config) validateServices() error {
 			return fmt.Errorf("services: names must be slugs")
 		}
 		endpoint, err := url.Parse(strings.TrimSpace(service.BaseURL))
-		if err != nil || endpoint == nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		command := service.Kind == "mcp" && strings.HasPrefix(strings.TrimSpace(service.BaseURL), "command:") && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(service.BaseURL), "command:")) != ""
+		if !command && (err != nil || endpoint == nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "") {
 			return fmt.Errorf("%s.base_url: must be an absolute HTTP(S) URL without user information, query, or fragment", prefix)
 		}
 		if service.Kind != "" && service.Kind != "http" && service.Kind != "mcp" {
@@ -224,6 +225,9 @@ func (c Config) validateServices() error {
 		}
 		if err := ValidateServiceAuth(service.Auth); err != nil {
 			return fmt.Errorf("%s.auth: %w", prefix, err)
+		}
+		if command && strings.TrimSpace(service.Auth) != "none" {
+			return fmt.Errorf("%s.auth: an MCP command must use none", prefix)
 		}
 		if service.Kind != "mcp" && len(service.AllowedMethods) == 0 {
 			return fmt.Errorf("%s.allowed_methods: at least one method is required", prefix)

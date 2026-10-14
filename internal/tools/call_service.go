@@ -24,6 +24,7 @@ import (
 	"harness/internal/attachment"
 	"harness/internal/config"
 	"harness/internal/credential"
+	mcpproto "harness/internal/mcp"
 	"harness/internal/quietproc"
 	"harness/internal/session"
 )
@@ -46,6 +47,11 @@ type cachedServiceCredential struct {
 	headers       http.Header
 	validUntil    time.Time
 }
+type mcpServiceSession struct {
+	client   *mcpproto.Client
+	lastUsed time.Time
+	done     <-chan struct{}
+}
 
 type CallService struct {
 	mu       sync.Mutex
@@ -59,6 +65,10 @@ type CallService struct {
 	vault      *credential.Vault
 	testClient *http.Client
 	providers  map[string]TokenProvider
+	mcpClients map[string]*mcpServiceSession
+	shell      *Shell
+	mcpStop    chan struct{}
+	mcpOnce    sync.Once
 }
 
 // SetHTTPClientForTest lets a case dial its own TLS stub. Nothing in the product sets it.
@@ -66,6 +76,19 @@ func (c *CallService) SetHTTPClientForTest(client *http.Client) {
 	c.mu.Lock()
 	c.testClient = client
 	c.mu.Unlock()
+}
+func (c *CallService) SetShell(shell *Shell) { c.mu.Lock(); c.shell = shell; c.mu.Unlock() }
+func (c *CallService) RunMCPMaintenance() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.closeIdleMCP()
+		case <-c.mcpStop:
+			return
+		}
+	}
 }
 
 type ConnectorChange struct {
@@ -82,7 +105,7 @@ type ConnectorChange struct {
 }
 
 func NewCallService(services map[string]config.Service) *CallService {
-	tool := &CallService{cache: map[string]cachedServiceCredential{}, providers: map[string]TokenProvider{}, now: time.Now}
+	tool := &CallService{cache: map[string]cachedServiceCredential{}, providers: map[string]TokenProvider{}, mcpClients: map[string]*mcpServiceSession{}, mcpStop: make(chan struct{}), now: time.Now}
 	tool.setServices(services)
 	return tool
 }
@@ -108,6 +131,10 @@ func (c *CallService) Schema() map[string]any {
 			"accept":    map[string]any{"type": "string", "description": "One response content type declared by the chosen imported operation"},
 			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
 			"service":   map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
+			"list":      map[string]any{"type": "boolean", "description": "List an MCP service's tools"},
+			"tool":      map[string]any{"type": "string", "description": "MCP tool name to call or inspect"},
+			"arguments": map[string]any{"type": "object", "description": "Arguments for an MCP tool", "additionalProperties": true},
+			"schema":    map[string]any{"type": "boolean", "description": "Return the named MCP tool's input schema instead of calling it"},
 			"method":    map[string]any{"type": "string", "description": "HTTP method allowed by the service"},
 			"path":      map[string]any{"type": "string", "description": "Relative path for a registered service, or an absolute URL whose host must match that service"},
 			"query":     map[string]any{"type": "object", "description": "Query parameters", "additionalProperties": true},
@@ -116,7 +143,7 @@ func (c *CallService) Schema() map[string]any {
 			"offset":    map[string]any{"type": "integer", "description": "One-based response-body byte offset for a repeated request", "default": 1},
 			"limit":     map[string]any{"type": "integer", "description": "Maximum response-body bytes, capped by the configured service maximum"},
 		},
-		"anyOf": []any{map[string]any{"required": []string{"connector"}}, map[string]any{"required": []string{"service", "operation"}}, map[string]any{"required": []string{"service", "method"}}},
+		"anyOf": []any{map[string]any{"required": []string{"connector"}}, map[string]any{"required": []string{"service", "list"}}, map[string]any{"required": []string{"service", "tool"}}, map[string]any{"required": []string{"service", "operation"}}, map[string]any{"required": []string{"service", "method"}}},
 	}
 }
 
@@ -156,8 +183,17 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 	if change.Service.Kind != "http" && change.Service.Kind != "mcp" {
 		return ConnectorChange{}, true, fmt.Errorf("connector.entry.kind must be mcp or http")
 	}
+	if command, _ := entry["command"].(string); strings.TrimSpace(command) != "" {
+		if change.Service.Kind != "mcp" || strings.TrimSpace(change.Service.BaseURL) != "" {
+			return ConnectorChange{}, true, fmt.Errorf("connector.entry.command is supported only for an MCP connector without url")
+		}
+		change.Service.BaseURL = "command:" + strings.TrimSpace(command)
+	}
 	if err := config.ValidateNewServiceAuth(change.Service.Auth); err != nil {
 		return ConnectorChange{}, true, fmt.Errorf("connector.entry.auth: %w", err)
+	}
+	if _, command := mcpCommand(change.Service.BaseURL); command && strings.TrimSpace(change.Service.Auth) != "none" {
+		return ConnectorChange{}, true, fmt.Errorf("connector.entry.auth: an MCP command must use none")
 	}
 	if strings.HasPrefix(strings.TrimSpace(change.Service.Auth), "exec:") {
 		argv, err := splitServiceArgv(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(change.Service.Auth), "exec:")))
@@ -234,10 +270,15 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 
 func (c *CallService) Configure(cfg config.Config) {
 	c.mu.Lock()
+	clients := c.mcpClients
+	c.mcpClients = map[string]*mcpServiceSession{}
 	c.setServicesLocked(cfg.Services)
 	c.listener = cfg.Listen
 	c.cache = map[string]cachedServiceCredential{}
 	c.mu.Unlock()
+	for _, client := range clients {
+		_ = client.client.Close()
+	}
 }
 
 func (c *CallService) setServices(services map[string]config.Service) {
@@ -317,6 +358,9 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	if !ok {
 		detail.Err = fmt.Errorf("service is required")
 		return detail
+	}
+	if service, registered := c.service(serviceName); registered && service.Kind == "mcp" {
+		return c.callMCP(ctx, item, serviceName, service, args)
 	}
 	operationName, _ := args["operation"].(string)
 	// the operation form, and the document as the allow-list. Both
@@ -537,6 +581,172 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	log.Printf("call_service: service=%q method=%s path=%q status=%d duration_ms=%d bytes=%d more=%t", serviceName, method, requestedPath, response.StatusCode, duration, window.Bytes, window.More)
 	return detail
 }
+
+func (c *CallService) callMCP(ctx context.Context, item *session.Session, name string, service config.Service, args map[string]any) (detail CallDetail) {
+	detail.Untrusted = true
+	if _, legacy := args["method"]; legacy {
+		detail.Err = fmt.Errorf("MCP service %q does not take method/path; change its kind to http for raw HTTP calls", name)
+		return detail
+	}
+	c.mu.Lock()
+	c.closeIdleMCPLocked(c.now())
+	saved := c.mcpClients[name]
+	c.mu.Unlock()
+	var client *mcpproto.Client
+	if saved != nil {
+		client = saved.client
+	}
+	if client == nil {
+		var done <-chan struct{}
+		if command, stdio := mcpCommand(service.BaseURL); stdio {
+			c.mu.Lock()
+			shell := c.shell
+			c.mu.Unlock()
+			if shell == nil {
+				detail.Err = fmt.Errorf("MCP service %q: command transport is unavailable", name)
+				return detail
+			}
+			workspace := ""
+			if item != nil {
+				workspace = item.Workspace
+			}
+			endpoint, err := startStdioMCP(shell, command, workspace, service.MaxBodyKB<<10)
+			if err != nil {
+				detail.Err = fmt.Errorf("MCP service %q: %w", name, err)
+				return detail
+			}
+			client = mcpproto.New(endpoint)
+			done = endpoint.done
+			c.mu.Lock()
+			if existing := c.mcpClients[name]; existing != nil {
+				_ = client.Close()
+				client = existing.client
+			} else {
+				c.mcpClients[name] = &mcpServiceSession{client: client, lastUsed: c.now(), done: done}
+			}
+			c.mu.Unlock()
+		} else {
+			target, err := parseServiceURL(service.BaseURL)
+			if err != nil {
+				detail.Err = fmt.Errorf("MCP service %q has an invalid address", name)
+				return detail
+			}
+			authorization, token, headers, operator, err := c.authorization(ctx, name, service, target)
+			if err != nil {
+				detail.Err = fmt.Errorf("MCP service %q: %w", name, err)
+				return detail
+			}
+			_ = token
+			detail.OperatorContext = operator
+			if headers == nil {
+				headers = http.Header{}
+			}
+			if authorization != "" {
+				headers.Set("Authorization", authorization)
+			}
+			client = mcpproto.New(&mcpproto.HTTP{URL: target.String(), Client: c.serviceClient(service, target.Host, credential.OriginOf(target)), Headers: headers, Limit: int64(service.MaxBodyKB) << 10})
+			c.mu.Lock()
+			if existing := c.mcpClients[name]; existing != nil {
+				client = existing.client
+			} else {
+				c.mcpClients[name] = &mcpServiceSession{client: client, lastUsed: c.now()}
+			}
+			c.mu.Unlock()
+		}
+	}
+	defer func() {
+		c.mu.Lock()
+		if current := c.mcpClients[name]; current != nil && current.client == client {
+			current.lastUsed = c.now()
+		}
+		c.mu.Unlock()
+	}()
+	if listed, _ := args["list"].(bool); listed {
+		tools, err := client.List(ctx)
+		if err != nil {
+			c.dropMCP(name, client)
+			detail.Err = fmt.Errorf("MCP service %q: %w", name, err)
+			return detail
+		}
+		lines := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			line := tool.Name
+			if tool.Description != "" {
+				line += " — " + strings.Join(strings.Fields(tool.Description), " ")
+			}
+			lines = append(lines, line)
+		}
+		detail.Content = strings.Join(lines, "\n")
+		if detail.Content == "" {
+			detail.Content = "no tools"
+		}
+		return detail
+	}
+	toolName, ok := requiredString(args, "tool")
+	if !ok {
+		detail.Err = fmt.Errorf("MCP service %q requires list:true or tool", name)
+		return detail
+	}
+	if schema, _ := args["schema"].(bool); schema {
+		listed, err := client.List(ctx)
+		if err != nil {
+			c.dropMCP(name, client)
+			detail.Err = fmt.Errorf("MCP service %q: %w", name, err)
+			return detail
+		}
+		for _, tool := range listed {
+			if tool.Name == toolName {
+				encoded, _ := json.Marshal(tool.InputSchema)
+				detail.Content = string(encoded)
+				return detail
+			}
+		}
+		detail.Err = fmt.Errorf("MCP service %q has no tool %q", name, toolName)
+		return detail
+	}
+	arguments, _ := args["arguments"].(map[string]any)
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	result, err := client.Call(ctx, toolName, arguments)
+	if err != nil {
+		c.dropMCP(name, client)
+		detail.Err = fmt.Errorf("MCP service %q: %w", name, err)
+		return detail
+	}
+	detail.Content = result
+	return detail
+}
+
+func (c *CallService) dropMCP(name string, client *mcpproto.Client) {
+	c.mu.Lock()
+	if current := c.mcpClients[name]; current != nil && current.client == client {
+		delete(c.mcpClients, name)
+	}
+	c.mu.Unlock()
+	_ = client.Close()
+}
+
+func (c *CallService) Close() {
+	c.mcpOnce.Do(func() { close(c.mcpStop) })
+	c.mu.Lock()
+	clients := c.mcpClients
+	c.mcpClients = map[string]*mcpServiceSession{}
+	c.mu.Unlock()
+	for _, client := range clients {
+		_ = client.client.Close()
+	}
+}
+
+func (c *CallService) closeIdleMCPLocked(now time.Time) {
+	for name, session := range c.mcpClients {
+		if now.Sub(session.lastUsed) >= 10*time.Minute {
+			delete(c.mcpClients, name)
+			go session.client.Close()
+		}
+	}
+}
+func (c *CallService) closeIdleMCP() { c.mu.Lock(); c.closeIdleMCPLocked(c.now()); c.mu.Unlock() }
 
 func renderedServiceType(value string) (string, bool) {
 	mediaType, _, err := mime.ParseMediaType(value)

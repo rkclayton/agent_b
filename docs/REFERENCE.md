@@ -190,7 +190,7 @@ Dependency licenses and included transitive modules are recorded in [docs/THIRD_
 
 - OS-level shell sandboxing; the shell is not jailed, and its file routing, deny list, approvals, and process-tree timeout are not a security boundary.
 - API authentication. Agent_b intentionally binds loopback; an EventSource query-string token was rejected because it leaks through logs/history without addressing a present network threat. Authentication must be designed when `listen` moves off loopback.
-- Dynamic MCP discovery and a Discord bot process. Operator-requested MCP/HTTP connectors can be added through the existing approval card and `call_service`; Agent_b does not discover or install connectors on its own.
+- Automatic MCP discovery or installation, and a Discord bot process. Operator-requested MCP/HTTP connectors can be added through the existing approval card and used through `call_service`; Agent_b does not discover or install connectors on its own.
 - Orchestration or handoff between independent sessions, and a second local `--parallel 2` server slot.
 
 ## Decided against

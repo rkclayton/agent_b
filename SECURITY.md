@@ -267,6 +267,8 @@ The local approval card displays them with the exact credential name and destina
 only approval writes the protected definition and connector reference. The model cannot start sign-in, grant consent, obtain the resulting account cache,
 or bypass the origin check.
 
+An MCP server started by command runs under the same configured identity and working folder as `shell`; the service-account firewall and ACL boundary therefore decide what it can reach. Agent_b gives it only newline-delimited MCP messages on stdin and receives protocol messages on stdout. The server is not a sandbox: it can reach everything that OS identity can reach. It receives no browser mutation token, page session, connector credential, model prompt, or other connector's traffic from Agent_b. A remote MCP server receives only the explicitly approved connector requests and any credential bound to that exact origin.
+
 Agent_b generates a long random service-account password, stores it only as a user-scoped DPAPI blob, and never displays or accepts it in the browser.
 An elevated fresh install provisions the account and protections in the install elevation it already owns.
 A per-user update remains unelevated and defers provisioning to one explicit first-launch action: the hidden UAC helper creates or repairs the account,

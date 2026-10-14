@@ -515,6 +515,20 @@ func TestServiceAllowlistValidation(t *testing.T) {
 	}
 }
 
+func TestMCPCommandServiceValidation2rm(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Services["local"] = Service{Kind: "mcp", BaseURL: "command:fixture-server --stdio", Auth: "none", TimeoutS: 30, MaxBodyKB: 64}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	service := cfg.Services["local"]
+	service.Auth = "stored:local"
+	cfg.Services["local"] = service
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must use none") {
+		t.Fatalf("credentialed command error=%v", err)
+	}
+}
+
 func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "harness.example.json"))
 	if err != nil {

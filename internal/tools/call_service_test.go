@@ -426,10 +426,10 @@ func TestCallServiceConnectorChangeAndExecHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 	service := testService(server.URL, "exec:"+helperCredentialCommand("headers"))
-	service.Kind, service.AllowedMethods = "mcp", []string{"POST"}
+	service.Kind, service.AllowedMethods = "http", []string{"POST"}
 	headerTool := NewCallService(map[string]config.Service{"broker": service})
 	headerTool.SetHTTPClientForTest(server.Client())
-	detail := headerTool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "broker", "method": "POST", "body": map[string]any{"method": "tools/list"}})
+	detail := headerTool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "broker", "method": "POST", "path": "rpc", "body": map[string]any{"method": "tools/list"}})
 	if detail.Err != nil || !detail.OperatorContext || strings.Contains(detail.Content, "header-secret") {
 		t.Fatalf("detail=%+v", detail)
 	}
@@ -499,7 +499,8 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	// 1845, and 2pz's "the user" for "the operator" 1837. The operation form is present WITH NO CONNECTOR CONFIGURED.
 	// A connector that has imported a document adds its operations on top, which is the
 	// point of (d) and is paid for only by the installs that have one.
-	const wantDelta = 1827
+	// Item 2rm adds MCP list/tool/arguments/schema to this one existing tool.
+	const wantDelta = 2242
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

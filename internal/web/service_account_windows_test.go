@@ -8,8 +8,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,6 +19,7 @@ import (
 	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/serviceaccount"
+	"harness/internal/session"
 	"harness/internal/tools"
 )
 
@@ -155,6 +158,25 @@ func TestServiceAccountSetupLeavesWorkingExistingCredentialAlone(t *testing.T) {
 	}
 }
 
+func TestReadyAccountTurnsBackOnWithoutElevation2tf(t *testing.T) {
+	manager := &fakeAccountManager{status: serviceaccount.Status{Supported: true, Exists: true, Enabled: true}}
+	server, store, _ := serviceAccountTestServer(t, manager)
+	server.cfg.Shell.ServiceAccount.Enabled = false
+	server.shell.Configure(server.ConfigSnapshot())
+	if err := store.Write([]byte(randomTestPassword(t))); err != nil {
+		t.Fatal(err)
+	}
+	server.shellTest = func(context.Context) (string, error) { return "ready", nil }
+	request := httptest.NewRequest(http.MethodPost, "/api/service-account", strings.NewReader(`{"action":"provision","connection_id":"local"}`))
+	request.Header.Set("Content-Type", "application/json")
+	authorizeMutation(request, server)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || manager.setupCalls != 0 || !server.ConfigSnapshot().Shell.ServiceAccount.Enabled || !strings.Contains(response.Body.String(), "no Windows elevation") {
+		t.Fatalf("status=%d setup_calls=%d enabled=%v body=%s", response.Code, manager.setupCalls, server.ConfigSnapshot().Shell.ServiceAccount.Enabled, response.Body)
+	}
+}
+
 func TestServiceAccountStatusNamesFourProvisioningStates(t *testing.T) {
 	tests := []struct {
 		name, state, action   string
@@ -286,6 +308,104 @@ func TestUpdateDisablesUnreadyServiceIdentityAndKeepsReadyIdentity2qo(t *testing
 				t.Fatalf("enabled=%v, want %v", got, test.wantOn)
 			}
 		})
+	}
+}
+
+func TestServiceIdentitySetupRefusesUnreachableModelAddresses2tf(t *testing.T) {
+	server, _, _ := serviceAccountTestServer(t, &fakeAccountManager{status: serviceaccount.Status{Supported: true}})
+	address := func(a, b, c, d int) string { return fmt.Sprintf("http://%d.%d.%d.%d:8080", a, b, c, d) }
+	sharedAddress := address(100, 64, 1, 2)
+	tests := []struct {
+		name, address, reason string
+		allowed               bool
+	}{
+		{name: "loopback v4", address: address(127, 0, 0, 1), allowed: true},
+		{name: "loopback v6", address: "http://[::1]:8080", allowed: true},
+		{name: "shared range", address: sharedAddress, allowed: true},
+		{name: "hostname", address: "http://model.example:8080", reason: "numeric address"},
+		{name: "public ipv4", address: address(203, 0, 113, 10), reason: "outside loopback and the shared-address range"},
+		{name: "private lan", address: address(192, 168, 1, 10), reason: "outside loopback and the shared-address range"},
+		{name: "link local", address: address(169, 254, 1, 10), reason: "outside loopback and the shared-address range"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server.cfg.Connections[0].BaseURL = tt.address
+			request, err := server.serviceIdentityHardeningRequest("local")
+			if tt.allowed {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tt.name == "shared range" && !slices.Contains(request.AllowedModelRanges, fmt.Sprintf("%d.%d.%d.%d/32", 100, 64, 1, 2)) {
+					t.Fatalf("allowed ranges=%v", request.AllowedModelRanges)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.reason) {
+				t.Fatalf("error=%v, want %q", err, tt.reason)
+			}
+		})
+	}
+}
+
+func TestStartupDisablePublishesOneVisibleReason2tf(t *testing.T) {
+	server, _, _ := serviceAccountTestServer(t, &fakeAccountManager{status: serviceaccount.Status{Supported: true}})
+	stream, unsubscribe := server.bus.Subscribe()
+	defer unsubscribe()
+	if err := server.ReconcileServiceIdentityAtStartup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	notices := 0
+	for len(stream) > 0 {
+		event := <-stream
+		data, _ := event.Data.(map[string]any)
+		if strings.Contains(fmt.Sprint(data["notice"]), "switched off at start-up") {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("startup notices=%d, want 1", notices)
+	}
+	if err := server.ReconcileServiceIdentityAtStartup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for len(stream) > 0 {
+		event := <-stream
+		data, _ := event.Data.(map[string]any)
+		if strings.Contains(fmt.Sprint(data["notice"]), "switched off at start-up") {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("startup notices after second start=%d, want 1", notices)
+	}
+}
+
+func TestServiceIdentityCannotChangeMidRun2tf(t *testing.T) {
+	server, registry, writers, _, cfg, root := consoleServer(t)
+	defer writers.Close()
+	store := credential.New(root)
+	shell := tools.NewShell(cfg.Shell)
+	shell.SetCredentialStore(store)
+	shell.Configure(*cfg)
+	server.SetShellSecurity(store, shell)
+	server.SetServiceAccountManager(&fakeAccountManager{status: serviceaccount.Status{Supported: true}})
+	item, err := registry.Create("busy", "coder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.SetRun(session.RunState{Status: "running"})
+	for _, test := range []struct{ path, body string }{
+		{path: "/api/config", body: `{"shell":{"service_account":{"enabled":false}}}`},
+		{path: "/api/service-account", body: `{"action":"provision","connection_id":"local"}`},
+	} {
+		request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+		request.Header.Set("Content-Type", "application/json")
+		authorizeMutation(request, server)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "while a chat is running") {
+			t.Fatalf("%s: status=%d body=%s", test.path, response.Code, response.Body)
+		}
 	}
 }
 

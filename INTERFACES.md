@@ -546,9 +546,11 @@ approval registers exactly as the operator's sentence does, a decline registers 
   its name, shipped opening prompt and shipped tools are read-only and it cannot be deleted; its connection and model are editable. Custom agents carry `name`,
   B connection, optional `model`, `prompt`, `toolset`, and `private`. Adding copies `agent_b`; duplicating copies the named agent. `agent_a` is reserved.
   Deleting rebinds its chats to `agent_b` at their next idle boundary and removes its private memory and stats.
-- `GET /setup` serves the stateless four-screen setup wizard. With no configured connections, `/` and `/chat` return a temporary redirect to it;
+- `GET /setup` serves the stateless five-screen fresh-install wizard. With no configured connections, `/` and `/chat` return a temporary redirect to it;
   `?setup=skip` skips that navigation for the current request only. Settings links to the same route. The connection step uses the same adjacent Test,
-  Eval and Recommended actions as Settings; no completion marker is stored.
+  Eval and Recommended actions as Settings; no completion marker is stored. Fresh install alone adds one service-identity screen before Done. Its single
+  switch starts the same account, credential, ACL, firewall and real-command verification used by Settings; Next is unavailable while that operation runs.
+  The Settings-launched setup route remains three screens and never shows this switch.
   `GET /api/local-detection` runs the installed read-only Windows detector and reports system/recommendation memory, GPUs, CUDA/Vulkan availability,
   known running local connections, and interpreter executable ACL reachability for the configured service account.
   `GET /api/model-install` returns the server-pinned catalog filtered in the browser by those facts plus progress state;
@@ -603,12 +605,15 @@ approval registers exactly as the operator's sentence does, a decline registers 
   `chat_history` follows `delegate`, `cronjob` follows it, `image` follows it, `todo` then `ask` follow, and `process` is last.
 - `POST /api/shell-credential {action:store,password}` writes a user-scoped DPAPI blob; `{action:test}` attempts a no-op service-account process;
   `{action:clear}` removes it. Responses and events expose status only, never the password.
-- `GET /api/service-account` inspects the configured local account without elevation through the Windows account APIs.
+- `GET /api/service-account` inspects the configured local account without elevation through the Windows account APIs. With `connection_id`, it also returns
+  `setup_unavailable` when that saved connection cannot be reached by the service identity. Setup accepts numeric IPv4 loopback, numeric addresses in
+   the RFC 6598 shared-address range, and IPv6 loopback; hostnames and every other range are refused before credential or machine mutation.
   `POST /api/service-account {action:"provision",connection_id,allow_local_network?,local_subnets?}` stores a generated DPAPI credential,
   verifies the signed running `Agent_b.exe`, launches that same executable's native helper through Windows UAC, applies and reads back the account, ACL,
   and typed firewall objects, validates the credential through Windows, and enables the split. It never returns the password.
   A canceled or unavailable UAC prompt makes no account change and restores the previous credential;
-  a failure after the elevated helper starts is reported as potentially partial.
+  a failure after the elevated helper starts is reported as potentially partial. Turning the identity on or off while any chat is running is refused.
+  At startup, a stored enabled identity which is not ready is saved off and publishes one ordinary notice naming why; the next start has nothing to repeat.
 - `GET /api/hardening?connection_id=<id>` inspects complete-tree ACL and user-scoped outbound-firewall state, returns read-only `detected_local_subnets`,
   the applied LAN-switch state, and the most recent `operation {action,state,message,started_at,finished_at}` so progress and errors survive a browser refresh.
   `POST /api/hardening {action:apply|verify|remove,connection_id,allow_local_network?,local_subnets?}` orchestrates the policies; apply requires an enabled,

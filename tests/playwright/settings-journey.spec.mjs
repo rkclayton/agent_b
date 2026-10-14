@@ -400,12 +400,15 @@ test("telemetry consent is shared by Setup and About and persists both choices",
 		await page.goto(`${harness.base}/setup`);
 		await page.locator('[data-action="later"]').click();
 		await expect(page.locator("h1")).toHaveText("Send anonymous data to help improve Agent_b");
-		await expect(page.locator("#setup-step")).toContainText("3 of 4");
+		await expect(page.locator("#setup-step")).toContainText("3 of 5");
 		await expect(page.locator(".setup-note")).toHaveText("Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
 		const consent = page.locator('[data-action="toggle-telemetry"]');
 		if ((await consent.getAttribute("aria-checked")) !== String(enabled)) await consent.click();
 		if (!enabled) await page.screenshot({ path: join(evidence, "setup-anonymous-data.png"), fullPage: true });
 		await page.locator('[data-action="telemetry-next"]').click();
+		await expect(page.locator("h1")).toHaveText("Run commands as a separate Windows account?");
+		await expect(page.locator('[data-action="toggle-service-identity"]')).toHaveAttribute("aria-checked", "false");
+		await page.locator('[data-action="identity-next"]').click();
 		await expect(page.locator("h1")).toHaveText("Done");
 		expect((await harness.getState()).config.telemetry.enabled).toBe(enabled);
 	}
@@ -417,6 +420,82 @@ test("telemetry consent is shared by Setup and About and persists both choices",
 	await expect(page.getByText("anonymous diagnostics", { exact: true })).toBeVisible();
 	await page.screenshot({ path: join(evidence, "settings-about-anonymous-data.png"), fullPage: true });
 	await page.close();
+});
+
+test("fresh Setup service identity has one switch and five measured states at three widths 2tf", async () => {
+	test.setTimeout(120_000);
+	const evidence = join(repo, "logs", "evidence", "rel-1.62.75", "captures");
+	await mkdir(evidence, { recursive: true });
+	const sizes = [{ width: 304, height: 720 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }];
+	const openIdentity = async (page, getStatus, post) => {
+		await page.route("**/api/service-account**", async (route) => {
+			if (route.request().method() === "GET") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(getStatus()) });
+			return post(route);
+		});
+		await page.goto(`${harness.base}/setup`);
+		await page.locator('[data-action="later"]').click();
+		await page.locator('[data-action="telemetry-next"]').click();
+		await expect(page.locator("h1")).toHaveText("Run commands as a separate Windows account?");
+	};
+	const capture = async (page, state) => {
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			const layout = await page.locator(".setup-section").evaluate((section) => {
+				const box = section.getBoundingClientRect();
+				const controls = [...section.querySelectorAll("button")].map((node) => node.getBoundingClientRect());
+				return { pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, inside: box.left >= -1 && box.right <= innerWidth + 1 && controls.every((item) => item.left >= box.left - 1 && item.right <= box.right + 1), textWhole: [...section.querySelectorAll("h1,p")].every((node) => node.scrollWidth <= node.clientWidth + 1) };
+			});
+			expect(layout, `${state} ${size.width}`).toEqual({ pageOverflow: 0, inside: true, textWhole: true });
+			await page.screenshot({ path: join(evidence, `${state}-${size.width}.png`), fullPage: true });
+		}
+	};
+
+	{
+		const page = await harness.context.newPage();
+		await openIdentity(page, () => ({ supported: true, state: "missing" }), (route) => route.abort());
+		await expect(page.locator('[data-action="toggle-service-identity"]')).toHaveAttribute("aria-checked", "false");
+		await capture(page, "identity-rest");
+		await page.close();
+	}
+	{
+		const page = await harness.context.newPage();
+		let ready = false;
+		let release;
+		const grant = new Promise((resolve) => { release = resolve; });
+		await openIdentity(page, () => ({ supported: true, exists: ready, state: ready ? "ready" : "missing" }), async (route) => {
+			await grant;
+			ready = true;
+			const config = structuredClone((await harness.getState()).config);
+			config.shell.service_account.enabled = true;
+			await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, message: "service identity ready", account: { supported: true, exists: true, state: "ready" }, config }) });
+		});
+		const click = page.locator('[data-action="toggle-service-identity"]').click();
+		await expect(page.locator(".setup-note")).toHaveText("Working — Windows will ask once");
+		await expect(page.locator('[data-action="identity-next"]')).toBeDisabled();
+		await capture(page, "identity-working");
+		release();
+		await click;
+		await expect(page.locator(".setup-note")).toHaveText("service identity ready");
+		await expect(page.locator('[data-action="toggle-service-identity"]')).toHaveAttribute("aria-checked", "true");
+		await capture(page, "identity-ready");
+		await page.close();
+	}
+	{
+		const page = await harness.context.newPage();
+		await openIdentity(page, () => ({ supported: true, state: "missing" }), (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Windows step failed (error code 5): access denied" }) }));
+		await page.locator('[data-action="toggle-service-identity"]').click();
+		await expect(page.locator(".setup-note")).toContainText("Windows step failed");
+		await capture(page, "identity-failed");
+		await page.close();
+	}
+	{
+		const page = await harness.context.newPage();
+		await openIdentity(page, () => ({ supported: true, state: "missing", setup_unavailable: "the selected connection uses a hostname" }), (route) => route.abort());
+		await expect(page.locator('[data-action="toggle-service-identity"]')).toBeDisabled();
+		await expect(page.locator(".setup-note")).toContainText("uses a hostname");
+		await capture(page, "identity-unavailable");
+		await page.close();
+	}
 });
 
 // Item 2nc (c), carried into the journey: the confirmation belongs to its control, and

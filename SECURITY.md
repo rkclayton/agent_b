@@ -142,7 +142,10 @@ Their dedicated client accepts only an HTTPS Discord webhook path on an exact su
 and cancels delivery when that configured destination changes; removing the credential removes that in-memory destination.
 This is a narrow application egress guard, not containment, and it does not change the SID-scoped service-account firewall or the separate `fetch_url` policy.
 
-The first-run wizard adds no persistent completion state and does not change probe semantics. Its local detector is read-only:
+The first-run wizard adds no persistent completion state and does not change probe semantics. On fresh install only, its one service-identity switch calls
+the same signed-helper setup as Settings after a connection is saved. It accepts only numeric loopback or RFC 6598 shared-range model addresses; a hostname,
+RFC1918 address, public address, link-local address, or other IPv6 address leaves the switch unavailable because the service firewall would make that model
+unreachable. A person whose model is outside this computer or that private overlay keeps the identity off. Its local detector is read-only:
 it queries Windows hardware/process information and known executable locations and does not alter `PATH`, install software, download models,
 or start connections. The separate operator-selected **Install one here** action does download and start a model stack:
 the browser can submit only compile-time catalog IDs; URLs, exact byte counts, SHA-256 values, and backend archives come from the server's pinned catalog.
@@ -187,7 +190,8 @@ Its `PATH` contains only Windows system directories and the Windows PowerShell d
 Until the identity is provisioned and verified, `write_file`, `edit_file`, `shell`, `process` starts, `run_script`,
 and `call_service` do not run and return `service identity not set up`;
 read-only file tools remain available through the non-elevated harness process so setup can be diagnosed.
-Startup never silently turns a failed split off or falls through to operator execution. The only deliberate process-global exception is the existing timed,
+Startup never falls through to operator execution. If an enabled split is not ready at startup, Agent_b saves it off and emits one ordinary startup notice
+with the reason; because off is persisted, a later start does not repeat that notice. The only deliberate process-global exception is the existing timed,
 visible **Run everything as me for 20 minutes** mode. The alternate path preserves the initial working directory, combined output, timeout,
 and process-tree termination through a Windows job object, but it still requires an operator-machine test before being relied upon.
 A separate account limits reach; it is not a sandbox and does not contain an exploit.

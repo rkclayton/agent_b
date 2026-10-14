@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -506,6 +507,51 @@ func (s *Server) hardeningRequest(connectionID string) (hardening.Request, error
 		LocalSubnets:       append([]string(nil), cfg.Shell.ConfirmedLocalSubnets...),
 		AllowedModelRanges: append([]string(nil), cfg.Shell.AllowedModelRanges...),
 	}, nil
+}
+
+func (s *Server) serviceIdentityHardeningRequest(connectionID string) (hardening.Request, error) {
+	request, err := s.hardeningRequest("")
+	if err != nil {
+		return hardening.Request{}, err
+	}
+	s.mu.RLock()
+	cfg := *s.cfg
+	s.mu.RUnlock()
+	allowed := append([]string(nil), request.AllowedModelRanges...)
+	if connectionID != "" {
+		connection, ok := cfg.Connection(connectionID)
+		if !ok {
+			return hardening.Request{}, fmt.Errorf("connection %q was not found", connectionID)
+		}
+		parsed, parseErr := url.Parse(connection.BaseURL)
+		if parseErr != nil || parsed.Hostname() == "" {
+			return hardening.Request{}, fmt.Errorf("the selected connection has an invalid model address")
+		}
+		ip := net.ParseIP(parsed.Hostname())
+		if ip == nil {
+			return hardening.Request{}, fmt.Errorf("service identity setup requires a numeric address; the selected connection uses a hostname")
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			tailnet := ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
+			if !ip4.IsLoopback() && !tailnet {
+				return hardening.Request{}, fmt.Errorf("the selected connection is outside loopback and the shared-address range, so the service identity cannot reach it")
+			}
+			if tailnet {
+				rangeText := ip4.String() + "/32"
+				found := false
+				for _, current := range allowed {
+					found = found || current == rangeText
+				}
+				if !found {
+					allowed = append(allowed, rangeText)
+				}
+			}
+		} else if !ip.IsLoopback() {
+			return hardening.Request{}, fmt.Errorf("the selected connection is outside IPv6 loopback, so the service identity cannot reach it")
+		}
+	}
+	request.AllowedModelRanges = allowed
+	return request, nil
 }
 
 func newMutationToken() string {

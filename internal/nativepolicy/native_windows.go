@@ -327,14 +327,15 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 		}
 	}
 	profiles, _ := os.ReadDir(filepath.Join(request.Data, "profiles"))
-	plans, scratch := []string{}, []string{}
+	plans, scratch, chats := []string{}, []string{}, []string{}
 	for _, profile := range profiles {
 		if profile.IsDir() {
 			plans = append(plans, filepath.Join(request.Data, "profiles", profile.Name(), "plans"))
 			scratch = append(scratch, filepath.Join(request.Data, "profiles", profile.Name(), "scratch"))
+			chats = append(chats, filepath.Join(request.Data, "profiles", profile.Name(), "chats"))
 		}
 	}
-	basePlans, baseScratch := filepath.Join(request.Data, "plans"), filepath.Join(request.Data, "scratch")
+	basePlans, baseScratch, baseChats := filepath.Join(request.Data, "plans"), filepath.Join(request.Data, "scratch"), filepath.Join(request.Data, "chats")
 	if len(plans) == 0 {
 		plans = append(plans, basePlans)
 	} else if _, err := os.Stat(basePlans); err == nil {
@@ -345,14 +346,19 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 	} else if _, err := os.Stat(baseScratch); err == nil {
 		scratch = append([]string{baseScratch}, scratch...)
 	}
-	workspaceScratch := false
-	for _, path := range scratch {
+	if len(chats) == 0 {
+		chats = append(chats, baseChats)
+	} else if _, err := os.Stat(baseChats); err == nil {
+		chats = append([]string{baseChats}, chats...)
+	}
+	writableDataWorkspace := false
+	for _, path := range append(append([]string{}, scratch...), chats...) {
 		if sameOrWithin(request.Workspace, path) {
-			workspaceScratch = true
+			writableDataWorkspace = true
 		}
 	}
 	trees := []string{request.Application, request.Data, request.Exchange}
-	if !workspaceScratch {
+	if !writableDataWorkspace {
 		trees = append(trees, request.Workspace)
 	}
 	for i := range trees {
@@ -363,13 +369,13 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 		}
 	}
 	if create {
-		for _, path := range append(append(plans, scratch...), request.Exchange) {
+		for _, path := range append(append(append(plans, scratch...), chats...), request.Exchange) {
 			if err := os.MkdirAll(path, 0o700); err != nil {
 				return nil, err
 			}
 		}
 	}
-	reachable := append([]string{request.Application, request.Workspace, request.Exchange}, append(plans, scratch...)...)
+	reachable := append([]string{request.Application, request.Workspace, request.Exchange}, append(append(plans, scratch...), chats...)...)
 	seen, targets := map[string]bool{}, []aclTarget{}
 	programFiles, programData := clean(os.Getenv("ProgramFiles")), clean(os.Getenv("ProgramData"))
 	for _, path := range reachable {
@@ -388,7 +394,10 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 	for _, path := range scratch {
 		targets = append(targets, aclTarget{path, "grant scratch-folder Modify", 0x301bf, 3, false})
 	}
-	if !workspaceScratch {
+	for _, path := range chats {
+		targets = append(targets, aclTarget{path, "grant chats-folder Modify", 0x301bf, 3, false})
+	}
+	if !writableDataWorkspace {
 		if _, err := os.Stat(request.Workspace); err == nil {
 			targets = append(targets, aclTarget{request.Workspace, "grant legacy workspace Modify", 0x301bf, 3, false})
 		}

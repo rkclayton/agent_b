@@ -18,6 +18,10 @@ let discoveryNote = "";
 let connectionDraft;
 let addingFromSettings = false;
 let telemetryChoice = true;
+let identityStatus = { loaded: false, supported: true, state: "missing" };
+let identityBusy = false;
+let identityMessage = "service identity off — commands run as you";
+let identityAlarm = false;
 const mutationToken = await acquireBrowserSessionToken();
 
 root.addEventListener("click", click);
@@ -47,10 +51,10 @@ async function load() {
 
 function render() {
   if (!snapshot) return;
-  const names = { where: "Where is your model?", capability: "Evaluation Harness", telemetry: "Send anonymous data to help improve Agent_b", done: "Done" };
-  const steps = addingFromSettings ? ["where", "capability", "done"] : ["where", "capability", "telemetry", "done"];
+  const names = { where: "Where is your model?", capability: "Evaluation Harness", telemetry: "Send anonymous data to help improve Agent_b", identity: "Run commands as a separate Windows account?", done: "Done" };
+  const steps = addingFromSettings ? ["where", "capability", "done"] : ["where", "capability", "telemetry", "identity", "done"];
   document.getElementById("setup-step").textContent = `${steps.indexOf(step) + 1} of ${steps.length} · ${names[step]}`;
-  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : step === "telemetry" ? telemetryScreen() : doneScreen();
+  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : step === "telemetry" ? telemetryScreen() : step === "identity" ? identityScreen() : doneScreen();
 }
 
 function whereScreen() {
@@ -128,6 +132,16 @@ function telemetryScreen() {
     <div class="setup-actions"><button data-action="telemetry-next">Next</button></div>${feedback()}</section>`;
 }
 
+function identityScreen() {
+  const on = snapshot.config?.shell?.service_account?.enabled === true && identityStatus.state === "ready";
+  const unavailable = identityStatus.setup_unavailable || (!identityStatus.supported ? "Service identity is available only on Windows." : identityStatus.administrator ? "The agentb-svc account belongs to Administrators." : "");
+  const line = unavailable || identityMessage;
+  return `<section class="setup-section setup-identity"><h1 id="identity-title">Run commands as a separate Windows account?</h1>
+    <button type="button" class="setup-switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" aria-labelledby="identity-title" data-action="toggle-service-identity" ${identityBusy || unavailable ? "disabled" : ""}></button>
+    <p class="setup-note ${identityAlarm || unavailable ? "alarm" : ""}" role="status">${html(line)}</p>
+    <div class="setup-actions"><button data-action="identity-next" ${identityBusy ? "disabled" : ""}>Next</button></div></section>`;
+}
+
 function doneScreen() {
   return `<section class="setup-section"><h1>Done</h1><p>Your model connection is saved.</p><div class="setup-actions"><button data-action="finish">Open Chat</button></div>${feedback()}</section>`;
 }
@@ -147,7 +161,9 @@ async function click(event) {
   if (action === "where") return go("where");
   if (action === "capability-next") return afterCapability();
   if (action === "toggle-telemetry") { telemetryChoice = !telemetryChoice; return render(); }
+  if (action === "toggle-service-identity") return toggleServiceIdentity();
   if (action === "telemetry-next") return saveTelemetry();
+  if (action === "identity-next") return go("done");
   if (action === "measure") return measuring ? stopMeasurement() : measure();
   if (action === "finish") return finish();
 }
@@ -322,8 +338,50 @@ async function saveTelemetry() {
   try {
     snapshot.config = await request("/api/config", { telemetry: { ...(snapshot.config.telemetry || {}), enabled: telemetryChoice } });
     snapshot = await request("/api/state", undefined, "GET");
-    go("done");
+    go("identity");
+    await refreshIdentity();
   } catch (error) { fail(error); } finally { busy = false; render(); }
+}
+
+async function refreshIdentity() {
+  try {
+    identityStatus = { ...(await request(`/api/service-account?connection_id=${encodeURIComponent(connectionID)}`, undefined, "GET")), loaded: true };
+    if (identityStatus.state === "ready" && snapshot.config?.shell?.service_account?.enabled) identityMessage = "service identity ready";
+  } catch (error) {
+    identityStatus = { loaded: true, supported: true, setup_unavailable: error.message };
+    identityMessage = error.message;
+    identityAlarm = true;
+  }
+  render();
+}
+
+async function toggleServiceIdentity() {
+  const on = snapshot.config?.shell?.service_account?.enabled === true && identityStatus.state === "ready";
+  identityBusy = true;
+  identityAlarm = false;
+  identityMessage = on ? "Turning service identity off…" : "Working — Windows will ask once";
+  render();
+  try {
+    if (on) {
+      snapshot.config = await request("/api/config", { shell: { service_account: { enabled: false } } });
+      identityMessage = "service identity off — commands run as you";
+    } else {
+      const result = await request("/api/service-account", { action: "provision", connection_id: connectionID, allow_local_network: false, local_subnets: [] });
+      if (result.config) snapshot.config = result.config;
+      identityStatus = { ...(result.account || identityStatus), loaded: true, state: "ready" };
+      identityMessage = "service identity ready";
+    }
+  } catch (error) {
+    identityMessage = error.message;
+    identityAlarm = true;
+    if (error.message.toLowerCase().includes("declined")) {
+      snapshot.config.shell.service_account.enabled = false;
+      identityStatus.state = "disabled";
+    }
+  } finally {
+    identityBusy = false;
+    await refreshIdentity();
+  }
 }
 function setBusy(text) { busy = true; message = text; alarm = false; render(); }
 function fail(error) { message = error.message || String(error); alarm = true; render(); }

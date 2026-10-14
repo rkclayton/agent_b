@@ -40,7 +40,7 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 		}
 		acl.Applied, acl.Drift = len(drift) == 0, len(drift)
 		if acl.Applied {
-			acl.Summary = "root, plans, scratch, workspace, and exchange-folder ACL policy verified"
+			acl.Summary = "root, plans, scratch, chats, workspace, and exchange-folder ACL policy verified"
 		} else {
 			acl.Summary = fmt.Sprintf("%d ACL drift item(s)", len(drift))
 		}

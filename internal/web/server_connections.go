@@ -654,6 +654,10 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		// mutation token still protects this endpoint; only the exact off patch gets
 		// this path, so no other protected setting rides along with it.
 		if serviceIdentityDisableOnly(patch) {
+			if s.serviceIdentityChangeBlocked() {
+				writeError(w, http.StatusConflict, "service identity cannot change while a chat is running; stop or finish the chat first", "shell.service_account.enabled")
+				return
+			}
 			masked, err := s.disableConfiguredServiceAccount(managedServiceAccount)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error(), "shell.service_account.enabled")

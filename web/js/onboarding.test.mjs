@@ -10,15 +10,24 @@ const styles = fs.readFileSync(new URL("../css/setup.css", import.meta.url), "ut
 const detector = fs.readFileSync(new URL("../../scripts/detect-local-capabilities.ps1", import.meta.url), "utf8");
 const template = JSON.parse(fs.readFileSync(new URL("../../harness.example.json", import.meta.url), "utf8"));
 
-test("Fresh template has no connections and setup asks connection, evaluation, telemetry, then done", () => {
+test("Fresh template has no connections and setup asks connection, evaluation, telemetry, identity, then done", () => {
   assert.deepEqual(template.connections, []);
   assert.deepEqual(template.agents, []);
-  for (const label of ["Where is your model?", "Evaluation Harness", "Send anonymous data to help improve Agent_b", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
+  for (const label of ["Where is your model?", "Evaluation Harness", "Send anonymous data to help improve Agent_b", "Run commands as a separate Windows account?", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
 	assert.match(script, /Only diagnostic data is sent — counts, durations and error classes\. Never your chats, files or prompts\./);
 	assert.match(script, /telemetry:\s*\{[\s\S]*enabled: telemetryChoice/);
   for (const label of ["Test", "Eval", "Recommended", "Install one here", "Later"]) assert.match(script, new RegExp(label));
   assert.doesNotMatch(script, /Who does what\?|rolesScreen|data-role=/);
   assert.doesNotMatch(`${html}\n${script}`, /\b(?:PKI|accounting)\b/i);
+});
+
+test("Fresh setup alone offers one service-identity switch and blocks Next while Windows works", () => {
+  assert.match(script, /steps = addingFromSettings \? \["where", "capability", "done"\] : \["where", "capability", "telemetry", "identity", "done"\]/);
+  assert.match(script, /role="switch"[^>]*data-action="toggle-service-identity"/);
+  assert.match(script, /service identity off — commands run as you/);
+  assert.match(script, /Windows will ask once/);
+  assert.match(script, /identityBusy \? "disabled"/);
+  assert.match(script, /\/api\/service-account/);
 });
 
 test("Setup uses the same separate Test Eval and Recommended actions", () => {

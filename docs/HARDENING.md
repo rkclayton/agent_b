@@ -18,7 +18,7 @@ If any source positively reports abnormal termination, stop and diagnose it unle
 
 ## 1. Configure the model first
 
-For an installed copy, open **Agent_b** from Start. For a source checkout, double-click `start-Agent_b.cmd`. In Settings → Connections, configure and test the model endpoint, then select the ready connection for the session. Host protection accepts only a numeric address inside `127.0.0.0/8`, `100.64.0.10/10`, or IPv6 loopback because every other destination will be blocked for the service identity.
+For an installed copy, open **Agent_b** from Start. For a source checkout, double-click `start-Agent_b.cmd`. In Settings → Connections, configure and test the model endpoint, then select the ready connection for the session. Host protection accepts only a numeric IPv4 or IPv6 loopback address, or an address in the RFC 6598 shared range, because every other destination will be blocked for the service identity. Hostnames, RFC1918 addresses, public addresses, link-local addresses, and other IPv6 addresses leave service-identity setup unavailable; a model outside this computer or that private overlay therefore runs only while the identity is off.
 
 Agent_b gives alternate-identity shell children only Windows system paths, a workspace-backed temporary directory, account identity names, and optional locale/`NO_COLOR` values. Git, compilers, and other non-system programs therefore need absolute executable paths unless the environment allowlist is deliberately extended.
 
@@ -26,7 +26,7 @@ The setup guide's interpreter list reports the resolved executable path and whet
 
 ## 2. Create and verify the service identity
 
-In Settings → Security, open **Set up service identity**, confirm the model route, and choose its one setup action. Agent_b generates the password; the operator never types or sees it. Respond if Windows presents a UAC prompt. The default local account is `agentb-svc`.
+On a fresh install, the last setup question before Done offers one off-by-default service-identity switch. Turning it on runs this same operation. Otherwise, in Settings → Security, open **Set up service identity**, confirm the model route, and choose its one setup action. Agent_b generates the password; the operator never types or sees it. Respond if Windows presents a UAC prompt. The default local account is `agentb-svc`.
 
 The one signed native helper pass creates or repairs the non-administrator local account through Netapi32, retains ordinary Users membership, applies folder policy through Windows security APIs and typed outbound firewall objects through COM, validates the generated DPAPI credential with `LogonUserW`, and verifies the identity split. Install and update leave this one explicit approval to Settings.
 
@@ -41,9 +41,9 @@ Stop active Agent_b tasks. In Settings → Security → **Set up service identit
 The operation applies and immediately verifies both controls:
 
 - The selected application root (normally `%LOCALAPPDATA%\Programs\Agent_b`; `Program Files\Agent_b` only for `--all-users`) receives a recursive service-account read/execute grant plus explicit write/delete/ownership denies. The installed binary, web assets, prompts, scripts, documentation, and config template are readable but immutable to the constrained identity.
-- The LocalAppData data root denies the service account every right except traversal. Configuration, the DPAPI credential, logs, retained chats, and memory remain unavailable to it. Every existing profile's `plans` and `scratch` children receive explicit recursive `Modify` so D-role plan tools and scratch chats work under the service identity. Reapply protection after creating a profile.
-- Parent directories receive only the traverse grants needed to reach the per-user application, LocalAppData profile plans and scratch folders, per-user service workspace, and configured exchange folder. Profile plans, profile scratch, the service folder, and exchange each receive an explicit recursive `Modify` grant. Application, data, service-folder, and exchange trees must otherwise be disjoint; no other operator-connection content is granted read or list access. A configured workspace that is a profile's `scratch` folder is part of the data tree by design and is covered by that scratch grant; a workspace anywhere else inside the data root is refused (item 2fe).
-- One outbound Block rule named `AgentB-Svc-Outbound-Block` is scoped to the service account with `-LocalUser`. Non-overlapping address ranges spare `127.0.0.0/8`, `100.64.0.10/10`, and `::1`. There is no competing Allow rule and no machine-wide `DefaultOutboundAction` change.
+- The LocalAppData data root denies the service account every right except traversal. Configuration, the DPAPI credential, operational logs, retained journals, and memory remain unavailable to it. Every existing profile's `plans`, `scratch`, and `chats` children receive explicit recursive `Modify` so plans, scratch chats, and a repositoryless chat's own working folder function under the service identity. Reapply protection after creating a profile.
+- Parent directories receive only the traverse grants needed to reach the per-user application, LocalAppData profile plans, scratch and chat folders, per-user service workspace, and configured exchange folder. Those working folders, the service folder, and exchange each receive an explicit recursive `Modify` grant. Application, data, service-folder, and exchange trees must otherwise be disjoint; configuration, credentials, logs and journals receive no grant. A configured workspace under a profile's `scratch` or `chats` folder is part of the data tree by design and is covered by that grant; a workspace anywhere else inside the data root is refused.
+- One outbound Block rule named `AgentB-Svc-Outbound-Block` is scoped to the service account with `-LocalUser`. Non-overlapping address ranges spare IPv4 and IPv6 loopback and the selected model's exact address inside the RFC 6598 shared range. There is no competing Allow rule and no machine-wide `DefaultOutboundAction` change.
 
 Select **Verify** at any time to detect missing or replaced ACL entries and firewall drift. Reapply after updating, rebuilding, or adding files to Agent_b because a newly created or replaced application file may not retain its explicit deny.
 
@@ -53,7 +53,7 @@ A release candidate is built once by the release step, `tools\build-candidate.ps
 
 When an installed Agent_b is running, an upgrade applies and verifies the candidate ACL policy before stopping that process. It also copies the existing application tree to a guarded temporary rollback root before the stop. If any later installation or verification step fails, the installer restores those application files and records `RESTART VERSION` / `RESTART REASON`; the wrapper then starts that restored version and appends `RESTARTED` to the same transcript. A failed pre-stop policy check never stops Agent_b, and a rollback or restart failure is reported explicitly rather than hidden.
 
-The network rule permits loopback, the configured model server addresses, and explicit ranges in `shell.allowed_model_ranges`. Hostnames are resolved at apply time and the mapping is recorded; resolution drift is shown on Security until the operator applies protection again. It prevents ordinary public/LAN egress by this Windows identity; it is not a domain allowlist, protocol inspection, or protection against a kernel-level exploit.
+The network rule permits loopback, the selected numeric model address inside the RFC 6598 shared range, and explicit ranges in `shell.allowed_model_ranges`. Setup refuses hostnames rather than treating DNS as an authority for firewall reach. It prevents ordinary public/LAN egress by this Windows identity; it is not protocol inspection or protection against a kernel-level exploit.
 
 ## 4. RBAC demonstration checks
 

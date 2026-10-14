@@ -162,8 +162,12 @@ try {
   assert.equal(await page.locator(".setup-note").textContent(), "Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-anonymous-data.png") });
   await page.locator('[data-action="telemetry-next"]').click();
+  await page.locator("h1").filter({ hasText: "Run commands as a separate Windows account?" }).waitFor();
+  assert.equal(await page.locator('[data-action="toggle-service-identity"]').getAttribute("aria-checked"), "false");
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-5-service-identity-off.png") });
+  await page.locator('[data-action="identity-next"]').click();
   await page.locator("h1").filter({ hasText: "Done" }).waitFor();
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-5-done-after-stop.png") });
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-6-done-after-stop.png") });
   let state;
   for (const deadline = Date.now() + 15000; Date.now() < deadline;) {
     state = await waitJSON(`${baseURL}/api/state`);

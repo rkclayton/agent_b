@@ -40,6 +40,11 @@ func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 		s.accountMu.Lock()
 		status = s.serviceAccountState(r.Context(), status)
 		s.accountMu.Unlock()
+		if connectionID := strings.TrimSpace(r.URL.Query().Get("connection_id")); connectionID != "" {
+			if _, requestErr := s.serviceIdentityHardeningRequest(connectionID); requestErr != nil {
+				status.SetupUnavailable = requestErr.Error()
+			}
+		}
 		if message, readErr := os.ReadFile(filepath.Join(s.roots.Data, "execution-policy.txt")); readErr == nil {
 			status.ExecutionPolicyMessage = strings.TrimSpace(string(message))
 		}
@@ -52,6 +57,10 @@ func (s *Server) serviceAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, account string) {
+	if s.serviceIdentityChangeBlocked() {
+		writeError(w, http.StatusConflict, "service identity cannot change while a chat is running; stop or finish the chat first", "shell.service_account.enabled")
+		return
+	}
 	if !s.accountMu.TryLock() {
 		writeError(w, http.StatusConflict, "another service-account setup is already in progress", "shell.service_account")
 		return
@@ -105,13 +114,42 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 		})
 		return
 	}
-	protectionRequest, err := s.hardeningRequest(body.ConnectionID)
+	protectionRequest, err := s.serviceIdentityHardeningRequest(body.ConnectionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "connection_id")
 		return
 	}
 	protectionRequest.AllowLocalNetwork = body.AllowLocalNetwork
 	protectionRequest.LocalSubnets = append([]string(nil), body.LocalSubnets...)
+	if status.Exists && s.credential.Status().Stored {
+		testConfig := s.ConfigSnapshot()
+		testConfig.Shell.ServiceAccount.Account = account
+		testConfig.Shell.ServiceAccount.Domain = "."
+		testConfig.Shell.ServiceAccount.Enabled = true
+		s.shell.Configure(testConfig)
+		testContext, testCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, testErr := s.shellTest(testContext)
+		testCancel()
+		if testErr == nil {
+			masked, enableErr := s.enableConfiguredServiceAccount(account, body.AllowLocalNetwork, body.LocalSubnets)
+			if enableErr != nil {
+				s.shell.Configure(s.ConfigSnapshot())
+				writeError(w, http.StatusInternalServerError, enableErr.Error(), "shell.service_account.enabled")
+				return
+			}
+			setupFinished = true
+			status.State, status.Action = "ready", ""
+			credentialStatus := s.credential.Status()
+			s.bus.Publish(events.New(events.ShellCredential, "", "", credentialStatus))
+			s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": true, "message": "service identity ready: the existing credential works; no Windows elevation was needed",
+				"account": status, "credential": credentialStatus, "identity": s.shell.IdentityStatus(), "config": masked,
+			})
+			return
+		}
+		s.shell.Configure(s.ConfigSnapshot())
+	}
 
 	previous, hadPrevious, err := s.previousCredential()
 	if err != nil {
@@ -259,6 +297,18 @@ func (s *Server) setupServiceAccount(w http.ResponseWriter, r *http.Request, acc
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (s *Server) serviceIdentityChangeBlocked() bool {
+	if s.registry == nil {
+		return false
+	}
+	for _, item := range s.registry.List() {
+		if item.IsRunning() {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) disableConfiguredServiceAccount(account string) (any, error) {
 	s.mu.Lock()
 	previous := *s.cfg
@@ -290,18 +340,25 @@ func (s *Server) ReconcileServiceIdentityAtStartup(ctx context.Context) error {
 		return nil
 	}
 	ready := false
+	reason := "the account or its stored credential is not ready"
 	if s.account != nil && s.credential != nil && s.shellTest != nil {
 		if status, err := s.account.Status(ctx, managedServiceAccount); err == nil {
 			s.accountMu.Lock()
 			status = s.serviceAccountState(ctx, status)
 			s.accountMu.Unlock()
 			ready = status.State == "ready"
+			if !ready && status.State != "" {
+				reason = strings.ReplaceAll(status.State, "_", " ")
+			}
 		}
 	}
 	if ready {
 		return nil
 	}
-	_, err := s.disableConfiguredServiceAccount(managedServiceAccount)
+	masked, err := s.disableConfiguredServiceAccount(managedServiceAccount)
+	if err == nil && s.bus != nil {
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "notice": "Service identity was switched off at start-up: " + reason + "."}))
+	}
 	return err
 }
 

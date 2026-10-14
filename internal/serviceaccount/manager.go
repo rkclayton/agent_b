@@ -16,6 +16,7 @@ type Status struct {
 	UsersMember      bool   `json:"users_member"`
 	LockedOut        bool   `json:"locked_out"`
 	HarnessElevated  bool   `json:"harness_elevated"`
+	SetupUnavailable string `json:"setup_unavailable,omitempty"`
 	State            string `json:"state,omitempty"`
 	Action           string `json:"action,omitempty"`
 	CredentialStored bool   `json:"credential_stored,omitempty"`

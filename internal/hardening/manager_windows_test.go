@@ -70,3 +70,20 @@ func TestStatusAcceptsTheScratchWorkspaceInsideTheDataRoot(t *testing.T) {
 		t.Fatalf("a non-scratch workspace inside the data root must still be refused: %v", err)
 	}
 }
+
+func TestStatusAcceptsARepositorylessChatInsideTheProfileChatRoot2tf(t *testing.T) {
+	application := filepath.Join(t.TempDir(), "application")
+	data := filepath.Join(t.TempDir(), "data")
+	exchange := filepath.Join(t.TempDir(), "exchange")
+	chat := filepath.Join(data, "profiles", "Operator", "chats", "chat-one")
+	for _, path := range []string{application, chat, exchange} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager := NewNative()
+	status, err := manager.Status(context.Background(), Request{AccountName: "agentb-test-account-that-does-not-exist", ApplicationDirectory: application, DataDirectory: data, WorkspaceDirectory: chat, ExchangeDirectory: exchange})
+	if err != nil || !status.Supported {
+		t.Fatalf("repositoryless chat workspace must inspect: %+v %v", status, err)
+	}
+}

@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +20,8 @@ import (
 	"harness/internal/session"
 	"harness/internal/tools"
 )
+
+const modelImageMaxDimension = 1568
 
 func renderedUserText(connection *config.Connection, s *session.Session, message events.Message) string {
 	return renderedUserTextAt(connection, s, message, true)
@@ -85,11 +92,22 @@ func requestMessageAt(connection *config.Connection, s *session.Session, message
 		if err != nil {
 			continue
 		}
+		mime := attachmentfile.ContentType(item.Path)
+		if kind == attachmentfile.Image {
+			data, mime, err = boundedModelImage(data, mime)
+			if err != nil {
+				if len(parts) == 0 {
+					parts = append(parts, map[string]any{"type": "text", "text": content})
+				}
+				parts = append(parts, map[string]any{"type": "text", "text": nativeAttachmentFrame(item) + "\nImage not sent: its dimensions could not be verified and bounded."})
+				continue
+			}
+		}
 		if len(parts) == 0 {
 			parts = append(parts, map[string]any{"type": "text", "text": content})
 		}
 		parts = append(parts, map[string]any{"type": "text", "text": nativeAttachmentFrame(item)})
-		encoded := "data:" + attachmentfile.ContentType(item.Path) + ";base64," + base64.StdEncoding.EncodeToString(data)
+		encoded := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 		if kind == attachmentfile.Image {
 			parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": encoded}})
 		} else {
@@ -109,6 +127,38 @@ func requestMessageAt(connection *config.Connection, s *session.Session, message
 		converted.ToolCalls = append(converted.ToolCalls, llm.ToolCall{ID: call.ID, Type: "function", Function: llm.FunctionCall{Name: call.Name, Arguments: call.Arguments}})
 	}
 	return converted
+}
+
+func boundedModelImage(data []byte, mime string) ([]byte, string, error) {
+	source, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	if format == "jpeg" || format == "png" || format == "gif" {
+		mime = "image/" + format
+	}
+	bounds := source.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= modelImageMaxDimension && height <= modelImageMaxDimension {
+		return data, mime, nil
+	}
+	toWidth, toHeight := width, height
+	if width >= height {
+		toWidth, toHeight = modelImageMaxDimension, max(1, height*modelImageMaxDimension/width)
+	} else {
+		toWidth, toHeight = max(1, width*modelImageMaxDimension/height), modelImageMaxDimension
+	}
+	bounded := image.NewNRGBA(image.Rect(0, 0, toWidth, toHeight))
+	for y := range toHeight {
+		for x := range toWidth {
+			bounded.Set(x, y, source.At(bounds.Min.X+x*width/toWidth, bounds.Min.Y+y*height/toHeight))
+		}
+	}
+	var output bytes.Buffer
+	if err := png.Encode(&output, bounded); err != nil {
+		return nil, "", err
+	}
+	return output.Bytes(), "image/png", nil
 }
 
 // an image has no second route - a picture is not

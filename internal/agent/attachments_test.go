@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,12 +20,68 @@ import (
 	"harness/internal/tools"
 )
 
+func smallPNG(t *testing.T) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	if err := png.Encode(&output, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
+}
+
+func TestEveryImageSourceIsBoundedWithoutChangingStoredBytes2qu(t *testing.T) {
+	for _, relative := range []string{"attachments/large.png", "generated/large.png", "screenshots/large.png"} {
+		t.Run(relative, func(t *testing.T) {
+			workspace := t.TempDir()
+			path := filepath.Join(workspace, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			picture := image.NewNRGBA(image.Rect(0, 0, 3000, 1000))
+			for y := range 1000 {
+				for x := range 3000 {
+					picture.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: uint8(x + y), A: 255})
+				}
+			}
+			var stored bytes.Buffer
+			if err := png.Encode(&stored, picture); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, stored.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			connection := config.Defaults(workspace).Connections[0]
+			connection.ReadsImages, connection.Capabilities.ImageInput, connection.Capabilities.Vision = true, true, config.VisionReadsImages
+			message := events.Message{Role: "user", Attachments: []events.Attachment{{Path: relative, Bytes: int64(stored.Len())}}}
+			parts := requestMessage(&connection, &session.Session{Workspace: workspace}, message).Content.([]any)
+			payload := parts[len(parts)-1].(map[string]any)["image_url"].(map[string]any)["url"].(string)
+			encoded, _ := strings.CutPrefix(payload, "data:image/png;base64,")
+			data, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bounded, _, err := image.Decode(bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bounded.Bounds().Dx() > modelImageMaxDimension || bounded.Bounds().Dy() > modelImageMaxDimension {
+				t.Fatalf("request dimensions=%v", bounded.Bounds())
+			}
+			after, _ := os.ReadFile(path)
+			if !bytes.Equal(after, stored.Bytes()) {
+				t.Fatal("stored image changed")
+			}
+			t.Logf("estimated image tokens before=%d after=%d", (stored.Len()+2)/3, (len(data)+2)/3)
+		})
+	}
+}
+
 func TestAttachmentRequestKeepsStoredTextAndNativeBytesOutOfDiagnosticBody(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), []byte("PNG-BYTES"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), smallPNG(t), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	connection := config.Defaults(workspace).Connections[0]
@@ -57,7 +118,7 @@ func TestReadsImagesSwitchAloneControlsImageParts2qx(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), []byte("PNG-BYTES"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), smallPNG(t), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	message := events.Message{Role: "user", Content: "look", Attachments: []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}}}
@@ -93,7 +154,7 @@ func TestAttachmentNativeOverrideSendsImageWhenProbeSaysAbsent(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), []byte("PNG-BYTES"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), smallPNG(t), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	connection := config.Defaults(workspace).Connections[0]
@@ -115,7 +176,7 @@ func TestNativeAttachmentsEachHaveAnImmediatelyAdjacentFrame(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"first.png", "second.jpg"} {
-		if err := os.WriteFile(filepath.Join(workspace, "attachments", name), []byte(name), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(workspace, "attachments", name), smallPNG(t), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -147,7 +208,7 @@ func TestNativeAttachmentOverContextBudgetHasVisibleOutcomeAndNoPayload(t *testi
 	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), []byte("PNG-BYTES"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "attachments", "pixel.png"), smallPNG(t), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	connection := config.Defaults(workspace).Connections[0]

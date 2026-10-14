@@ -138,6 +138,20 @@ func (r *Registry) Names(enabled map[string]bool) []string {
 	}
 	return out
 }
+
+// Reads reports whether a call may share an execution group. Every other call
+// is a change and remains a full ordering barrier.
+func (r *Registry) Reads(name string, args map[string]any) bool {
+	switch name {
+	case "read_file", "list_dir", "search", "recall", "fetch_url", "web_search", "chat_history", "delegate":
+		return true
+	case "call_service":
+		method, _ := args["method"].(string)
+		return strings.EqualFold(method, "GET") || strings.EqualFold(method, "HEAD")
+	default:
+		return false
+	}
+}
 func (r *Registry) Schemas(enabled map[string]bool) []any {
 	out := []any{}
 	for _, tool := range r.ordered {

@@ -197,6 +197,8 @@ Tool errors normally enter model context with an `error:` prefix and always prod
 a stale-view or routing refusal may instead start with `note:` while remaining an unsuccessful, unexecuted outcome.
 Documented empty/no-match results are successful outcomes.
 
+Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `search`, `recall`, `fetch_url`, `web_search`, `chat_history`, `delegate`, and `call_service` with GET or HEAD are reads; every other call is a change. Neighbouring reads in one model reply run together, no more than four at once. A change waits for all earlier calls and blocks every later call until it finishes. Calls and results remain recorded and appended to model context in the model's written order even when reads finish in another order. A call waiting on an approval card does not hold its read siblings; Stop cancels every live call, and one failed call does not cancel its siblings.
+
 - `read_file {path,offset?,limit?,line?,lines?,windows?}` reads numbered UTF-8 source text. Item 2mn (b):
   every answer begins with one `[file sha256=<12 hex>]` line — the digest of the WHOLE file, not of the window — which `edit_file` takes back as `read_sha256`.
   Byte mode uses a one-based byte offset and budget; its header reports `offset`, source `bytes`, `total`, `more`, optional `next_offset`, `start_line`,

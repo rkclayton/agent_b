@@ -352,7 +352,7 @@ func TestRunPublishesCurrentToolAndCoversBetweenTurnAccounting(t *testing.T) {
 	}
 	joined := strings.Join(sequence, "|")
 	for _, ordered := range []string{
-		"stage:dispatch:exit:t1|stage:execute:enter:t1|call:first|result:first|call:second|result:second|stage:execute:exit:t1",
+		"stage:dispatch:exit:t1|stage:execute:enter:t1|call:first|call:second|result:first|result:second|stage:execute:exit:t1",
 		"stage:append:exit:t1|stage:compact:enter:t1|stage:compact:exit:t1|stage:assemble:enter:t2",
 		"stage:parse:exit:t2|stage:append:enter:t2|stage:append:exit:t2|stage:append:enter:t2|stage:append:exit:t2",
 	} {

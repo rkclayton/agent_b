@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,105 @@ import (
 	"harness/internal/session"
 	"harness/internal/tools"
 )
+
+type parallelReadFixture struct {
+	active, maximum *atomic.Int32
+	delay           time.Duration
+	state           *string
+	mu              *sync.Mutex
+}
+
+func (*parallelReadFixture) Name() string           { return "read_file" }
+func (*parallelReadFixture) Description() string    { return "fixture" }
+func (*parallelReadFixture) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (f *parallelReadFixture) Call(ctx context.Context, _ *session.Session, _ map[string]any) (string, error) {
+	n := f.active.Add(1)
+	for {
+		old := f.maximum.Load()
+		if n <= old || f.maximum.CompareAndSwap(old, n) {
+			break
+		}
+	}
+	defer f.active.Add(-1)
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(f.delay):
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return *f.state, nil
+}
+
+type parallelWriteFixture struct {
+	state *string
+	mu    *sync.Mutex
+}
+
+func (*parallelWriteFixture) Name() string           { return "write_file" }
+func (*parallelWriteFixture) Description() string    { return "fixture" }
+func (*parallelWriteFixture) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (f *parallelWriteFixture) Call(_ context.Context, _ *session.Session, _ map[string]any) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	*f.state = "after"
+	return "after", nil
+}
+
+func TestReadGroupsRunFourAtOnceAndChangesStayOrdered2rs(t *testing.T) {
+	var active, maximum atomic.Int32
+	var mu sync.Mutex
+	state := "before"
+	read := &parallelReadFixture{active: &active, maximum: &maximum, delay: 200 * time.Millisecond, state: &state, mu: &mu}
+	registry := tools.New(read, &parallelWriteFixture{state: &state, mu: &mu})
+	cfg := config.Defaults(t.TempDir())
+	runner := NewRunner(events.NewBus(), registry, nil, func(string) (*config.Connection, bool) { return &cfg.Connections[0], true }, func() config.Config { return cfg })
+	s := &session.Session{ID: "parallel", Workspace: t.TempDir(), ToolsEnabled: map[string]bool{"read_file": true, "write_file": true}, ToolCalls: map[string]int{}}
+	x := &runState{r: runner, ctx: context.Background(), s: s, runID: "run", turn: 1}
+	for i := 0; i < 8; i++ {
+		x.results = append(x.results, runToolResult{call: events.ToolCall{ID: fmt.Sprint(i), Name: "read_file"}, durableCall: events.ToolCall{ID: fmt.Sprint(i), Name: "read_file"}, args: map[string]any{}})
+	}
+	start := time.Now()
+	x.runRawTools()
+	elapsed := time.Since(start)
+	if elapsed >= 600*time.Millisecond || maximum.Load() != 4 {
+		t.Fatalf("elapsed=%s max=%d", elapsed, maximum.Load())
+	}
+	x.results = []runToolResult{{call: events.ToolCall{ID: "a", Name: "read_file"}, args: map[string]any{}}, {call: events.ToolCall{ID: "b", Name: "write_file"}, args: map[string]any{}}, {call: events.ToolCall{ID: "c", Name: "read_file"}, args: map[string]any{}}}
+	x.runRawTools()
+	if x.results[0].content != "before" || x.results[2].content != "after" {
+		t.Fatalf("results=%q,%q,%q", x.results[0].content, x.results[1].content, x.results[2].content)
+	}
+}
+
+func TestStopCancelsEveryParallelRead2rs(t *testing.T) {
+	var active, maximum atomic.Int32
+	var mu sync.Mutex
+	state := ""
+	read := &parallelReadFixture{active: &active, maximum: &maximum, delay: time.Minute, state: &state, mu: &mu}
+	registry := tools.New(read)
+	cfg := config.Defaults(t.TempDir())
+	runner := NewRunner(events.NewBus(), registry, nil, func(string) (*config.Connection, bool) { return &cfg.Connections[0], true }, func() config.Config { return cfg })
+	ctx, cancel := context.WithCancel(context.Background())
+	x := &runState{r: runner, ctx: ctx, s: &session.Session{ID: "stop", ToolsEnabled: map[string]bool{"read_file": true}}, runID: "run", turn: 1}
+	for i := 0; i < 3; i++ {
+		x.results = append(x.results, runToolResult{call: events.ToolCall{ID: fmt.Sprint(i), Name: "read_file"}, args: map[string]any{}})
+	}
+	done := make(chan struct{})
+	go func() { x.runRawTools(); close(done) }()
+	for active.Load() != 3 {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("parallel calls survived Stop")
+	}
+	if active.Load() != 0 {
+		t.Fatalf("active=%d", active.Load())
+	}
+}
 
 func TestHookProcess2rn(t *testing.T) {
 	mode := os.Getenv("AGENTB_HOOK_HELPER")

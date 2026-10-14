@@ -7,6 +7,7 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -866,6 +867,59 @@ func (x *runState) finishOrRunTools() runOutcome {
 	return x.finishOrRunToolsStep()
 }
 
+func (x *runState) runRawTool(item *runToolResult) {
+	r := x.r
+	start := time.Now()
+	if item.argErr != nil {
+		item.content = "error: " + item.argErr.Error()
+	} else if before := r.runHooks(x.ctx, x.s, x.runID, x.hooks, hookInput{event: "before_tool", tool: item.call.Name, arguments: item.args}); before.refusal != "" {
+		item.content = before.refusal
+	} else {
+		r.setFlightTool(x.s.ID, x.runID, x.turn, item.durableCall, item.args)
+		outcome := r.executeTool(x.ctx, x.s, x.runID, item.call.ID, item.call.Name, item.args)
+		item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
+		item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
+		r.setFlightToolOutput(x.s.ID, x.runID, item.content)
+		if outcome.Untrusted {
+			x.s.MarkUntrustedInTurn()
+		}
+	}
+	if item.argErr == nil {
+		after := r.runHooks(x.ctx, x.s, x.runID, x.hooks, hookInput{event: "after_tool", tool: item.call.Name, arguments: item.args, success: item.ok})
+		for _, output := range after.output {
+			item.content += "\n\n" + output
+		}
+	}
+	item.ms = time.Since(start).Milliseconds()
+}
+
+func (x *runState) runRawTools() {
+	r := x.r
+	for start := 0; start < len(x.results); {
+		end := start + 1
+		if r.tools.Reads(x.results[start].call.Name, x.results[start].args) {
+			for end < len(x.results) && r.tools.Reads(x.results[end].call.Name, x.results[end].args) {
+				end++
+			}
+		}
+		for base := start; base < end; base += 4 {
+			limit := min(end, base+4)
+			var wait sync.WaitGroup
+			for index := base; index < limit; index++ {
+				item := &x.results[index]
+				r.bus.Publish(events.New(events.ToolCallEvent, x.s.ID, x.runID, map[string]any{"turn": x.turn, "call_id": item.call.ID, "name": item.call.Name, "args": sanitizedToolArguments(item.call.Name, item.args), "args_invalid": item.argErr != nil}))
+				if x.s.ParentSessionID != "" {
+					r.bus.PublishTransient(events.New(events.DelegatedUsage, x.s.ParentSessionID, x.runID, map[string]any{"child_id": x.s.ID, "status": "running", "tool": item.call.Name, "target": shortActivityTarget(item.args), "turn": x.turn, "live": true}))
+				}
+				wait.Add(1)
+				go func(item *runToolResult) { defer wait.Done(); x.runRawTool(item) }(item)
+			}
+			wait.Wait()
+		}
+		start = end
+	}
+}
+
 func (x *runState) finishOrRunToolsStep() runOutcome {
 	r := x.r
 	x.results = []runToolResult{}
@@ -892,64 +946,37 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 		if x.budget.NCtx > 0 {
 			remainingResultTokens = max(0, x.budget.NCtx-x.budget.Reserve-x.budget.UsedEst-toolResultContextMargin)
 		}
+		x.runRawTools()
 		for index := range x.results {
 			item := &x.results[index]
-			r.bus.Publish(events.New(events.ToolCallEvent, x.s.ID, x.runID, map[string]any{"turn": x.turn, "call_id": item.call.ID, "name": item.call.Name, "args": sanitizedToolArguments(item.call.Name, item.args), "args_invalid": item.argErr != nil}))
-			if x.s.ParentSessionID != "" {
-				r.bus.PublishTransient(events.New(events.DelegatedUsage, x.s.ParentSessionID, x.runID, map[string]any{"child_id": x.s.ID, "status": "running", "tool": item.call.Name, "target": shortActivityTarget(item.args), "turn": x.turn, "live": true}))
-			}
-			start := time.Now()
-			if item.argErr != nil {
-				item.content = "error: " + item.argErr.Error()
-				item.ok = false
-			} else {
-				before := r.runHooks(x.ctx, x.s, x.runID, x.hooks, hookInput{event: "before_tool", tool: item.call.Name, arguments: item.args})
-				if before.refusal != "" {
-					item.content, item.ok = before.refusal, false
-				} else {
-					r.setFlightTool(x.s.ID, x.runID, x.turn, item.durableCall, item.args)
-					outcome := r.executeTool(x.ctx, x.s, x.runID, item.call.ID, item.call.Name, item.args)
-					item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
-					r.setFlightToolOutput(x.s.ID, x.runID, item.content)
-					item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
-					// a note written in this turn is marked, because
-					// external content was in it.
-					if outcome.Untrusted {
-						x.s.MarkUntrustedInTurn()
+			if item.argErr == nil {
+				if item.ok && item.call.Name == "read_file" && (untrustedAttachmentRead(x.s, item.args) || savedToolResultRead(item.args)) {
+					item.untrusted = true
+				}
+				if item.ok {
+					fileMetadata := producedFileMetadata(x.s, item.call.Name, item.args)
+					item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
+					item.metadata = mergeResultMetadata(item.metadata, browserScreenshotMetadata(x.s, item.call.Name, item.content))
+					if file, ok := item.metadata["file"].(map[string]any); ok {
+						path, _ := file["path"].(string)
+						bytes, _ := file["bytes"].(int64)
+						x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
 					}
-					if item.ok && item.call.Name == "read_file" && (untrustedAttachmentRead(x.s, item.args) || savedToolResultRead(item.args)) {
-						item.untrusted = true
-					}
-					if item.ok {
-						fileMetadata := producedFileMetadata(x.s, item.call.Name, item.args)
-						item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
-						item.metadata = mergeResultMetadata(item.metadata, browserScreenshotMetadata(x.s, item.call.Name, item.content))
-						if file, ok := item.metadata["file"].(map[string]any); ok {
+					if files, ok := item.metadata["files"].([]any); ok {
+						for _, value := range files {
+							file, _ := value.(map[string]any)
 							path, _ := file["path"].(string)
 							bytes, _ := file["bytes"].(int64)
-							x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
-						}
-						if files, ok := item.metadata["files"].([]any); ok {
-							for _, value := range files {
-								file, _ := value.(map[string]any)
-								path, _ := file["path"].(string)
-								bytes, _ := file["bytes"].(int64)
-								if path != "" {
-									x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
-								}
+							if path != "" {
+								x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
 							}
 						}
 					}
-				}
-				after := r.runHooks(x.ctx, x.s, x.runID, x.hooks, hookInput{event: "after_tool", tool: item.call.Name, arguments: item.args, success: item.ok})
-				for _, output := range after.output {
-					item.content += "\n\n" + output
 				}
 			}
 			if x.ctx.Err() != nil {
 				break
 			}
-			item.ms = time.Since(start).Milliseconds()
 			resultTokens := r.textTokens(x.ctx, x.connection, item.content)
 			allowance := remainingResultTokens
 			if allowance >= 0 {

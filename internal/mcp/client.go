@@ -61,8 +61,6 @@ func (c *Client) request(ctx context.Context, method string, params any) (json.R
 		if err := json.Unmarshal(raw, &response); err != nil || response.JSONRPC != "2.0" {
 			return nil, fmt.Errorf("malformed MCP response")
 		}
-		// Notifications may arrive between a request and its response. The client
-		// advertises no optional capabilities, so there are no server requests to answer.
 		if response.ID == nil && response.Method != "" {
 			continue
 		}

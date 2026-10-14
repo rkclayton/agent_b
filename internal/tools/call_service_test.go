@@ -499,7 +499,6 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 	// 1845, and 2pz's "the user" for "the operator" 1837. The operation form is present WITH NO CONNECTOR CONFIGURED.
 	// A connector that has imported a document adds its operations on top, which is the
 	// point of (d) and is paid for only by the installs that have one.
-	// Item 2rm adds MCP list/tool/arguments/schema to this one existing tool.
 	const wantDelta = 2242
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)

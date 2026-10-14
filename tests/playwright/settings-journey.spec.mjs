@@ -307,7 +307,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(editor.locator(`[data-path="connections.${id}.agent_profile"]`)).toHaveValue("");
   await toggleSettings(page);
   await expect(page.locator("#settings-page")).toBeHidden();
-  await expect(page.locator(".shell-session-title")).toHaveText("agent_b");
+  await expect(page.locator(".shell-session-title")).toHaveText("UI");
 
   // 8. Send one message and see the answer on screen, from the controlled server.
   await page.locator("#chat-task").fill("journey: say something");

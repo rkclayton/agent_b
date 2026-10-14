@@ -124,7 +124,7 @@ async function prepare(sourceData, root, window, fileCount) {
   return { active, port: Number(machine.listen.split(":").at(-1)), task, workspace: machine.workspace, data: join(root, "data"), record: { ...selected.record, window: declaredWindow }, redactions: [connection.id, connection.label, connection.base_url, connection.credential].filter(Boolean) };
 }
 
-async function runGroup(app, sourceData, window, specs) {
+async function runGroup(app, sourceData, window, specs, startOnly = false) {
   const root = await mkdtemp(join(tmpdir(), "agentb-compaction-proof-"));
   let child;
   try {
@@ -140,6 +140,7 @@ async function runGroup(app, sourceData, window, specs) {
     process.stdout.write(`COMPACTION PROOF: candidate page answered in ${((Date.now() - startupAt) / 1000).toFixed(3)} seconds\n`);
     const html = await document.text(), token = html.match(/agentb-mutation-token" content="([^"]+)/)?.[1], cookie = document.headers.get("set-cookie")?.split(";")[0] || "";
     assert.ok(token, "model unreachable"); const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token, Cookie: cookie };
+    if (startOnly) return prepared.record;
     const rows = [];
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
@@ -161,6 +162,10 @@ async function runGroup(app, sourceData, window, specs) {
   }
 }
 
+export async function dryStart({ app, sourceData, window }) {
+  return runGroup(app, sourceData, window, [{ name: "start", files: 1 }], true);
+}
+
 export async function prove({ app, sourceData, root = here, record }) {
   const short = [{ name: "fresh", files: 60, minimum: 3 }, { name: "typed-continue", files: 60, minimum: 3, interrupt: true, continueText: "continue" }, { name: "Continue", files: 60, minimum: 3, interrupt: true, continueText: "Continue" }, { name: "queued-message", files: 60, minimum: 3, queue: true }];
   const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active;
@@ -175,6 +180,7 @@ async function main() {
   const pairs = process.argv.slice(2), args = {}; for (let i = 0; i < pairs.length; i += 2) args[pairs[i].replace(/^--/, "")] = pairs[i + 1];
   const root = resolve(args.source || here), record = resolve(args.record || join(root, "tests", "compaction-proof.json"));
   if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
+  if (args.mode === "start") { try { const result = await dryStart({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), window: Number(args.window || 48000) }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
   try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record }); process.stdout.write("COMPACTION PROOF: passed\n"); }
   catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
 }

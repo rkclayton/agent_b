@@ -244,6 +244,11 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 404, "connection not found", "connections."+tail)
 			return
 		}
+		for index := range kept {
+			if kept[index].Fallback == tail {
+				kept[index].Fallback = ""
+			}
+		}
 		s.cfg.Connections = kept
 		err := s.saveMachineConfig(*s.cfg)
 		masked := s.cfg.Masked()

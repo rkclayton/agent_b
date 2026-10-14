@@ -317,6 +317,13 @@ test("stored connection keys reveal briefly and Duplicate stays on the row", () 
 	assert.doesNotMatch(connections, /This server runs one model/);
 });
 
+test("Defaults offers one fallback row with none and only other connections 2ro", () => {
+	const source = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
+	assert.match(source, /row\("fallback"[\s\S]*<select[^>]*data-path="\$\{attr\(`connections\.\$\{id\}\.fallback`\)\}"/);
+	assert.match(source, /<option value=""[^>]*>none<\/option>/);
+	assert.match(source, /item\.id !== id/);
+});
+
 // And the server refuses a masked value outright rather than silently dropping it.
 test("the configuration route refuses an API key that still holds the mask", () => {
 	const source = fs.readFileSync(new URL("../../internal/web/server_connections.go", import.meta.url), "utf8");
@@ -638,7 +645,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
   const allowed = new Set([
     "acme", "http://acme:8080/", "name", "address", "agent profile", "agent_b (default)", "key", "show", "model", "alpha", "type a name…",
     "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
-    "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "attachment handling",
+    "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "attachment handling", "fallback",
     "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
     "control", "chat_template_kwargs", "top_level", "server_flag", "none", "effort", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",

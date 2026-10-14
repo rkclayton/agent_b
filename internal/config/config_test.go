@@ -256,6 +256,33 @@ func TestConnectionSetupReasonNamesConnectionsAndSetupGuide(t *testing.T) {
 	}
 }
 
+func TestConnectionFallbackIsOneOtherConnectionOrNone2ro(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	other := cfg.Connections[0]
+	other.ID, other.Label = "backup", "Backup"
+	cfg.Connections = append(cfg.Connections, other)
+	cfg.Connections[0].Fallback = other.ID
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(cfg)
+	if err != nil || !strings.Contains(string(encoded), `"fallback":"backup"`) {
+		t.Fatalf("encoded=%s err=%v", encoded, err)
+	}
+	cfg.Connections[0].Fallback = cfg.Connections[0].ID
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), ".fallback") {
+		t.Fatalf("self fallback error=%v", err)
+	}
+	cfg.Connections[0].Fallback = "missing"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), ".fallback") {
+		t.Fatalf("missing fallback error=%v", err)
+	}
+	cfg.Connections[0].Fallback = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("none fallback: %v", err)
+	}
+}
+
 func TestApplyDefaultsNormalizesNullConnectionsToEmptyArray(t *testing.T) {
 	cfg := Config{Workspace: t.TempDir(), Connections: nil}
 	ApplyDefaults(&cfg)

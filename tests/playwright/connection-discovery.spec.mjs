@@ -71,6 +71,16 @@ test("the images row has two picks and saves them 2s3", async () => {
   await page.close();
 });
 
+test("Defaults offers one fallback dropdown of the other connections 2ro", async () => {
+	const evidence = join(repo, "logs", "evidence", "rel-1.62.41", "captures"); await mkdir(evidence, { recursive: true });
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat#settings/connections`);
+	await page.locator('[data-action="duplicate-connection"][data-id="ui"]').click(); await expect(page.locator('[data-action="connection-toggle"]')).toHaveCount(2);
+	await page.locator('[data-action="connection-toggle"][data-id="ui"]').click(); await page.locator('[data-connection-advanced="ui"] > summary').click(); const fallback = page.locator('[data-path="connections.ui.fallback"]');
+	await expect(fallback.locator("option")).toHaveText(["none", "UI copy"]);
+	for (const [width, height] of [[304, 860], [1280, 860], [1920, 1080]]) { await page.setViewportSize({ width, height }); await fallback.scrollIntoViewIfNeeded(); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]); await page.screenshot({ path: join(evidence, `fallback-${width}.png`) }); }
+	await page.close();
+});
+
 // NOTE, measured at rel-1.31.0: every case here opens its own page, and a page holds
 // an SSE stream. Six of them reach the browser's per-origin HTTP/1.1 connection limit
 // and the next page's requests queue behind them forever — which showed up as a save

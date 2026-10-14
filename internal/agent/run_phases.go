@@ -38,6 +38,10 @@ type runState struct {
 	refusalAttempt                                          int
 	refusedTurn                                             int
 	readCutShort, accountingRepairTried, templateRetryTried bool
+	fallbackActive                                          bool
+	fallbackID                                              string
+	primaryLabel                                            string
+	primaryWindow                                           int
 	compacted                                               bool
 	runMessageLimit, runByteLimit, runWindow                int
 	guards                                                  *runGuards
@@ -316,9 +320,13 @@ func (x *runState) turnBoundary() runOutcome {
 		r.takeQueued(x.s, x.runID)
 	}
 	x.turn++
-	x.connection, ok = r.currentConnection(x.s)
+	connectionID := x.s.Snapshot().ConnectionID
+	if x.fallbackActive {
+		connectionID = x.fallbackID
+	}
+	x.connection, ok = r.connection(connectionID)
 	if !ok {
-		return x.stop("connection_not_runnable", "connection "+x.s.ConnectionID+" no longer exists", x.turn-1)
+		return x.stop("connection_not_runnable", "connection "+connectionID+" no longer exists", x.turn-1)
 	}
 	x.connection, x.windowSource, windowErr = r.resolveWindow(x.ctx, x.connection)
 	if windowErr != nil {
@@ -489,6 +497,10 @@ func (x *runState) buildRequest() runOutcome {
 			x.turn--
 			return runAgainOutcome
 		}
+		if x.beginFallback(x.budgetErr) {
+			x.turn--
+			return runAgainOutcome
+		}
 		if r.publishModelUnreachable(x.s, x.runID, x.connection, x.budgetErr) {
 			x.publishFinalBudget = false
 			return x.stop("model_unreachable", x.budgetErr.Error(), x.turn-1)
@@ -528,6 +540,10 @@ func latestTodoOnly(records []events.Message) []events.Message {
 	return result
 }
 func (x *runState) fitWindow() runOutcome {
+	if x.fallbackActive && guardedPromptTokens(x.budget) > x.budget.Ceiling {
+		detail := fmt.Sprintf("%s (%d tokens) did not answer; %s (%d tokens) cannot fit the %d-token request", x.primaryLabel, x.primaryWindow, x.connection.Label, x.connection.Context.NCtx, guardedPromptTokens(x.budget))
+		return x.stop("context_exhausted", detail, x.turn-1)
+	}
 	result := x.compactBeforeRequest()
 	if result.Stop != "" {
 		reason := "context_exhausted"
@@ -687,6 +703,10 @@ func (x *runState) callModelStep() runOutcome {
 			x.turn--
 			return runAgainOutcome
 		}
+		if x.beginFallback(x.callErr) {
+			x.turn--
+			return runAgainOutcome
+		}
 		if r.publishModelUnreachable(x.s, x.runID, x.connection, x.callErr) {
 			if !x.answerBegan && !x.answeredThisRun && r.returnMessage != nil && r.returnMessage(x.s, x.runID) {
 				x.callErr = fmt.Errorf("%w\nyour message is back in the box", x.callErr)
@@ -700,6 +720,21 @@ func (x *runState) callModelStep() runOutcome {
 		return x.stop("model_error", x.callErr.Error(), x.turn)
 	}
 	return runGoOnOutcome
+}
+
+func (x *runState) beginFallback(err error) bool {
+	if x.fallbackActive || x.connection.Fallback == "" || x.answerBegan || !fallbackEligible(err) {
+		return false
+	}
+	fallback, ok := x.r.connection(x.connection.Fallback)
+	if !ok || fallback.ID == x.connection.ID {
+		return false
+	}
+	x.primaryLabel, x.primaryWindow = x.connection.Label, x.connection.Context.NCtx
+	x.fallbackID, x.fallbackActive = fallback.ID, true
+	notice := fmt.Sprintf("%s did not answer — continuing on %s", x.connection.Label, fallback.Label)
+	x.r.bus.Publish(events.New(events.SessionUpdated, x.s.ID, x.runID, map[string]any{"session_id": x.s.ID, "notice": notice}))
+	return true
 }
 func (x *runState) readAnswer() runOutcome {
 	r := x.r

@@ -37,6 +37,7 @@ func TestARefusedDeleteNamesTheRoleAndLeavesTheSliceAlone2mb(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
 	cfg.Connections = []config.Connection{runnableTestConnection("a"), runnableTestConnection("b"), runnableTestConnection("c")}
+	cfg.Connections[0].Fallback = "c"
 	cfg.Agents = []config.Agent{{Name: "Coder", B: "a", C: "b", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
 	if err := cfg.Save(path); err != nil {
@@ -87,5 +88,8 @@ func TestARefusedDeleteNamesTheRoleAndLeavesTheSliceAlone2mb(t *testing.T) {
 	}
 	if len(held) != 3 || held[0].ID != "a" || held[1].ID != "b" || held[2].ID != "c" {
 		t.Errorf("the delete rewrote a slice someone else was holding: %v", []string{held[0].ID, held[1].ID, held[2].ID})
+	}
+	if server.ConfigSnapshot().Connections[0].Fallback != "" {
+		t.Fatal("deleted connection remained as a fallback")
 	}
 }

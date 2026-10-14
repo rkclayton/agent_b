@@ -156,6 +156,11 @@ function memoryFinding() {
 function connectionFields(connection, reason, discovery) {
   const id = connection.id;
   const p = `connections.${id}`;
+	const fallbackPath = `${p}.fallback`;
+	const selectedFallback = String(drafts.has(fallbackPath) ? drafts.get(fallbackPath) : connection.fallback || "");
+	const fallbackOptions = [`<option value="" ${selectedFallback ? "" : "selected"}>none</option>`]
+	  .concat(connectionList().filter((item) => item.id !== id).map((item) => `<option value="${attr(item.id)}" ${selectedFallback === item.id ? "selected" : ""}>${html(item.label)}</option>`));
+	const fallbackControl = row("fallback", `<select class="setting-input" data-path="${attr(`connections.${id}.fallback`)}" data-kind="text">${fallbackOptions.join("")}</select>`, "", false);
 	const profilePath = `${p}.agent_profile`;
 	const selectedProfile = String(drafts.has(profilePath) ? drafts.get(profilePath) : connection.agent_profile || "");
 	const profileOptions = [`<option value="" ${selectedProfile ? "" : "selected"}>agent_b (default)</option>`]
@@ -276,7 +281,8 @@ function connectionFields(connection, reason, discovery) {
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], shown.attachment_handling || "auto", false)}
 	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
-    ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}</div>
+    ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}
+	${fallbackControl}</div>
 	    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
 	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], shown.reasoning.control, false)}
 	    ${row("effort", effortControl, "", false)}

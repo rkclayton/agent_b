@@ -302,6 +302,7 @@ type Connection struct {
 	AttachmentHandling   string            `json:"-"`
 	ReadsImages          bool              `json:"-"`
 	Model                string            `json:"model"`
+	Fallback             string            `json:"fallback,omitempty"`
 	AgentProfile         string            `json:"agent_profile,omitempty"`
 	Credential           string            `json:"credential"`
 	APIKey               string            `json:"api_key,omitempty"`

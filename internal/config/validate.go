@@ -171,6 +171,18 @@ func (c Config) validateConnections() (map[string]bool, error) {
 			return nil, fmt.Errorf("%s.context.answer_ceiling_seconds: cannot be negative", prefix)
 		}
 	}
+	for i, p := range c.Connections {
+		if p.Fallback == "" {
+			continue
+		}
+		prefix := fmt.Sprintf("connections[%d].fallback", i)
+		if p.Fallback == p.ID {
+			return nil, fmt.Errorf("%s: must name another connection", prefix)
+		}
+		if !seen[p.Fallback] {
+			return nil, fmt.Errorf("%s: unknown connection %q", prefix, p.Fallback)
+		}
+	}
 	return seen, nil
 }
 

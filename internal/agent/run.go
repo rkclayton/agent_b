@@ -1365,6 +1365,17 @@ func retryableModelCall(err error) bool {
 	return status == 502 || status == 503 || status == 504
 }
 
+func fallbackEligible(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if llm.TransportKindOf(err) != "" {
+		return true
+	}
+	status, _ := serverRefusal(err)
+	return status >= 500 && status <= 599
+}
+
 // shortHash names a text without carrying it: eight hex characters.
 func shortHash(text string) string {
 	sum := sha256.Sum256([]byte(text))

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -126,6 +127,8 @@ func TestLanguageServerFixtureProcess(t *testing.T) {
 	}
 	mode := os.Args[len(os.Args)-1]
 	reader := bufio.NewReader(os.Stdin)
+	lastQuery := ""
+	fixtureRoot, _ := os.Getwd()
 	for {
 		header, err := reader.ReadString('\n')
 		if err != nil {
@@ -143,6 +146,54 @@ func TestLanguageServerFixtureProcess(t *testing.T) {
 		if message["method"] == "initialize" {
 			fixtureLSPWrite(map[string]any{"jsonrpc": "2.0", "id": message["id"], "result": map[string]any{"capabilities": map[string]any{"textDocumentSync": 1}}})
 			continue
+		}
+		if mode == "code" {
+			method, _ := message["method"].(string)
+			params, _ := message["params"].(map[string]any)
+			if method == "workspace/symbol" {
+				query, _ := params["query"].(string)
+				lastQuery = query
+				uri := fileURI(filepath.Join(fixtureRoot, "main.go"))
+				lines := []int{9}
+				name := "Target"
+				if query == "Duplicate" {
+					lines, name = []int{9, 19}, "Duplicate"
+				} else if query == "Outside" {
+					name = "Outside"
+				}
+				result := make([]any, 0, len(lines))
+				for _, line := range lines {
+					result = append(result, map[string]any{"name": name, "kind": 12, "location": map[string]any{"uri": uri, "range": map[string]any{"start": map[string]any{"line": line, "character": 5}, "end": map[string]any{"line": line, "character": 11}}}})
+				}
+				fixtureLSPWrite(map[string]any{"jsonrpc": "2.0", "id": message["id"], "result": result})
+				continue
+			}
+			if method == "textDocument/definition" {
+				doc := params["textDocument"].(map[string]any)
+				uri := doc["uri"]
+				fixtureLSPWrite(map[string]any{"jsonrpc": "2.0", "id": message["id"], "result": []any{map[string]any{"uri": uri, "range": map[string]any{"start": map[string]any{"line": 9, "character": 0}, "end": map[string]any{"line": 9, "character": 16}}}}})
+				continue
+			}
+			if method == "textDocument/references" {
+				doc := params["textDocument"].(map[string]any)
+				result := make([]any, 80)
+				for i := range result {
+					result[i] = map[string]any{"uri": doc["uri"], "range": map[string]any{"start": map[string]any{"line": i, "character": 0}, "end": map[string]any{"line": i, "character": 6}}}
+				}
+				if lastQuery == "Outside" {
+					result[0].(map[string]any)["uri"] = fileURI(filepath.Join(filepath.Dir(fixtureRoot), "outside.go"))
+				}
+				fixtureLSPWrite(map[string]any{"jsonrpc": "2.0", "id": message["id"], "result": result})
+				continue
+			}
+			if method == "textDocument/documentSymbol" {
+				result := []any{map[string]any{
+					"name": "Target", "kind": 12,
+					"range": map[string]any{"start": map[string]any{"line": 9, "character": 0}, "end": map[string]any{"line": 9, "character": 16}},
+				}}
+				fixtureLSPWrite(map[string]any{"jsonrpc": "2.0", "id": message["id"], "result": result})
+				continue
+			}
 		}
 		if message["method"] != "textDocument/didOpen" || mode == "silent" {
 			continue

@@ -191,8 +191,8 @@ Reapply and verify Host protections on an existing hardened installation before 
 
 The registry sends enabled tools in this stable order (registered in `cmd/harness/main.go`, dispatched by `internal/tools/registry.go`): `read_file`,
 `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, `call_service`, `delegate`,
-`chat_history`, `cronjob`, `image`, `todo`, `ask`, `process`. The internal-service caller remains position 12; `delegate` remains at 13;
-the read-only `chat_history` remains at 14, `cronjob` remains at 15, `image` remains at 16, `todo` and `ask` remain at 17 and 18, and `process` is appended at 19, while every older tool retains its relative position.
+`chat_history`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`. The internal-service caller remains position 12; `delegate` remains at 13;
+the read-only `chat_history` remains at 14, `cronjob` remains at 15, `image` remains at 16, `todo` and `ask` remain at 17 and 18, `process` remains at 19, and `code` is appended at 20, while every older tool retains its relative position.
 Tool errors normally enter model context with an `error:` prefix and always produce `tool.result.ok:false`;
 a stale-view or routing refusal may instead start with `note:` while remaining an unsuccessful, unexecuted outcome.
 Documented empty/no-match results are successful outcomes.
@@ -218,6 +218,8 @@ Documented empty/no-match results are successful outcomes.
   LSP 3.18 `initialize`, `initialized`, then `textDocument/didOpen` or `didChange`. Up to twenty `publishDiagnostics` entries are appended as
   `line:column severity message`, followed by the remaining count. A three-second silence says `no diagnostics in 3 s` without undoing the write.
   Missing commands preserve the result byte for byte. Servers stop at app exit or after ten idle minutes; at most sixteen are retained.
+
+- `code {action,name?,path?,line?}` asks those same configured LSP 3.18 servers for `definition`, `references`, `outline`, or `symbols`. A name is resolved through workspace symbols; optional path and one-based line narrow it without asking for a column, and ambiguity returns candidates rather than guessing. Definitions include path, line, and defining text; references include path, line, and line text; outlines list symbol kind, name, path, and line for a file or folder; symbol search lists matching kind, name, path, and line. Answers expose no path outside the active folder and contain at most 50 entries and 2,000 estimated tokens, ending with the omitted count. A missing executable says to use `search_text`; a three-second silence is reported without ending the model step.
 - `edit_file {path,old_string,new_string}` requires one unique match and keeps this three-string schema. It preserves UTF-8 BOM and the file's CRLF/LF style,
   then atomically replaces or deletes through ordered exact, whitespace-normalized (including indentation and model-emitted smart quote/dash normalization),
   and unique block-anchor/loose-middle strategies. Ambiguous or absent matches are errors;
@@ -665,7 +667,7 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
   file tools impersonate that account and Windows ACLs decide reach. With it disabled, file tools use the non-elevated operator's OS reach;
   plan ownership and repository-policy immutability remain enforced in both postures.
 - Tool order is `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`,
-  `call_service`, `delegate`, `chat_history`, `cronjob`, `image`, `todo`, `ask`, `process`. `process {action,...}` starts a command immediately, lists it, reads its one-mebibyte rolling output window by byte offset, writes stdin, waits, or kills its tree. It uses `shell`'s identity, approval, deny-list, sandbox, and working-folder decisions; at most four run in a chat, and every process is killed at run or app end. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
+  `call_service`, `delegate`, `chat_history`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`. `process {action,...}` starts a command immediately, lists it, reads its one-mebibyte rolling output window by byte offset, writes stdin, waits, or kills its tree. It uses `shell`'s identity, approval, deny-list, sandbox, and working-folder decisions; at most four run in a chat, and every process is killed at run or app end. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
   their model-visible descriptions tell callers to pass a returned `next_offset` as `offset`. Before any tool result is appended,
   the room remaining before the output reserve is divided among every result still in that call batch.
   A result larger than its share is cut to a UTF-8-safe head and tail, remains successful or failed as the tool reported it, and names the byte size,

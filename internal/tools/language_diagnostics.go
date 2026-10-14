@@ -38,13 +38,22 @@ type languageServer struct {
 }
 
 type lspMessage struct {
-	ID     any    `json:"id"`
-	Method string `json:"method"`
+	ID     any             `json:"id"`
+	Method string          `json:"method"`
+	Result json.RawMessage `json:"result"`
 	Params struct {
 		URI         string          `json:"uri"`
 		Diagnostics []lspDiagnostic `json:"diagnostics"`
 	} `json:"params"`
 }
+
+type lspQueryStatus int
+
+const (
+	lspQueryOK lspQueryStatus = iota
+	lspQueryMissing
+	lspQueryTimeout
+)
 
 type lspDiagnostic struct {
 	Range struct {
@@ -127,6 +136,65 @@ func (m *languageDiagnostics) Check(ctx context.Context, root, path string) (str
 		return "diagnostics: no diagnostics in 3 s", true
 	}
 	return formatDiagnostics(message.Params.Diagnostics), true
+}
+
+func (m *languageDiagnostics) Query(ctx context.Context, root, path, method string, params any) (json.RawMessage, lspQueryStatus) {
+	command := m.commands[strings.ToLower(filepath.Ext(path))]
+	if len(command) == 0 {
+		return nil, lspQueryMissing
+	}
+	executable, err := exec.LookPath(command[0])
+	if err != nil {
+		return nil, lspQueryMissing
+	}
+	key := filepath.Clean(root) + "\x00" + strings.Join(command, "\x00")
+	m.mu.Lock()
+	server := m.servers[key]
+	if server == nil {
+		if len(m.servers) >= 16 {
+			m.evictOldestLocked()
+		}
+		output := newProcessWindow(diagnosticOutputLimit)
+		process, startErr := m.start(executable, command[1:], root, output)
+		if startErr == nil {
+			server = &languageServer{process: process, output: output, last: time.Now(), nextID: 1, versions: map[string]int{}}
+			m.servers[key] = server
+			go func() { _, _ = process.Wait() }()
+		}
+	}
+	m.mu.Unlock()
+	if server == nil {
+		return nil, lspQueryTimeout
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	server.last = time.Now()
+	if server.initialize(ctx, root, m.timeout) != nil {
+		return nil, lspQueryTimeout
+	}
+	if path != "" && method != "workspace/symbol" {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, lspQueryTimeout
+		}
+		uri := fileURI(path)
+		if server.versions[uri] == 0 {
+			server.versions[uri] = 1
+			if server.notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "languageId": languageID(path), "version": 1, "text": string(data)}}) != nil {
+				return nil, lspQueryTimeout
+			}
+		}
+	}
+	id := server.nextID
+	server.nextID++
+	if server.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}) != nil {
+		return nil, lspQueryTimeout
+	}
+	message, waitErr := server.wait(ctx, m.timeout, func(message lspMessage) bool { return numericID(message.ID) == id })
+	if waitErr != nil {
+		return nil, lspQueryTimeout
+	}
+	return message.Result, lspQueryOK
 }
 
 func (m *languageDiagnostics) start(executable string, args []string, root string, output *lockedBuffer) (runningShellProcess, error) {

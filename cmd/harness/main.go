@@ -539,6 +539,7 @@ func main() {
 		tools.NewTodo(),
 		tools.NewAsk(),
 		processTool,
+		fileIdentity.Wrap(tools.NewCode(diagnostics)),
 	)
 	// the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.

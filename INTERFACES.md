@@ -332,7 +332,7 @@ Documented empty/no-match results are successful outcomes.
   a failure retains the mechanical name and is never retried. Worker sessions do not make it.
 - `server.probed` [3] `{connection_id,capabilities,findings}`; `config.changed` [3] `{config,notice?}` (masked;
   `notice` is emitted for a one-time config migration); `error` [3] `{where,message,lost_event_type?}`.
-  `where:event_log` means the named event could not be persisted to JSONL and the error itself exists only in live state.
+  `where:event_log` means the named event could not be persisted to JSONL and the error itself exists only in live state. `hook.ran` `{event,tool,exit,duration_ms,timed_out}` records execution metadata only; hook stdin and output never enter it.
   `ui.error` is the distinct page-tape event `{kind:console.error|unhandled exception|unhandled rejection,message,stack,location,repeat_count,capped}` relayed
   over the existing loopback service with the active session id when one exists.
 - `agent.server_change` is sessionless runtime state. Pending is `{status:"pending",change:{agent_id,from,to,requested_at}}`;
@@ -699,6 +699,7 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
 
 Every parsed key appears in `harness.example.json`; connector entries are
 `services.<name>.{kind,base_url,auth,allowed_methods,timeout_s,max_body_kb,require_confirmation,openapi}`;
+root `hooks` entries are `{event:before_tool|after_tool|run_end,tool?:<name>|*,command,timeout_s?}` and run in order as the operator identity. Tool hooks receive one JSON stdin object with `event`, `chat_id`, `tool`, and `arguments`; `after_tool` adds `success`, and `run_end` instead adds `stop_reason`. The default timeout is 10 seconds and the ceiling is 60. Before-tool exit 2 refuses with the first 500 stderr characters; other failures allow and log. After-tool stdout is appended as marked model-visible text, cut at 2,000 characters. Run-end output is discarded. Only this machine configuration defines hooks; they do not replace tool approval.
 `openapi` is present only on a connector that imported a document and is `{source,snapshot,sha256,operations}`. `kind` is `http` or `mcp`.
 An MCP connector has either an HTTP(S) `base_url` for the MCP 2025-06-18 Streamable HTTP transport or the internal `command:<full command>` representation written from an approved proposal's `command`; command connectors use `auth: none`.
 `call_service {service,list:true}` initializes the server and returns tool names with one-line descriptions. `{service,tool,arguments}` calls a tool, and adding `schema:true` returns only that named tool's input schema. MCP responses are untrusted and bounded by `max_body_kb`; no server schema is added to the system prompt. A stdio server starts on first use under `shell`'s configured identity and working folder, and stops after ten idle minutes or with the app. A saved MCP entry used as raw HTTP is refused with an instruction to change its kind to `http`.

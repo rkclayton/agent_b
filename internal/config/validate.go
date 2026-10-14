@@ -56,6 +56,20 @@ func (c Config) validateBasics() error {
 	if c.Workspace == "" {
 		return fmt.Errorf("workspace: required")
 	}
+	for i, hook := range c.Hooks {
+		if !oneOf(hook.Event, "before_tool", "after_tool", "run_end") {
+			return fmt.Errorf("hooks[%d].event: must be before_tool, after_tool, or run_end", i)
+		}
+		if hook.Event != "run_end" && hook.Tool != "" && hook.Tool != "*" && !slices.Contains(append(FullToolset(), "chat_history"), hook.Tool) {
+			return fmt.Errorf("hooks[%d].tool: must be a tool name or *", i)
+		}
+		if strings.TrimSpace(hook.Command) == "" {
+			return fmt.Errorf("hooks[%d].command: required", i)
+		}
+		if hook.TimeoutS < 0 || hook.TimeoutS > 60 {
+			return fmt.Errorf("hooks[%d].timeout_s: must be from 1 to 60 when set", i)
+		}
+	}
 	for i, folder := range c.Shell.TrustedFolders {
 		if !filepath.IsAbs(folder.Path) {
 			return fmt.Errorf("shell.trusted_folders[%d].path: absolute path required", i)

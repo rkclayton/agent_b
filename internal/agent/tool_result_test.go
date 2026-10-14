@@ -2,17 +2,156 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
+
+func TestHookProcess2rn(t *testing.T) {
+	mode := os.Getenv("AGENTB_HOOK_HELPER")
+	if mode == "" {
+		return
+	}
+	var input map[string]any
+	_ = json.NewDecoder(os.Stdin).Decode(&input)
+	if input["event"] == "" || input["chat_id"] == "" {
+		os.Exit(9)
+	}
+	if input["event"] == "run_end" && input["stop_reason"] == nil {
+		os.Exit(9)
+	}
+	if input["event"] != "run_end" && (input["tool"] == nil || input["arguments"] == nil) {
+		os.Exit(9)
+	}
+	if input["event"] == "after_tool" && input["success"] == nil {
+		os.Exit(9)
+	}
+	switch mode {
+	case "refuse":
+		fmt.Fprint(os.Stderr, strings.Repeat("blocked", 100))
+		os.Exit(2)
+	case "after":
+		fmt.Print(strings.Repeat("x", 2105))
+	case "hang":
+		time.Sleep(5 * time.Second)
+	}
+	os.Exit(0)
+}
+
+func hookFixtureCommand(mode string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf(`$env:AGENTB_HOOK_HELPER='%s'; & '%s' '-test.run=TestHookProcess2rn'; exit $LASTEXITCODE`, mode, strings.ReplaceAll(os.Args[0], "'", "''"))
+	}
+	return fmt.Sprintf(`AGENTB_HOOK_HELPER=%s %q -test.run=TestHookProcess2rn`, mode, os.Args[0])
+}
+
+func TestBeforeToolHookRefusesOrAllowsShell2rn(t *testing.T) {
+	for _, mode := range []string{"refuse", "allow"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			marker := filepath.Join(root, "ran.txt")
+			cfg := config.Defaults(root)
+			cfg.Context.Accounting, cfg.Shell.ServiceAccount.Enabled = "estimated", false
+			if runtime.GOOS != "windows" {
+				cfg.Shell.Command = []string{"sh", "-c"}
+			}
+			cfg.Hooks = []config.Hook{{Event: "before_tool", Tool: "shell", Command: hookFixtureCommand(mode), TimeoutS: 3}, {Event: "run_end", Command: hookFixtureCommand("allow"), TimeoutS: 3}}
+			command := fmt.Sprintf(`Set-Content -LiteralPath '%s' -Value ran`, strings.ReplaceAll(marker, "'", "''"))
+			if runtime.GOOS != "windows" {
+				command = fmt.Sprintf(`printf ran > %q`, marker)
+			}
+			calls := 0
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				var body struct {
+					Messages []struct{ Role, Content string } `json:"messages"`
+				}
+				_ = json.NewDecoder(request.Body).Decode(&body)
+				calls++
+				if calls == 1 {
+					arguments, _ := json.Marshal(map[string]any{"command": command})
+					writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "shell-1", "type": "function", "function": map[string]any{"name": "shell", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
+					return
+				}
+				if mode == "refuse" && !strings.Contains(body.Messages[len(body.Messages)-1].Content, "hook refused shell: blocked") {
+					t.Errorf("next request=%#v", body.Messages)
+				}
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+			}))
+			defer model.Close()
+			connection := cfg.Connections[0]
+			connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+			connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+			connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+			cfg.Connections = []config.Connection{connection}
+			runner := NewRunner(events.NewBus(), tools.New(tools.NewShell(cfg.Shell)), &PromptRenderer{text: "system"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+			item := &session.Session{ID: "hook", ConnectionID: "main", Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{"shell": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+			item.Append(events.Message{ID: "u", Role: "user", Category: "history", Content: "run"})
+			if reason, _, _ := runner.Run(context.Background(), item, "run"); reason != "done" {
+				t.Fatalf("reason=%s", reason)
+			}
+			_, err := os.Stat(marker)
+			if (mode == "allow") != (err == nil) {
+				t.Fatalf("mode=%s marker error=%v", mode, err)
+			}
+		})
+	}
+}
+
+func TestHookOutputTimeoutIsolationJournalAndNoHookCost2rn(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	if runtime.GOOS != "windows" {
+		cfg.Shell.Command = []string{"sh", "-c"}
+	}
+	bus := events.NewBus()
+	runner := &Runner{bus: bus, cfg: func() config.Config { return cfg }}
+	s := &session.Session{ID: "chat"}
+	after := runner.runHooks(context.Background(), s, "run", []config.Hook{{Event: "after_tool", Tool: "*", Command: hookFixtureCommand("after")}}, hookInput{event: "after_tool", tool: "shell", arguments: map[string]any{"secret": "never-journal"}, success: true})
+	if len(after.output) != 1 || !strings.HasPrefix(after.output[0], "[hook output; cut to 2,000 characters]\n") || len([]rune(strings.TrimPrefix(after.output[0], "[hook output; cut to 2,000 characters]\n"))) != 2000 {
+		t.Fatalf("after=%#v", after)
+	}
+	seen, cancel := bus.Subscribe()
+	defer cancel()
+	start := time.Now()
+	runner.runHooks(context.Background(), s, "run", []config.Hook{{Event: "before_tool", Tool: "*", Command: hookFixtureCommand("hang"), TimeoutS: 1}}, hookInput{event: "before_tool", tool: "shell", arguments: map[string]any{}})
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("timed-out hook was not killed")
+	}
+	event := <-seen
+	encoded, _ := json.Marshal(event.Data)
+	if event.Type != events.HookRan || strings.Contains(string(encoded), "never-journal") || !strings.Contains(string(encoded), `"timed_out":true`) {
+		t.Fatalf("journal=%s %s", event.Type, encoded)
+	}
+	if allocs := testing.AllocsPerRun(1000, func() { runner.runHooks(context.Background(), s, "run", nil, hookInput{}) }); allocs != 0 {
+		t.Fatalf("no-hook allocations=%g", allocs)
+	}
+	started := time.Now()
+	for range 1000 {
+		runner.runHooks(context.Background(), s, "run", nil, hookInput{})
+	}
+	t.Logf("1,000 no-hook calls=%s", time.Since(started))
+	for _, relative := range []string{"AGENTS.md", "skill/SKILL.md", "plan/work.md"} {
+		t.Run(relative, func(t *testing.T) {
+			path := filepath.Join(cfg.Workspace, filepath.FromSlash(relative))
+			_ = os.MkdirAll(filepath.Dir(path), 0o755)
+			_ = os.WriteFile(path, []byte(`hooks: [{"event":"before_tool","command":"exit 2"}]`), 0o600)
+			if got := runner.runHooks(context.Background(), s, "run", nil, hookInput{event: "before_tool", tool: "shell"}); got.refusal != "" || len(got.output) != 0 {
+				t.Fatalf("repository content defined a hook: %#v", got)
+			}
+		})
+	}
+}
 
 func TestNonzeroShellExitProducesFailedToolResultEvent(t *testing.T) {
 	root := t.TempDir()

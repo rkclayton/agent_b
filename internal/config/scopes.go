@@ -50,6 +50,7 @@ var scopes = map[string]Scope{
 	"profiles":       ScopeMachine, // the catalogue of profiles is not itself one
 	"connections":    ScopeMachine, // endpoints and their probed capabilities
 	"services":       ScopeMachine,
+	"hooks":          ScopeMachine, // operator commands are machine authority
 	"shell":          ScopeMachine, // the service identity and its boundary
 	"sandbox":        ScopeMachine, // a security posture, not a preference
 	"signing":        ScopeMachine,

@@ -529,6 +529,21 @@ func TestMCPCommandServiceValidation2rm(t *testing.T) {
 	}
 }
 
+func TestHookValidation2rn(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Hooks = []Hook{{Event: "before_tool", Tool: "shell", Command: "check"}, {Event: "after_tool", Tool: "*", Command: "record", TimeoutS: 60}, {Event: "run_end", Command: "finish"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, hook := range []Hook{{Event: "other", Command: "x"}, {Event: "before_tool", Tool: "missing", Command: "x"}, {Event: "after_tool", Command: ""}, {Event: "run_end", Command: "x", TimeoutS: 61}} {
+		bad := cfg
+		bad.Hooks = []Hook{hook}
+		if err := bad.Validate(); err == nil {
+			t.Fatalf("invalid hook accepted: %+v", hook)
+		}
+	}
+}
+
 func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "harness.example.json"))
 	if err != nil {

@@ -73,6 +73,7 @@ const (
 	ToolCallEvent              = "tool.call"
 	ToolProgress               = "tool.progress"
 	ToolResult                 = "tool.result"
+	HookRan                    = "hook.ran"
 	ToolToggled                = "tool.toggled"
 	MessageAppended            = "message.appended"
 	MessageUpdated             = "message.updated"

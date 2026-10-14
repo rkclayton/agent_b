@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,31 @@ import (
 
 	"harness/internal/config"
 )
+
+func RunOperatorHook(ctx context.Context, cfg config.Shell, command string, input []byte, stdout, stderr io.Writer) (int, error) {
+	if len(cfg.Command) == 0 {
+		return -1, errors.New("shell command is not configured")
+	}
+	cmd := exec.Command(cfg.Command[0], append(append([]string(nil), cfg.Command[1:]...), command)...)
+	setupProcess(cmd)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(input), stdout, stderr
+	if err := cmd.Start(); err != nil {
+		return -1, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if exit, ok := err.(*exec.ExitError); ok {
+			return exit.ExitCode(), nil
+		}
+		return 0, err
+	case <-ctx.Done():
+		killProcessTree(cmd.Process.Pid)
+		<-done
+		return -1, ctx.Err()
+	}
+}
 
 var (
 	ErrServiceCredentialRejected = errors.New("service-account credential rejected")

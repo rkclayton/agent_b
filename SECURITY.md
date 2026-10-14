@@ -356,6 +356,8 @@ The Settings operator mode is the distinct process-global control and is never i
 there is no identity gate because the operator is already driving an unrestricted shell. Approval reduces accidental actions;
 it does not turn the shell wrapper into a sandbox.
 
+Only machine configuration can define a hook; repository files, project instructions, plans, skills, and chats cannot. A hook runs as the same non-elevated Windows user as Agent_b itself, not as the tool service account, so it can reach everything that user can reach. Agent_b sends the named event data to the hook on stdin, but journals only the event, selected tool, exit code, duration, and timeout state—never that input or the hook's output. A hook's permission does not replace or bypass a tool approval.
+
 In `boundary-only`, registering a valid plan and deciding a detected tool loop do not raise **Allow this**:
 chat records `registered <repo> as a plan` or `stopped a loop after <n> turns, continuing differently` and the run carries on.
 `mutating` and `all` keep both cards unchanged. Unattended keeps its stricter no-question refusal for both.

@@ -6,6 +6,7 @@
   "connections": [],
   "images": { "connection": "", "model": "" },
   "services": {},
+  "hooks": [],
   "agents": [],
   "run": { "max_turns": 10000, "max_wall_clock_seconds": 21600, "max_tool_calls": 1000, "cycle_window": 5, "max_concurrent": 2, "queue_depth": 0 },
   "cron": { "max_run_minutes": 20 },

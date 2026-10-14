@@ -29,6 +29,85 @@ import (
 	"harness/internal/tools"
 )
 
+type hookInput struct {
+	event, tool, stopReason string
+	arguments               map[string]any
+	success                 bool
+}
+type hookOutcome struct {
+	refusal string
+	output  []string
+}
+type hookBuffer struct {
+	data []byte
+	max  int
+}
+
+func (b *hookBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if left := b.max - len(b.data); left > 0 {
+		b.data = append(b.data, p[:min(left, len(p))]...)
+	}
+	return n, nil
+}
+
+func (r *Runner) runHooks(ctx context.Context, s *session.Session, runID string, hooks []config.Hook, in hookInput) (out hookOutcome) {
+	if len(hooks) == 0 {
+		return out
+	}
+	for _, hook := range hooks {
+		if hook.Event != in.event || (in.event != "run_end" && hook.Tool != "" && hook.Tool != "*" && hook.Tool != in.tool) {
+			continue
+		}
+		input := map[string]any{"event": in.event, "chat_id": s.ID}
+		if in.event == "run_end" {
+			input["stop_reason"] = in.stopReason
+		} else {
+			input["tool"], input["arguments"] = in.tool, in.arguments
+		}
+		if in.event == "after_tool" {
+			input["success"] = in.success
+		}
+		encoded, _ := json.Marshal(input)
+		encoded = append(encoded, '\n')
+		timeout := hook.TimeoutS
+		if timeout == 0 {
+			timeout = 10
+		}
+		hookCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		stdout, stderr := &hookBuffer{max: 8004}, &hookBuffer{max: 2004}
+		started := time.Now()
+		exit, err := tools.RunOperatorHook(hookCtx, r.cfg().Shell, hook.Command, encoded, stdout, stderr)
+		cancel()
+		r.bus.Publish(events.New(events.HookRan, s.ID, runID, map[string]any{"event": in.event, "tool": in.tool, "exit": exit, "duration_ms": time.Since(started).Milliseconds(), "timed_out": errors.Is(err, context.DeadlineExceeded)}))
+		if err != nil || (exit != 0 && !(in.event == "before_tool" && exit == 2)) {
+			log.Printf("hook %s tool=%s exit=%d error=%v", in.event, in.tool, exit, err)
+		}
+		if in.event == "before_tool" && exit == 2 {
+			text, _ := cutHookText(string(stderr.data), 500)
+			out.refusal = "error: hook refused " + in.tool + ": " + text
+			return out
+		}
+		if in.event == "after_tool" && len(stdout.data) > 0 {
+			text, cut := cutHookText(string(stdout.data), 2000)
+			label := "[hook output]"
+			if cut {
+				label = "[hook output; cut to 2,000 characters]"
+			}
+			out.output = append(out.output, label+"\n"+text)
+		}
+	}
+	return out
+}
+
+func cutHookText(value string, limit int) (string, bool) {
+	runes := []rune(strings.ToValidUTF8(value, "�"))
+	if len(runes) <= limit {
+		return string(runes), false
+	}
+	return string(runes[:limit]), true
+}
+
 type Runner struct {
 	bus                *events.Bus
 	tools              *tools.Registry

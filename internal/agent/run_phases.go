@@ -59,6 +59,7 @@ type runState struct {
 	toolCalls, durableToolCalls                             []events.ToolCall
 	assistant                                               events.Message
 	results                                                 []runToolResult
+	hooks                                                   []config.Hook
 	toolNames                                               []string
 	schemas                                                 []any
 	body                                                    map[string]any
@@ -84,7 +85,10 @@ type runToolResult struct {
 }
 
 func (r *Runner) runInPhases(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
-	x := &runState{r: r, ctx: ctx, s: s, runID: runID, refusedTurn: -1, publishFinalBudget: true}
+	x := &runState{r: r, ctx: ctx, s: s, runID: runID, refusedTurn: -1, publishFinalBudget: true, hooks: append([]config.Hook(nil), r.cfg().Hooks...)}
+	defer func() {
+		r.runHooks(context.Background(), s, runID, x.hooks, hookInput{event: "run_end", stopReason: reason})
+	}()
 	defer x.cleanupPin()
 	defer x.cleanupFlight()
 	defer x.cleanupWall()
@@ -864,37 +868,46 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 				item.content = "error: " + item.argErr.Error()
 				item.ok = false
 			} else {
-				r.setFlightTool(x.s.ID, x.runID, x.turn, item.durableCall, item.args)
-				outcome := r.executeTool(x.ctx, x.s, x.runID, item.call.ID, item.call.Name, item.args)
-				item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
-				r.setFlightToolOutput(x.s.ID, x.runID, item.content)
-				item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
-				// a note written in this turn is marked, because
-				// external content was in it.
-				if outcome.Untrusted {
-					x.s.MarkUntrustedInTurn()
-				}
-				if item.ok && item.call.Name == "read_file" && (untrustedAttachmentRead(x.s, item.args) || savedToolResultRead(item.args)) {
-					item.untrusted = true
-				}
-				if item.ok {
-					fileMetadata := producedFileMetadata(x.s, item.call.Name, item.args)
-					item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
-					if file, ok := item.metadata["file"].(map[string]any); ok {
-						path, _ := file["path"].(string)
-						bytes, _ := file["bytes"].(int64)
-						x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+				before := r.runHooks(x.ctx, x.s, x.runID, x.hooks, hookInput{event: "before_tool", tool: item.call.Name, arguments: item.args})
+				if before.refusal != "" {
+					item.content, item.ok = before.refusal, false
+				} else {
+					r.setFlightTool(x.s.ID, x.runID, x.turn, item.durableCall, item.args)
+					outcome := r.executeTool(x.ctx, x.s, x.runID, item.call.ID, item.call.Name, item.args)
+					item.content, item.ok, item.operatorContext = outcome.Content, outcome.OK, outcome.OperatorContext
+					r.setFlightToolOutput(x.s.ID, x.runID, item.content)
+					item.category, item.untrusted, item.metadata = outcome.Category, outcome.Untrusted, outcome.Metadata
+					// a note written in this turn is marked, because
+					// external content was in it.
+					if outcome.Untrusted {
+						x.s.MarkUntrustedInTurn()
 					}
-					if files, ok := item.metadata["files"].([]any); ok {
-						for _, value := range files {
-							file, _ := value.(map[string]any)
+					if item.ok && item.call.Name == "read_file" && (untrustedAttachmentRead(x.s, item.args) || savedToolResultRead(item.args)) {
+						item.untrusted = true
+					}
+					if item.ok {
+						fileMetadata := producedFileMetadata(x.s, item.call.Name, item.args)
+						item.metadata = mergeResultMetadata(item.metadata, fileMetadata)
+						if file, ok := item.metadata["file"].(map[string]any); ok {
 							path, _ := file["path"].(string)
 							bytes, _ := file["bytes"].(int64)
-							if path != "" {
-								x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+							x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+						}
+						if files, ok := item.metadata["files"].([]any); ok {
+							for _, value := range files {
+								file, _ := value.(map[string]any)
+								path, _ := file["path"].(string)
+								bytes, _ := file["bytes"].(int64)
+								if path != "" {
+									x.produced[strings.ToLower(path)] = delivery.Source{Path: path, Bytes: bytes}
+								}
 							}
 						}
 					}
+				}
+				after := r.runHooks(x.ctx, x.s, x.runID, x.hooks, hookInput{event: "after_tool", tool: item.call.Name, arguments: item.args, success: item.ok})
+				for _, output := range after.output {
+					item.content += "\n\n" + output
 				}
 			}
 			if x.ctx.Err() != nil {

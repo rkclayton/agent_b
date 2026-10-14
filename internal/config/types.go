@@ -15,6 +15,7 @@ type Config struct {
 	Images        Images                  `json:"images"`
 	Profiles      ProfileCatalog          `json:"profiles"`
 	Services      map[string]Service      `json:"services"`
+	Hooks         []Hook                  `json:"hooks"`
 	Agents        []Agent                 `json:"agents"`
 	Chat          Chat                    `json:"chat"`
 	Run           RunConfig               `json:"run"`
@@ -38,6 +39,13 @@ type Config struct {
 	Broker      Broker   `json:"broker,omitempty"`
 	Signing     Signing  `json:"signing"`
 	LoadNotices []string `json:"-"`
+}
+
+type Hook struct {
+	Event    string `json:"event"`
+	Tool     string `json:"tool,omitempty"`
+	Command  string `json:"command"`
+	TimeoutS int    `json:"timeout_s,omitempty"`
 }
 
 type Images struct {

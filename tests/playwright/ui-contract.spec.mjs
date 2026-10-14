@@ -677,9 +677,18 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
       globalThis.EventSource = FixtureEvents;
     }, { state: initial, id });
     const page = await context.newPage();
+    let heldFiles = [{ id:"edited", path:"first.txt", kind:"changed", changed_since:false }, { id:"created", path:"second.txt", kind:"created", changed_since:false }, { id:"removed", path:"third.txt", kind:"removed", changed_since:true }];
     await page.route("**/*", async (route) => {
       const url = new URL(route.request().url());
       if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+      if (url.pathname === "/api/file-undo" && route.request().method() === "GET") {
+        const file = heldFiles.find((item) => item.id === url.searchParams.get("file_id"));
+        if (!file) return route.fulfill({ contentType:"application/json", body:JSON.stringify({ files:heldFiles }) });
+        if (file.id === "created") return route.fulfill({ contentType:"application/json", body:JSON.stringify({ file, lines:Array.from({length:2000},(_,index)=>({kind:"added",new_line:index+1,text:`${index+1} ${"x".repeat(245)}`})), more:3000 }) });
+        const long = "a long synthetic line ".repeat(24);
+        return route.fulfill({ contentType:"application/json", body:JSON.stringify({ file, lines:[{kind:"context",old_line:1,new_line:1,text:"one"},{kind:"context",old_line:2,new_line:2,text:"two"},{kind:"context",old_line:3,new_line:3,text:"three"},{kind:"removed",old_line:4,text:"four"},{kind:"added",new_line:4,text:long},{kind:"context",old_line:5,new_line:5,text:"five"},{kind:"context",old_line:6,new_line:6,text:"six"},{kind:"context",old_line:7,new_line:7,text:"seven"}] }) });
+      }
+      if (url.pathname === "/api/file-undo" && route.request().method() === "POST") { const body = route.request().postDataJSON(); const changed = body.file_id === "removed"; if (body.file_id && !changed) heldFiles = heldFiles.filter((item) => item.id !== body.file_id); return route.fulfill({ contentType:"application/json", body:JSON.stringify(changed ? { restored:[], skipped:["third.txt"] } : { restored:["first.txt"], skipped:[] }) }); }
       if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
       return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
     });
@@ -697,15 +706,48 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(finished.page.locator("#chat-status-line")).toHaveCount(0);
   await expect(finished.page.locator(".chat-work-summary")).toContainText("3 files · file tools only");
   await expect(finished.page.getByRole("button", { name: "Undo file changes" })).toHaveCount(1);
-  await mkdir("logs/evidence/rel-1.62.36/captures", { recursive: true });
-  await finished.page.screenshot({ path: "logs/evidence/rel-1.62.36/captures/undo-file-changes-1280x860.png", fullPage: true });
+  const restingSummary = await finished.page.locator(".chat-work-summary").textContent();
+  expect(restingSummary).toMatch(/Worked .* · 2 steps · 3 files · file tools only ▸/);
+  await mkdir("logs/evidence/rel-1.62.36/captures", { recursive:true }); await mkdir("logs/evidence/rel-1.62.58/captures", { recursive:true });
+  await finished.page.setViewportSize({ width:1280, height:860 });
+  await finished.page.screenshot({ path:"logs/evidence/rel-1.62.36/captures/undo-file-changes-1280x860.png", fullPage:true });
+  await finished.page.screenshot({ path:"logs/evidence/rel-1.62.58/captures/resting-summary-1280x860.png", fullPage:true });
+  await finished.page.setViewportSize({ width:1000, height:760 });
+  await finished.page.getByRole("button", { name: "3 files changed" }).click();
+  await expect(finished.page.locator(".chat-file-open")).toHaveText(["first.txt · changed", "second.txt · created", "third.txt · removed"]);
+  expect(await finished.page.locator(".chat-work-summary").textContent()).toBe(restingSummary);
+  await finished.page.locator(".chat-file-open").first().click();
+  await expect(finished.page.locator(".chat-file-diff-line")).toHaveCount(8);
+  await expect(finished.page.locator(".chat-file-diff-line.removed")).toContainText("four");
+  await expect(finished.page.locator(".chat-file-diff-line.added")).toContainText("a long synthetic line");
+  for (const width of [1280, 304]) { await finished.page.setViewportSize({ width, height:860 }); await finished.page.evaluate((show) => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.toggle("chat-list-visible",show); document.body.classList.toggle("chat-list-hidden",!show); panel.hidden=!show; handle.hidden=show; }, width > 360); await finished.page.screenshot({ path:`logs/evidence/rel-1.62.58/captures/file-diff-${width}.png`, fullPage:true }); }
+  await finished.page.setViewportSize({ width:1000, height:760 });
+  await finished.page.evaluate(() => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.add("chat-list-visible"); document.body.classList.remove("chat-list-hidden"); panel.hidden=false; handle.hidden=true; });
+  finished.page.once("dialog", (dialog) => dialog.accept());
+  await finished.page.locator(".chat-file-undo").first().click();
+  await expect(finished.page.getByRole("button", { name: "2 files changed" })).toBeVisible();
+  await expect(finished.page.locator(".chat-file-open")).toHaveCount(2);
+  const drawMS = await finished.page.evaluate(async () => { const start=performance.now(); [...document.querySelectorAll(".chat-file-open")].find((node)=>node.textContent.includes("second.txt")).click(); for (let index=0; index<120 && document.querySelectorAll(".chat-file-diff-line").length!==2000; index++) await new Promise(requestAnimationFrame); return performance.now()-start; });
+  console.log("2sk 512KiB 2000-line draw", `${drawMS.toFixed(3)}ms`);
+  expect(drawMS).toBeLessThan(300);
+  await expect(finished.page.locator(".chat-file-diff-more")).toHaveText("3,000 more");
+  await finished.page.locator(".chat-file-open").filter({ hasText:"second.txt" }).click();
+  await finished.page.locator(".chat-file-open").filter({ hasText:"third.txt" }).click();
+  await expect(finished.page.locator(".chat-file-changed")).toHaveText("Changed again since this run; Undo this file will leave it unchanged.");
+  finished.page.once("dialog", (dialog) => dialog.accept());
+  await finished.page.locator(".chat-file-item").filter({ hasText:"third.txt" }).locator(".chat-file-undo").click();
+  await expect(finished.page.locator(".chat-work-undo-result")).toContainText("left changed third.txt");
+  await expect(finished.page.getByRole("button", { name: "2 files changed" })).toBeVisible();
+  await finished.page.getByRole("button", { name: "2 files changed" }).click();
+  await expect(finished.page.locator(".chat-file-list")).toHaveCount(0);
+  await finished.page.setViewportSize({ width:1000, height:760 });
   await expect(finished.page.locator(".chat-todo")).toHaveCount(1);
   await expect(finished.page.locator(".chat-todo-row")).toHaveText(["✓ Inspect inputs", "→ Run checks", "· Write report"]);
   await mkdir("logs/evidence/rel-1.62.35/captures", { recursive: true });
   await finished.page.screenshot({ path: "logs/evidence/rel-1.62.35/captures/todo-1280x860.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2ql-s56-finished.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2qm-idle.png", fullPage: true });
-  await worked.click();
+  await finished.page.locator(".chat-work-summary-toggle").click();
   await expect(finished.page.getByText("Checked the build inputs.")).toBeVisible();
   await expect(finished.page.locator(".chat-narration-line .chat-step-summary")).toHaveCount(2);
   await expect(finished.page.locator(".chat-step-fold.alarm")).toHaveCount(0);

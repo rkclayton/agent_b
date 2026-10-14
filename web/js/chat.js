@@ -635,23 +635,48 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
   if (!view.work) {
     const root = document.createElement("div");
     root.className = "chat-work-fold";
-    const head = document.createElement("button");
+    const head = document.createElement("div");
     head.type = "button";
     head.className = "chat-work-summary";
+    const summaryToggle = document.createElement("button"); summaryToggle.type = "button"; summaryToggle.className = "chat-work-summary-toggle";
     const rows = document.createElement("div");
     rows.className = "chat-work-rows";
     const controls = document.createElement("div"); controls.className = "chat-work-controls"; controls.append(head);
     root.append(controls, rows);
-    head.onclick = () => { touched.add(key); expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
-    view.work = { root, head, rows, controls };
+    summaryToggle.onclick = () => { touched.add(key); expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
+    view.work = { root, head, summaryToggle, rows, controls };
   }
   const open = expanded.has(key);
   const items = blocks.flatMap((block) => block.steps);
   const duration = responseSummary(items).duration;
   const steps = blocks.filter((block) => block.prose).length || blocks.length;
-  setAttribute(view.work.head, "aria-expanded", String(open));
+  setAttribute(view.work.summaryToggle, "aria-expanded", String(open));
   const changed = new Set(items.filter((item) => item?.type === "tool" && ["write_file", "edit_file"].includes(item.name) && item.result?.ok === true).map((item) => item.args?.path).filter(Boolean));
-  setText(view.work.head, `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}${changed.size ? ` · ${changed.size} file${changed.size === 1 ? "" : "s"} · file tools only` : ""} ${open ? "▾" : "▸"}`);
+  const remaining = Number.isInteger(view.work.remaining) ? view.work.remaining : changed.size;
+  const prefix = `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}`;
+  if (changed.size) {
+    if (!view.work.fileToggle) {
+      const toggle = document.createElement("span"); toggle.className = "chat-work-files-toggle"; toggle.tabIndex = 0; toggle.setAttribute("role", "button");
+      const activate = async () => {
+        if (view.work.filesOpen) { view.work.filesOpen = false; view.work.files = null; view.work.diffs = {}; render(); return; }
+        try {
+          const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(runID)}`;
+          const result = await api(`/api/file-undo${query}`, undefined, "GET");
+          view.work.files = result.files || []; view.work.remaining = view.work.files.length; view.work.diffs = {}; view.work.filesOpen = true;
+        } catch (error) { if (error.status === 410) view.work.available = false; else view.work.result = error.message; }
+        render();
+      };
+      toggle.onclick = (event) => { event.stopPropagation(); void activate(); };
+      toggle.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); void activate(); } };
+      view.work.fileToggle = toggle; view.work.available = true;
+    }
+    view.work.fileToggle.textContent = ` · ${remaining} file${remaining === 1 ? "" : "s"} · file tools only`;
+    view.work.fileToggle.setAttribute("aria-label", `${remaining} files changed`);
+    view.work.fileToggle.setAttribute("aria-expanded", String(!!view.work.filesOpen));
+    const countNode = view.work.available === false ? document.createTextNode(view.work.fileToggle.textContent) : view.work.fileToggle;
+    setText(view.work.summaryToggle, prefix);
+    view.work.head.replaceChildren(view.work.summaryToggle, countNode, document.createTextNode(` ${open ? "▾" : "▸"}`));
+  } else { setText(view.work.summaryToggle, prefix); view.work.head.replaceChildren(view.work.summaryToggle, document.createTextNode(` ${open ? "▾" : "▸"}`)); }
   if (changed.size && !view.work.undo) {
     const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-work-undo"; undo.textContent = "Undo file changes";
     undo.onclick = async () => { if (!confirm("Undo file changes from this run? File tools only.")) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
@@ -660,7 +685,49 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
   if (view.work.undo) view.work.undo.hidden = !changed.size;
   if (view.work.result) { if (!view.work.outcome) { view.work.outcome = document.createElement("span"); view.work.outcome.className = "chat-work-undo-result"; view.work.controls.append(view.work.outcome); } setText(view.work.outcome, view.work.result); }
   reconcileChildren(view.work.rows, open ? blocks.map((block) => renderResponseBlock(session, view, block, false, { forceOpen: true, movedPast: true })) : []);
+  view.work.root.querySelector(":scope > .chat-file-list")?.remove();
+  if (view.work.filesOpen) view.work.root.append(renderFileUndoList(session, runID, view.work));
   return view.work.root;
+}
+
+function renderFileUndoList(session, runID, work) {
+  const list = document.createElement("div"); list.className = "chat-file-list";
+  for (const file of work.files || []) {
+    const item = document.createElement("div"); item.className = "chat-file-item";
+    const row = document.createElement("div"); row.className = "chat-file-row";
+    const open = document.createElement("button"); open.type = "button"; open.className = "chat-file-open"; open.textContent = `${file.path} · ${file.kind}`; open.setAttribute("aria-expanded", String(!!work.diffs?.[file.id]));
+    open.onclick = async () => {
+      if (work.diffs?.[file.id]) { delete work.diffs[file.id]; render(); return; }
+      const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(runID)}&file_id=${encodeURIComponent(file.id)}`;
+      try { work.diffs ||= {}; work.diffs[file.id] = await api(`/api/file-undo${query}`, undefined, "GET"); } catch (error) { work.result = error.message; }
+      render();
+    };
+    const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-file-undo"; undo.textContent = "Undo this file";
+    undo.onclick = async () => {
+      if (!confirm("Undo file changes from this run? File tools only.")) return;
+      undo.disabled = true;
+      try {
+        const result = await api("/api/file-undo", { session_id:session.id, run_id:runID, file_id:file.id, confirm:true });
+        work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore";
+        if ((result.restored || []).length) { work.files = work.files.filter((entry) => entry.id !== file.id); work.remaining = work.files.length; delete work.diffs[file.id]; }
+      } catch (error) { work.result = error.message; }
+      render();
+    };
+    row.append(open, undo); item.append(row);
+    const diff = work.diffs?.[file.id];
+    if (diff) {
+      if (diff.file?.changed_since) { const warning = document.createElement("div"); warning.className = "chat-file-changed"; warning.textContent = "Changed again since this run; Undo this file will leave it unchanged."; item.append(warning); }
+      if (diff.message) { const message = document.createElement("div"); message.className = "chat-file-diff-message"; message.textContent = diff.message; item.append(message); }
+      else {
+        const body = document.createElement("div"); body.className = "chat-file-diff";
+        for (const line of diff.lines || []) { const node = document.createElement("div"); node.className = `chat-file-diff-line ${line.kind}`; const old = document.createElement("span"), current = document.createElement("span"), text = document.createElement("code"); old.textContent = line.old_line || ""; current.textContent = line.new_line || ""; text.textContent = line.text; node.append(old, current, text); body.append(node); }
+        if (diff.more) { const more = document.createElement("div"); more.className = "chat-file-diff-more"; more.textContent = `${diff.more.toLocaleString()} more`; body.append(more); }
+        item.append(body);
+      }
+    }
+    list.append(item);
+  }
+  return list;
 }
 
 function renderResponseBlock(session, view, block, active, state = {}) {

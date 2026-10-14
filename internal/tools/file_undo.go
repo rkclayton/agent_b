@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -30,6 +31,7 @@ type undoEntry struct {
 	Before undoRecord
 	After  undoRecord
 	Saved  bool
+	Undone bool
 }
 type undoRun struct {
 	loaded  bool
@@ -38,6 +40,24 @@ type undoRun struct {
 type FileUndoResult struct {
 	Restored []string `json:"restored"`
 	Skipped  []string `json:"skipped"`
+}
+type FileUndoFile struct {
+	ID           string `json:"id"`
+	Path         string `json:"path"`
+	Kind         string `json:"kind"`
+	ChangedSince bool   `json:"changed_since"`
+}
+type FileUndoDiffLine struct {
+	Kind    string `json:"kind"`
+	OldLine int    `json:"old_line,omitempty"`
+	NewLine int    `json:"new_line,omitempty"`
+	Text    string `json:"text"`
+}
+type FileUndoDiff struct {
+	File    FileUndoFile       `json:"file"`
+	Lines   []FileUndoDiffLine `json:"lines"`
+	More    int                `json:"more,omitempty"`
+	Message string             `json:"message,omitempty"`
 }
 type FileUndoStore struct {
 	mu                sync.Mutex
@@ -99,6 +119,9 @@ func (s *FileUndoStore) loadLocked(sessionID, runID string) (*undoRun, error) {
 			}
 			if record.Kind == "after" {
 				entry.After, entry.Saved = record, true
+			}
+			if record.Kind == "undone" {
+				entry.Undone = true
 			}
 		}
 		if err := scanner.Err(); err != nil {
@@ -188,11 +211,12 @@ func (s *FileUndoStore) Commit(sessionID, runID, path string) error {
 	}
 	record := undoRecord{Kind: "after", Path: path, Display: entry.Before.Display, At: s.now().UnixNano()}
 	data, err := s.readFile(path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	sum := sha256.Sum256(data)
-	record.Digest, record.Existed = hex.EncodeToString(sum[:]), true
+	if err == nil {
+		record.Digest, record.Existed = digestBytes(data), true
+	}
 	if err := s.appendLocked(sessionID, runID, record); err != nil {
 		return err
 	}
@@ -209,7 +233,7 @@ func (s *FileUndoStore) Undo(sessionID, runID string) (FileUndoResult, error) {
 	}
 	paths := make([]string, 0, len(run.entries))
 	for path, entry := range run.entries {
-		if entry.Saved {
+		if entry.Saved && !entry.Undone {
 			paths = append(paths, path)
 		}
 	}
@@ -217,8 +241,7 @@ func (s *FileUndoStore) Undo(sessionID, runID string) (FileUndoResult, error) {
 	result := FileUndoResult{}
 	for _, path := range paths {
 		entry := run.entries[path]
-		current, readErr := s.readFile(path)
-		matches := readErr == nil && digestBytes(current) == entry.After.Digest
+		matches := s.matchesAfterLocked(path, entry)
 		if !matches {
 			result.Skipped = append(result.Skipped, entry.Before.Display)
 			continue
@@ -235,7 +258,183 @@ func (s *FileUndoStore) Undo(sessionID, runID string) (FileUndoResult, error) {
 			return result, err
 		}
 		result.Restored = append(result.Restored, entry.Before.Display)
+		if err := s.appendLocked(sessionID, runID, undoRecord{Kind: "undone", Path: path, At: s.now().UnixNano()}); err != nil {
+			return result, err
+		}
+		entry.Undone = true
 	}
+	return result, nil
+}
+
+func (s *FileUndoStore) matchesAfterLocked(path string, entry *undoEntry) bool {
+	current, err := s.readFile(path)
+	if os.IsNotExist(err) {
+		return !entry.After.Existed
+	}
+	return err == nil && entry.After.Existed && digestBytes(current) == entry.After.Digest
+}
+
+func (s *FileUndoStore) Files(sessionID, runID string) ([]FileUndoFile, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := os.Stat(filepath.Join(s.runDir(sessionID, runID), "changes.jsonl")); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	run, err := s.loadLocked(sessionID, runID)
+	if err != nil {
+		return nil, false, err
+	}
+	files := make([]FileUndoFile, 0, len(run.entries))
+	for path, entry := range run.entries {
+		if !entry.Saved || entry.Undone {
+			continue
+		}
+		kind := "changed"
+		if !entry.Before.Existed {
+			kind = "created"
+		} else if !entry.After.Existed {
+			kind = "removed"
+		}
+		files = append(files, FileUndoFile{ID: safeStoreName(path), Path: entry.Before.Display, Kind: kind, ChangedSince: !s.matchesAfterLocked(path, entry)})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, true, nil
+}
+
+func (s *FileUndoStore) entryByIDLocked(run *undoRun, id string) (string, *undoEntry) {
+	for path, entry := range run.entries {
+		if entry.Saved && !entry.Undone && safeStoreName(path) == id {
+			return path, entry
+		}
+	}
+	return "", nil
+}
+
+func (s *FileUndoStore) Diff(sessionID, runID, id string) (FileUndoDiff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.loadLocked(sessionID, runID)
+	if err != nil {
+		return FileUndoDiff{}, err
+	}
+	path, entry := s.entryByIDLocked(run, id)
+	if entry == nil {
+		return FileUndoDiff{}, fmt.Errorf("file change is no longer held")
+	}
+	file := FileUndoFile{ID: id, Path: entry.Before.Display, Kind: "changed", ChangedSince: !s.matchesAfterLocked(path, entry)}
+	if !entry.Before.Existed {
+		file.Kind = "created"
+	} else if !entry.After.Existed {
+		file.Kind = "removed"
+	}
+	var before, after []byte
+	if entry.Before.Existed {
+		before, err = s.readFile(filepath.Join(s.runDir(sessionID, runID), entry.Before.Blob))
+		if err != nil {
+			return FileUndoDiff{}, err
+		}
+	}
+	after, err = s.readFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return FileUndoDiff{}, err
+	}
+	result := FileUndoDiff{File: file}
+	if len(before) > 512<<10 || len(after) > 512<<10 {
+		result.Message = "File is over 512 KiB; no diff."
+		return result, nil
+	}
+	if !utf8.Valid(before) || !utf8.Valid(after) || strings.IndexByte(string(before), 0) >= 0 || strings.IndexByte(string(after), 0) >= 0 {
+		result.Message = "Binary file; no diff."
+		return result, nil
+	}
+	all := boundedFileDiff(string(before), string(after))
+	if len(all) > 2000 {
+		result.More, all = len(all)-2000, all[:2000]
+	}
+	result.Lines = all
+	return result, nil
+}
+
+func splitDiffLines(value string) []string {
+	if value == "" {
+		return nil
+	}
+	value = strings.TrimSuffix(value, "\n")
+	return strings.Split(value, "\n")
+}
+
+func boundedFileDiff(before, after string) []FileUndoDiffLine {
+	oldLines, newLines := splitDiffLines(before), splitDiffLines(after)
+	prefix := 0
+	for prefix < len(oldLines) && prefix < len(newLines) && oldLines[prefix] == newLines[prefix] {
+		prefix++
+	}
+	oldEnd, newEnd := len(oldLines), len(newLines)
+	for oldEnd > prefix && newEnd > prefix && oldLines[oldEnd-1] == newLines[newEnd-1] {
+		oldEnd--
+		newEnd--
+	}
+	start := prefix - 3
+	if start < 0 {
+		start = 0
+	}
+	lines := make([]FileUndoDiffLine, 0, oldEnd-start+newEnd-prefix+3)
+	for i := start; i < prefix; i++ {
+		lines = append(lines, FileUndoDiffLine{Kind: "context", OldLine: i + 1, NewLine: i + 1, Text: oldLines[i]})
+	}
+	for i := prefix; i < oldEnd; i++ {
+		lines = append(lines, FileUndoDiffLine{Kind: "removed", OldLine: i + 1, Text: oldLines[i]})
+	}
+	for i := prefix; i < newEnd; i++ {
+		lines = append(lines, FileUndoDiffLine{Kind: "added", NewLine: i + 1, Text: newLines[i]})
+	}
+	limit := newEnd + 3
+	if limit > len(newLines) {
+		limit = len(newLines)
+	}
+	oldLine := oldEnd
+	for i := newEnd; i < limit; i++ {
+		oldLine++
+		lines = append(lines, FileUndoDiffLine{Kind: "context", OldLine: oldLine, NewLine: i + 1, Text: newLines[i]})
+	}
+	return lines
+}
+
+func (s *FileUndoStore) UndoFile(sessionID, runID, id string) (FileUndoResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.loadLocked(sessionID, runID)
+	if err != nil {
+		return FileUndoResult{}, err
+	}
+	path, entry := s.entryByIDLocked(run, id)
+	if entry == nil {
+		return FileUndoResult{}, fmt.Errorf("file change is no longer held")
+	}
+	result := FileUndoResult{}
+	if !s.matchesAfterLocked(path, entry) {
+		result.Skipped = append(result.Skipped, entry.Before.Display)
+		return result, nil
+	}
+	if entry.Before.Existed {
+		before, readErr := s.readFile(filepath.Join(s.runDir(sessionID, runID), entry.Before.Blob))
+		if readErr != nil {
+			return result, readErr
+		}
+		if err := atomicBytes(path, before, os.FileMode(entry.Before.Mode)); err != nil {
+			return result, err
+		}
+	} else if err := s.remove(path); err != nil && !os.IsNotExist(err) {
+		return result, err
+	}
+	if err := s.appendLocked(sessionID, runID, undoRecord{Kind: "undone", Path: path, At: s.now().UnixNano()}); err != nil {
+		return result, err
+	}
+	entry.Undone = true
+	result.Restored = append(result.Restored, entry.Before.Display)
 	return result, nil
 }
 

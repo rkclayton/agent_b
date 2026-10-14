@@ -1369,7 +1369,7 @@ func retryableModelCall(err error) bool {
 		return true
 	}
 	status, _ := serverRefusal(err)
-	return status == 502 || status == 503 || status == 504
+	return status == 502 || status == 503 || status == 504 || status == 529
 }
 
 func fallbackEligible(err error) bool {

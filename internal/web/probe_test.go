@@ -31,6 +31,19 @@ func newProbeServer(t *testing.T) *Server {
 	return New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 }
 
+func TestConnectionTestProtocolDetectionIsSaved2rr(t *testing.T) {
+	server := newProbeServer(t)
+	for address, want := range map[string]string{"https://api.anthropic.com": config.ProtocolAnthropicMessages, "https://api.openai.com/v1": config.ProtocolOpenAIResponses, "https://gateway.example.test/v1": config.ProtocolChatCompletions} {
+		if err := server.saveDetectedProtocol("local", config.ProtocolForAddress(address)); err != nil {
+			t.Fatal(err)
+		}
+		loaded, _, _, err := config.Load(server.configPath)
+		if err != nil || loaded.Connections[0].Protocol != want {
+			t.Fatalf("%s: protocol=%q err=%v", address, loaded.Connections[0].Protocol, err)
+		}
+	}
+}
+
 func TestConnectionFailureLogKeepsTheWholeFailureAndDropsTheKey2po(t *testing.T) {
 	const key = "PLANTED-CONNECTION-KEY-2po"
 	full := "dial tcp 127.0.0.1:9: refused; diagnostic=" + strings.Repeat("whole ", 80) + " key=" + key

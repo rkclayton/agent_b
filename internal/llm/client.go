@@ -73,7 +73,12 @@ var sharedTransport = func() *http.Transport {
 }()
 
 func New(connection *config.Connection) *Client {
-	return &Client{connection: connection, http: &http.Client{Timeout: time.Duration(connection.RequestTimeoutS) * time.Second, Transport: sharedTransport}}
+	return &Client{connection: connection, http: &http.Client{Timeout: time.Duration(connection.RequestTimeoutS) * time.Second, Transport: sharedTransport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}}}
 }
 
 func (c *Client) ProbeImages(ctx context.Context) (bool, error) {
@@ -208,6 +213,9 @@ func imageErrorMessage(raw []byte, status int) string {
 }
 
 func (c *Client) Chat(ctx context.Context, request Request) (Response, error) {
+	if c.connection.Protocol != "" && c.connection.Protocol != config.ProtocolChatCompletions {
+		return c.nativeChatStream(ctx, request, func(Delta) {}, nil)
+	}
 	body := buildRequest(c.connection, request, false)
 	start := time.Now()
 	raw, status, err := c.DoJSON(ctx, http.MethodPost, "/v1/chat/completions", body)
@@ -228,6 +236,9 @@ func (c *Client) ChatStream(ctx context.Context, request Request, onDelta func(D
 }
 
 func (c *Client) ChatStreamStatus(ctx context.Context, request Request, onDelta func(Delta), onConnected func()) (Response, error) {
+	if c.connection.Protocol != "" && c.connection.Protocol != config.ProtocolChatCompletions {
+		return c.nativeChatStream(ctx, request, onDelta, onConnected)
+	}
 	body := buildRequest(c.connection, request, true)
 	encoded, _ := json.Marshal(body)
 	req, err := c.newRequest(ctx, http.MethodPost, "/v1/chat/completions", bytes.NewReader(encoded))
@@ -475,11 +486,16 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if c.connection.APIKey != "" {
-		value := c.connection.APIKey
-		if !strings.HasPrefix(value, "Bearer ") {
-			value = "Bearer " + value
+		if c.connection.Protocol == config.ProtocolAnthropicMessages {
+			req.Header.Set("x-api-key", strings.TrimPrefix(c.connection.APIKey, "Bearer "))
+			req.Header.Set("anthropic-version", "2023-06-01")
+		} else {
+			value := c.connection.APIKey
+			if !strings.HasPrefix(value, "Bearer ") {
+				value = "Bearer " + value
+			}
+			req.Header.Set("Authorization", value)
 		}
-		req.Header.Set("Authorization", value)
 	}
 	return req, nil
 }

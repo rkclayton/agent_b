@@ -123,6 +123,9 @@ func (c Config) validateConnections() (map[string]bool, error) {
 		if p.MaxConcurrent < 0 {
 			return nil, fmt.Errorf("%s.max_concurrent: cannot be negative", prefix)
 		}
+		if p.Protocol != "" && !oneOf(p.Protocol, ProtocolChatCompletions, ProtocolAnthropicMessages, ProtocolOpenAIResponses) {
+			return nil, fmt.Errorf("%s.protocol: invalid", prefix)
+		}
 		if p.Credential != "" {
 			if _, err := credential.NewNamed(".", p.Credential); err != nil {
 				return nil, fmt.Errorf("%s.credential: %w", prefix, err)

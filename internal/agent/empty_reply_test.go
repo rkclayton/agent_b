@@ -18,6 +18,15 @@ import (
 	"harness/internal/tools"
 )
 
+func TestProviderOverloadIsRetried2rr(t *testing.T) {
+	if !retryableModelCall(fmt.Errorf("chat stream HTTP 529: overloaded")) {
+		t.Fatal("provider overload was not retryable")
+	}
+	if retryableModelCall(fmt.Errorf("chat stream HTTP 401: refused")) {
+		t.Fatal("refused key was retryable")
+	}
+}
+
 func fallbackConnectionFixture(t *testing.T, mainURL, fallbackURL, fallbackID string, fallbackWindow int) (*Runner, *session.Session, *capturedBus, *config.Config) {
 	t.Helper()
 	root := t.TempDir()

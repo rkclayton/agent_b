@@ -645,7 +645,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
   const allowed = new Set([
     "acme", "http://acme:8080/", "name", "address", "agent profile", "agent_b (default)", "key", "show", "model", "alpha", "type a name…",
     "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
-    "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "attachment handling", "fallback",
+    "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "protocol", "attachment handling", "fallback",
     "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
     "control", "chat_template_kwargs", "top_level", "server_flag", "none", "effort", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",

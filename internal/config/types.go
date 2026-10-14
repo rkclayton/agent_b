@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -298,6 +299,7 @@ type Connection struct {
 	ID                   string            `json:"id"`
 	Label                string            `json:"label"`
 	BaseURL              string            `json:"base_url"`
+	Protocol             string            `json:"protocol"`
 	ExtractURL           string            `json:"extract_url"`
 	AttachmentHandling   string            `json:"-"`
 	ReadsImages          bool              `json:"-"`
@@ -403,6 +405,7 @@ type ServiceOpenAPI struct {
 
 func defaultConnection() Connection {
 	return Connection{
+		Protocol:           ProtocolChatCompletions,
 		RequestTimeoutS:    900,
 		ProbeMode:          "full",
 		AttachmentHandling: "auto",
@@ -414,6 +417,29 @@ func defaultConnection() Connection {
 		Context:      Context{ReserveOutput: DefaultReserveOutput},
 		Capabilities: Capabilities{ValidEfforts: []string{}, Findings: []string{}},
 		initialized:  true,
+	}
+}
+
+const (
+	ProtocolChatCompletions   = "chat-completions"
+	ProtocolAnthropicMessages = "anthropic-messages"
+	ProtocolOpenAIResponses   = "openai-responses"
+)
+
+// ProtocolForAddress recognizes only provider-owned API hosts. Gateways stay
+// compatible with the existing chat-completions wire contract.
+func ProtocolForAddress(address string) string {
+	parsed, err := url.Parse(strings.TrimSpace(address))
+	if err != nil {
+		return ProtocolChatCompletions
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "api.anthropic.com":
+		return ProtocolAnthropicMessages
+	case "api.openai.com":
+		return ProtocolOpenAIResponses
+	default:
+		return ProtocolChatCompletions
 	}
 }
 

@@ -312,7 +312,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 			if message.Role == "assistant" && len(message.ToolCalls) > 0 {
 				overhead = fallbackOverhead["assistant_tools"]
 			}
-			tokens := count(messageText(message.Content)) + count(message.ReasoningContent) + overhead
+			tokens := count(messageText(message.Content)) + count(llm.VisibleReasoning(message.ReasoningContent)) + overhead
 			for _, call := range message.ToolCalls {
 				tokens += count(call.Function.Arguments)
 			}
@@ -503,7 +503,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 				weightKey := messageWeightKey(connection, candidate)
 				weight, cached := b.cachedMessageWeight(s.ID, record.ID, weightKey)
 				if !cached {
-					weight, err = tokenize(messageText(candidate.Content) + candidate.ReasoningContent)
+					weight, err = tokenize(messageText(candidate.Content) + llm.VisibleReasoning(candidate.ReasoningContent))
 					if err != nil {
 						return events.Budget{}, fmt.Errorf("weight message %d: %w", index+offset, err)
 					}
@@ -629,7 +629,7 @@ func estimateChars(chars, cpt float64) int {
 	return int(math.Ceil(chars / cpt))
 }
 func messageChars(message llm.Message) float64 {
-	chars := len([]rune(messageText(message.Content))) + len([]rune(message.ReasoningContent))
+	chars := len([]rune(messageText(message.Content))) + len([]rune(llm.VisibleReasoning(message.ReasoningContent)))
 	for _, call := range message.ToolCalls {
 		chars += len([]rune(call.Function.Arguments))
 	}

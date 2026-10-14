@@ -279,6 +279,7 @@ function connectionFields(connection, reason, discovery) {
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
+	${choices(`${p}.protocol`, "protocol", ["chat-completions", "anthropic-messages", "openai-responses"], connection.protocol || "chat-completions", false)}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], shown.attachment_handling || "auto", false)}
 	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}

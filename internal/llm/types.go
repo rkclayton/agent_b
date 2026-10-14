@@ -34,6 +34,7 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	CachedTokens     int `json:"cached_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens"`
 }
 type Timings map[string]any
 type Response struct {

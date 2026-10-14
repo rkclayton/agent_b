@@ -14,6 +14,9 @@ func TestLegacyConnectionMigrationLeavesRecordedChatRequestEqual2s5(t *testing.T
 	if err := json.Unmarshal(legacy, &before); err != nil {
 		t.Fatal(err)
 	}
+	if before.Protocol != config.ProtocolChatCompletions {
+		t.Fatalf("legacy protocol=%q", before.Protocol)
+	}
 	persisted, err := json.Marshal(before)
 	if err != nil {
 		t.Fatal(err)

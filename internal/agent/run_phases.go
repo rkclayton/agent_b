@@ -773,7 +773,11 @@ func (x *runState) readAnswer() runOutcome {
 		x.retryInstruction = "The previous response named no offered tool. Use only an offered tool or return a final answer."
 		return runAgainOutcome
 	}
-	reasoningTokens, reasoningTokensEstimated := r.count(x.ctx, x.connection, x.response.Reasoning)
+	visibleReasoning := llm.VisibleReasoning(x.response.Reasoning)
+	reasoningTokens, reasoningTokensEstimated := r.count(x.ctx, x.connection, visibleReasoning)
+	if x.response.Usage.ReasoningTokens > 0 {
+		reasoningTokens, reasoningTokensEstimated = x.response.Usage.ReasoningTokens, false
+	}
 	x.durableToolCalls = sanitizedToolCalls(x.toolCalls)
 	responseData := map[string]any{"turn": x.turn, "finish_reason": x.response.FinishReason, "content": x.response.Content, "reasoning_tokens": reasoningTokens, "reasoning_tokens_estimated": reasoningTokensEstimated, "tool_calls": x.durableToolCalls, "usage": map[string]any{"prompt_tokens": x.response.Usage.PromptTokens, "completion_tokens": x.response.Usage.CompletionTokens, "cached_tokens": nullable(x.response.Usage.CachedTokens)}, "timings": x.response.Timings, "duration_ms": x.response.DurationMS}
 	responseEvent := events.New(events.ModelResponse, x.s.ID, x.runID, responseData)
@@ -817,7 +821,7 @@ func (x *runState) readAnswer() runOutcome {
 		finalContent := x.response.Content
 		stopReason, stopDetail := "done", ""
 		if strings.TrimSpace(finalContent) == "" {
-			if reasoning := strings.TrimSpace(x.response.Reasoning); reasoning != "" {
+			if reasoning := strings.TrimSpace(visibleReasoning); reasoning != "" {
 				finalContent = reasoning + "\n\n[answer taken from the model's reasoning]"
 				stopReason, stopDetail = "reply_empty_reasoning_shown", "reply empty — reasoning shown"
 			} else {

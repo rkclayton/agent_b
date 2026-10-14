@@ -309,6 +309,11 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "base_url is empty", "connections."+id+".base_url")
 		return
 	}
+	tested.Protocol = config.ProtocolForAddress(tested.BaseURL)
+	if err := s.saveDetectedProtocol(id, tested.Protocol); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "connections."+id+".protocol")
+		return
+	}
 	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	// each address is published as it lands, so the sheet says what is
@@ -425,6 +430,32 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "duration_ms": duration, "message": fmt.Sprintf("Test passed in %d ms", duration)})
 }
 
+func (s *Server) saveDetectedProtocol(id, protocol string) error {
+	s.mu.Lock()
+	next := *s.cfg
+	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+	found := false
+	for index := range next.Connections {
+		if next.Connections[index].ID == id {
+			next.Connections[index].Protocol, found = protocol, true
+			break
+		}
+	}
+	if !found {
+		s.mu.Unlock()
+		return fmt.Errorf("connection not found")
+	}
+	if err := s.saveMachineConfig(next); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	*s.cfg = next
+	masked := s.cfg.Masked()
+	s.mu.Unlock()
+	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+	return nil
+}
+
 func safeConnectionFailureLog(message, apiKey string) string {
 	if apiKey != "" {
 		message = strings.ReplaceAll(message, apiKey, "<api-key>")
@@ -462,6 +493,7 @@ func (s *Server) queryConnectionModels(w http.ResponseWriter, r *http.Request, i
 	if body.APIKey != "" {
 		tested.APIKey = body.APIKey
 	}
+	tested.Protocol = config.ProtocolForAddress(tested.BaseURL)
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(max(5, tested.RequestTimeoutS))*time.Second)
 	defer cancel()
 	catalog, err := llm.New(&tested).ModelCatalog(ctx)

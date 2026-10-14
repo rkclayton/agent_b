@@ -140,6 +140,49 @@ func TestShellAndRunScriptRefuseEveryVisibleSkillWrite2ua(t *testing.T) {
 	}
 }
 
+func TestSkillScriptsReadAndCopyOutWhileEveryRelativeWriteStaysRefused2uu(t *testing.T) {
+	requireWindowsPathFixture(t)
+	workspace, profile := t.TempDir(), t.TempDir()
+	skillsRoot := filepath.Join(profile, "skills")
+	scriptDir := filepath.Join(skillsRoot, "fixture", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(scriptDir, "report.ps1")
+	if err := os.WriteFile(scriptPath, []byte(`param([string]$OutputDirectory); Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.xlsx') -Value workbook; Write-Output 'workbook ready'`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "fixture", "SKILL.md"), []byte("stand-in skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item := &session.Session{ID: "skill-run", Role: "b", Workspace: workspace, SkillsRoot: skillsRoot}
+	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	out := filepath.Join(workspace, "output")
+	for name, command := range map[string]string{
+		"his case":          `New-Item -ItemType Directory -Force "` + out + `" | Out-Null; Set-Location "` + filepath.Join(skillsRoot, "fixture") + `"; & '.\scripts\report.ps1' -OutputDirectory "` + out + `"; if (-not (Test-Path "` + filepath.Join(out, "report.xlsx") + `")) { exit 9 }`,
+		"copy out":          `Copy-Item "` + scriptPath + `" "` + filepath.Join(workspace, "report.ps1") + `"`,
+		"write beside read": `Get-Content "` + filepath.Join(skillsRoot, "fixture", "SKILL.md") + `" | Out-Null; Set-Content "` + filepath.Join(workspace, "seen.txt") + `" ok`,
+	} {
+		if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Err != nil || strings.Contains(got.Content, "skills folder is read-only") || got.OperatorOverrideReason != "" {
+			t.Errorf("%s did not run: %+v", name, got)
+		}
+	}
+	for name, command := range map[string]string{
+		"copy into":    `Copy-Item "` + filepath.Join(workspace, "report.ps1") + `" "` + filepath.Join(skillsRoot, "fixture", "copied.ps1") + `"`,
+		"relative":     `Set-Location "` + skillsRoot + `"; Set-Content new.txt changed`,
+		"dot relative": `Set-Location "` + skillsRoot + `"; Set-Content .\new.txt changed`,
+		"pwd relative": `Set-Location "` + skillsRoot + `"; Set-Content "$PWD\new.txt" changed`,
+		"out-file":     `Set-Location "` + skillsRoot + `"; 'changed' | Out-File x.txt`,
+	} {
+		if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Content != "skills folder is read-only: "+skillsRoot+"; end the reply with Add <path> as a skill" {
+			t.Errorf("%s = %+v", name, got)
+		}
+	}
+}
+
 // With the service identity on, the OS decides; the literal-path card is not
 // raised (behaviour unchanged).
 func TestOutsidePathCardIsNotRaisedWithTheServiceIdentityOn(t *testing.T) {

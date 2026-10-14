@@ -62,18 +62,49 @@ func writes(source string) bool {
 	return laterWrite.MatchString(discardedOutput.ReplaceAllString(source, " "))
 }
 
+var skillStatementBreak = regexp.MustCompile(`&&|\|\||[;|\r\n]`)
+var shellVariable = regexp.MustCompile(`(?i)\$([a-z_][a-z0-9_]*)`)
+var assignedLiteral = regexp.MustCompile(`(?i)^\s*\$([a-z_][a-z0-9_]*)\s*=\s*["']([^"']+)["']`)
+var skillWriteVerb = regexp.MustCompile(`(?i)^(set-content|sc|add-content|ac|out-file|new-item|ni|remove-item|rm|ri|del|erase|rd|rmdir|mkdir|md|move|mv|move-item|copy|cp|copy-item|cpi|rename-item|ren|rni|clear-content|clc|set-item|tee|tee-object|icacls|takeown|attrib|open)$`)
+var skillInlineWrite = regexp.MustCompile(`(?i)(writeall\w*|appendall\w*|streamwriter)|>`)
+
 func skillWriteRefusal(source string, s *session.Session) string {
-	if !writes(source) {
-		return ""
-	}
-	for _, path := range literalPaths(source) {
-		if s.IsSkillPath(path) {
+	variables, inSkills := map[string]string{}, false
+	for _, statement := range skillStatementBreak.Split(source, -1) {
+		if match := assignedLiteral.FindStringSubmatch(statement); match != nil {
+			variables[strings.ToLower(match[1])] = match[2]
+		}
+		verb := statementVerb(statement)
+		paths := literalPaths(statement)
+		if navigationVerbs[verb] && verb != "dir" && verb != "ls" && verb != "gci" && verb != "get-childitem" && verb != "tree" {
+			if len(paths) > 0 {
+				inSkills = s.IsSkillPath(paths[len(paths)-1])
+			}
+			continue
+		}
+		if !skillWriteVerb.MatchString(verb) && !skillInlineWrite.MatchString(discardedOutput.ReplaceAllString(statement, " ")) {
+			continue
+		}
+		resolved := append([]string(nil), paths...)
+		for _, match := range shellVariable.FindAllStringSubmatch(statement, -1) {
+			if path := variables[strings.ToLower(match[1])]; path != "" {
+				resolved = append(resolved, path)
+			}
+		}
+		targetsSkill := false
+		if verb == "copy" || verb == "cp" || verb == "copy-item" || verb == "cpi" || verb == "move" || verb == "mv" || verb == "move-item" {
+			targetsSkill = len(resolved) > 0 && s.IsSkillPath(resolved[len(resolved)-1])
+		} else if len(resolved) > 0 {
+			targetsSkill = s.IsSkillPath(resolved[0])
+		} else {
+			targetsSkill = inSkills
+		}
+		if targetsSkill {
 			return "skills folder is read-only: " + s.SkillsRoot + "; end the reply with Add <path> as a skill"
 		}
 	}
 	return ""
 }
-
 func pathListReason(prefix string, paths []string) string {
 	if len(paths) == 0 {
 		return ""
@@ -110,6 +141,9 @@ func statementArguments(statement string) string {
 func outsideCommandDecision(source string, s *session.Session, trusted []config.TrustedFolder) outsideDecision {
 	outside := map[string]bool{}
 	for _, path := range outsideLiteralPaths(source, s) {
+		if s.IsSkillPath(path) {
+			continue
+		}
 		outside[strings.ToLower(path)] = true
 	}
 	if len(outside) == 0 {

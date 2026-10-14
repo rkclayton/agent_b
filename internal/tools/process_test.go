@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,10 +46,13 @@ func TestProcessEndGoalFixtureServer(t *testing.T) {
 	}
 	port := probe.Addr().(*net.TCPAddr).Port
 	_ = probe.Close()
-	shell := NewShell(config.Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 10, MaxTimeoutS: 10})
+	shell := NewShell(processTestShell())
 	tool := NewProcess(shell)
 	s := &session.Session{ID: "fixture", Workspace: t.TempDir(), Run: session.RunState{RunID: "run"}}
-	command := fmt.Sprintf(`$env:AGENTB_PROCESS_HELPER='1'; & '%s' '-test.run=TestProcessHTTPHelper' -- %d`, strings.ReplaceAll(os.Args[0], "'", "''"), port)
+	command := processTestCommand(
+		fmt.Sprintf(`$env:AGENTB_PROCESS_HELPER='1'; & '%s' '-test.run=TestProcessHTTPHelper' -- %d`, strings.ReplaceAll(os.Args[0], "'", "''"), port),
+		fmt.Sprintf(`AGENTB_PROCESS_HELPER=1 %s -test.run=TestProcessHTTPHelper -- %d`, strconv.Quote(os.Args[0]), port),
+	)
 	started, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": command})
 	if err != nil {
 		t.Fatal(err)
@@ -88,18 +92,25 @@ func TestProcessEndGoalFixtureServer(t *testing.T) {
 	}
 }
 
-func processTestCommand(script string) string {
+func processTestShell() config.Shell {
 	if runtime.GOOS == "windows" {
-		return script
+		return config.Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 10, MaxTimeoutS: 10}
 	}
-	return script
+	return config.Shell{Command: []string{"sh", "-c"}, TimeoutS: 10, MaxTimeoutS: 10}
+}
+
+func processTestCommand(windows, other string) string {
+	if runtime.GOOS == "windows" {
+		return windows
+	}
+	return other
 }
 
 func TestProcessStartReadWriteWaitAndKill(t *testing.T) {
-	shell := NewShell(config.Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 10, MaxTimeoutS: 10})
+	shell := NewShell(processTestShell())
 	tool := NewProcess(shell)
 	s := &session.Session{ID: "chat", Workspace: t.TempDir(), Run: session.RunState{RunID: "run"}}
-	started, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": processTestCommand(`$line=[Console]::In.ReadLine(); Write-Output "heard:$line"; Start-Sleep -Seconds 30`)})
+	started, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": processTestCommand(`$line=[Console]::In.ReadLine(); Write-Output "heard:$line"; Start-Sleep -Seconds 30`, `read line; echo "heard:$line"; sleep 30`)})
 	if err != nil || !strings.HasPrefix(started, "started ") {
 		t.Fatalf("start = %q, %v", started, err)
 	}
@@ -130,15 +141,15 @@ func TestProcessStartReadWriteWaitAndKill(t *testing.T) {
 }
 
 func TestProcessLimitAndOutputWindow(t *testing.T) {
-	shell := NewShell(config.Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 10, MaxTimeoutS: 10})
+	shell := NewShell(processTestShell())
 	tool := NewProcess(shell)
 	s := &session.Session{ID: "chat", Workspace: t.TempDir(), Run: session.RunState{RunID: "run"}}
 	for i := 0; i < 4; i++ {
-		if _, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": `Start-Sleep -Seconds 30`}); err != nil {
+		if _, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": processTestCommand(`Start-Sleep -Seconds 30`, `sleep 30`)}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": `Start-Sleep -Seconds 30`}); err == nil {
+	if _, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": processTestCommand(`Start-Sleep -Seconds 30`, `sleep 30`)}); err == nil {
 		t.Fatal("fifth process was accepted")
 	}
 	tool.KillRun("chat", "run")
@@ -155,7 +166,8 @@ func TestProcessLimitAndOutputWindow(t *testing.T) {
 }
 
 func TestProcessAndShellShareDenyList(t *testing.T) {
-	cfg := config.Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 10, MaxTimeoutS: 10, Deny: []string{"blocked"}}
+	cfg := processTestShell()
+	cfg.Deny = []string{"blocked"}
 	shell := NewShell(cfg)
 	s := &session.Session{ID: "chat", Workspace: t.TempDir(), Run: session.RunState{RunID: "run"}}
 	_, shellErr := shell.Call(context.Background(), s, map[string]any{"command": "blocked argument"})
@@ -168,10 +180,10 @@ func TestProcessAndShellShareDenyList(t *testing.T) {
 func TestProcessCleanupForEveryRunEnd(t *testing.T) {
 	for _, ending := range []string{"done", "stopped", "cancelled", "crashed", "app closing"} {
 		t.Run(ending, func(t *testing.T) {
-			shell := NewShell(config.Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 10, MaxTimeoutS: 10})
+			shell := NewShell(processTestShell())
 			tool := NewProcess(shell)
 			s := &session.Session{ID: "chat", Workspace: t.TempDir(), Run: session.RunState{RunID: "run"}}
-			started, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": `Start-Sleep -Seconds 30`})
+			started, err := tool.Call(context.Background(), s, map[string]any{"action": "start", "command": processTestCommand(`Start-Sleep -Seconds 30`, `sleep 30`)})
 			if err != nil {
 				t.Fatal(err)
 			}

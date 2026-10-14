@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { sourceHash, verifyRun } from "../tools/compaction-proof.mjs";
+import { proofSelection, sourceHash, startupFailure, startupWaitMs, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -18,6 +18,14 @@ test("the proof accepts a more-than-half real-count drop with the task retained"
 test("the two negative controls fail on no compaction and missing notes", () => {
   assert.throws(() => verifyRun("off", good.filter((one) => one.type !== "compaction"), task, "0001\n", 1, 1), /compacted every time/);
   assert.throws(() => verifyRun("empty hand-off", good, task, "", 1, 1), /notes\.md/);
+});
+
+test("the proof uses the measured start allowance and the active agent model 2ur", () => {
+  assert.equal(startupWaitMs, 8036);
+  const selected = proofSelection({ connections: [{ id: "main", model: "chosen", models: [{ model: "chosen", context: { n_ctx: 200000 } }] }] }, { agents: [{ name: "agent_b", b: "main", c: "other" }] });
+  assert.deepEqual(selected.record, { connection: "active profile agent_b role b", model: "chosen", window: 200000 });
+  assert.equal(selected.agent.c, "");
+  assert.equal(startupFailure(startupWaitMs, "agents[0].c: invalid"), "candidate page did not answer after 8.036 seconds; last log: agents[0].c: invalid");
 });
 
 test("the tracked source hash excludes tests and is stable", async () => {

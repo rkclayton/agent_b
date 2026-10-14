@@ -73,6 +73,7 @@ export function approvalText(data = {}) {
 	const human = data.human && typeof data.human === "object" ? data.human : null;
 	const imported = boundCredential(data) + importedOperations(data);
 	if (data.kind === "question") return { title: "Question", request: data.question || "Agent_b asked a question.", reason: "The run is waiting for your answer.", detail: "" };
+	if (data.name === "delegate connection") return { title: "Allow this", request: `Let this helper use ${data.args?.connection || "another connection"}?`, reason: "Approval holds for this connection for the rest of this chat.", detail: "" };
 	if (data.args?.outside_folder_card) {
 		const value = data.args?.path ?? data.args?.command ?? data.args?.source ?? "", folders = data.args.outside_folders || [];
 		const named = folders.length > 1 ? `\n${folders.join("\n")}` : ` ${folders[0] || value}`;

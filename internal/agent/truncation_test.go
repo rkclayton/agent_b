@@ -130,7 +130,7 @@ func TestDelegateAskedToWriteRefusesWithToolAbsent(t *testing.T) {
 	connection.Capabilities.Server, connection.Capabilities.OverflowBehavior = "openai-compatible", "error"
 	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true}
-	result, err := runner.runDelegate(context.Background(), parent, "write a file", "quick")
+	result, err := runner.runDelegate(context.Background(), parent, tools.DelegateRequest{Task: "write a file", Thoroughness: "quick"})
 	if err != nil || result.Partial || result.Summary != whole || strings.Contains(result.Summary, "capped") {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -154,7 +154,7 @@ func TestDelegateRewritesOnceWhenAnswerCannotFitParent2to(t *testing.T) {
 	connection.Capabilities.Server, connection.Capabilities.OverflowBehavior = "openai-compatible", "error"
 	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Budget: events.Budget{NCtx: 10000, UsedEst: 7000}}
-	result, err := runner.runDelegate(context.Background(), parent, "report findings", "quick")
+	result, err := runner.runDelegate(context.Background(), parent, tools.DelegateRequest{Task: "report findings", Thoroughness: "quick"})
 	if err != nil || calls.Load() != 2 || !result.Partial || !strings.HasSuffix(result.Summary, short) || !strings.Contains(result.Summary, "shortened") || strings.Contains(result.Summary, "capped") {
 		t.Fatalf("calls=%d result=%+v err=%v", calls.Load(), result, err)
 	}
@@ -188,7 +188,7 @@ func TestDelegateQuickCapReturnsPartial(t *testing.T) {
 	connection.Capabilities.Server, connection.Capabilities.OverflowBehavior = "openai-compatible", "error"
 	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true}
-	result, err := runner.runDelegate(context.Background(), parent, "keep reading", "quick")
+	result, err := runner.runDelegate(context.Background(), parent, tools.DelegateRequest{Task: "keep reading", Thoroughness: "quick"})
 	if err != nil || !result.Partial || result.ToolCalls != 8 || calls.Load() != 9 || !strings.Contains(result.Summary, "Partial finding") {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}

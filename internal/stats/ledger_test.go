@@ -33,7 +33,7 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 	bus.Publish(events.New(events.RunStarted, item.ID, runID, map[string]any{"run_id": runID}))
 	bus.Publish(events.New(events.ModelRequest, item.ID, runID, map[string]any{"turn": 1}))
 	bus.Publish(events.New(events.ModelResponse, item.ID, runID, map[string]any{"content": "done", "duration_ms": 12, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "cached_tokens": 40}}))
-	bus.Publish(events.New(events.DelegatedUsage, item.ID, runID, map[string]any{"usage": map[string]any{"prompt_tokens": 30, "completion_tokens": 7, "cached_tokens": 5}, "tool_calls": []any{map[string]any{"name": "read_file"}}}))
+	bus.Publish(events.New(events.DelegatedUsage, item.ID, runID, map[string]any{"connection_id": "second", "usage": map[string]any{"prompt_tokens": 30, "completion_tokens": 7, "cached_tokens": 5}, "tool_calls": []any{map[string]any{"name": "read_file"}}}))
 	bus.Publish(events.New(events.ToolResult, item.ID, runID, map[string]any{"name": "read_file", "ok": false}))
 	bus.Publish(events.New(events.ApprovalRequired, item.ID, runID, map[string]any{"call_id": "c1"}))
 	bus.Publish(events.New(events.RunStopped, item.ID, runID, map[string]any{"reason": "done"}))
@@ -51,6 +51,9 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 	}
 	if ledger.Agent.PromptTokens != 130 || ledger.Agent.CompletionTokens != 27 || ledger.Agent.CachedTokens != 45 || ledger.Agent.DelegatedPromptTokens != 30 || ledger.Agent.DelegatedToolCalls != 1 || len(ledger.Connections["local"].ModelResponseMS) != 1 {
 		t.Fatalf("tokens/connection=%+v", ledger)
+	}
+	if ledger.Connections["local"].DelegatedPromptTokens != 0 || ledger.Connections["second"].DelegatedPromptTokens != 30 {
+		t.Fatalf("delegated tokens were not charged to the helper connection: %+v", ledger.Connections)
 	}
 	before := manager.Snapshot(cfg.DefaultAgentID())
 	if err := registry.Close(item.ID); err != nil {
@@ -106,7 +109,9 @@ func TestActivityRowCarriesTheRunsOwnFigures2ji(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	at := func(seconds int) string { return time.Date(2026, 9, 26, 12, 0, seconds, 0, time.UTC).Format(time.RFC3339) }
+	at := func(seconds int) string {
+		return time.Date(2026, 9, 26, 12, 0, seconds, 0, time.UTC).Format(time.RFC3339)
+	}
 	emit := func(kind, runID, ts string, data map[string]any) {
 		event := events.New(kind, item.ID, runID, data)
 		event.TS = ts

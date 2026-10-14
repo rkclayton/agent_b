@@ -784,7 +784,7 @@ func (x *runState) readAnswer() runOutcome {
 	responseEvent.Raw = redactToolCallHeaders(string(x.response.Raw), rawToolCalls)
 	r.bus.Publish(responseEvent)
 	if x.s.Role == "e" && x.s.ParentSessionID != "" {
-		r.bus.Publish(events.New(events.DelegatedUsage, x.s.ParentSessionID, x.runID, map[string]any{"usage": responseData["usage"], "tool_calls": x.durableToolCalls}))
+		r.bus.Publish(events.New(events.DelegatedUsage, x.s.ParentSessionID, x.runID, map[string]any{"connection_id": x.connection.ID, "usage": responseData["usage"], "tool_calls": x.durableToolCalls}))
 	}
 	r.stage(x.s, x.runID, x.turn, "parse", func() {})
 	if x.response.FinishReason == "length" && len(x.toolCalls) > 0 {

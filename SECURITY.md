@@ -518,6 +518,7 @@ these two tools run in the Agent_b process and are therefore the sanctioned serv
 and an unhardened host may let shell clients reach the network.
 
 Each B chat may operate in its scratch/retained root and every repository named by the live plan list, and may read the plans tree.
+Writable delegated helpers receive an isolated bounded folder copy and the parent's ordinary file/shell boundary, approval mode and service identity; they receive no service, memory, schedule or delegation tools. A helper return is baseline-checked before any real file changes, applies all-or-none into the parent's undo store, and collision copies stay under the profile's chat storage.
 Each bound D chat writes only its immutable plan and may read its repository or any plan; operator identity cannot widen D write authority.
 
 ## Stored model content

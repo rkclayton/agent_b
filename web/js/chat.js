@@ -651,7 +651,7 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
   const duration = responseSummary(items).duration;
   const steps = blocks.filter((block) => block.prose).length || blocks.length;
   setAttribute(view.work.summaryToggle, "aria-expanded", String(open));
-  const changed = new Set(items.filter((item) => item?.type === "tool" && ["write_file", "edit_file"].includes(item.name) && item.result?.ok === true).map((item) => item.args?.path).filter(Boolean));
+  const changed = new Set(items.flatMap((item) => item?.type === "tool" && ["write_file", "edit_file"].includes(item.name) && item.result?.ok === true ? [item.args?.path] : item?.name === "delegate" ? (item.result?.delegate?.applied || []) : []).filter(Boolean));
   const remaining = Number.isInteger(view.work.remaining) ? view.work.remaining : changed.size;
   const prefix = `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}`;
   if (changed.size) {
@@ -1896,7 +1896,8 @@ function delegateDetail(args, delegated) {
     if (message.content) parts.push(String(message.content));
     return parts.join("\n");
   }).join("\n\n") : "";
-  return `arguments\n${JSON.stringify(args, null, 2)}\n\nchild transcript\n${transcript}\n\nsummary\n${delegated.summary || ""}`;
+  const outcome = [delegated.connection ? `connection: ${delegated.connection}` : "", delegated.applied?.length ? `applied: ${delegated.applied.join(", ")}` : "", delegated.collided?.length ? `collided: ${delegated.collided.join(", ")}` : "", delegated.scratch ? `helper versions: ${delegated.scratch}` : ""].filter(Boolean).join("\n");
+  return `arguments\n${JSON.stringify(args, null, 2)}${outcome ? `\n\nresult\n${outcome}` : ""}\n\nchild transcript\n${transcript}\n\nsummary\n${delegated.summary || ""}`;
 }
 function capResult(value) {
   const lines = String(value || "").split("\n");

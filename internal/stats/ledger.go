@@ -339,9 +339,15 @@ func (m *Manager) record(event events.Event) {
 		r.wallMS = time.Since(r.started).Milliseconds()
 	}
 	add(&ledger.Agent, event, r)
-	p := ledger.Connections[connection]
+	connectionLedger := connection
+	if event.Type == events.DelegatedUsage {
+		if delegated, _ := eventData(event.Data)["connection_id"].(string); delegated != "" {
+			connectionLedger = delegated
+		}
+	}
+	p := ledger.Connections[connectionLedger]
 	add(&p, event, r)
-	ledger.Connections[connection] = p
+	ledger.Connections[connectionLedger] = p
 	if event.Type == events.RunStopped {
 		delete(m.runs, key(event))
 	}

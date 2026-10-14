@@ -143,6 +143,13 @@ type Runner struct {
 	takeQueued         func(*session.Session, string)
 	returnMessage      func(*session.Session, string) bool
 	modelRetryDelays   []time.Duration
+	delegateFiles      *tools.FileCoordinator
+	delegateMu         sync.Mutex
+	delegateActive     map[string]int
+	delegateCalls      map[string]int
+	delegateWake       chan struct{}
+	delegateApprovals  map[string]chan struct{}
+	delegateApproved   map[string]bool
 }
 
 var resolveNamedPath = tools.ResolveNamedPath
@@ -166,7 +173,7 @@ func NewRunner(bus *events.Bus, registry *tools.Registry, prompt *PromptRenderer
 	if prompt != nil {
 		prompt.SetTrustedFolders(func() []config.TrustedFolder { return cfg().Shell.TrustedFolders })
 	}
-	return &Runner{bus: bus, tools: registry, prompt: prompt, connection: connection, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook(), modelRetryDelays: []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}}
+	return &Runner{bus: bus, tools: registry, prompt: prompt, connection: connection, cfg: cfg, gate: NewGate(bus, cfg), budget: NewBudgeter(), compact: contextmgr.New(bus), flights: newFlightBook(), modelRetryDelays: []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}, delegateActive: map[string]int{}, delegateCalls: map[string]int{}, delegateWake: make(chan struct{}), delegateApprovals: map[string]chan struct{}{}, delegateApproved: map[string]bool{}}
 }
 func (r *Runner) Configure(cfg config.Config) {
 	r.tools.Configure(cfg)
@@ -237,6 +244,7 @@ func (r *Runner) SetSkillHost(host SkillHost)                             { r.sk
 func (r *Runner) SetQueuedBoundary(fn func(*session.Session, string))     { r.takeQueued = fn }
 func (r *Runner) SetMessageReturn(fn func(*session.Session, string) bool) { r.returnMessage = fn }
 func (r *Runner) BindDelegate(tool *tools.Delegate)                       { tool.SetRunner(r.runDelegate) }
+func (r *Runner) SetDelegateFileCoordinator(value *tools.FileCoordinator) { r.delegateFiles = value }
 func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
 	if !s.BeginPlanAccept() {
 		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
@@ -272,18 +280,40 @@ func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID
 }
 func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
 
-func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task, thoroughness string) (tools.DelegateResult, error) {
+func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, request tools.DelegateRequest) (tools.DelegateResult, error) {
 	started := time.Now()
 	turns := 8
-	if thoroughness == "thorough" {
+	if request.Thoroughness == "thorough" {
 		turns = 20
 	}
+	if request.Write {
+		turns = 40
+	}
 	parentState := parent.Snapshot()
+	connectionID, connectionLabel, err := r.delegateConnection(ctx, parent, request.Connection)
+	if err != nil {
+		return tools.DelegateResult{}, err
+	}
+	release, err := r.acquireDelegate(ctx, parent.ID, parentState.Run.RunID, connectionID)
+	if err != nil {
+		return tools.DelegateResult{}, err
+	}
+	defer release()
+	workspace := parentState.WorkspaceDir
+	var copy *helperCopy
+	if request.Write {
+		copy, err = newHelperCopy(workspace, delegateCopyFiles, delegateCopyBytes)
+		if err != nil {
+			return tools.DelegateResult{}, err
+		}
+		defer copy.Close()
+		workspace = copy.Root
+	}
 	parentRoom := max(0, parentState.Budget.NCtx-guardedPromptTokens(parentState.Budget))
 	child := &session.Session{
 		ID: parent.ID + "-delegate-" + r.id("e"), Label: "delegate", Role: "e", AgentID: parentState.AgentID,
 		ParentSessionID: parent.ID,
-		ConnectionID:    parentState.ConnectionID, Workspace: parentState.WorkspaceDir, PlanID: parentState.PlanID,
+		ConnectionID:    connectionID, Workspace: workspace, PlanID: parentState.PlanID,
 		PlanDir: parent.PlanDir, PlanRepo: parent.PlanRepo, PlansRoot: parent.PlansRoot, SkillsRoot: parent.SkillsRoot, SkillStateRoot: parent.SkillStateRoot, PlanRepos: parent.PlanRepos,
 		NetworkBoundary: parentState.NetworkBoundary, NetworkBoundarySet: true,
 		MediaCapabilities: parentState.MediaCapabilities, MediaCapabilitiesSet: true, Runnable: true,
@@ -291,13 +321,18 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 			"read_file": true, "list_dir": true, "search": true, "fetch_url": true, "recall": true,
 		}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
 	}
+	if request.Write {
+		child.ToolsEnabled["write_file"], child.ToolsEnabled["edit_file"], child.ToolsEnabled["shell"], child.ToolsEnabled["run_script"] = true, true, true, true
+		child.Scratch, child.IsolatedHelper = true, true
+		child.PlanDir, child.PlanRepo, child.PlansRoot, child.PlanRepos = "", "", "", nil
+	}
 	r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "running"}))
 	defer r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "completed"}))
 	connection, ok := r.currentConnection(child)
 	if !ok {
 		return tools.DelegateResult{}, fmt.Errorf("delegate connection %s is unavailable", child.ConnectionID)
 	}
-	message, _ := r.makeMessage(ctx, connection, "user", task, "history", 0)
+	message, _ := r.makeMessage(ctx, connection, "user", request.Task, "history", 0)
 	child.Append(message)
 	r.bus.Publish(events.New(events.MessageAppended, child.ID, "", map[string]any{"message": message, "parent_session_id": parent.ID}))
 	reason, detail, _ := r.Run(ctx, child, r.id("delegate"))
@@ -344,7 +379,17 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, task,
 	for _, tool := range child.Snapshot().Tools {
 		toolCalls += tool.Calls
 	}
-	return tools.DelegateResult{Summary: summary, Partial: partial, DurationMS: time.Since(started).Milliseconds(), ToolCalls: toolCalls, Transcript: transcript}, nil
+	result := tools.DelegateResult{Summary: summary, Partial: partial, DurationMS: time.Since(started).Milliseconds(), ToolCalls: toolCalls, Transcript: transcript}
+	if request.Connection != "" {
+		result.Connection = connectionLabel
+	}
+	if copy != nil {
+		result.Applied, result.Collided, result.Scratch, err = r.finishHelperCopy(ctx, parent, child.ID, copy)
+		if err != nil {
+			return tools.DelegateResult{}, err
+		}
+	}
+	return result, nil
 }
 
 func lastAssistantSummary(transcript []events.Message) string {
@@ -416,6 +461,13 @@ func serviceIdentityUnavailableData(reason string) map[string]any {
 }
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
+	if s.Role != "e" {
+		defer func() {
+			r.delegateMu.Lock()
+			delete(r.delegateCalls, s.ID+"\x00"+runID)
+			r.delegateMu.Unlock()
+		}()
+	}
 	return r.runInPhases(ctx, s, runID)
 }
 
@@ -746,8 +798,12 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	decision := "approve"
 	var gateErr error
+	isolatedMutation := s.IsolatedHelper && (name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script")
 	proposedConnector, connectorChange, connectorErr := tools.ParseConnectorChange(args)
-	if connectorChange {
+	if isolatedMutation {
+		// The helper changes only its disposable copy. The parent's ordinary
+		// write approval is asked once, immediately before a clean return applies.
+	} else if connectorChange {
 		if connectorErr != nil {
 			eventArgs["validation_error"] = connectorErr.Error()
 		}

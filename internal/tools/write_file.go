@@ -20,6 +20,77 @@ type FileCoordinator struct {
 	diagnostics *languageDiagnostics
 }
 
+type FileBatchChange struct {
+	Path   string
+	Data   []byte
+	Mode   os.FileMode
+	Remove bool
+}
+
+// ApplyBatch records one helper return as one run-level undo group. The caller
+// has already checked every baseline; rollback keeps a mid-apply I/O failure
+// from exposing part of the helper's result.
+func (c *FileCoordinator) ApplyBatch(s *session.Session, changes []FileBatchChange) error {
+	type prior struct {
+		data    []byte
+		mode    os.FileMode
+		existed bool
+	}
+	before := make([]prior, len(changes))
+	for i, change := range changes {
+		info, err := os.Stat(change.Path)
+		if err == nil {
+			before[i].data, err = os.ReadFile(change.Path)
+			before[i].mode, before[i].existed = info.Mode(), true
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := c.prepareUndo(s, change.Path); err != nil {
+			return err
+		}
+	}
+	rollback := func(last int) {
+		for i := last; i >= 0; i-- {
+			if before[i].existed {
+				_ = os.MkdirAll(filepath.Dir(changes[i].Path), 0o755)
+				_ = os.WriteFile(changes[i].Path, before[i].data, before[i].mode.Perm())
+			} else {
+				_ = os.Remove(changes[i].Path)
+			}
+		}
+	}
+	for i, change := range changes {
+		var err error
+		if change.Remove {
+			err = os.Remove(change.Path)
+			if os.IsNotExist(err) {
+				err = nil
+			}
+		} else {
+			err = os.MkdirAll(filepath.Dir(change.Path), 0o755)
+			if err == nil {
+				mode := change.Mode.Perm()
+				if mode == 0 {
+					mode = 0o644
+				}
+				err = os.WriteFile(change.Path, change.Data, mode)
+			}
+		}
+		if err != nil {
+			rollback(i)
+			return err
+		}
+	}
+	for _, change := range changes {
+		if err := c.commitUndo(s, change.Path); err != nil {
+			return fmt.Errorf("record undo state: %w", err)
+		}
+		c.record(s, change.Path)
+	}
+	return nil
+}
+
 func NewFileCoordinator(workspaces *session.WorkspaceRegistry, label func(string) string, bus *events.Bus) *FileCoordinator {
 	return &FileCoordinator{workspaces: workspaces, label: label, bus: bus}
 }

@@ -103,6 +103,7 @@ type Session struct {
 	boundaryHits           []string
 	WorkspaceMissing       bool
 	Scratch                bool
+	IsolatedHelper         bool
 	ProjectBlock           string
 	ProjectFiles           []string
 	ProjectNotes           []string

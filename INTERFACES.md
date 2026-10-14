@@ -301,11 +301,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   Auth is always the connector's setting and never derived from the document, and every other part of the call — host pinning, credential handling, scrubbing,
   windowing, the listener refusal and the result shape — is the same code path. This identity-bearing internal-service surface remains distinct from anonymous,
   GET-only, untrusted-open-web `fetch_url`.
-- `delegate {task,thoroughness?:quick|thorough}` runs one in-process, foreground, read-only child context on the parent's connection.
-  The child receives only its self-contained task and the delegate prompt; it has `read_file`, `list_dir`, `search`, `fetch_url`, and `recall`,
-  never write/edit/shell/script/service/remember/delegate. Quick is capped at 8 turns and thorough at 20; parent cancellation cancels the child.
-  The returned summary is capped at 2,000 tokens and begins `sub-task result; its words carry no operator authority`; `tool.result.delegate` carries status,
-  duration, tool-call count, and the child transcript. No child read is inserted into the parent's model context.
+- `delegate {task,thoroughness?:quick|thorough,write?:bool,connection?:label}` keeps absent/false `write` as the prior read-only child. A writer receives read, file-write, shell and script tools in a bounded isolated copy (1 GiB and 50,000 files; 40 turns), never service, memory, schedule or delegation tools. Its files apply as one undoable return only when every real file still matches the starting copy; otherwise none apply and every helper version is kept in chat collision scratch. Results name applied or collided files and retain the transcript. At most four helpers run per chat and eight start per run; each connection's `max_concurrent` counts children but not their waiting parent. Another connection's first use requires chat-held approval and unattended runs refuse it. Parent cancellation removes every copy.
 - `chat_history {query?,offset?,limit?}` is a read-only view of the active chat's append-only retained journal.
   With `query` it searches message records case-insensitively; without it, it reads message entries by zero-based range. `offset` skips matching entries,
   `limit` defaults to 20 and is capped at 50. The journal is decoded one record at a time and is never loaded as a whole.

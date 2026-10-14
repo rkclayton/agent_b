@@ -130,12 +130,14 @@ async function runGroup(app, sourceData, window, specs) {
   try {
     const prepared = await prepare(sourceData, root, window, specs[0].files);
     let lastLine = "";
+    const startupAt = Date.now();
     child = spawn(app, ["--config", join(prepared.data, "harness.json"), "--app-root", here, "--data-root", prepared.data], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
     child.stderr.on("data", (part) => { lastLine = String(part).trim().split(/\r?\n/).filter(Boolean).at(-1)?.replaceAll(root, "<isolated root>") || lastLine; for (const value of prepared.redactions) lastLine = lastLine.replaceAll(value, "<connection>"); });
     const base = `http://127.0.0.1:${prepared.port}`;
     let document;
     try { document = await waitFor(async () => { lastLine = await lastCandidateLog(prepared.data, lastLine); if (child.exitCode !== null) throw new Error(startupFailure(startupWaitMs, lastLine)); return fetch(`${base}/chat`).catch(() => null); }, "candidate page", startupWaitMs); }
     catch (error) { if (String(error.message) === "candidate page timed out") throw new Error(startupFailure(startupWaitMs, await lastCandidateLog(prepared.data, lastLine))); throw error; }
+    process.stdout.write(`COMPACTION PROOF: candidate page answered in ${((Date.now() - startupAt) / 1000).toFixed(3)} seconds\n`);
     const html = await document.text(), token = html.match(/agentb-mutation-token" content="([^"]+)/)?.[1], cookie = document.headers.get("set-cookie")?.split(";")[0] || "";
     assert.ok(token, "model unreachable"); const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token, Cookie: cookie };
     const rows = [];

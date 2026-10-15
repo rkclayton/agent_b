@@ -59,11 +59,15 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 	cancel()
 	if propsErr == nil {
 		caps.Props, caps.Server = true, "llama.cpp"
+		applyPropsCapabilities(&caps, props)
 		caps.NCtx = props.DefaultGenerationSettings.NCtx
 		if caps.NCtx == 0 {
 			caps.NCtx = props.NCtx
 		}
 		findings = append(findings, fmt.Sprintf("props: available; server llama.cpp; n_ctx %d", caps.NCtx))
+		if caps.ParallelCapacity > 0 {
+			findings = append(findings, fmt.Sprintf("parallel capacity: %d", caps.ParallelCapacity))
+		}
 	} else {
 		check, cancel = context.WithTimeout(ctx, 20*time.Second)
 		catalog, modelsErr := client.ModelCatalog(check)
@@ -171,6 +175,12 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 	probeReasoning(ctx, client, connection, &caps, &findings)
 	probeOverflow(ctx, client, connection, &caps, &findings, evaluateCeiling)
 	return finish(caps, findings)
+}
+
+func applyPropsCapabilities(caps *config.Capabilities, props llm.Props) {
+	if props.TotalSlots > 0 {
+		caps.ParallelCapacity = props.TotalSlots
+	}
 }
 
 func probeImages(ctx context.Context, client *llm.Client) bool {

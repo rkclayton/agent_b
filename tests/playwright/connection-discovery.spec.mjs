@@ -783,3 +783,36 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     await page.close();
   }
 });
+
+test("connection runs-at-once saves, clears, and stays whole at both widths 2v4", async () => {
+  const captures = join(repo, "logs", "evidence", "rel-1.62.117", "captures");
+  await mkdir(captures, { recursive: true });
+  const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"]').first().click();
+  await page.locator(".connection-defaults > summary").click();
+  const field = page.locator('[data-path="connections.ui.max_concurrent"]');
+  await field.fill("2");
+  await field.blur();
+  await expect(field.locator("xpath=following-sibling::*[contains(@class,'setting-applied')]")).toBeVisible();
+  await page.goto(`${harness.base}/chat`);
+  await openSettings(page);
+  await page.locator('[data-action="connection-toggle"]').first().click();
+  await page.locator(".connection-defaults > summary").click();
+  await expect(field).toHaveValue("2");
+  for (const width of [1280, 304]) {
+    await page.setViewportSize({ width, height: 860 });
+    await field.scrollIntoViewIfNeeded();
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+    await page.screenshot({ path: join(captures, `runs-at-once-${width}.png`) });
+  }
+  await field.fill("");
+  await field.blur();
+  await expect(field.locator("xpath=following-sibling::*[contains(@class,'setting-applied')]")).toBeVisible();
+  await page.goto(`${harness.base}/chat`);
+  await openSettings(page);
+  await page.locator('[data-action="connection-toggle"]').first().click();
+  await page.locator(".connection-defaults > summary").click();
+  await expect(field).toHaveValue("");
+  await page.close();
+});

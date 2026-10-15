@@ -60,6 +60,7 @@ type Delta struct {
 }
 type Props struct {
 	BuildInfo                 string `json:"build_info"`
+	TotalSlots                int    `json:"total_slots"`
 	DefaultGenerationSettings struct {
 		NCtx int `json:"n_ctx"`
 	} `json:"default_generation_settings"`

@@ -308,12 +308,14 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 }
 
 // runs are admitted per model connection as well as globally. A connection
-// serves at most its own max_concurrent runs at once (one when unset), so a
+// serves at most its own override, reported capacity, or one when neither is set, so a
 // planner and a worker on a shared connection never overlap unless the operator
 // has raised that connection's limit.
 func (s *Scheduler) connectionLimit(connectionID string) int {
 	if connection, ok := s.cfg().Connection(connectionID); ok && connection.MaxConcurrent > 0 {
 		return connection.MaxConcurrent
+	} else if ok && connection.Capabilities.ParallelCapacity > 0 {
+		return connection.Capabilities.ParallelCapacity
 	}
 	return 1
 }

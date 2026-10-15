@@ -68,6 +68,7 @@ type Capabilities struct {
 	Server               string   `json:"server"`
 	Props                bool     `json:"props"`
 	NCtx                 int      `json:"n_ctx"`
+	ParallelCapacity     int      `json:"parallel_capacity,omitempty"`
 	Tokenize             bool     `json:"tokenize"`
 	ApplyTemplate        bool     `json:"apply_template"`
 	ApplyTemplateTools   bool     `json:"apply_template_tools"`

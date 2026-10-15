@@ -311,8 +311,12 @@ func (r *Runner) acquireDelegate(ctx context.Context, chatID, runID, connectionI
 	}
 	for {
 		limit := 1
-		if connection, ok := r.cfg().Connection(connectionID); ok && connection.MaxConcurrent > 0 {
-			limit = connection.MaxConcurrent
+		if connection, ok := r.cfg().Connection(connectionID); ok {
+			if connection.MaxConcurrent > 0 {
+				limit = connection.MaxConcurrent
+			} else if connection.Capabilities.ParallelCapacity > 0 {
+				limit = connection.Capabilities.ParallelCapacity
+			}
 		}
 		if r.delegateActive[chatKey] < 4 && r.delegateActive[connectionKey] < limit {
 			r.delegateActive[chatKey]++

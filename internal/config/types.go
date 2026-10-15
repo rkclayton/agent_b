@@ -317,8 +317,8 @@ type Connection struct {
 	Capabilities         Capabilities      `json:"-"`
 	Measurement          *Measurement      `json:"-"`
 	Models               []ConnectionModel `json:"-"`
-	// MaxConcurrent is how many runs this server serves at once;
-	// zero means one. The global run.max_concurrent still caps the total.
+	// MaxConcurrent overrides how many runs this server serves at once;
+	// zero uses its reported capacity, then one. The global cap still applies.
 	MaxConcurrent int `json:"max_concurrent,omitempty"`
 	initialized   bool
 	exposeActive  bool

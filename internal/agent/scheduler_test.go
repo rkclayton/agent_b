@@ -115,6 +115,25 @@ func TestActiveRunMessagesQueueAtZeroDepthAndDispatchInOrderAfterRunEnd(t *testi
 	}
 }
 
+func TestConnectionLimitUsesReportedCapacityUnlessOverridden2v4(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := config.Defaults(workspace)
+	cfg.Connections[0].Capabilities.ParallelCapacity = 4
+	scheduler := &Scheduler{cfg: func() config.Config { return cfg }}
+	if got := scheduler.connectionLimit(cfg.Connections[0].ID); got != 4 {
+		t.Fatalf("reported limit=%d want=4", got)
+	}
+	cfg.Connections[0].MaxConcurrent = 2
+	if got := scheduler.connectionLimit(cfg.Connections[0].ID); got != 2 {
+		t.Fatalf("saved override=%d want=2", got)
+	}
+	cfg.Connections[0].MaxConcurrent = 0
+	cfg.Connections[0].Capabilities.ParallelCapacity = 0
+	if got := scheduler.connectionLimit(cfg.Connections[0].ID); got != 1 {
+		t.Fatalf("unknown fallback=%d want=1", got)
+	}
+}
+
 func TestQueuedMessagesJoinAfterCompletedToolResultsAtNextBoundary2tl(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer model.Close()

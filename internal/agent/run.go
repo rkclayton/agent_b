@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	attachmentfile "harness/internal/attachment"
 	"harness/internal/config"
 	contextmgr "harness/internal/context"
 	"harness/internal/credential"
@@ -432,7 +433,7 @@ func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, t
 	if !ok {
 		return events.Message{}, fmt.Errorf("connection not found")
 	}
-	attachments = prepareNativeAttachmentsWithBudget(connection, attachments, remainingNativeAttachmentBudget(connection, s.MessagesCopy()))
+	attachments = prepareNativeAttachmentsWithBudget(connection, s.Workspace, attachments, remainingNativeAttachmentBudget(connection, s.Workspace, s.MessagesCopy()))
 	message := events.Message{ID: r.id("m"), Role: "user", Content: text, Category: "history", Attachments: append([]events.Attachment(nil), attachments...)}
 	var tokens int
 	var estimated bool
@@ -440,6 +441,12 @@ func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, t
 		tokens, estimated = estimatedTokenCount(renderedUserText(connection, s, message)), true
 	} else {
 		tokens, estimated = r.count(ctx, connection, renderedUserText(connection, s, message))
+	}
+	for _, attachment := range attachments {
+		kind := attachmentKind(attachment)
+		if attachment.Outcome == "" && nativeAttachment(connection, kind) && kind == attachmentfile.Image {
+			tokens += int(nativeAttachmentCost(connection, s.Workspace, attachment))
+		}
 	}
 	message.Tokens, message.Estimated = tokens, estimated
 	return message, nil

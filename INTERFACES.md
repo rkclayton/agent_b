@@ -370,7 +370,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
 - `log.retention` is the global startup/daily prune record `{days,files,count}`. `files` contains removed top-level operational JSONL basenames;
   evidence archives and retained chat journals are never candidates.
 - `run.queued` [4] `{run_id,position,behind?}` — `behind` (`agent_<role>`) when the run waits because its model connection is serving as many runs as
-  `connections[].max_concurrent` allows (one when unset; `run.max_concurrent` still caps the total), projected as the run's `waiting_behind`.
+  `connections[].max_concurrent` overrides the connection's probed parallel capacity; when both are absent the limit is one. `run.max_concurrent` still caps the total, projected as the run's `waiting_behind`.
   A run paused on a card holds no model slot, per connection or in total (item 2fs): once answered it takes one back, ahead of queued runs,
   and when none is free it reports `run.queued` with `resuming:true` and then `run.resumed` `{run_id}` — which returns it to `running` without resetting it —
   when it has one; `run.started` [4] `{run_id,user_message_id,backstops:{wall_clock_seconds,tool_calls,turn_ceiling}}`; `run.stopping` `{reason}`;
@@ -759,11 +759,10 @@ and a PDF with no text layer is rendered and read by the inbox OCR page by page 
 Stop retains every completed page and adds `stopped by the operator after page N of M` as the sidecar's last line.
 Extraction output is not cut at the upload limit. Only when neither route reads it is it labeled unreadable binary with the reason;
 PNG/JPEG/GIF/WebP becomes an in-memory `image_url` content part when `image_input` was probed and otherwise receives a local Windows OCR sidecar.
-Before any image content part is encoded, its decoded dimensions are bounded to 1568 px on the longest edge with aspect ratio preserved; smaller images keep their original bytes, while a scaled request uses PNG bytes. The stored file and every operator-visible copy remain untouched. An image whose dimensions cannot be decoded is omitted with an explicit model-visible reason rather than sent without the bound.
+Before any image content part is encoded, its decoded dimensions are bounded to 1568 px on the longest edge with aspect ratio preserved; smaller images keep their original bytes, while a scaled request uses the smaller of lossless PNG and JPEG quality 85. The stored file and every operator-visible copy remain untouched. An image whose dimensions cannot be decoded is omitted with an explicit model-visible reason rather than sent without the bound.
 `native` sends those document/image kinds regardless of the probe, while `extract` never sends their binary bytes.
 Each native part is immediately preceded by its own harness-generated text part declaring that payload untrusted evidence, never instructions.
-Native data-URL characters are conservatively upper-bounded one-for-one as context tokens and allocated cumulatively across retained attachment history against
-`n_ctx - reserve_output`; a part that does not fit is omitted with an explicit attachment outcome visible to both Chat and the model.
+Native documents retain their conservative data-URL character bound. Images are charged from their bounded dimensions: `anthropic-messages` uses its documented 28 px visual-patch count capped at the standard 1,568-token tier; `openai-responses` uses its documented 32 px patch count; chat-completions servers use that 32 px rule as the named fallback because compatible servers expose no common model-family formula. Costs are allocated cumulatively across retained attachment history against `n_ctx - reserve_output`; a part that does not fit is omitted with an explicit attachment outcome visible to both Chat and the model.
 OCR sidecars are labeled untrusted and state that layout was not preserved; a no-text result is reported explicitly and creates no sidecar.
 Other binary types are stored but labeled unreadable. Native bytes are deliberately omitted from durable `model.request.body` diagnostics.
 

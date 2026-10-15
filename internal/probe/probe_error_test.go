@@ -25,6 +25,37 @@ func TestProbeFailureNamesMalformedBaseURL(t *testing.T) {
 	}
 }
 
+func TestLlamaPropsRecordsParallelCapacity2v4(t *testing.T) {
+	for _, row := range []struct {
+		name, body string
+		want       int
+	}{
+		{name: "reported", body: `{"total_slots":4}`, want: 4},
+		{name: "absent", body: `{}`, want: 0},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != "/props" {
+					t.Fatalf("path=%q", request.URL.Path)
+				}
+				fmt.Fprint(w, row.body)
+			}))
+			defer server.Close()
+			connection := config.Defaults(t.TempDir()).Connections[0]
+			connection.BaseURL = server.URL
+			props, err := llm.New(&connection).Props(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			caps := config.Capabilities{}
+			applyPropsCapabilities(&caps, props)
+			if caps.ParallelCapacity != row.want {
+				t.Fatalf("parallel capacity=%d want=%d", caps.ParallelCapacity, row.want)
+			}
+		})
+	}
+}
+
 func TestEvalReadsTheNamedByteLimit2sv(t *testing.T) {
 	for input, want := range map[string]int{
 		`{"error":"prompt too large: 401628 bytes (limit 400000)"}`: 400000,

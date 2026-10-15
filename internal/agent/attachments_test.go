@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -27,6 +28,49 @@ func smallPNG(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return output.Bytes()
+}
+
+func TestImageAccountingUsesBoundedPixelsByProvider2v5(t *testing.T) {
+	for _, row := range []struct {
+		protocol string
+		width    int
+		height   int
+		want     int64
+	}{
+		{config.ProtocolAnthropicMessages, 1568, 522, 1064},
+		{config.ProtocolOpenAIResponses, 1568, 522, 833},
+		{config.ProtocolChatCompletions, 1568, 522, 833},
+		{config.ProtocolChatCompletions, 400, 300, 130},
+	} {
+		connection := config.Defaults(t.TempDir()).Connections[0]
+		connection.Protocol = row.protocol
+		if got := nativeImageTokens(&connection, row.width, row.height); got != row.want {
+			t.Errorf("%s %dx%d tokens=%d want=%d", row.protocol, row.width, row.height, got, row.want)
+		}
+	}
+}
+
+func TestWebPInsideAndOverBoundFollowTheImagePath2v5(t *testing.T) {
+	inside, err := base64.StdEncoding.DecodeString("UklGRrIBAABXRUJQVlA4TKUBAAAvSsAYAA8w//M///MfeJAkbXvaSG7m8Q3GfYSBJekwQztm/IcZlgwnmWImn2BK7aFmBtnVir6q//8VOkFE/xm4baTIu8c48ArEo6+B3zFKYln3pqClSCKX0begFTAXFOLXHSyF8cCNcZEG4OywuA4KVVfJCiArU7GAgJI8+lJP/OKMT/fBAjevg1cYB7YVkFuWga2lyPi5I0HFy5YTpWIHg0RZpkniRVW9odHAKOwosWuOGdxIyn2OvaCDvhg/we6TwadPBPbqBV58MsLmMJ8yZnOWk8SRz4N+QoyPL+MnamzMvcE1rHNEr91F9GKZPVUcS9w7PhhH36suB9qPeYb/oLk6cuTiJ0wOK3m5h1cKjW6EVZCYMK7dxcKCBdgP9HkKr9gkAO2P8GKZGWVdIAatQa+1IDpt6qyorVwdy01xdW8Jkfk6xjEXmVQQ+HQdFr6OKhIN34dXWq0+0qr6EJSCeeVLH9+gvGTLyqM65PQ44ihzlTXxQKjKbAvshXgir7Lil9w4L2bvMycmjQcqXaMCO6BlY28i+FOLzbfI1vEqxAhotocAAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, mime, err := boundedModelImage(inside, "image/webp")
+	if err != nil || mime != "image/webp" || !bytes.Equal(got, inside) {
+		t.Fatalf("inside webp: bytes=%d mime=%q err=%v", len(got), mime, err)
+	}
+	over, err := base64.StdEncoding.DecodeString("UklGRmACAABXRUJQVlA4WAoAAAAgAAAAzwcAAAAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggcgAAADAKAJ0BKtAHAQA+USiSRyOioaEgSABwCglpbuF2AR7cAAAnteirhBkENVSa7bRcIMghqqTXbaLhBkENVSa7bRcIMghqqTXbaLhBkENVSa7bRcIMghqqTXaYAAD+/58D//5JHq5joP/7oMs4ZzAAAAAAAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, mime, err = boundedModelImage(over, "image/webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(got))
+	if err != nil || decoded.Bounds().Dx() != modelImageMaxDimension || decoded.Bounds().Dy() != 1 || mime == "image/webp" {
+		t.Fatalf("bounded webp: bounds=%v mime=%q bytes=%d err=%v", decoded.Bounds(), mime, len(got), err)
+	}
 }
 
 func TestEveryImageSourceIsBoundedWithoutChangingStoredBytes2qu(t *testing.T) {
@@ -71,8 +115,71 @@ func TestEveryImageSourceIsBoundedWithoutChangingStoredBytes2qu(t *testing.T) {
 			if !bytes.Equal(after, stored.Bytes()) {
 				t.Fatal("stored image changed")
 			}
-			t.Logf("estimated image tokens before=%d after=%d", (stored.Len()+2)/3, (len(data)+2)/3)
+			cost := nativeAttachmentCost(&connection, workspace, message.Attachments[0])
+			if cost != 833 {
+				t.Fatalf("bounded pixel cost=%d want=833", cost)
+			}
+			kept := prepareNativeAttachmentsWithBudget(&connection, workspace, message.Attachments, 1000)
+			if kept[0].Outcome != "" {
+				t.Fatalf("pixel-accounted image was dropped: %q", kept[0].Outcome)
+			}
+			t.Logf("old byte estimates before=%d after=%d; bounded pixel estimate=%d; request bytes=%d mime=%s", (stored.Len()+2)/3, 6545, cost, len(data), strings.TrimPrefix(strings.Split(payload, ";")[0], "data:"))
 		})
+	}
+}
+
+func TestScaledImageUsesTheSmallerEncoding2v5(t *testing.T) {
+	picture := image.NewNRGBA(image.Rect(0, 0, 3000, 1000))
+	for y := range 1000 {
+		for x := range 3000 {
+			picture.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: uint8(x + y), A: 255})
+		}
+	}
+	var source bytes.Buffer
+	if err := png.Encode(&source, picture); err != nil {
+		t.Fatal(err)
+	}
+	selected, mime, err := boundedModelImage(source.Bytes(), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(selected))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var other bytes.Buffer
+	if mime == "image/jpeg" {
+		err = png.Encode(&other, decoded)
+	} else {
+		err = jpeg.Encode(&other, decoded, &jpeg.Options{Quality: 85})
+	}
+	if err != nil || len(selected) > other.Len() {
+		t.Fatalf("selected %s bytes=%d alternative=%d err=%v", mime, len(selected), other.Len(), err)
+	}
+	t.Logf("selected %s bytes=%d alternative=%d", mime, len(selected), other.Len())
+}
+
+func TestQueuedImageAccountingCarriesPixelCost2v5(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 400, 300))); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workspace, "attachments", "screen.png")
+	if err := os.WriteFile(path, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	cfg.Context.Accounting = "estimated"
+	cfg.Connections[0].ReadsImages = true
+	cfg.Connections[0].Context.NCtx, cfg.Connections[0].Context.ReserveOutput = 32768, 8192
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "system"}, cfg.Connection, func() config.Config { return cfg })
+	message, err := runner.QueueUserAttachments(context.Background(), &session.Session{ConnectionID: cfg.Connections[0].ID, Workspace: workspace}, "", []events.Attachment{{Path: "attachments/screen.png", Bytes: int64(encoded.Len())}})
+	if err != nil || message.Attachments[0].Outcome != "" || message.Tokens < 130 {
+		t.Fatalf("queued tokens=%d outcome=%q err=%v", message.Tokens, message.Attachments[0].Outcome, err)
 	}
 }
 
@@ -215,9 +322,9 @@ func TestNativeAttachmentOverContextBudgetHasVisibleOutcomeAndNoPayload(t *testi
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
 	connection.ReadsImages = true
-	connection.Context.NCtx, connection.Context.ReserveOutput = 32, 8
-	attachments := prepareNativeAttachments(&connection, []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}})
-	if !strings.Contains(attachments[0].Outcome, "not sent inline") || !strings.Contains(attachments[0].Outcome, "only 24 remain") {
+	connection.Context.NCtx, connection.Context.ReserveOutput = 8, 8
+	attachments := prepareNativeAttachments(&connection, workspace, []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}})
+	if !strings.Contains(attachments[0].Outcome, "not sent inline") || !strings.Contains(attachments[0].Outcome, "only 0 remain") {
 		t.Fatalf("outcome=%q", attachments[0].Outcome)
 	}
 	converted := requestMessage(&connection, &session.Session{Workspace: workspace}, events.Message{Role: "user", Attachments: attachments})

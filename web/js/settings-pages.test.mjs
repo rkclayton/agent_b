@@ -53,6 +53,16 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
+test("Connections offers the saved runs-at-once override and learned default 2v4", () => {
+  const context = pageContext();
+  const connection = { id: "local", label: "Local", base_url: "http://fixture.invalid", model: "model", max_concurrent: 2, sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: { parallel_capacity: 4 } };
+  context.connectionList = () => [connection];
+  context.expanded.add("local");
+  context.number = (path, label, value, _step, _disabled, note) => `${path}|${label}|${value}|${note}`;
+  const page = renderConnectionsPage(context);
+  assert.match(page, /connections\.local\.max_concurrent\|runs at once\|2\|empty: what the server reports \(4\), else 1/);
+});
+
 test("button-owned text survives a Settings redraw", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
   const profiles = fs.readFileSync(new URL("settings-profiles.js", import.meta.url), "utf8");
@@ -646,7 +656,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
     "acme", "http://acme:8080/", "name", "address", "agent profile", "agent_b (default)", "key", "show", "model", "alpha", "type a name…",
     "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
     "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "protocol", "attachment handling", "fallback",
-    "auto", "native", "extract", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
+    "auto", "native", "extract", "runs at once", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
     "control", "chat_template_kwargs", "top_level", "server_flag", "none", "effort", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",
     "repeat penalty", "llama.cpp only", "System prompt", "system prompt override", "Capabilities", "not probed",

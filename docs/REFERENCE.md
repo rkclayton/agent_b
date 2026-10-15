@@ -175,6 +175,7 @@ Startup locates configuration in this order: an explicit launcher `-config` argu
 | Process | `listen`, `workspace`, `log_dir` |
 | Connections and agent profiles | `agents[].{name,prompt,toolset,private,c,d}`, `images.{connection,model}`, and `connections[].{id,label,agent_profile,base_url,protocol,extract_url,model,credential,request_timeout_s,probe_mode,max_concurrent,models:[{model,attachment_handling,reads_images,sampling,reasoning,context:{n_ctx,reserve_output},system_prompt_override,capabilities,measurement}]}` |
 | Runs | `run.{max_turns,max_wall_clock_seconds,max_tool_calls,cycle_window,max_concurrent,queue_depth}`, `approval.mode`; `cycle_window` is consecutive identical call/result repeats before asking (default 5, 0 off) |
+| Connection concurrency | `connections[].max_concurrent` is the per-connection override; empty uses the server's probed parallel capacity, or 1 when none was reported. The global run limit still applies. |
 | Context and memory | `context.{soft_pct,summary_pct,accounting}`, `memory.{enabled,dir,max_tokens}` |
 | Operator files | `operator_files.{allow_mailbox_approvals,log_retention_days}` (mailbox approvals default off; live-log retention defaults to 30 days and never prunes evidence archives) |
 | Tool caps | `tools.{read_file,list_dir,grep,shell,fetch,web_search,find_files,attachments}`, `services`, `sandbox`, and `shell` (the service identity defaults disabled and must be provisioned before it can be enabled; operator context defaults off and lapses after 20 idle minutes) |

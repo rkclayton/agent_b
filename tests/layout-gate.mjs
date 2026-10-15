@@ -130,7 +130,7 @@ async function capture(exe, evidence) {
     await page.screenshot({ path: file, animations: "disabled" });
     const snapshot = await page.evaluate(collectLayoutSnapshot, rootSelector);
     const failures = auditLayoutSnapshot(snapshot).map((failure) => ({ ...failure }));
-    report.results.push({ page: pageName, state, size: size.name, capture: file, blocking, failures });
+    report.results.push({ page: pageName, state, size: size.name, capture: file, blocking, control_count: snapshot.elements.length, failures });
     if (!blocking) for (const failure of failures) report.other_page_failures.push(`${pageName} ${state} ${size.name} ${failure.rule} ${failure.element}`);
   };
   try {

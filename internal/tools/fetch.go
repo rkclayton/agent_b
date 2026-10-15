@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
-	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -17,16 +17,17 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	azuretls "github.com/Noooste/azuretls-client"
+	azureutls "github.com/Noooste/utls"
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
-	utls "github.com/refraction-networking/utls"
 	"golang.org/x/net/html"
-	"golang.org/x/net/http2"
 
 	attachmentfile "harness/internal/attachment"
 	"harness/internal/config"
@@ -402,60 +403,8 @@ func sameListenerTarget(target *url.URL, listener string) bool {
 
 func (f *Fetch) client(cfg config.FetchTool) *http.Client {
 	dialer := &net.Dialer{Timeout: time.Duration(cfg.TimeoutS) * time.Second, KeepAlive: 30 * time.Second}
-	dialPlain := func(ctx context.Context, network, address string) (net.Conn, error) {
-		if f.dial != nil {
-			return f.dial(ctx, network, address)
-		}
-		return f.dialAllowed(ctx, network, address, cfg, dialer)
-	}
-	dialTLS := func(ctx context.Context, network, address string, protocols []string) (net.Conn, error) {
-		raw, err := dialPlain(ctx, network, address)
-		if err != nil {
-			return nil, err
-		}
-		host, _, err := net.SplitHostPort(address)
-		if err != nil {
-			raw.Close()
-			return nil, err
-		}
-		spec, err := utls.UTLSIdToSpec(utls.HelloChrome_Auto)
-		if err != nil {
-			raw.Close()
-			return nil, err
-		}
-		for _, extension := range spec.Extensions {
-			if alpn, ok := extension.(*utls.ALPNExtension); ok {
-				alpn.AlpnProtocols = append([]string(nil), protocols...)
-			}
-		}
-		conn := utls.UClient(raw, &utls.Config{ServerName: host}, utls.HelloCustom)
-		if err := conn.ApplyPreset(&spec); err != nil {
-			raw.Close()
-			return nil, err
-		}
-		if err := conn.HandshakeContext(ctx); err != nil {
-			raw.Close()
-			return nil, err
-		}
-		return conn, nil
-	}
-	h1 := &http.Transport{
-		Proxy:                 nil,
-		ForceAttemptHTTP2:     false,
-		DisableCompression:    true,
-		ResponseHeaderTimeout: time.Duration(cfg.TimeoutS) * time.Second,
-	}
-	h1.DialContext = dialPlain
-	h1.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		return dialTLS(ctx, network, address, []string{"http/1.1"})
-	}
-	h2 := &http2.Transport{DisableCompression: true, MaxDecoderHeaderTableSize: 65536, MaxHeaderListSize: 262144}
-	h2.DialTLSContext = func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
-		return dialTLS(ctx, network, address, []string{"h2", "http/1.1"})
-	}
-	transport := &chromeTransport{h2: h2, h1: h1}
 	return &http.Client{
-		Transport: transport,
+		Transport: &chromeTransport{fetch: f, cfg: cfg, dialer: dialer},
 		Timeout:   time.Duration(cfg.TimeoutS) * time.Second,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) > cfg.MaxRedirects {
@@ -467,21 +416,109 @@ func (f *Fetch) client(cfg config.FetchTool) *http.Client {
 }
 
 type chromeTransport struct {
-	h2 *http2.Transport
-	h1 *http.Transport
+	fetch  *Fetch
+	cfg    config.FetchTool
+	dialer *net.Dialer
 }
 
 func (t *chromeTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	response, err := t.h2.RoundTrip(request.Clone(request.Context()))
-	if err == nil {
-		return response, nil
+	s := azuretls.NewSessionWithContext(request.Context())
+	s.SetTimeout(time.Duration(t.cfg.TimeoutS) * time.Second)
+	s.DisableAutoDecompression = true
+	s.GetClientHelloSpec = chrome155Hello
+	s.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if t.fetch.dial != nil {
+			return t.fetch.dial(ctx, network, address)
+		}
+		return t.fetch.dialAllowed(ctx, network, address, t.cfg, t.dialer)
 	}
-	return t.h1.RoundTrip(request)
+	if err := s.ApplyHTTP2("1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"); err != nil {
+		s.Close()
+		return nil, err
+	}
+	response, err := s.Do(&azuretls.Request{
+		Method:           request.Method,
+		Url:              request.URL.String(),
+		Body:             request.Body,
+		OrderedHeaders:   orderedChromeHeaders(request.Header),
+		IgnoreBody:       true,
+		DisableRedirects: true,
+	})
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	header := make(http.Header, len(response.Header))
+	for key, values := range response.Header {
+		header[key] = append([]string(nil), values...)
+	}
+	return &http.Response{
+		Status:        response.Status,
+		StatusCode:    response.StatusCode,
+		Proto:         response.HttpResponse.Proto,
+		ProtoMajor:    response.HttpResponse.ProtoMajor,
+		ProtoMinor:    response.HttpResponse.ProtoMinor,
+		Header:        header,
+		Body:          &chromeResponseBody{ReadCloser: response.RawBody, session: s},
+		ContentLength: response.ContentLength,
+		Request:       request,
+	}, nil
 }
 
-func (t *chromeTransport) CloseIdleConnections() {
-	t.h2.CloseIdleConnections()
-	t.h1.CloseIdleConnections()
+func (*chromeTransport) CloseIdleConnections() {}
+
+type chromeResponseBody struct {
+	io.ReadCloser
+	session *azuretls.Session
+}
+
+func (b *chromeResponseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.session.Close()
+	return err
+}
+
+func chrome155Hello() *azureutls.ClientHelloSpec {
+	spec := azuretls.GetLastChromeVersion()
+	additional := []azureutls.SignatureScheme{
+		azureutls.SignatureScheme(azureutls.GREASE_PLACEHOLDER),
+		azureutls.SignatureScheme(0x0904),
+		azureutls.SignatureScheme(0x0905),
+		azureutls.SignatureScheme(0x0906),
+	}
+	for _, extension := range spec.Extensions {
+		if signatures, ok := extension.(*azureutls.SignatureAlgorithmsExtension); ok {
+			signatures.SupportedSignatureAlgorithms = append(additional, signatures.SupportedSignatureAlgorithms...)
+			spec.Extensions = append(spec.Extensions, &azureutls.GenericExtension{Id: 0xca34, Data: append([]byte(nil), chrome155ExtensionData...)})
+			break
+		}
+	}
+	return spec
+}
+
+var chrome155ExtensionData, _ = hex.DecodeString("00b80582df1302010582df1302060582df13020d0582df13020e0582df13020f0582df1302120582df1302130582df13021408839a648c9b2d010708839a648c9b2d010808839a648c9b2d010908839a648c9b2d010a08839a648c9b2d010b08839a648c9b2d010c08839a648c9b2d010d08839a648c9b2d011208839a648c9b2d011304d679090104d679090404d679090504d679090604d679090704d679090804d679090a04d679090b04d679090c04d679090d04d679090f")
+
+func orderedChromeHeaders(header http.Header) azuretls.OrderedHeaders {
+	order := []string{"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "upgrade-insecure-requests", "user-agent", "accept", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest", "accept-encoding", "accept-language", "priority"}
+	ordered := make(azuretls.OrderedHeaders, 0, len(header))
+	seen := make(map[string]bool, len(order))
+	for _, name := range order {
+		if values := header.Values(name); len(values) > 0 {
+			ordered = append(ordered, append([]string{name}, values...))
+			seen[http.CanonicalHeaderKey(name)] = true
+		}
+	}
+	extra := make([]string, 0)
+	for name := range header {
+		if !seen[http.CanonicalHeaderKey(name)] {
+			extra = append(extra, name)
+		}
+	}
+	sort.Strings(extra)
+	for _, name := range extra {
+		ordered = append(ordered, append([]string{name}, header.Values(name)...))
+	}
+	return ordered
 }
 
 func (f *Fetch) newRequest(ctx context.Context, address string) (*http.Request, error) {
@@ -489,12 +526,12 @@ func (f *Fetch) newRequest(ctx context.Context, address string) (*http.Request, 
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("sec-ch-ua", `"Chromium";v="133", "Not(A:Brand";v="99", "Microsoft Edge";v="133"`)
+	request.Header.Set("sec-ch-ua", `"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"`)
 	request.Header.Set("sec-ch-ua-mobile", "?0")
 	request.Header.Set("sec-ch-ua-platform", `"Windows"`)
 	request.Header.Set("Upgrade-Insecure-Requests", "1")
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0")
-	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
+	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
 	request.Header.Set("Sec-Fetch-Site", "none")
 	request.Header.Set("Sec-Fetch-Mode", "navigate")
 	request.Header.Set("Sec-Fetch-User", "?1")

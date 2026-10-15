@@ -12,8 +12,10 @@ export function createAgentRobot(document, { place = "chat" } = {}) {
 
 export function updateAgentRobot(robot, { state = "idle", doing = "", label } = {}) {
   const place = robot.dataset.robotPlace === "shell" ? "shell" : robot.dataset.robotPlace === "well" ? "well" : "chat";
-  robot.className = `agent-robot ${place === "shell" ? "shell-app-robot" : place === "well" ? "well-robot" : "chat-live-robot"} ${state}`;
-  if (doing) robot.dataset.doing = doing; else delete robot.dataset.doing;
+  const className = `agent-robot ${place === "shell" ? "shell-app-robot" : place === "well" ? "well-robot" : "chat-live-robot"} ${state}`;
+  if (robot.className !== className) robot.className = className;
+  if (doing) { if (robot.dataset.doing !== doing) robot.dataset.doing = doing; }
+  else if ("doing" in robot.dataset) delete robot.dataset.doing;
   if (label !== undefined) {
     robot.title = label;
     robot.setAttribute("aria-label", label);

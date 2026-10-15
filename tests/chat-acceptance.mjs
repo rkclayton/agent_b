@@ -470,14 +470,20 @@ const state = (sessionID = "") => json(`http://127.0.0.1:${appPort}/api/state${s
 // Item 2ql: finished work has an outer one-line fold, which must be opened
 // before an inner step disclosure can be found.
 async function openStepFoldIfDrawn() {
-  const work = page.locator(".chat-work-summary:visible");
-  for (const summary of await work.all()) {
-    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
+  const response = page.locator(".chat-response").last();
+  const summary = response.locator(".chat-work-summary-toggle");
+  if (await summary.count() && await summary.getAttribute("aria-expanded") !== "true") await summary.click();
+  const step = response.locator(".chat-step-summary").last();
+  if (await step.count() && await step.getAttribute("aria-expanded") !== "true") await step.click();
+}
+
+async function openEveryFold(selector) {
+  for (let opened = 0; opened < 100; opened++) {
+    const closed = page.locator(`${selector}[aria-expanded="false"]`);
+    if (!await closed.count()) return;
+    await closed.first().click();
   }
-  const heads = page.locator(".chat-step-summary:visible");
-  for (const summary of await heads.all()) {
-    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
-  }
+  throw new Error(`too many closed folds matching ${selector}`);
 }
 
 // Item 2gk (v1.2.3): the six groups are two sections of Settings now, so the
@@ -1471,12 +1477,9 @@ if (realModel) {
   // Finished work is intentionally folded to one line. Open it before the
   // lifecycle hold check so the completed controls whose identity this case
   // measures are present while the next response streams.
-  for (const summary of await page.locator(".chat-work-summary").all()) {
-    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
-  }
-  for (const summary of await page.locator(".chat-tool-group-head").all()) {
-    if (await summary.getAttribute("aria-expanded") !== "true") await summary.click();
-  }
+  const scratchResponse = page.locator(".chat-response").filter({ has: page.getByText("SCRATCH FILE COMPLETE", { exact: true }) });
+  const scratchFold = scratchResponse.locator(".chat-work-summary-toggle");
+  if (await scratchFold.getAttribute("aria-expanded") !== "true") await scratchFold.click();
   await page.locator('[data-entry-key="tool:scratch-write"] button.tool-tick').waitFor({ state: "visible" });
   // The server-owned lifecycle is authoritative. A failed read can pause on
   // its approval boundary while the response is held, and the notice seat may
@@ -1835,7 +1838,7 @@ if (realModel) {
       details: document.querySelectorAll('.chat-tool-group-calls .tool-detail').length,
       text: document.querySelector('#chat-log')?.innerText || ''
   }));
-  assert.match(groupingInitial.collapsed, /3 tool calls · 1 retried · 25 ms/);
+  assert.match(groupingInitial.collapsed, /Read 3 files and thought 2 times\s*· 25 ms/);
   assert.equal(groupingInitial.collapsedRows, 0);
   assert.equal(groupingOpen.rows, 3);
   assert.match(groupingOpen.groupText, /read_file ×2 · \+1 thought · 1 retried · 12 ms/);
@@ -1978,12 +1981,12 @@ if (realModel) {
     foldCount: document.querySelectorAll('.chat-response .chat-step-summary').length
   }));
   assert.deepEqual(initial.prose, ["SECOND PROSE BLOCK"]);
-  assert.match(initial.worked, /^Worked .* · \d+ steps? ▸$/);
+  assert.match(initial.worked, /^Worked .* · \d+ steps?\s*▸$/);
   assert.equal(initial.foldCount, 0);
-  await page.locator(".chat-work-summary").click();
+  await page.locator(".chat-work-summary-toggle").click();
   const folds = page.locator(".chat-response .chat-step-summary");
   assert.equal(await folds.count(), 2);
-  for (const fold of await folds.all()) if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
+  await openEveryFold(".chat-response .chat-step-summary");
   const expandedProse = await page.evaluate((finalProse) => {
     const response = document.querySelector('.chat-response');
     return {
@@ -2136,8 +2139,8 @@ if (realModel) {
   events = await sessionEvents(sessionID);
   assert.equal(events.some((event) => event.seq > beforeInspectionApproval && event.type === "approval.required" && event.data?.name === "shell.operator_command"), false);
   assert.ok(events.some((event) => event.type === "tool.result" && event.data.name === "shell" && event.data.ok === true), JSON.stringify(events.filter((event) => event.seq > beforeInspectionApproval && (event.type.startsWith("tool.") || event.type.startsWith("approval.") || event.type === "shell.grant")).map((event) => ({ seq: event.seq, type: event.type, data: event.data }))));
-  const fullWidthRows = await browser.evaluate(`({columns:getComputedStyle(document.querySelector('.chat-entry')).gridTemplateColumns,speakers:document.querySelectorAll('#chat-log .chat-speaker').length,names:[...document.querySelectorAll('#chat-log > .chat-entry')].map(row=>row.getAttribute('aria-label'))})`);
-  assert.equal(fullWidthRows.columns.split(" ").length, 1); assert.equal(fullWidthRows.speakers, 0); assert.ok(fullWidthRows.names.includes("you") && fullWidthRows.names.includes("agent_b"), JSON.stringify(fullWidthRows));
+  const fullWidthRows = await browser.evaluate(`(() => { const row=document.querySelector('.chat-response'), content=row?.querySelector(':scope > .chat-response-content'), style=getComputedStyle(row); return {innerWidth:row.getBoundingClientRect().width-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),contentWidth:content?.getBoundingClientRect().width||0,speakers:document.querySelectorAll('#chat-log .chat-speaker').length,names:[...document.querySelectorAll('#chat-log > .chat-entry')].map(item=>item.getAttribute('aria-label'))}; })()`);
+  assert.ok(Math.abs(fullWidthRows.innerWidth - fullWidthRows.contentWidth) < 1, JSON.stringify(fullWidthRows)); assert.equal(fullWidthRows.speakers, 0); assert.ok(fullWidthRows.names.includes("you") && fullWidthRows.names.includes("agent_b"), JSON.stringify(fullWidthRows));
   record("plan-registration-tool-answer-full-width-spoken-author");
 
   const beforeLiveTool = (await sessionEvents(sessionID)).at(-1)?.seq || 0;

@@ -787,10 +787,18 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     document.querySelector(".chat-page").style.setProperty("--chat-size", `${value}px`);
     document.documentElement.dataset.chatListWrap = String(value >= 28);
     const log = document.querySelector("#chat-log").getBoundingClientRect(), rows = [...document.querySelectorAll("#chat-log > .chat-entry:not(.chat-user)")];
-    return { speakers: document.querySelectorAll("#chat-log .chat-speaker").length, lefts: rows.map((row) => row.querySelector(":scope > .chat-content")?.getBoundingClientRect().left - log.left), columns: rows.map((row) => getComputedStyle(row).gridTemplateColumns), answerWidth: document.querySelector(".chat-response-content").getBoundingClientRect().width, names: [...document.querySelectorAll("#chat-log > .chat-entry")].map((row) => row.getAttribute("aria-label")) };
+    const width = (node) => Math.round(node.getBoundingClientRect().width);
+    const proseRows = [...document.querySelectorAll(".chat-response-content")].filter((node) => node.checkVisibility()).map(width);
+    const foldHeads = [...document.querySelectorAll(".chat-work-summary,.chat-step-summary,.chat-tool-group-head")].filter((node) => node.checkVisibility()).map(width);
+    const chipRows = [...document.querySelectorAll(".thinking-line,.tool-tick")].filter((node) => node.checkVisibility()).map(width);
+    return { speakers: document.querySelectorAll("#chat-log .chat-speaker").length, lefts: rows.map((row) => row.querySelector(":scope > .chat-content")?.getBoundingClientRect().left - log.left), transcriptWidth: width(document.querySelector(".chat-response-content")), proseRows, foldHeads, chipRows, names: [...document.querySelectorAll("#chat-log > .chat-entry")].map((row) => row.getAttribute("aria-label")) };
   }, pixels);
   const defaultLayout = await rowLayout(12); console.log("2tk default rows", JSON.stringify(defaultLayout));
-  expect(defaultLayout.speakers).toBe(0); expect(new Set(defaultLayout.lefts)).toEqual(new Set([4])); expect(new Set(defaultLayout.columns)).toEqual(new Set(["1032px"])); expect(defaultLayout.answerWidth).toBe(1032); expect(defaultLayout.names).toEqual(expect.arrayContaining(["you", "agent_b", "summary"]));
+  expect(defaultLayout.speakers).toBe(0); expect(new Set(defaultLayout.lefts)).toEqual(new Set([4]));
+  expect(defaultLayout.proseRows.length, "finished prose rows are present").toBeGreaterThan(0); expect(new Set(defaultLayout.proseRows), "every finished prose row spans the transcript").toEqual(new Set([defaultLayout.transcriptWidth]));
+  expect(defaultLayout.foldHeads.length, "finished fold heads are present").toBeGreaterThan(0); expect(defaultLayout.foldHeads.every((width) => width <= defaultLayout.transcriptWidth), "every fold head is max-content, never wider than the transcript").toBe(true);
+  expect(defaultLayout.chipRows.length, "finished chip rows are present").toBeGreaterThan(0); expect(defaultLayout.chipRows.every((width) => width <= defaultLayout.transcriptWidth), "every chip row is max-content, never wider than the transcript").toBe(true);
+  expect(defaultLayout.names).toEqual(expect.arrayContaining(["you", "agent_b", "summary"]));
   await finished.page.screenshot({ path: "test-results/2r2-default.png", fullPage: true });
   for (const [name, pixels] of [["smallest", 9], ["largest", 32]]) { const seen = await rowLayout(pixels); expect(seen.speakers).toBe(0); await finished.page.screenshot({ path: `test-results/2r2-${name}.png`, fullPage: true }); }
   await mkdir("logs/evidence/rel-1.62.33", { recursive: true });

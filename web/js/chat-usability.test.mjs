@@ -126,7 +126,7 @@ test("A native attachment context refusal is visible in its bubble", () => {
 
 test("one named bubble rule dresses messages and every attachment 2u1", () => {
   assert.match(tokens, /\.chat-bubble[^}]*\{[^}]*border:1px solid var\(--raised-edge\)[^}]*border-radius:var\(--raised-radius\)[^}]*box-shadow:var\(--raised-shadow\)/);
-  assert.match(chat, /content\.className = "chat-content chat-bubble"/);
+  assert.match(chat, /setAttribute\(content, "class", "chat-content chat-bubble"\)/);
   assert.match(chat, /createAttachmentBubble\(document, file/);
   assert.match(deliverables, /root\.className = "attachment-bubble chat-bubble"/);
 });

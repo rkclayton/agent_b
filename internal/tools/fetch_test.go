@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	azureutls "github.com/Noooste/utls"
+
 	"harness/internal/config"
 	"harness/internal/session"
 )
@@ -32,6 +34,39 @@ func TestFetchExtractsReadableHTMLAndKeepsLinks(t *testing.T) {
 		if strings.Contains(page, unwanted) {
 			t.Fatalf("extracted text retained %q: %q", unwanted, page)
 		}
+	}
+}
+
+func TestFetchChrome155WireProfile2v6(t *testing.T) {
+	request, err := NewFetch(fetchTestConfig()).newRequest(context.Background(), "https://example.com/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := request.UserAgent(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"; got != want {
+		t.Fatalf("user agent = %q, want %q", got, want)
+	}
+	headers := orderedChromeHeaders(request.Header)
+	wantOrder := []string{"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "upgrade-insecure-requests", "user-agent", "accept", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest", "accept-encoding", "accept-language", "priority"}
+	if len(headers) != len(wantOrder) {
+		t.Fatalf("ordered headers = %v", headers)
+	}
+	for index, name := range wantOrder {
+		if headers[index][0] != name {
+			t.Fatalf("header %d = %q, want %q", index, headers[index][0], name)
+		}
+	}
+	spec := chrome155Hello()
+	var extension, signatures bool
+	for _, item := range spec.Extensions {
+		switch value := item.(type) {
+		case *azureutls.GenericExtension:
+			extension = extension || value.Id == 0xca34 && len(value.Data) == len(chrome155ExtensionData)
+		case *azureutls.SignatureAlgorithmsExtension:
+			signatures = len(value.SupportedSignatureAlgorithms) >= 4 && value.SupportedSignatureAlgorithms[1] == azureutls.SignatureScheme(0x0904) && value.SupportedSignatureAlgorithms[3] == azureutls.SignatureScheme(0x0906)
+		}
+	}
+	if !extension || !signatures {
+		t.Fatalf("Chrome 155 hello extension=%t signatures=%t", extension, signatures)
 	}
 }
 

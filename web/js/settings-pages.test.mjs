@@ -108,6 +108,14 @@ test("Profiles leaves skill management to the Skills page", () => {
 	assert.doesNotMatch(page, /skill-toggle|skill-import|Import from Hermes/);
 });
 
+test("Profiles and Security keep their existing controls inside narrow Settings panes 2v9", () => {
+	const css = fs.readFileSync(new URL("../css/app.css", import.meta.url), "utf8");
+	assert.match(css, /\.profile-skills-row button\s*\{\s*white-space:\s*nowrap/);
+	assert.match(css, /@media \(max-width: 1100px\)[\s\S]*?#agents-panel\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/);
+	assert.match(css, /@media \(max-width: 639px\)[\s\S]*?\.allowed-directories\s*\{[^}]*width:\s*100%[^}]*table-layout:\s*fixed/);
+	assert.match(css, /@media \(max-width: 639px\)[\s\S]*?\.profile-skills-row > div\s*\{\s*flex-wrap:\s*wrap/);
+});
+
 test("all rendered Settings rows have one direct label and one control cell", () => {
   const context = pageContext();
   const pages = [

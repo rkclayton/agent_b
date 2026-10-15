@@ -530,7 +530,7 @@ function renderEntry(session, entry) {
   setAttribute(view.row, "class", `chat-entry ${entry.type === "user" ? "chat-user" : entry.type === "summary" ? "chat-summary" : entry.type === "tool" ? "tool-entry" : "chat-agent"}`);
   const content = view.content;
   if (entry.type === "user") {
-    content.className = "chat-content chat-bubble";
+    setAttribute(content, "class", "chat-content chat-bubble");
     const nodes = [];
     if (entry.text) {
       if (!view.userText) { view.userText = document.createElement("div"); view.userText.className = "chat-user-text"; }
@@ -637,12 +637,14 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
     head.type = "button";
     head.className = "chat-work-summary";
     const summaryToggle = document.createElement("button"); summaryToggle.type = "button"; summaryToggle.className = "chat-work-summary-toggle";
+    const caret = document.createTextNode("");
+    const fileLabel = document.createTextNode("");
     const rows = document.createElement("div");
     rows.className = "chat-work-rows";
     const controls = document.createElement("div"); controls.className = "chat-work-controls"; controls.append(head);
     root.append(controls, rows);
     summaryToggle.onclick = () => { touched.add(key); expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
-    view.work = { root, head, summaryToggle, rows, controls };
+    view.work = { root, head, summaryToggle, caret, fileLabel, rows, controls };
   }
   const open = expanded.has(key);
   const items = blocks.flatMap((block) => block.steps);
@@ -669,12 +671,19 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
       view.work.fileToggle = toggle; view.work.available = true;
     }
     view.work.fileToggle.textContent = ` · ${remaining} file${remaining === 1 ? "" : "s"} · file tools only`;
-    view.work.fileToggle.setAttribute("aria-label", `${remaining} files changed`);
-    view.work.fileToggle.setAttribute("aria-expanded", String(!!view.work.filesOpen));
-    const countNode = view.work.available === false ? document.createTextNode(view.work.fileToggle.textContent) : view.work.fileToggle;
+    setAttribute(view.work.fileToggle, "aria-label", `${remaining} files changed`);
+    setAttribute(view.work.fileToggle, "aria-expanded", String(!!view.work.filesOpen));
+    view.work.fileLabel.nodeValue = view.work.fileToggle.textContent;
+    const countNode = view.work.available === false ? view.work.fileLabel : view.work.fileToggle;
     setText(view.work.summaryToggle, prefix);
-    view.work.head.replaceChildren(view.work.summaryToggle, countNode, document.createTextNode(` ${open ? "▾" : "▸"}`));
-  } else { setText(view.work.summaryToggle, prefix); view.work.head.replaceChildren(view.work.summaryToggle, document.createTextNode(` ${open ? "▾" : "▸"}`)); }
+    view.work.caret.nodeValue = ` ${open ? "▾" : "▸"}`;
+    const nodes = [view.work.summaryToggle, countNode, view.work.caret];
+    if (nodes.length !== view.work.head.childNodes.length || nodes.some((node, index) => view.work.head.childNodes[index] !== node)) view.work.head.replaceChildren(...nodes);
+  } else {
+    setText(view.work.summaryToggle, prefix); view.work.caret.nodeValue = ` ${open ? "▾" : "▸"}`;
+    const nodes = [view.work.summaryToggle, view.work.caret];
+    if (nodes.length !== view.work.head.childNodes.length || nodes.some((node, index) => view.work.head.childNodes[index] !== node)) view.work.head.replaceChildren(...nodes);
+  }
   if (changed.size && !view.work.undo) {
     const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-work-undo"; undo.textContent = "Undo file changes";
     undo.onclick = async () => { if (!confirm("Undo file changes from this run? File tools only.")) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };

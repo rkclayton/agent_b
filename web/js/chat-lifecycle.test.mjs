@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentAuthor, appRobotStatus, chatActivityText, chatActivityTitle, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
+import { agentAuthor, appRobotStatus, chatName, chatRowText, openSessions, sessionTitle } from "./chat-lifecycle.js";
 
 const idle = {
   id: "s2",
@@ -30,15 +30,6 @@ test("Chat row is only the chat's truthful name", () => {
 	assert.equal(chatRowText(idle), "Summarize the attached contract", "an unnamed chat uses its first user line");
 	assert.equal(chatName({ ...idle, label: "null" }), "Summarize the attached contract");
 	assert.equal(chatName({ ...idle, label: null, chat: [] }), "New chat");
-});
-
-test("Header activity uses the product clock and supplies full hover text", () => {
-	const now = new Date(2026, 9, 7, 18, 0), today = { last_activity: new Date(2026, 9, 7, 13, 5).toISOString() };
-	const earlier = { last_activity: new Date(2026, 9, 6, 13, 5).toISOString() };
-	assert.equal(chatActivityText(today, now), new Date(today.last_activity).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-	assert.match(chatActivityText(earlier, now), /\d.*\d/);
-	assert.equal(chatActivityText({}, now), "");
-	assert.equal(chatActivityTitle(today), new Date(today.last_activity).toLocaleString());
 });
 
 test("Whole-app robot state gives waiting priority and reports every true detail", () => {

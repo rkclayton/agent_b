@@ -76,19 +76,6 @@ export function chatRowText(session) {
   return chatName(session);
 }
 
-const activityDate = (session) => {
-  const at = new Date(session?.last_activity || "");
-  return Number.isNaN(at.getTime()) ? null : at;
-};
-
-export function chatActivityText(session, now = new Date()) {
-  const at = activityDate(session); if (!at) return "";
-  const clock = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return at.toDateString() === now.toDateString() ? clock : `${at.toLocaleDateString([], { month: "numeric", day: "numeric" })} ${clock}`;
-}
-
-export const chatActivityTitle = (session) => activityDate(session)?.toLocaleString() || "";
-
 export function appRobotStatus(sessions = {}, selectedID = "") {
   const chats = Object.values(sessions).filter((session) => !session.closed);
   const waiting = chats.filter((session) => session.pending_approval || session.pending_repo_policy || session.run?.status === "paused").length;

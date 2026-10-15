@@ -66,7 +66,7 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   assert.match(shell, /root\.append\(left, right\)/);
   // Item 2px (f): the chat's connection lamp sits before the heading it belongs to;
   // 2sy removes the Settings gear without leaving a gap before the window controls.
-  assert.match(shell, /right\.append\(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls\)/);
+  assert.match(shell, /right\.append\(sessionLamp, sessionHeading, connectionMenu, windowControls\)/);
   assert.doesNotMatch(shell, /shell-operator-status|right\.append\(stop/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   // Item 2ni: and the tab is gone too. "i decided i think i want it under settings,
@@ -122,7 +122,7 @@ test("chat list keeps compact controls and transient chrome", () => {
   assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)|button\("Folder", "", "chat-list-menu-action"\)/);
   assert.doesNotMatch(shell, /rootHeading\.textContent = "Chats"/);
   assert.match(shell, /classList\.add\("menu-open"\)/);
-  assert.match(shell, /shell-session-activity/);
+  assert.doesNotMatch(shell, /shell-session-activity/);
   assert.match(chatCSS, /chat-list-row:hover \.chat-list-more/);
   assert.match(chatCSS, /scrollbar-width:thin/);
   assert.doesNotMatch(shell, /button\("New chat", "New chat"/);

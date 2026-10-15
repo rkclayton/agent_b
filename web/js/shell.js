@@ -1,5 +1,5 @@
 import { api, reduce, setSelection, setSurface, store, subscribe } from "./bus.js";
-import { appRobotStatus, chatActivityText, chatActivityTitle, chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
+import { appRobotStatus, chatName, chatRowText, isRunning, sessionTitle } from "./chat-lifecycle.js";
 import { installUIErrorRelay } from "./ui-error-relay.js";
 import { installPageHealth } from "./page-health.js";
 import { requestNavigation } from "./navigation-guard.js";
@@ -106,7 +106,6 @@ function createShell(options = {}) {
   resizePanel(panelEdge); resizePanel(panelHandle);
 
   const right = node("div", "shell-right");
-  const sessionActivity = node("time", "shell-session-activity");
   const sessionHeading = button("", "Switch agent", "shell-session-title");
 	let headerTelemetry = "";
   const connectionMenu = node("div", "shell-menu shell-connection-menu");
@@ -136,7 +135,7 @@ function createShell(options = {}) {
   }
   // the chat's connection lamp, from the one health state.
   const sessionLamp = node("span", "shell-session-lamp");
-  right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls);
+  right.append(sessionLamp, sessionHeading, connectionMenu, windowControls);
   root.append(left, right);
   applyPanel();
   const fitWindowTitle = () => {
@@ -538,9 +537,6 @@ function createShell(options = {}) {
     }
     requestAnimationFrame(fitWindowTitle);
     const health = connectionHealth(store, session?.connection_id);
-    sessionActivity.textContent = chatActivityText(session);
-    sessionActivity.title = chatActivityTitle(session);
-    sessionActivity.hidden = !sessionActivity.textContent;
     // Kept in the layout whether shown or not, so the shell measures the same on
     // every surface (the chat and Settings over it).
     setProperty(sessionLamp.style, "visibility", session ? "" : "hidden");

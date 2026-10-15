@@ -35,7 +35,11 @@ func (x *runState) compactBeforeRequest() contextmgr.OneRuleResult {
 		}
 		connection := summaryConnection(x.connection)
 		started := time.Now()
-		response, err := llm.New(&connection).Chat(x.ctx, llm.Request{Messages: messages, MaxTokens: maxTokens})
+		var response llm.Response
+		var err error
+		x.r.stage(x.s, x.runID, x.turn, "compact", func() {
+			response, err = llm.New(&connection).Chat(x.ctx, llm.Request{Messages: messages, MaxTokens: maxTokens})
+		})
 		source.DurationMS = time.Since(started).Milliseconds()
 		if err != nil {
 			source.Outcome, source.Reason = "error", err.Error()

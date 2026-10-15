@@ -697,6 +697,14 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     return { context, page };
   };
 
+  const compact = snapshot("running"); compact.sessions[id].activity = { completed_stages: [], started_at: Date.now() - 2100, state_started_at: Date.now() - 2100, stage: "compact", stage_state: "enter" };
+  const compacting = await open("running", "compact-2uv.test", compact); const compactStatus = compacting.page.locator("#chat-status-line");
+  await expect(compactStatus).toContainText(/compacting — fitting context to the model window · 2s/); await expect(compactStatus.locator(".agent-robot")).toHaveAttribute("data-doing", "compacting");
+  await compacting.page.waitForTimeout(1100); await expect(compactStatus).toContainText(/ · 3s/); await mkdir("logs/evidence/rel-1.62.110/captures", { recursive: true });
+  for (const width of [1280, 304]) { await compacting.page.setViewportSize({ width, height: 860 }); await compacting.page.evaluate((show) => { const panel = document.querySelector(".chat-list-panel"), handle = document.querySelector(".chat-list-handle"); document.body.classList.toggle("chat-list-visible", show); document.body.classList.toggle("chat-list-hidden", !show); panel.hidden = !show; handle.hidden = show; }, width > 360); expect(await compactStatus.evaluate((node) => ({ text: node.scrollWidth <= node.clientWidth, inside: node.getBoundingClientRect().right <= innerWidth }))).toEqual({ text: true, inside: true }); await compacting.page.screenshot({ path: `logs/evidence/rel-1.62.110/captures/compacting-${width}.png`, fullPage: true }); }
+  await compacting.page.emulateMedia({ reducedMotion: "reduce" }); await expect(compactStatus.locator(".agent-robot-press")).toHaveCSS("display", "none");
+  compact.sessions[id].activity = { completed_stages: [], started_at: Date.now(), state_started_at: Date.now(), stage: "call_model", stage_state: "enter", stream: {} }; await compacting.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), compact); await expect(compactStatus).toContainText("connecting · 0s"); console.log("2uv compacting page scenario PASS"); await compacting.context.close();
+
   const finished = await open("idle", "finished-2ql.test");
   const worked = finished.page.locator(".chat-work-summary");
   await expect(worked).toHaveCount(1);

@@ -16,6 +16,18 @@ test("one shared drawing replaces the old image in both places 2tj", () => {
   assert.doesNotMatch(`${shell}\n${chat}`, /agent\.svg|chat-run-robot-eyes/);
 });
 
+test("compacting uses the exact press and crush pose and reduced motion hides its bar 2uv", () => {
+  assert.match(robot, /<svg[^>]*><path class="agent-robot-press" d="M4\.5 \.75h11"\/>/);
+  for (const exact of [
+    ".agent-robot-press{display:none;fill:none;stroke:var(--mute);stroke-width:1.5;stroke-linecap:round;transform-box:fill-box;transform-origin:center}",
+    "@keyframes agent-robot-press{0%,12%{transform:translateY(0)}34%{transform:translateY(1.4px)}52%,62%{transform:translateY(9.2px)}78%{transform:translateY(-.6px)}100%{transform:translateY(0)}}",
+    "@keyframes agent-robot-crush{0%,12%{transform:scale(1,1)}34%{transform:scale(1.02,.96)}52%,62%{transform:scale(1.16,.4)}78%{transform:scale(.97,1.07)}100%{transform:scale(1,1)}}",
+    "@keyframes agent-robot-squint{0%,30%{transform:scaleY(1)}52%,62%{transform:scaleY(.18)}80%,100%{transform:scaleY(1)}}",
+    "@keyframes agent-robot-flatten{0%,30%{transform:scaleX(1)}52%,62%{transform:scaleX(1.45)}80%,100%{transform:scaleX(1)}}",
+  ]) assert.ok(sharedStyles.includes(exact), exact);
+  assert.match(sharedStyles, /@media \(prefers-reduced-motion:reduce\)\{\.agent-robot \*\{animation:none!important\}\.agent-robot\[data-doing=compacting\] \.agent-robot-press\{display:none\}\}/);
+});
+
 test("the running robot is live state, present only while a run is live", () => {
   // Bound to the live activity line, which is empty unless run.status is running.
   assert.match(chat, /const running = !!activity;/);

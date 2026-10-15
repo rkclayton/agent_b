@@ -13,6 +13,7 @@ test("the robot look comes from the same live facts, one row per doing 2tj", () 
     ["writing", { stage: "call_model", stage_state: "enter", progress: {}, stream: { reasoning_chars: 605, total_chars: 750 } }],
     ["writing", { stage: "call_model", stage_state: "enter", progress: {}, stream: { tool_calls: [{ name: "shell" }] } }],
     ["tool", { stage: "execute", stage_state: "enter", active_tool: "read_file" }],
+    ["compacting", { stage: "compact", stage_state: "enter" }],
     ["", { stage: "assemble", stage_state: "enter" }],
   ]) assert.equal(liveActivityLook(running(activity)), look);
   assert.equal(liveActivityLook({ run: { status: "idle" }, activity: {} }), "");
@@ -30,6 +31,7 @@ test("live activity gives each model phase a measured status", () => {
   assert.equal(modelRequestText({}, { detail: "model unreachable · trying again · try 2 of 4" }), "model unreachable · trying again · try 2 of 4");
   assert.equal(liveActivityText(running({ stage: "execute", stage_state: "enter", active_tool: "read_file" })), "running read_file · 0s");
   assert.equal(liveActivityText(running({ stage: "execute", stage_state: "enter" })), "running tool — target unknown · 0s");
+  assert.equal(liveActivityText(running({ state_started_at: 1_000, stage: "compact", stage_state: "enter" }), 4_000), "compacting — fitting context to the model window · 3s");
 });
 
 test("live activity names the known wait after an exited stage without retaining that stage", () => {

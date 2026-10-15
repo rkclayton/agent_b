@@ -17,6 +17,7 @@ function Complete-ReleaseStep([string]$Name) {
     $script:releaseStepStarted = $finished
 }
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+Set-Location -LiteralPath $repository
 & (Join-Path $repository 'tools\owned-check.ps1')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $candidate = Join-Path (Join-Path $repository 'candidates') $Tag

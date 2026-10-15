@@ -51,6 +51,7 @@ export function liveActivityLook(session) {
   if (session?.run?.status !== "running") return "";
   const activity = session.activity || {};
   if (activity.active_tool) return "tool";
+  if (activity.stage === "compact" && activity.stage_state === "enter") return "compacting";
   if (activity.stage !== "call_model" || activity.stage_state !== "enter") return "";
   const stream = activity.stream || {};
   if (Array.isArray(stream.tool_calls) && stream.tool_calls.length) return "writing";

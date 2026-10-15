@@ -130,9 +130,49 @@ func TestFailedRunShapeCompactsBeforeItsFirstRequest2uo(t *testing.T) {
 	if summaries != 1 || len(attempts) != 1 || attempts[0].Outcome != "accepted" {
 		t.Fatalf("summaries=%d attempts=%+v", summaries, attempts)
 	}
+	if states := compactStageStates(bus, item.ID); strings.Join(states, "|") != "enter|exit" {
+		t.Fatalf("compact stages=%v", states)
+	}
 	if len(budgets) < 2 || budgets[len(budgets)-1].UsedEst > budgets[len(budgets)-1].Ceiling/2 {
 		t.Fatalf("post-compaction budget=%+v", budgets)
 	}
+}
+
+func TestCompactionSummaryFallbackExitsStage2uv(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		if !body.Stream {
+			http.Error(w, "summary unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "continued"}, "finish_reason": "stop"}}})
+	}))
+	defer server.Close()
+	runner, item, bus := templateRunnerReserve(t, &templateServer{server: server}, 8192)
+	for turn := 1; turn <= 10; turn++ {
+		item.Append(events.Message{ID: fmt.Sprintf("u-%d", turn), Role: "user", Category: "history", Turn: turn, Content: "earlier request"})
+		item.Append(events.Message{ID: fmt.Sprintf("a-%d", turn), Role: "assistant", Category: "history", Turn: turn, Content: strings.Repeat("earlier work ", 900)})
+	}
+	item.Append(events.Message{ID: "task", Role: "user", Category: "history", Turn: 11, Content: "carry on"})
+	_, _, _ = runner.Run(context.Background(), item, "run")
+	if states := compactStageStates(bus, item.ID); strings.Join(states, "|") != "enter|exit" {
+		t.Fatalf("compact fallback stages=%v", states)
+	}
+}
+
+func compactStageStates(bus *capturedBus, sessionID string) []string {
+	states := []string{}
+	for _, event := range bus.Recent(sessionID) {
+		if event.Type == events.Stage {
+			if data, ok := event.Data.(map[string]any); ok && data["stage"] == "compact" {
+				states = append(states, fmt.Sprint(data["state"]))
+			}
+		}
+	}
+	return states
 }
 
 func TestGuardUsesMeasuredAnchor2uo(t *testing.T) {

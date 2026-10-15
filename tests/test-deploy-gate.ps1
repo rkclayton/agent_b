@@ -38,8 +38,10 @@ $repository = Split-Path -Parent $PSScriptRoot
 $ownedCheck = Join-Path $repository 'tools\owned-check.ps1'
 if (-not (Test-Path -LiteralPath $ownedCheck -PathType Leaf)) { throw 'The shared owned-things check is missing.' }
 $ownedCall = $deploy.IndexOf("'tools\owned-check.ps1'")
+$locationCall = $deploy.IndexOf('Set-Location -LiteralPath $repository')
 $notesCall = $deploy.IndexOf("'tools\check-release-notes.mjs'")
 if ($ownedCall -lt 0 -or $notesCall -lt 0 -or $ownedCall -gt $notesCall) { throw 'Deploy must run the owned-things check before release work.' }
+if ($locationCall -lt 0 -or $locationCall -gt $ownedCall) { throw 'Deploy must enter its repository before any release step.' }
 
 $ownedFixture = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-owned-check-' + [Guid]::NewGuid().ToString('N'))
 try {

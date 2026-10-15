@@ -97,7 +97,84 @@ export function responseSummary(items = []) {
   const answers = items.filter((item) => item?.type === "agent" && item.text).length;
   const failed = items.filter(itemFailed).length;
   const duration = items.reduce((total, item) => total + itemDuration(item), 0);
-  return { tools, thoughts, answers, failed, duration };
+  const actions = [];
+  const byKind = new Map();
+  const add = (kind, count = 1) => {
+    if (!count) return;
+    let action = byKind.get(kind);
+    if (!action) {
+      action = { kind, count: 0 };
+      byKind.set(kind, action);
+      actions.push(action);
+    }
+    action.count += count;
+  };
+  for (const item of items) {
+    if (item?.type === "agent" && (thoughtTokens(item) > 0 || !item.done)) add("thought");
+    else if (item?.type === "tool") add(toolActionKind(item));
+    else if (item?.type === "notice" && item.event?.type === "files.delivered") add("files.delivered", Array.isArray(item.event.data?.items) ? item.event.data.items.length : 0);
+  }
+  return { tools, thoughts, answers, failed, duration, actions };
+}
+
+function toolActionKind(item) {
+  const name = String(item?.name || "tool");
+  if (name === "list_dir" || name === "search") return "looked_around";
+  if (name === "write_file") return item.result?.file?.existed === true ? "changed_file" : "created_file";
+  if (name === "edit_file") return "changed_file";
+  if (name === "run_script") return "ran_script";
+  if (name === "shell" || name === "process") return "ran_command";
+  const known = new Set(["read_file", "fetch_url", "web_search", "call_service", "code", "image", "cronjob", "remember", "recall", "chat_history", "todo", "ask", "delegate"]);
+  return known.has(name) ? name : `used:${name}`;
+}
+
+function actionClause({ kind, count }) {
+  const one = count === 1;
+  switch (kind) {
+  case "thought": return one ? "thought for a moment" : `thought ${count} times`;
+  case "read_file": return one ? "read a file" : `read ${count} files`;
+  case "looked_around": return one ? "looked around" : `looked around ${count} times`;
+  case "created_file": return one ? "created a file" : `created ${count} files`;
+  case "changed_file": return one ? "changed a file" : `changed ${count} files`;
+  case "ran_command": return one ? "ran a command" : `ran ${count} commands`;
+  case "ran_script": return one ? "ran a script" : `ran ${count} scripts`;
+  case "web_search": return one ? "searched the web" : `searched the web ${count} times`;
+  case "fetch_url": return one ? "fetched a page" : `fetched ${count} pages`;
+  case "call_service": return one ? "called a service" : `called ${count} services`;
+  case "code": return one ? "navigated code" : `navigated code ${count} times`;
+  case "image": return one ? "read a picture" : `read ${count} pictures`;
+  case "cronjob": return one ? "scheduled a job" : `scheduled ${count} jobs`;
+  case "remember": return one ? "remembered" : `remembered ${count} things`;
+  case "recall": return one ? "recalled" : `recalled ${count} things`;
+  case "chat_history": return one ? "looked back" : `looked back ${count} times`;
+  case "todo": return one ? "listed tasks" : `listed tasks ${count} times`;
+  case "ask": return one ? "asked you" : `asked you ${count} times`;
+  case "delegate": return one ? "delegated a task" : `delegated ${count} tasks`;
+  case "files.delivered": return one ? "shared a file" : `shared ${count} files`;
+  default: {
+    const name = kind.startsWith("used:") ? kind.slice(5) : kind;
+    return one ? `used ${name}` : `used ${name} ${count} times`;
+  }
+  }
+}
+
+export function responseSummarySentence(summary, explicitKinds = 4, includeRemainder = true, rowCount = 0) {
+  const actions = summary?.actions || [];
+  if (!actions.length) return rowCount ? `${rowCount} ${rowCount === 1 ? "row" : "rows"}` : "";
+  let visible = actions;
+  let remainder = 0;
+  if (actions.length > explicitKinds) {
+    const kept = Math.max(1, explicitKinds - 1);
+    visible = actions.slice(0, kept);
+    remainder = actions.slice(kept).reduce((total, action) => total + action.count, 0);
+  }
+  const clauses = visible.map(actionClause);
+  if (remainder && includeRemainder) clauses.push(`${remainder} more steps`);
+  let sentence = clauses.length === 1 ? clauses[0]
+    : clauses.length === 2 ? `${clauses[0]} and ${clauses[1]}`
+      : `${clauses.slice(0, -1).join(", ")}, and ${clauses.at(-1)}`;
+  sentence = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+  return sentence;
 }
 
 export function isIdenticalSingleStepFold(items = [], blocks = []) {

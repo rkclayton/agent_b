@@ -82,7 +82,7 @@ function updateView(view, entry, tokens, options) {
       ? "thoughts uncounted"
       : `${entry.reasoningTokensEstimated || entry.thinkingEstimated ? "~" : ""}${options.format(tokens)} tokens`;
     const duration = options.formatDuration?.(entry.thinkingMS);
-    setText(view.summary, `thinking · ${count}${duration ? ` · ${duration}` : ""}`);
+    setText(view.summary, `thought · ${count}${duration ? ` · ${duration}` : ""}`);
   }
   // a collapsed thought is real model output, and the
   // audit found the browser's own find could not reach it — `hidden` removes

@@ -36,6 +36,64 @@ func TestWorkspaceFileChangesIncludesCreatedAndModifiedFiles(t *testing.T) {
 	}
 }
 
+func TestWorkspaceFileChangesNeverDeliversHarnessOwnedChatFiles2ux(t *testing.T) {
+	root := t.TempDir()
+	owned := []string{
+		"chat.json",
+		".chat.json.tmp",
+		filepath.Join("attachments", "upload.pdf"),
+		filepath.Join("attachments", "upload.pdf.txt"),
+		filepath.Join("attachments", ".agentb-index", "upload.next"),
+		filepath.Join(savedToolResultDir, "results-1.txt"),
+		filepath.Join(savedToolResultDir, "results-2.txt"),
+	}
+	for _, relative := range owned {
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := workspaceFileSnapshot(root)
+	for _, relative := range owned {
+		if err := os.WriteFile(filepath.Join(root, relative), []byte("changed by harness"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := workspaceFileChanges(root, before); len(got) != 0 {
+		t.Fatalf("harness-owned changes reached delivery: %#v", got)
+	}
+}
+
+func TestMetadataRewriteIsNotDeliveredButRunOutputIs2ux(t *testing.T) {
+	root := t.TempDir()
+	metadata := filepath.Join(root, "chat.json")
+	if err := os.WriteFile(metadata, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := workspaceFileSnapshot(root)
+	if err := os.WriteFile(metadata, []byte("rewritten metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := workspaceFileChanges(root, before); len(got) != 0 {
+		t.Fatalf("metadata-only turn delivered files: %#v", got)
+	}
+
+	before = workspaceFileSnapshot(root)
+	if err := os.WriteFile(metadata, []byte("rewritten again"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "report.xlsx"), []byte("workbook"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := workspaceFileChanges(root, before)
+	if len(got) != 1 || got["report.xlsx"].Path != "report.xlsx" {
+		t.Fatalf("run output and metadata changes = %#v", got)
+	}
+}
+
 func TestRunScriptRasterReachesExistingDeliveryPath(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("System.Drawing raster probe is Windows-specific")

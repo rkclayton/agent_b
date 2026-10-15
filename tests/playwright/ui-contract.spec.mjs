@@ -548,7 +548,7 @@ test("a restored long chat keeps its words and scroll position 2t3", async ({ br
   expect(measurements.scrollHeight).toBeGreaterThan(measurements.clientHeight);
   expect(measurements.wheel).toBeLessThan(measurements.start); expect(measurements.keyUp).toBeLessThan(measurements.scrollbar); expect(measurements.keyDown).toBeGreaterThan(measurements.keyUp);
   expect(Math.abs(measurements.afterRenders - held)).toBeLessThanOrEqual(1);
-  const fold = page.locator(".chat-step-summary").filter({ hasText: "2 tool calls" }); await fold.click();
+  const fold = page.locator(".chat-step-summary").filter({ hasText: "Read 2 files" }); await fold.click();
   await page.locator(".chat-step-summary").filter({ hasText: "1 row" }).click();
   await expect(page.getByText(notice, { exact: true })).toHaveCount(2);
   await expect(page.locator(".chat-notice-row").getByText(notice, { exact: true })).toHaveCount(1);
@@ -751,8 +751,8 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(finished.page.getByText("Checked the build inputs.")).toBeVisible();
   await expect(finished.page.locator(".chat-narration-line .chat-step-summary")).toHaveCount(2);
   await expect(finished.page.locator(".chat-step-fold.alarm")).toHaveCount(0);
-  await expect(finished.page.locator(".chat-step-summary").filter({ hasText: "retried" })).toContainText("1 retried");
-  await expect(finished.page.getByText("thinking · 7 tokens")).toBeVisible();
+  await expect(finished.page.locator(".chat-step-summary").filter({ hasText: "ran 2 commands" })).toContainText("Thought for a moment");
+  await expect(finished.page.getByText("thought · 7 tokens")).toBeVisible();
   await expect(finished.page.locator(".tool-tick").first()).toContainText(/shell\s*·\s*git stash pop/);
   expect(await auditDisclosures(finished.page)).toEqual([]);
   await finished.page.evaluate(() => document.querySelector(".chat-response").insertAdjacentHTML("beforeend", '<button aria-expanded="false">ignored disclosure</button>'));

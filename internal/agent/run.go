@@ -523,9 +523,24 @@ type workspaceFileState struct {
 	ModTime int64
 }
 
+func harnessOwnedChatPath(relative string) bool {
+	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(relative)))
+	return clean == "chat.json" || clean == ".chat.json.tmp" ||
+		clean == "attachments" || strings.HasPrefix(clean, "attachments/") ||
+		clean == savedToolResultDir || strings.HasPrefix(clean, savedToolResultDir+"/")
+}
+
 func workspaceFileSnapshot(root string) map[string]workspaceFileState {
 	out := map[string]workspaceFileState{}
 	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err == nil {
+			if rel, relErr := filepath.Rel(root, path); relErr == nil && rel != "." && harnessOwnedChatPath(rel) {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
 		if err == nil && entry.IsDir() && path != root && strings.EqualFold(filepath.Base(path), savedToolResultDir) {
 			return filepath.SkipDir
 		}

@@ -13,7 +13,7 @@ import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
 import { runTimeSentence } from "./run-summary.js";
-import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, shortToolTarget } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isHeaderlessSteps, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { registerMenu } from "./menu-behavior.js";
 import { liveActivityLook, liveActivityText, showsStreamCaret } from "./chat-activity.js";
@@ -823,7 +823,7 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
   const outcome = responseStepOutcome(block.steps, { movedPast: !!state.movedPast });
   toggleClass(view.fold, "alarm", outcome.alarm);
   setAttribute(view.head, "aria-expanded", String(open));
-  setSummaryWithDuration(view.head, `${open ? "▾" : "▸"} ${responseSummaryText(totals, block.steps.length, outcome)}`, totals.duration);
+  setResponseSummaryWithDuration(view.head, totals, open, block.steps.length);
   const usedItems = new Set(block.steps.map((item, index) => item?.key || `invalid:${index}`));
   const nodes = [];
   if (open) {
@@ -856,15 +856,42 @@ function renderResponseStepFold(session, view, block, active, directThoughts, st
   return view.fold;
 }
 
-function responseSummaryText(summary, rowCount, outcome = { alarm: summary.failed > 0, retried: 0 }) {
-  const parts = [];
-  if (summary.tools) parts.push(`${summary.tools} tool ${summary.tools === 1 ? "call" : "calls"}`);
-  if (outcome.retried) parts.push(`${outcome.retried} retried`);
-  if (outcome.alarm) parts.push(`${summary.failed} failed`);
-  if (!summary.tools && summary.thoughts) parts.push(`${summary.thoughts} ${summary.thoughts === 1 ? "thought" : "thoughts"}`);
-  if (!summary.tools && !summary.thoughts && summary.answers) parts.push(`${summary.answers} ${summary.answers === 1 ? "answer" : "answers"}`);
-  if (!parts.length) parts.push(`${rowCount} ${rowCount === 1 ? "row" : "rows"}`);
-  return parts.join(" · ");
+function setResponseSummaryWithDuration(head, summary, open, rowCount) {
+  let sentence = head.querySelector(".chat-step-sentence");
+  if (!sentence) {
+    head.textContent = "";
+    sentence = document.createElement("span");
+    sentence.className = "chat-step-sentence";
+    const seat = document.createElement("span");
+    seat.className = "seat";
+    seat.style.setProperty("--seat", "9ch");
+    const caret = document.createElement("span");
+    caret.className = "chat-step-caret";
+    head.append(sentence, seat, caret);
+  }
+  const seat = head.querySelector(".seat");
+  const caret = head.querySelector(".chat-step-caret");
+  const duration = summary.duration ? ` · ${formatDuration(summary.duration)}` : "";
+  if (seat.textContent !== duration) seat.textContent = duration;
+  if (caret.textContent !== (open ? "▾" : "›")) caret.textContent = open ? "▾" : "›";
+  const draw = (clauses, remainder = true) => {
+    const value = responseSummarySentence(summary, clauses, remainder, rowCount);
+    if (sentence.textContent !== value) sentence.textContent = value;
+  };
+  draw(4);
+  const fit = () => {
+    if (!head.isConnected || !sentence.clientWidth) return;
+    for (let clauses = 4; clauses >= 2; clauses--) {
+      draw(clauses);
+      if (sentence.scrollWidth <= sentence.clientWidth) return;
+    }
+    draw(1, false);
+  };
+  fit();
+  if (!head.isConnected && head.dataset.fitQueued !== "true") {
+    head.dataset.fitQueued = "true";
+    requestAnimationFrame(() => { head.dataset.fitQueued = "false"; fit(); });
+  }
 }
 
 // the trailing duration sits in a SEAT rather than in the summary

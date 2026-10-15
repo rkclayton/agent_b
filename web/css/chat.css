@@ -400,6 +400,9 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   font: var(--ct)/var(--lead) var(--mono);
   user-select: none;
 }
+.chat-step-summary { display:flex;align-items:center;gap:8px; }
+.chat-step-sentence { min-width:0;overflow:hidden;white-space:nowrap; }
+.chat-step-summary > .seat,.chat-step-caret { flex:none; }
 .chat-response.alarm .chat-response-summary,
 .chat-step-fold.alarm .chat-step-summary,
 .chat-response-block.alarm .chat-step-summary,
@@ -463,11 +466,15 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 }
 .chat-narration-line .chat-step-summary {
   flex: none;
-  width: auto;
-  max-width: 42ch;
+  width: max-content;
+  max-width: 72ch;
   height: calc(var(--lead) + var(--ct) * 3 / 4);
   min-height: calc(var(--lead) + var(--ct) * 3 / 4);
   padding: 0 calc(var(--ct) / 3);
+}
+@media (max-width: 600px) {
+  .chat-narration-line { display:grid; }
+  .chat-narration-line .chat-step-summary { width:100%;max-width:100%; }
 }
 .chat-response-block.has-narration > .chat-step-rows {
   margin-left: clamp(4px, 1.5vw, 12px);

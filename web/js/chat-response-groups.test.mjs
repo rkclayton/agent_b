@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
+import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
 
 const tool = (key, name, ok = true, ms = 1) => ({ type: "tool", key, name, args: {}, result: { ok, ms } });
 const thought = (key, tokens, text = "") => ({ type: "agent", key, reasoning: "x", reasoningTokens: tokens, text, done: true, thinkingMS: 2 });
@@ -22,7 +22,7 @@ test("Chat ports adjacent grouping and absorbs only fixed-token thin thoughts", 
 
 test("collapsed turn arithmetic exposes failures and preserves every item", () => {
   const items = [thought("t1", 8), tool("a", "read_file", false, 7), { type: "notice", key: "n", event: { type: "run.aborted", data: {} } }, { type: "agent", key: "answer", text: "done", done: true }];
-  assert.deepEqual(responseSummary(items), { tools: 1, thoughts: 1, answers: 1, failed: 1, duration: 9 });
+  assert.deepEqual(responseSummary(items), { tools: 1, thoughts: 1, answers: 1, failed: 1, duration: 9, actions: [{ kind: "thought", count: 1 }, { kind: "read_file", count: 1 }] });
   const expanded = groupResponseRows([tool("a", "read_file"), thought("t2", 4), tool("b", "read_file")])[0].items;
   assert.equal(expanded.length, 3);
   assert.deepEqual(expanded.map((item) => item.key), ["a", "t2", "b"]);
@@ -98,8 +98,30 @@ test("distinct response and step record sets keep both folds", () => {
   ];
   const blocks = responseBlocks(items);
   assert.equal(isIdenticalSingleStepFold(items, blocks), false);
-  assert.deepEqual(responseSummary(items), { tools: 1, thoughts: 1, answers: 1, failed: 0, duration: 1 });
-  assert.deepEqual(responseSummary(blocks[0].steps), { tools: 1, thoughts: 1, answers: 0, failed: 0, duration: 1 });
+  assert.deepEqual(responseSummary(items), { tools: 1, thoughts: 1, answers: 1, failed: 0, duration: 1, actions: [{ kind: "thought", count: 1 }, { kind: "read_file", count: 1 }] });
+  assert.deepEqual(responseSummary(blocks[0].steps), { tools: 1, thoughts: 1, answers: 0, failed: 0, duration: 1, actions: [{ kind: "thought", count: 1 }, { kind: "read_file", count: 1 }] });
+});
+
+test("turn summaries use the drawn action sentence and fold later kinds into steps 2uw", () => {
+  assert.equal(responseSummarySentence(responseSummary([thought("morning", 30)])), "Thought for a moment");
+
+  const sales = [thought("t1", 10), thought("t2", 10), thought("t3", 10), tool("r1", "read_file"), tool("r2", "read_file"), tool("run", "run_script"), { type: "notice", key: "delivery", event: { type: "files.delivered", data: { items: [{}] } } }];
+  assert.equal(responseSummarySentence(responseSummary(sales)), "Thought 3 times, read 2 files, ran a script, and shared a file");
+
+  const busy = [...Array.from({ length: 6 }, (_, i) => tool(`r${i}`, "read_file")), ...Array.from({ length: 3 }, (_, i) => tool(`w${i}`, "write_file")), ...Array.from({ length: 4 }, (_, i) => tool(`s${i}`, "shell")), ...Array.from({ length: 4 }, (_, i) => tool(`a${i}`, "ask")), ...Array.from({ length: 5 }, (_, i) => tool(`f${i}`, "fetch_url"))];
+  assert.equal(responseSummarySentence(responseSummary(busy)), "Read 6 files, created 3 files, ran 4 commands, and 9 more steps");
+
+  const failed = responseSummary([tool("failed", "read_file", false)]);
+  assert.equal(responseSummarySentence(failed), "Read a file");
+  assert.equal(failed.failed, 1);
+});
+
+test("every dispatcher tool has the design page vocabulary 2uw", () => {
+  const names = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "chat_history", "cronjob", "image", "todo", "ask", "process", "code"];
+  for (const name of names) {
+    const sentence = responseSummarySentence(responseSummary([tool(name, name)]));
+    assert.doesNotMatch(sentence, /^Used /, name);
+  }
 });
 
 test("only completed agent entries with no content are omitted from Chat", () => {

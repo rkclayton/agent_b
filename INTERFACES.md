@@ -250,19 +250,20 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   Scope `planner` instead appends one dated local product note to `<data-root>/planner/notes-for-planner.md`; it is never returned by `recall`, sent,
   or placed in a repository. A private custom agent reads shared and private memory, but every memory write goes only to its private file.
   Neither tool accepts a path and neither is widened by operator mode.
-- `fetch_url {url,offset?,limit?,mode?:feed|article}` performs a policy-checked public HTTP(S) GET with no model-supplied headers, cookies,
-  or credentials and returns untrusted text in a UTF-8-safe byte window. Omitted mode preserves the existing whole-document text window.
-  `feed` deterministically parses RSS/Atom items in document order; `article` selects identifiable HTML main content, drops boilerplate,
+- `fetch_url {url?|urls?:[up to 5],offset?,limit?,mode?:feed|article|raw,via?:browser}` performs policy-checked public HTTP(S) GETs with no model-supplied headers, cookies,
+  or credentials and returns every page in its own untrusted UTF-8-safe byte-window envelope. `urls` runs concurrently. HTML defaults to `article`;
+  `raw` returns the former whole-document text window. `feed` deterministically parses RSS/Atom items in document order; `article` selects identifiable HTML main content, drops boilerplate,
   and explicitly falls back to the default window when no main root exists. Extraction metadata reports the mode, dropped count, and fallback state.
+  PDFs use their text layer and say when none exists. A 403 or script-empty page offers windowless `via:browser`; a detected paywall ends with the site's words.
   When `allow_domains` is empty, `deny_domains` refuses listed hosts and subdomains before DNS or request dispatch;
   a nonempty `allow_domains` remains authoritative and supersedes that default deny list.
   The result and event metadata report URL/status/source and window fields. When `more` is true the returned `next_offset` is passed back as `offset`.
-- `web_search {query,kind?:web|news,limit?}` fans out anonymously through the same DNS/IP, domain, redirect, size, timeout, and uTLS path as `fetch_url`.
-  It returns engine-provided titles, URLs, and snippets—not page content—in the same untrusted result class,
-  names engines that answered or were unavailable/benched, merges normalized URLs, and ranks agreement before source rank.
+- `web_search {query,kind?:web|news|paper,limit?:1..25,site?,recent?:day|week|month,deep?:0..5}` fans out anonymously through the same DNS/IP, domain, redirect, size, timeout, and Chrome-shaped uTLS/HTTP/2 path as `fetch_url`.
+  It returns engine-provided titles, URLs, and snippets in the same untrusted result class; `deep` concurrently appends bounded article windows beneath the top results.
+  It names engines that answered or were unavailable/benched, merges normalized URLs, and ranks agreement before source rank.
+  Paper search queries OpenAlex, Semantic Scholar, arXiv, and PubMed Central without keys and includes bibliography, DOI, and open-access full-text URL when supplied.
   Three consecutive errors or empty parses bench an engine for `tools.web_search.bench_duration_minutes`.
   News uses engine news verticals first and then RSS/Atom feed parsing over the checked-in outlet list.
-  The model-facing description directs the caller to use `fetch_url` on a chosen result.
 - `find_files {pattern,path?}` recursively matches filenames or relative paths, supports `**`, skips its fixed ignored directories, configured protected roots,
   and inaccessible descendants, reports the inaccessible count, sorts results, and returns at most 200 paths with an explicit truncation marker;
   no matches is a successful `no matches` result.

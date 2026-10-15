@@ -15,8 +15,9 @@ import (
 type webSearchKind string
 
 const (
-	webSearchWeb  webSearchKind = "web"
-	webSearchNews webSearchKind = "news"
+	webSearchWeb   webSearchKind = "web"
+	webSearchNews  webSearchKind = "news"
+	webSearchPaper webSearchKind = "paper"
 )
 
 type webSearchHit struct {

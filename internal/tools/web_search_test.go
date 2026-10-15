@@ -136,8 +136,47 @@ func TestWebSearchSchemaAndDescriptionContract(t *testing.T) {
 	}
 	schema := tool.Schema()
 	properties := schema["properties"].(map[string]any)
-	if len(properties) != 3 || properties["query"] == nil || properties["kind"] == nil || properties["limit"] == nil {
+	if len(properties) != 6 || properties["query"] == nil || properties["kind"] == nil || properties["limit"] == nil || properties["site"] == nil || properties["recent"] == nil || properties["deep"] == nil {
 		t.Fatalf("schema=%v", schema)
+	}
+}
+
+func TestWebSearchWidensFiltersAndDeepFetchesInParallel2v6(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, "<main>article %s</main>", r.URL.Path)
+	}))
+	defer server.Close()
+	hits := make([]webSearchHit, 25)
+	for index := range hits {
+		hits[index] = webSearchHit{Title: fmt.Sprintf("hit %d", index), URL: fmt.Sprintf("%s/%d", server.URL, index)}
+	}
+	fetchCfg, searchCfg := webSearchTestConfig("bing")
+	adapter := fixedSearchAdapter{name: "bing", url: server.URL + "/search", hits: hits}
+	tool := newWebSearch(NewFetch(fetchCfg), searchCfg, []webSearchAdapter{adapter}, false)
+	started := time.Now()
+	detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"query": "evidence", "limit": 25, "site": "example.org", "recent": "week", "deep": 3})
+	if detail.Err != nil || time.Since(started) > 260*time.Millisecond || !strings.Contains(detail.Content, "filters: site=example.org, recent=week") || strings.Count(detail.Content, "article ") != 3 {
+		t.Fatalf("deep elapsed=%s detail=%+v", time.Since(started), detail)
+	}
+}
+
+func TestPaperParsersReturnBibliographyAndOpenAccessURL2v6(t *testing.T) {
+	fixtures := []struct {
+		name string
+		body string
+	}{
+		{"openalex", `{"results":[{"title":"Paper","publication_year":2024,"doi":"https://doi.org/10.1/x","authorships":[{"author":{"display_name":"A Author"}}],"primary_location":{"source":{"display_name":"Venue"},"pdf_url":"https://example.org/paper.pdf"}}]}`},
+		{"semantic_scholar", `{"data":[{"title":"Paper","year":2024,"venue":"Venue","authors":[{"name":"A Author"}],"externalIds":{"DOI":"10.1/x"},"openAccessPdf":{"url":"https://example.org/paper.pdf"}}]}`},
+		{"arxiv", `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Paper</title><id>https://arxiv.org/abs/1</id><published>2024-01-01T00:00:00Z</published><author><name>A Author</name></author><link title="pdf" href="https://arxiv.org/pdf/1"/></entry></feed>`},
+		{"pubmed_central", `{"resultList":{"result":[{"title":"Paper","authorString":"A Author","pubYear":"2024","journalTitle":"Venue","doi":"10.1/x","pmcid":"PMC1"}]}}`},
+	}
+	for _, fixture := range fixtures {
+		hits, err := parsePaperResults(fixture.name, []byte(fixture.body), 2)
+		if err != nil || len(hits) != 1 || hits[0].Title != "Paper" || hits[0].Authors != "A Author" || hits[0].OpenAccessURL == "" {
+			t.Errorf("%s hits=%+v err=%v", fixture.name, hits, err)
+		}
 	}
 }
 

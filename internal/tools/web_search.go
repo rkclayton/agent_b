@@ -36,22 +36,7 @@ var webSearchNewsJSON []byte
 // The merge had been running two engines short since 2026-09-23 for a reason
 // that had stopped being true. That is the state this item exists to end: every
 // entry below carries what was observed and when it was observed.
-var initiallyBenchedWebSearchEngines = map[string]string{
-	// DECIDED rather than carried: both DuckDuckGo endpoints
-	// answer the fixed query with an ANOMALY CHALLENGE and no result markup --
-	// html.duckduckgo.com with HTTP 202 and lite.duckduckgo.com with 200, both
-	// serving a challenge-form and an anomaly.js token. That is the engine's own
-	// behaviour, not a parse bug in the adapter, which is what the last order
-	// could not tell and this one was authorized to settle.
-	//
-	// BENCHED, NOT RETIRED. Startpage was retired because its challenge is a
-	// proof-of-work that passing would mean performing; DuckDuckGo's is an
-	// anti-automation gate that has come and gone before, and a bench expires and
-	// retries where a retirement does not. If it is still challenging in a
-	// month, retire them.
-	"duckduckgo_html": "2026-09-27: HTTP 202 with an anomaly challenge form and no result markup. The engine's own gate, not a parse failure.",
-	"duckduckgo_lite": "2026-09-27: HTTP 200 with an anomaly challenge form and no result markup. The engine's own gate, not a parse failure.",
-}
+var initiallyBenchedWebSearchEngines = map[string]string{}
 
 // retiredWebSearchEngines records engines that were removed, so the next reader
 // does not wonder where they went or quietly add them back. (b): broken at the
@@ -155,7 +140,7 @@ func newWebSearch(fetch *Fetch, cfg config.WebSearchTool, adapters []webSearchAd
 
 func (*WebSearch) Name() string { return "web_search" }
 func (*WebSearch) Description() string {
-	return "Search the public web or news without keys. Returns ranked URLs and snippets, never page content; use fetch_url on the result you choose."
+	return "Search the public web, news, or scholarly indexes without keys. Returns up to 25 ranked results. Filter by site or recency, and use deep to fetch the top five articles concurrently."
 }
 func (*WebSearch) ResultCategory() string { return "fetched" }
 func (*WebSearch) ResultUntrusted() bool  { return true }
@@ -163,9 +148,12 @@ func (*WebSearch) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"query": map[string]any{"type": "string", "description": "Search query"},
-			"kind":  map[string]any{"type": "string", "enum": []string{"web", "news"}, "default": "web"},
-			"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "default": webSearchDefaultLimit, "description": "ten unless set lower"},
+			"query":  map[string]any{"type": "string", "description": "Search query"},
+			"kind":   map[string]any{"type": "string", "enum": []string{"web", "news", "paper"}, "default": "web"},
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 25, "default": webSearchDefaultLimit},
+			"site":   map[string]any{"type": "string", "description": "Limit results to this domain"},
+			"recent": map[string]any{"type": "string", "enum": []string{"day", "week", "month"}},
+			"deep":   map[string]any{"type": "integer", "minimum": 0, "maximum": 5, "default": 0, "description": "Fetch this many top results concurrently"},
 		},
 		"required": []string{"query"},
 	}
@@ -175,7 +163,7 @@ func (*WebSearch) Schema() map[string]any {
 // in blocks of five. One constant, so the tool and the gate that measures it
 // cannot drift apart -- the capability table hard-coded 5 and could never have
 // shown what shipped.
-const webSearchDefaultLimit = 10
+const webSearchDefaultLimit = 25
 
 func (w *WebSearch) Configure(value config.Config) {
 	w.mu.Lock()
@@ -197,16 +185,27 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 		return detail
 	}
 	kind := webSearchKind(strings.ToLower(strings.TrimSpace(stringValue(args["kind"], "web"))))
-	if kind != webSearchWeb && kind != webSearchNews {
-		detail.Err = fmt.Errorf("kind must be web or news")
+	if kind != webSearchWeb && kind != webSearchNews && kind != webSearchPaper {
+		detail.Err = fmt.Errorf("kind must be web, news, or paper")
 		return detail
 	}
 	// The operator: "why is web search always in blocks of 5?" -- the
 	// schema said 5 and the model never set it, so every call returned five.
 	// "i want it set to 10, the model is calling it multiple times anyway."
 	limit := number(args["limit"], webSearchDefaultLimit)
-	if limit < 1 || limit > 10 {
-		detail.Err = fmt.Errorf("limit must be between 1 and 10")
+	if limit < 1 || limit > 25 {
+		detail.Err = fmt.Errorf("limit must be between 1 and 25")
+		return detail
+	}
+	site := strings.TrimSpace(stringValue(args["site"], ""))
+	recent := strings.ToLower(strings.TrimSpace(stringValue(args["recent"], "")))
+	if recent != "" && recent != "day" && recent != "week" && recent != "month" {
+		detail.Err = fmt.Errorf("recent must be day, week, or month")
+		return detail
+	}
+	deep := number(args["deep"], 0)
+	if deep < 0 || deep > 5 {
+		detail.Err = fmt.Errorf("deep must be between 0 and 5")
 		return detail
 	}
 
@@ -216,6 +215,9 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 	if !cfg.Enabled {
 		detail.Err = fmt.Errorf("web_search is disabled in tools.web_search")
 		return detail
+	}
+	if kind == webSearchPaper {
+		return w.searchPapers(ctx, s, query, limit)
 	}
 	fetchCfg := w.fetch.config()
 	if s != nil {
@@ -244,9 +246,16 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 		if !enabled[adapter.Name()] {
 			continue
 		}
-		rawURL, applies := adapter.URL(query, kind, limit)
+		adapterQuery := query
+		if site != "" && generalSearchEngine(adapter.Name()) {
+			adapterQuery += " site:" + site
+		}
+		rawURL, applies := adapter.URL(adapterQuery, kind, limit)
 		if !applies {
 			continue
+		}
+		if recent != "" && generalSearchEngine(adapter.Name()) {
+			rawURL = recentSearchURL(rawURL, adapter.Name(), recent)
 		}
 		if health, ok := w.healthSnapshot(adapter.Name()); ok && health.BenchedUntil.After(now) {
 			// a benched engine is reported WITH its reason, dated. The
@@ -329,12 +338,55 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 	sort.Strings(unavailable)
 	sort.Strings(benched)
 	merged := mergeWebSearchHits(allHits, limit)
+	articles := make([]string, min(deep, len(merged)))
+	if len(articles) > 0 {
+		var articleGroup sync.WaitGroup
+		for index := range articles {
+			articleGroup.Add(1)
+			go func(index int) {
+				defer articleGroup.Done()
+				result := w.fetch.CallDetailed(ctx, s, map[string]any{"url": merged[index].URL, "mode": "article"})
+				if result.Err != nil {
+					articles[index] = "article unavailable: " + result.Err.Error()
+				} else {
+					articles[index] = "fetched_content: " + result.Content
+				}
+			}(index)
+		}
+		articleGroup.Wait()
+	}
 	detail.Metadata = map[string]any{"query": query, "kind": string(kind), "engines_answered": answered, "engines_unavailable": unavailable, "engines_benched": benched, "result_count": len(merged)}
-	detail.Content = formatWebSearchResult(query, kind, merged, answered, unavailable, benched)
+	detail.Content = formatWebSearchResult(query, kind, merged, answered, unavailable, benched, site, recent, articles)
 	if len(merged) == 0 {
 		detail.Err = fmt.Errorf("no search engine returned results; %s", strings.Join(append(unavailable, benched...), "; "))
 	}
 	return detail
+}
+
+func generalSearchEngine(name string) bool {
+	switch name {
+	case "bing", "brave", "duckduckgo_html", "duckduckgo_lite":
+		return true
+	}
+	return false
+}
+
+func recentSearchURL(rawURL, engine, recent string) string {
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	query := target.Query()
+	switch engine {
+	case "bing":
+		query.Set("filters", map[string]string{"day": `ex1:"ez1"`, "week": `ex1:"ez2"`, "month": `ex1:"ez3"`}[recent])
+	case "brave":
+		query.Set("tf", map[string]string{"day": "pd", "week": "pw", "month": "pm"}[recent])
+	case "duckduckgo_html", "duckduckgo_lite":
+		query.Set("df", map[string]string{"day": "d", "week": "w", "month": "m"}[recent])
+	}
+	target.RawQuery = query.Encode()
+	return target.String()
 }
 
 func (w *WebSearch) searchOne(ctx context.Context, client *http.Client, cfg config.FetchTool, adapter webSearchAdapter, rawURL string, limit int) ([]webSearchHit, error) {
@@ -345,13 +397,10 @@ func (w *WebSearch) searchOne(ctx context.Context, client *http.Client, cfg conf
 	if err := w.fetch.validateTarget(target, cfg); err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	request, err := w.fetch.newRequest(ctx, target.String())
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/json,application/atom+xml,application/rss+xml,text/plain;q=0.9,*/*;q=0.8")
-	request.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -368,7 +417,12 @@ func (w *WebSearch) searchOne(ctx context.Context, client *http.Client, cfg conf
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP status %d", response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, cfg.MaxBytes+1))
+	decoded, err := decodedResponseBody(response)
+	if err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	defer decoded.Close()
+	body, err := io.ReadAll(io.LimitReader(decoded, cfg.MaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -523,10 +577,25 @@ func stringValue(value any, fallback string) string {
 	}
 	return fallback
 }
-func formatWebSearchResult(query string, kind webSearchKind, hits []mergedWebSearchHit, answered, unavailable, benched []string) string {
+func formatWebSearchResult(query string, kind webSearchKind, hits []mergedWebSearchHit, answered, unavailable, benched []string, site, recent string, articles []string) string {
 	var out strings.Builder
 	out.WriteString(fetchWarning + "\n")
 	fmt.Fprintf(&out, "WEB_SEARCH query=%q kind=%s results=%d\n", query, kind, len(hits))
+	if site != "" || recent != "" {
+		fmt.Fprintf(&out, "filters: site=%s, recent=%s\n", site, recent)
+		honored, unavailableFilters := []string{}, []string{}
+		for _, engine := range answered {
+			if generalSearchEngine(engine) {
+				honored = append(honored, engine)
+			} else {
+				unavailableFilters = append(unavailableFilters, engine)
+			}
+		}
+		fmt.Fprintf(&out, "filters_honored: %s\n", strings.Join(honored, ", "))
+		if len(unavailableFilters) > 0 {
+			fmt.Fprintf(&out, "filters_unavailable: %s\n", strings.Join(unavailableFilters, ", "))
+		}
+	}
 	fmt.Fprintf(&out, "engines_answered: %s\n", strings.Join(answered, ", "))
 	if len(unavailable) > 0 {
 		fmt.Fprintf(&out, "engines_unavailable: %s\n", strings.Join(unavailable, "; "))
@@ -536,6 +605,9 @@ func formatWebSearchResult(query string, kind webSearchKind, hits []mergedWebSea
 	}
 	for index, hit := range hits {
 		fmt.Fprintf(&out, "\n%d. %s\nurl: %s\nsnippet: %s\nengines: %s\n", index+1, hit.Title, hit.URL, hit.Snippet, strings.Join(hit.Engines, ", "))
+		if index < len(articles) {
+			fmt.Fprintln(&out, articles[index])
+		}
 	}
 	return strings.TrimSpace(out.String())
 }

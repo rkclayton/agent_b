@@ -110,6 +110,76 @@ func TestFetchArticleNoMainFallsBackToDefaultWindowExplicitly(t *testing.T) {
 	}
 }
 
+func TestFetchPDFWindowsAndNamesMissingTextLayer2v6(t *testing.T) {
+	walk, err := os.ReadFile(filepath.Join("..", "attachment", "testdata", "walk-doc.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blank := []byte("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R>>endobj\n4 0 obj<</Length 11>>stream\n0 0 m 1 1 l\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		if r.URL.Path == "/blank" {
+			_, _ = w.Write(blank)
+		} else {
+			_, _ = w.Write(walk)
+		}
+	}))
+	defer server.Close()
+	tool := NewFetch(fetchTestConfig())
+	read := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": server.URL + "/paper", "limit": 24})
+	if read.Err != nil || !strings.Contains(read.Content, "## Page 1") || !strings.Contains(read.Content, "more: true") || !strings.Contains(read.Content, "next_offset:") {
+		t.Fatalf("PDF window=%+v", read)
+	}
+	empty := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": server.URL + "/blank"})
+	if empty.Err != nil || !strings.Contains(empty.Content, "PDF has no text layer") {
+		t.Fatalf("blank PDF=%+v", empty)
+	}
+}
+
+func TestFetchFiveURLsRunsInParallelAndKeepsFiveEnvelopes2v6(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, r.URL.Path)
+	}))
+	defer server.Close()
+	urls := []any{}
+	for index := 0; index < 5; index++ {
+		urls = append(urls, fmt.Sprintf("%s/%d", server.URL, index))
+	}
+	started := time.Now()
+	detail := NewFetch(fetchTestConfig()).CallDetailed(context.Background(), &session.Session{}, map[string]any{"urls": urls})
+	if detail.Err != nil || time.Since(started) > 200*time.Millisecond || strings.Count(detail.Content, "[BEGIN UNTRUSTED FETCHED CONTENT]") != 5 {
+		t.Fatalf("parallel fetch elapsed=%s detail=%+v", time.Since(started), detail)
+	}
+}
+
+func TestFetchOffersAndUsesBrowserButStopsAtPaywall2v6(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		if r.URL.Path == "/paywall" {
+			fmt.Fprint(w, "Subscribe to continue")
+		} else {
+			fmt.Fprint(w, "Forbidden")
+		}
+	}))
+	defer server.Close()
+	tool := NewFetch(fetchTestConfig())
+	tool.browser = func(context.Context, string) (string, error) { return "Rendered article words", nil }
+	refused := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": server.URL + "/refused"})
+	if refused.Err == nil || !strings.Contains(refused.Content, "via: browser") {
+		t.Fatalf("offer=%+v", refused)
+	}
+	rendered := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": server.URL + "/refused", "via": "browser"})
+	if rendered.Err != nil || !strings.Contains(rendered.Content, "Rendered article words") {
+		t.Fatalf("browser=%+v", rendered)
+	}
+	paywall := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": server.URL + "/paywall"})
+	if paywall.Err != nil || !strings.Contains(paywall.Content, "paywall: Subscribe to continue") || strings.Contains(paywall.Content, "via: browser") {
+		t.Fatalf("paywall=%+v", paywall)
+	}
+}
+
 func fetchFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "fetch", name))

@@ -254,7 +254,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   or credentials and returns every page in its own untrusted UTF-8-safe byte-window envelope. `urls` runs concurrently. HTML defaults to `article`;
   `raw` returns the former whole-document text window. `feed` deterministically parses RSS/Atom items in document order; `article` selects identifiable HTML main content, drops boilerplate,
   and explicitly falls back to the default window when no main root exists. Extraction metadata reports the mode, dropped count, and fallback state.
-  PDFs use their text layer and say when none exists. A 403 or script-empty page offers windowless `via:browser`; a detected paywall ends with the site's words.
+  PDFs use their text layer and say when none exists. A 403 or script-empty page offers windowless `via:browser`; a detected paywall ends with the site's words. `open access:` is the address to fetch next when a publisher DOI has a free copy.
   When `allow_domains` is empty, `deny_domains` refuses listed hosts and subdomains before DNS or request dispatch;
   a nonempty `allow_domains` remains authoritative and supersedes that default deny list.
   The result and event metadata report URL/status/source and window fields. When `more` is true the returned `next_offset` is passed back as `offset`.

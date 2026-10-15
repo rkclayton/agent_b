@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,6 +49,9 @@ type Fetch struct {
 	resolver     *net.Resolver
 	dial         func(context.Context, string, string) (net.Conn, error)
 	browser      func(context.Context, string) (string, error)
+	openAccess   func(context.Context, string) (string, error)
+	oaCache      map[string]string
+	oaOrder      []string
 }
 
 func NewFetch(cfg config.FetchTool) *Fetch {
@@ -162,6 +166,9 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		f.audit(rawURL, 0, 0, false, err)
 		return detail
 	}
+	fetchCtx, cancelFetch := context.WithTimeout(ctx, time.Duration(cfg.TimeoutS)*time.Second)
+	defer cancelFetch()
+	ctx = fetchCtx
 	offset := number(args["offset"], 1)
 	limit := number(args["limit"], cfg.DefaultLimit)
 	mode, _ := args["mode"].(string)
@@ -197,7 +204,7 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		cancel()
 		if renderErr != nil {
 			if ctx.Err() == nil && errors.Is(renderErr, context.DeadlineExceeded) {
-				message := fmt.Sprintf("browser: no answer in %d s", cfg.TimeoutS)
+				message := fmt.Sprintf("browser: no answer in %d s", cfg.TimeoutS) + f.openAccessLine(ctx, s, target, nil)
 				window, _ := windowUTF8(message, 1, limit)
 				detail.Content = untrustedFetchEnvelope(target.String(), 0, "text/plain", len(message), false, window, "browser", 0, false)
 				return detail
@@ -257,11 +264,11 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		words := strings.Join(strings.Fields(string(data)), " ")
 		lowerWords := strings.ToLower(words)
 		if strings.Contains(lowerWords, "subscribe to continue") || strings.Contains(lowerWords, "subscriber") || strings.Contains(lowerWords, "paywall") || strings.Contains(lowerWords, "sign in to continue") {
-			detail.Content = "paywall: " + words
+			detail.Content = "paywall: " + words + f.openAccessLine(ctx, s, target, data)
 			return detail
 		}
 		if status == http.StatusForbidden {
-			detail.Content = "HTTP status 403; retry with via: browser"
+			detail.Content = "HTTP status 403; retry with via: browser" + f.openAccessLine(ctx, s, target, data)
 		}
 		detail.Err = fmt.Errorf("HTTP status %d", status)
 		f.audit(rawURL, status, len(data), truncated, detail.Err)
@@ -326,7 +333,7 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		words := strings.Join(strings.Fields(readable), " ")
 		lowerWords := strings.ToLower(words)
 		if strings.Contains(lowerWords, "subscribe to continue") || strings.Contains(lowerWords, "subscriber-only") || strings.Contains(lowerWords, "sign in to continue") {
-			detail.Content = "paywall: " + words
+			detail.Content = "paywall: " + words + f.openAccessLine(ctx, s, target, data)
 			return detail
 		}
 	}
@@ -355,6 +362,98 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 	detail.Content = untrustedFetchEnvelope(finalURL, status, mediaType, len(data), truncated, window, mode, dropped, fallback)
 	f.audit(rawURL, status, len(data), truncated, nil)
 	return detail
+}
+
+var publisherDOIPattern = regexp.MustCompile(`(?i)10\.\d{4,9}/[-._;()/:a-z0-9]+`)
+
+func publisherDOI(target *url.URL, body []byte) string {
+	clean := func(value string) string {
+		return strings.ToLower(strings.Trim(publisherDOIPattern.FindString(value), " \t\r\n\"'<>.,;"))
+	}
+	if doi := clean(target.Path); doi != "" {
+		return doi
+	}
+	tokens := html.NewTokenizer(bytes.NewReader(body))
+	for {
+		kind := tokens.Next()
+		if kind == html.ErrorToken {
+			return ""
+		}
+		if kind != html.StartTagToken && kind != html.SelfClosingTagToken {
+			continue
+		}
+		token := tokens.Token()
+		attrs := map[string]string{}
+		for _, attr := range token.Attr {
+			attrs[strings.ToLower(attr.Key)] = attr.Val
+		}
+		if token.Data == "meta" && (strings.EqualFold(attrs["name"], "citation_doi") || strings.EqualFold(attrs["name"], "dc.identifier")) {
+			if doi := clean(attrs["content"]); doi != "" {
+				return doi
+			}
+		}
+		if token.Data == "a" && strings.Contains(strings.ToLower(attrs["href"]), "doi.org/") {
+			if doi := clean(attrs["href"]); doi != "" {
+				return doi
+			}
+		}
+	}
+}
+
+func (f *Fetch) openAccessLine(ctx context.Context, s *session.Session, target *url.URL, body []byte) string {
+	doi := publisherDOI(target, body)
+	if doi == "" {
+		return ""
+	}
+	key := doi
+	if s != nil {
+		state := s.Snapshot()
+		key = state.ID + "|" + state.Run.RunID + "|" + doi
+	}
+	f.mu.RLock()
+	cached, found := f.oaCache[key]
+	f.mu.RUnlock()
+	if found {
+		return "\nopen access: " + cached
+	}
+	lookup := f.openAccess
+	if lookup == nil {
+		lookup = func(ctx context.Context, doi string) (string, error) { return f.lookupOpenAccess(ctx, s, doi) }
+	}
+	address, err := lookup(ctx, doi)
+	if err != nil {
+		return "\nopen access: no answer"
+	}
+	if strings.TrimSpace(address) == "" {
+		address = "none found"
+	}
+	f.mu.Lock()
+	if f.oaCache == nil {
+		f.oaCache = map[string]string{}
+	}
+	if _, exists := f.oaCache[key]; !exists {
+		if len(f.oaOrder) == 128 {
+			delete(f.oaCache, f.oaOrder[0])
+			f.oaOrder = f.oaOrder[1:]
+		}
+		f.oaOrder = append(f.oaOrder, key)
+	}
+	f.oaCache[key] = address
+	f.mu.Unlock()
+	return "\nopen access: " + address
+}
+
+func (f *Fetch) lookupOpenAccess(ctx context.Context, s *session.Session, doi string) (string, error) {
+	detail := (&WebSearch{fetch: f}).searchPapers(ctx, s, doi, 25)
+	matched := false
+	for _, line := range strings.Split(detail.Content, "\n") {
+		if strings.HasPrefix(line, "doi: ") {
+			matched = strings.EqualFold(strings.TrimPrefix(line, "doi: "), doi)
+		} else if matched && strings.HasPrefix(line, "open_access: ") {
+			return strings.TrimPrefix(line, "open_access: "), nil
+		}
+	}
+	return "", ctx.Err()
 }
 
 func (f *Fetch) Configure(value config.Config) {

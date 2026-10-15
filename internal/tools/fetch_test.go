@@ -215,6 +215,72 @@ func TestFetchOffersAndUsesBrowserButStopsAtPaywall2v6(t *testing.T) {
 	}
 }
 
+func TestFetchPaywallNamesOpenAccessAndCachesItPerRun2vb(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		switch r.URL.Path {
+		case "/body":
+			fmt.Fprint(w, `<meta name="citation_doi" content="10.1111/body-doi">Subscribe to continue`)
+		case "/none":
+			fmt.Fprint(w, `<meta name="dc.identifier" content="doi:10.1111/no-copy">Subscribe to continue`)
+		default:
+			fmt.Fprint(w, "Forbidden")
+		}
+	}))
+	defer server.Close()
+	tool := NewFetch(fetchTestConfig())
+	tool.openAccess = func(_ context.Context, doi string) (string, error) {
+		calls.Add(1)
+		pdf := ""
+		if doi == "10.1111/body-doi" {
+			pdf = "https://example.org/free.pdf"
+		}
+		recorded := fmt.Sprintf(`{"results":[{"title":"Recorded paper","doi":"https://doi.org/%s","primary_location":{"pdf_url":"%s","source":{"display_name":"Recorded index"}}}]}`, doi, pdf)
+		hits, err := parsePaperResults("openalex", []byte(recorded), 1)
+		if err != nil || len(hits) == 0 {
+			return "", err
+		}
+		return hits[0].OpenAccessURL, nil
+	}
+	run := &session.Session{ID: "paper", Run: session.RunState{RunID: "one"}}
+	for range 2 {
+		detail := tool.CallDetailed(context.Background(), run, map[string]any{"url": server.URL + "/body"})
+		if !strings.Contains(detail.Content, "paywall:") || !strings.Contains(detail.Content, "open access: https://example.org/free.pdf") {
+			t.Fatalf("body=%+v", detail)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("same-run index calls=%d", calls.Load())
+	}
+	none := tool.CallDetailed(context.Background(), run, map[string]any{"url": server.URL + "/none"})
+	if !strings.Contains(none.Content, "open access: none found") {
+		t.Fatalf("none=%+v", none)
+	}
+	plain := tool.CallDetailed(context.Background(), run, map[string]any{"url": server.URL + "/plain"})
+	if strings.Contains(plain.Content, "open access:") || calls.Load() != 2 {
+		t.Fatalf("plain=%+v calls=%d", plain, calls.Load())
+	}
+	fromURL := tool.CallDetailed(context.Background(), run, map[string]any{"url": server.URL + "/doi/10.1111/url-doi"})
+	if !strings.Contains(fromURL.Content, "open access: none found") || calls.Load() != 3 {
+		t.Fatalf("url=%+v calls=%d", fromURL, calls.Load())
+	}
+}
+
+func TestFetchOpenAccessLookupKeepsTheFetchDeadline2vb(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer server.Close()
+	cfg := fetchTestConfig()
+	cfg.TimeoutS = 1
+	tool := NewFetch(cfg)
+	tool.openAccess = func(ctx context.Context, _ string) (string, error) { <-ctx.Done(); return "", ctx.Err() }
+	started := time.Now()
+	detail := tool.CallDetailed(context.Background(), &session.Session{ID: "paper", Run: session.RunState{RunID: "timeout"}}, map[string]any{"url": server.URL + "/doi/10.1111/slow"})
+	if !strings.Contains(detail.Content, "HTTP status 403") || !strings.Contains(detail.Content, "open access: no answer") || time.Since(started) > 2*time.Second {
+		t.Fatalf("elapsed=%s detail=%+v", time.Since(started), detail)
+	}
+}
+
 func fetchFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "fetch", name))

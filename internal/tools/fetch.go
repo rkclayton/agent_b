@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -191,8 +192,16 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		if render == nil {
 			render = f.renderWithBrowser
 		}
-		readable, renderErr := render(ctx, target.String())
+		browserCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutS)*time.Second)
+		readable, renderErr := render(browserCtx, target.String())
+		cancel()
 		if renderErr != nil {
+			if ctx.Err() == nil && errors.Is(renderErr, context.DeadlineExceeded) {
+				message := fmt.Sprintf("browser: no answer in %d s", cfg.TimeoutS)
+				window, _ := windowUTF8(message, 1, limit)
+				detail.Content = untrustedFetchEnvelope(target.String(), 0, "text/plain", len(message), false, window, "browser", 0, false)
+				return detail
+			}
 			detail.Err = fmt.Errorf("browser render: %w", renderErr)
 			return detail
 		}
@@ -610,12 +619,24 @@ func (f *Fetch) renderWithBrowser(ctx context.Context, address string) (string, 
 	if err != nil {
 		return "", err
 	}
+	started := false
+	defer func() {
+		if !started {
+			return
+		}
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		command := quietproc.Quiet(exec.CommandContext(stopCtx, executable, "browser", "stop"))
+		command.Dir = cwd
+		_ = command.Run()
+	}()
 	for _, args := range [][]string{{"browser", "start"}, {"browser", "nav", address}} {
 		command := quietproc.Quiet(exec.CommandContext(ctx, executable, args...))
 		command.Dir = cwd
 		if output, runErr := command.CombinedOutput(); runErr != nil {
 			return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(output)), runErr)
 		}
+		started = true
 	}
 	command := quietproc.Quiet(exec.CommandContext(ctx, executable, "browser", "text"))
 	command.Dir = cwd

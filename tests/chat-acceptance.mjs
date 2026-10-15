@@ -1087,10 +1087,12 @@ if (realModel) {
     record("late-state-shows-blank-then-history");
   }
   await page.goto(`http://127.0.0.1:${appPort}/chat?session=${sessionID}`);
+  await page.locator(`.chat-list-row[data-session="${sessionID}"]`).waitFor({ state: "attached" });
+  if (!await page.locator(`.chat-list-row.selected[data-session="${sessionID}"]`).count()) await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-name`).click();
+  await page.locator(`.chat-list-row.selected[data-session="${sessionID}"]`).waitFor({ state: "visible" });
   await browser.wait(`document.querySelector('#chat-task')`, "fixture chat restored after scratch acceptance");
 
-  await page.locator("#chat-task").fill("acceptance: prose stream");
-  await page.locator("#chat-send").click();
+  await setTask("acceptance: prose stream");
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL", "mid-stream prose partial");
   await browser.wait(`[...document.querySelectorAll('.chat-response-prose')].at(-1)?.innerText.includes('VISIBLE PARTIAL')`, "partial prose visible without expansion");
   const partialProse = await browser.evaluate(`(() => ({
@@ -2357,9 +2359,8 @@ if (realModel) {
   await browser.wait(`[...document.querySelectorAll('#chat-exchange-files button')].some(item=>item.innerText.includes('phone-note.txt'))`, "operator attachment listed");
   assert.equal(await clickText("#chat-exchange-files button", "phone-note.txt · 26 B"), true);
   // The active upload and the ready attachment intentionally share this row
-  // class. Wait for the byte-count form so Enter cannot race the copy and send
-  // the text before the attachment has joined the queue.
-  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('phone-note.txt · 26 B'))`, "pending attachment ready");
+  // class. The ready bubble has its remove action; the in-progress row does not.
+  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('phone-note.txt') && item.querySelector('.attachment-bubble-remove'))`, "pending attachment ready");
   await setTask("acceptance: attachment");
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "attachment answer");
   await waitEvent(sessionID, (event) => event.type === "message.appended" && event.data.message?.attachments?.length === 1, "attachment JSONL");
@@ -2402,9 +2403,9 @@ if (realModel) {
     return canvas.toDataURL("image/png").split(",")[1];
   });
   await page.locator("#chat-file-picker").setInputFiles({ name: "ocr-acceptance.png", mimeType: "image/png", buffer: Buffer.from(ocrPNG, "base64") });
-  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('OCR: ocr-acceptance.png.txt'))`, "OCR attachment ready");
+  await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('ocr-acceptance.png') && item.innerText.includes('sent as text'))`, "OCR attachment ready");
   const ocrAttachment = page.locator(".chat-pending-file").filter({ hasText: "ocr-acceptance.png" });
-  assert.match(await ocrAttachment.innerText(), /OCR: ocr-acceptance\.png\.txt/);
+  assert.match(await ocrAttachment.innerText(), /sent as text/);
   assert.doesNotMatch(await ocrAttachment.innerText(), /cannot read images/);
   // Item 2ga: a capture of a finished run waits until the page shows it
   // finished — Stop idle — and two frames have painted, or it races the run.

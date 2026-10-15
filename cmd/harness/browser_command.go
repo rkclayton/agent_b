@@ -33,7 +33,7 @@ type browserSocket struct {
 }
 
 func browserUsage() string {
-	return "usage: browser start | nav <url> | eval <js> | text | screenshot | click <selector|text> | fill <selector|text> <value> | press <key> | wait <selector|text|ms> | pick <text>"
+	return "usage: browser start | stop | nav <url> | eval <js> | text | screenshot | click <selector|text> | fill <selector|text> <value> | press <key> | wait <selector|text|ms> | pick <text>"
 }
 
 func runBrowserCommand(args []string) int {
@@ -64,6 +64,11 @@ func runBrowserCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, "browser: not started; run browser start")
 		return 1
 	}
+	if args[0] == "stop" {
+		stopBrowser(statePath, profile, state)
+		fmt.Println("browser stopped")
+		return 0
+	}
 	_ = os.Chtimes(statePath, time.Now(), time.Now())
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -78,6 +83,18 @@ func runBrowserCommand(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func stopBrowser(statePath, profile string, state browserState) {
+	killBrowserProcess(state.PID)
+	_ = os.Remove(statePath)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if err := os.RemoveAll(profile); err == nil || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func browserPaths(cwd string) (string, string) {

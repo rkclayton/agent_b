@@ -298,6 +298,12 @@ func (w *WebSearch) CallDetailed(ctx context.Context, s *session.Session, args m
 				outcome.Err = fmt.Errorf("empty parse")
 			}
 			w.recordWebSearchFailure(outcome.Name, outcome.Err, cfg)
+			var limited *webSearchRateLimited
+			if errors.As(outcome.Err, &limited) {
+				health, _ := w.healthSnapshot(outcome.Name)
+				benched = append(benched, fmt.Sprintf("%s(until %s: %s)", outcome.Name, health.BenchedUntil.UTC().Format(time.RFC3339), health.BenchReason))
+				continue
+			}
 			unavailable = append(unavailable, outcome.Name+":"+outcome.Err.Error())
 			continue
 		}

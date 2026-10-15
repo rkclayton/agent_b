@@ -250,6 +250,28 @@ func TestARateLimitBenchesOnTheFirstOne2lq(t *testing.T) {
 	}
 }
 
+func TestRateLimitIsInTheCurrentResultHeader2va(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/limited" {
+			w.Header().Set("Retry-After", "300")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer server.Close()
+	fetchCfg, searchCfg := webSearchTestConfig("limited", "answering")
+	adapters := []webSearchAdapter{
+		fixedSearchAdapter{name: "limited", url: server.URL + "/limited"},
+		fixedSearchAdapter{name: "answering", url: server.URL + "/answer", hits: []webSearchHit{{Title: "answer", URL: "https://example.com/answer"}}},
+	}
+	tool := newWebSearch(NewFetch(fetchCfg), searchCfg, adapters, false)
+	detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"query": "context"})
+	if detail.Err != nil || !strings.Contains(detail.Content, "engines_benched: limited(") || !strings.Contains(detail.Content, "rate limited") || !strings.Contains(detail.Content, "answer") {
+		t.Fatalf("result did not carry the rate-limit bench and answering engine:\n%s\nerr=%v", detail.Content, detail.Err)
+	}
+}
+
 // Retry-After is a header from a stranger. Whatever it says, the pause it buys is
 // bounded at both ends.
 func TestRetryAfterIsClamped2lq(t *testing.T) {

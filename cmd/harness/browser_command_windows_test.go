@@ -29,6 +29,7 @@ func TestBrowserReadsDrivesAndCapturesScriptedPage2qt(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, _ := readBrowserState(statePath)
+	created := processCreated(state.PID)
 	t.Cleanup(func() { killBrowserProcess(state.PID); _ = os.RemoveAll(filepath.Dir(statePath)) })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -82,5 +83,16 @@ func TestBrowserReadsDrivesAndCapturesScriptedPage2qt(t *testing.T) {
 	}
 	if !strings.HasPrefix(browserUsage(), "usage: browser start") {
 		t.Fatal(browserUsage())
+	}
+	stopBrowser(statePath, profile, state)
+	deadline := time.Now().Add(5 * time.Second)
+	for processRunning(state.PID, created) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if processRunning(state.PID, created) {
+		t.Fatalf("browser process %d remains after stop", state.PID)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("browser state remains after stop: %v", err)
 	}
 }

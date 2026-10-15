@@ -334,6 +334,24 @@ func TestFetchTimeout(t *testing.T) {
 	}
 }
 
+func TestFetchBrowserTimeoutReturnsAnEnvelope2va(t *testing.T) {
+	cfg := fetchTestConfig()
+	cfg.TimeoutS = 1
+	tool := NewFetch(cfg)
+	tool.browser = func(ctx context.Context, _ string) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	started := time.Now()
+	detail := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"url": "https://example.com/article", "via": "browser"})
+	if detail.Err != nil || !detail.Untrusted || !strings.Contains(detail.Content, "browser: no answer in 1 s") {
+		t.Fatalf("detail=%+v", detail)
+	}
+	if elapsed := time.Since(started); elapsed < time.Second || elapsed > 2*time.Second {
+		t.Fatalf("browser bound elapsed=%s", elapsed)
+	}
+}
+
 func TestFetchNon2xxIsFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

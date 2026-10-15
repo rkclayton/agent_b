@@ -12,6 +12,7 @@ const pulseEvidence = process.env.AGENTB_2SG_EVIDENCE_DIR || "test-results/2sg-e
 const listEvidence = process.env.AGENTB_2SI_EVIDENCE_DIR || "test-results/2si-evidence";
 const edgeEvidence = process.env.AGENTB_2SP_EVIDENCE_DIR || "test-results/2sp-evidence";
 const returnedEvidence = process.env.AGENTB_2TA_EVIDENCE_DIR || "test-results/2ta-evidence";
+const wellEvidence = process.env.AGENTB_2V7_EVIDENCE_DIR || "test-results/2v7-evidence";
 
 test("chat list rows, actions, independent state, resize persistence and captures 2qz", async ({ browser }) => {
   test.setTimeout(90000);
@@ -156,6 +157,13 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.store.sessions.p2.label = "Renamed in one redraw"; bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
   await expect(page.locator(".shell-window-title")).toHaveText("Agent_b - Renamed in one redraw"); expect(await page.title()).toBe("Agent_b - Renamed in one redraw");
   await setStates({}, ""); await expect(page.locator(".shell-window-title")).toHaveText("Agent_b"); expect(await page.title()).toBe("Agent_b");
+  await page.setViewportSize({ width: 1280, height: 860 }); await mkdir(wellEvidence, { recursive: true });
+  const wellRobot = page.locator("#chat-log > .chat-empty > .agent-robot.well-robot");
+  await expect(wellRobot).toBeVisible(); await expect(page.locator("#chat-log > .chat-empty > img")).toHaveCount(0); await expect(page.locator("#chat-log > .chat-empty").getByRole("button", { name: "New chat", exact: true })).toBeVisible();
+  expect(await wellRobot.evaluate((node) => { const animations = node.getAnimations({ subtree: true }); for (const animation of animations) { animation.pause(); animation.currentTime = 0; } return animations.map((animation) => animation.animationName).sort(); })).toEqual(["agent-robot-stir-blink", "agent-robot-stir-blink", "agent-robot-stir-glance", "agent-robot-stir-lamp", "agent-robot-stir-tilt"]);
+  await page.screenshot({ path: join(wellEvidence, "well-rest-1280x860.png") });
+  await wellRobot.evaluate((node) => { for (const animation of node.getAnimations({ subtree: true })) animation.currentTime = 47000 * .966; });
+  await page.screenshot({ path: join(wellEvidence, "well-mid-stir-1280x860.png") });
   expect(actions.filter((action) => action.action === "title").slice(-3).map((action) => action.title)).toEqual(["Agent_b - Pinned newest", "Agent_b - Renamed in one redraw", "Agent_b"]);
   for (const step of [
     [{}, "p1", "idle", "idle"],

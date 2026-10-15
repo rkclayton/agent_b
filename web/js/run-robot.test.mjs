@@ -16,6 +16,25 @@ test("one shared drawing replaces the old image in both places 2tj", () => {
   assert.doesNotMatch(`${shell}\n${chat}`, /agent\.svg|chat-run-robot-eyes/);
 });
 
+test("the empty chat well uses the shared robot and the exact occasional stir 2v7", () => {
+  assert.match(chat, /createAgentRobot\(document, \{ place: "well" \}\)/);
+  assert.doesNotMatch(chat, /createElement\("img"\)[\s\S]{0,160}operator-off-48\.png/);
+  assert.match(robot, /place === "well" \? "well-robot"/);
+  for (const exact of [
+    ".well-robot{width:48px;height:48px;color:var(--signal)}",
+    ".well-robot .agent-robot-line,.well-robot .agent-robot-shell,.well-robot .agent-robot-mouth{stroke:var(--line)}",
+    ".well-robot .agent-robot-eyes{animation:agent-robot-stir-glance 47s linear infinite}",
+    ".well-robot .agent-robot-eye{animation:agent-robot-stir-blink 47s linear infinite}",
+    ".well-robot .agent-robot-head{animation:agent-robot-stir-tilt 47s ease-in-out infinite}",
+    ".well-robot .agent-robot-lamp{fill:var(--well);stroke:var(--signal);stroke-width:1.1;animation:agent-robot-stir-lamp 47s ease-in-out infinite}",
+    "@keyframes agent-robot-stir-glance{0%,94.9%,100%{transform:translateX(0)}96%{transform:translateX(-1.3px)}97.6%{transform:translateX(1.3px)}98.8%{transform:translateX(0)}}",
+    "@keyframes agent-robot-stir-blink{0%,94.9%,98.2%,98.8%,99.4%,100%{transform:scaleY(1)}98.5%,99.1%{transform:scaleY(.12)}}",
+    "@keyframes agent-robot-stir-tilt{0%,94.9%,99.6%,100%{transform:rotate(0)}97%{transform:rotate(-7deg)}98.6%{transform:rotate(0)}}",
+    "@keyframes agent-robot-stir-lamp{0%,94.9%,100%{fill:var(--well);stroke-width:1.1}95.6%,98.9%{fill:var(--signal);stroke-width:0}}",
+  ]) assert.ok(sharedStyles.includes(exact), exact);
+  assert.match(sharedStyles, /@media \(prefers-reduced-motion:reduce\)\{\.agent-robot \*\{animation:none!important\}/);
+});
+
 test("compacting uses the exact press and crush pose and reduced motion hides its bar 2uv", () => {
   assert.match(robot, /<svg[^>]*><path class="agent-robot-press" d="M4\.5 \.75h11"\/>/);
   for (const exact of [
@@ -76,7 +95,7 @@ test("the two placements have different blink rhythms and only transform or opac
   assert.match(styles, /\.shell-app-robot\{[^}]*--agent-robot-blink:5\.3s/);
   assert.match(styles, /\.chat-live-robot\{[^}]*--agent-robot-blink:4\.1s/);
   for (const body of styles.matchAll(/@keyframes agent-robot-[^{]+\{([^@]+?)(?=@keyframes|@media|$)/gs)) {
-    assert.doesNotMatch(body[1], /(?:left|right|top|bottom|width|height|margin|padding):/);
+    assert.doesNotMatch(body[1], /(?:^|[;{])(?:left|right|top|bottom|width|height|margin|padding):/);
   }
 });
 

@@ -4,15 +4,15 @@ export function createAgentRobot(document, { place = "chat" } = {}) {
   const robot = document.createElement("span");
   robot.dataset.robotPlace = place;
   robot.innerHTML = drawing;
-  if (place === "chat") robot.setAttribute("aria-hidden", "true");
+  if (place === "chat" || place === "well") robot.setAttribute("aria-hidden", "true");
   else robot.setAttribute("role", "img");
   updateAgentRobot(robot, { state: "idle" });
   return robot;
 }
 
 export function updateAgentRobot(robot, { state = "idle", doing = "", label } = {}) {
-  const place = robot.dataset.robotPlace === "shell" ? "shell" : "chat";
-  robot.className = `agent-robot ${place === "shell" ? "shell-app-robot" : "chat-live-robot"} ${state}`;
+  const place = robot.dataset.robotPlace === "shell" ? "shell" : robot.dataset.robotPlace === "well" ? "well" : "chat";
+  robot.className = `agent-robot ${place === "shell" ? "shell-app-robot" : place === "well" ? "well-robot" : "chat-live-robot"} ${state}`;
   if (doing) robot.dataset.doing = doing; else delete robot.dataset.doing;
   if (label !== undefined) {
     robot.title = label;

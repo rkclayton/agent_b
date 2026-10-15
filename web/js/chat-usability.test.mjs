@@ -253,7 +253,7 @@ test("Chat navigation owns Plan Escape and the Settings save-or-discard guard", 
 
 test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
   assert.match(chat, /No agent connected — add one in/);
-  assert.match(chat, /operator-off-48\.png/);
+  assert.doesNotMatch(chat, /operator-off-48\.png/);
   // Item 2fc: the Plan page lists plans; with none it says how to add one.
   assert.match(plan, />No plans yet\. \+ adds one for a folder\.<\/p>/);
   // Item 2iq (b): the tools link became the summary of the fold that now holds

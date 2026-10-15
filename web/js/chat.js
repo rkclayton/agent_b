@@ -322,9 +322,7 @@ function renderLog(session) {
     const empty = document.createElement("div");
     empty.className = "chat-empty";
     const noAgent = !(store.config.agents || []).length;
-    const face = document.createElement("img");
-    face.src = "/static/assets/operator-off-48.png";
-    face.width = 48; face.height = 48; face.alt = "";
+    const face = createAgentRobot(document, { place: "well" });
     const line = document.createElement("span");
     if (noAgent) {
       line.append("No agent connected — add one in ");

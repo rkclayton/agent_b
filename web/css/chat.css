@@ -260,7 +260,6 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(112, 125, 139, 0.28);
 }
 .chat-user .chat-content {
   font-size: calc(var(--ct) * 7 / 6);

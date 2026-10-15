@@ -281,6 +281,8 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeHidden();
 
   const longRow = page.locator('.chat-list-row[data-session="root"]'), longName = longRow.locator('.chat-list-name'), longMore = longRow.locator('.chat-list-more');
+  const clippedNameStyle = await longName.evaluate((node) => ({ paddingRight: getComputedStyle(node).paddingRight, overflow: getComputedStyle(node).textOverflow }));
+  expect(clippedNameStyle).toEqual({ paddingRight: "4px", overflow: "clip" });
   await longRow.hover(); await expect(longName).toHaveAttribute("title", sessions.root.label); await expect(longMore).not.toHaveAttribute("title"); await expect(longMore).toHaveAttribute("aria-label", `${sessions.root.label} menu`);
   await longMore.click(); await expect(longName).not.toHaveAttribute("title");
   await page.evaluate(() => window.dispatchEvent(new Event("blur"))); await expect(longRow.locator('.chat-list-row-menu')).toBeHidden();

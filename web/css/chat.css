@@ -44,7 +44,7 @@
 .chat-list-state.running { background: var(--signal); }
 .chat-list-state.waiting,.chat-list-state.offline { background: var(--alarm); }
 .chat-list-row .chat-list-name,.chat-list-row .chat-list-more { min-width: 0; min-height:calc(var(--lead-tight) + 4px); padding:2px 4px; overflow: hidden; background: transparent; font:400 var(--ct)/var(--lead-tight) var(--sans); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.chat-list-row .chat-list-name { padding-right:28px; }
+.chat-list-row .chat-list-name { padding-right:28px; } html:not([data-chat-list-wrap="true"]) .chat-list-row .chat-list-name { padding-right:4px; text-overflow:clip; }
 html[data-chat-list-wrap="true"] .chat-list-row,
 html[data-chat-list-wrap="true"] .chat-list-group-name,
 html[data-chat-list-wrap="true"] .chat-list-folder > summary { height:calc(var(--lead-tight) * 2 + 4px); }

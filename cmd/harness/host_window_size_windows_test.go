@@ -128,20 +128,32 @@ func TestNativeTitleFollowsSwitchAndRenameOffscreen2sh(t *testing.T) {
 }
 
 func TestDesktopNoticeDoesNotTakeFocusAndClickNavigates2rz(t *testing.T) {
+	desktopNoticeState.Lock()
+	desktopNoticeState.links, desktopNoticeState.window, desktopNoticeState.icon, desktopNoticeState.added = nil, 0, 0, false
+	desktopNoticeState.Unlock()
 	before := foregroundWindow()
 	hostWindowState.Lock()
 	previousHWND := hostWindowState.hwnd
 	hostWindowState.hwnd = 0x2a
 	hostWindowState.Unlock()
 	previousNotify, previousNavigate, previousActivate := desktopNotifyCall, desktopNavigate, desktopActivate
+	previousIcon, previousDestroy := desktopNoticeIcon, desktopDestroyIcon
 	defer func() {
 		hostWindowState.Lock()
 		hostWindowState.hwnd = previousHWND
 		hostWindowState.Unlock()
 		desktopNotifyCall, desktopNavigate, desktopActivate = previousNotify, previousNavigate, previousActivate
+		desktopNoticeIcon, desktopDestroyIcon = previousIcon, previousDestroy
 	}()
-	var id uint32
-	desktopNotifyCall = func(_ uintptr, data *notifyIconData) uintptr { id = data.ID; return 1 }
+	var commands []uintptr
+	var ids []uint32
+	desktopNotifyCall = func(command uintptr, data *notifyIconData) uintptr {
+		commands, ids = append(commands, command), append(ids, data.ID)
+		return 1
+	}
+	loads, destroys := 0, 0
+	desktopNoticeIcon = func() syscall.Handle { loads++; return 0x44 }
+	desktopDestroyIcon = func(syscall.Handle) { destroys++ }
 	var navigated string
 	desktopNavigate = func(_ *hostWindow, link string) bool { navigated = link; return true }
 	activated := false
@@ -152,12 +164,42 @@ func TestDesktopNoticeDoesNotTakeFocusAndClickNavigates2rz(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if activated || foregroundWindow() != before || len(desktopNoticeState.links) > 128 {
+	if activated || foregroundWindow() != before || len(desktopNoticeState.links) != 1 || loads != 1 {
 		t.Fatalf("raise changed foreground: activated=%v before=%x after=%x", activated, before, foregroundWindow())
 	}
-	desktopNotificationClicked(&hostWindow{hwnd: 0x2a}, id)
-	if navigated != link || !activated {
-		t.Fatalf("click navigated=%q activated=%v", navigated, activated)
+	if len(commands) != 130 || commands[0] != nimAdd || commands[1] != nimModify || commands[129] != nimModify || ids[0] != desktopNoticeID || ids[129] != desktopNoticeID {
+		t.Fatalf("shell calls=%d first=%d last=%d ids=%d/%d", len(commands), commands[0], commands[129], ids[0], ids[129])
+	}
+	desktopNotificationClicked(&hostWindow{hwnd: 0x2a}, desktopNoticeID)
+	if navigated != link || !activated || commands[len(commands)-1] != nimDelete || destroys != 1 || len(desktopNoticeState.links) != 0 {
+		t.Fatalf("click navigated=%q activated=%v commands=%v destroys=%d links=%d", navigated, activated, commands, destroys, len(desktopNoticeState.links))
+	}
+}
+
+func TestDesktopNoticeEndPathsDeleteTheShellIcon2v0(t *testing.T) {
+	endPaths := map[string]func(*hostWindow){
+		"click":                             func(w *hostWindow) { w.windowProcedure(0, wmDesktopNotice, desktopNoticeID, ninBalloonUserClick) },
+		"timeout":                           func(w *hostWindow) { w.windowProcedure(0, wmDesktopNotice, desktopNoticeID, ninBalloonTimeout) },
+		"hide":                              func(w *hostWindow) { w.windowProcedure(0, wmDesktopNotice, desktopNoticeID, ninBalloonHide) },
+		"close":                             func(w *hostWindow) { w.windowProcedure(0, wmHostClose, 0, 0) },
+		"destroy":                           func(w *hostWindow) { w.windowProcedure(0, wmDestroy, 0, 0) },
+		"finish error":                      func(w *hostWindow) { w.finish(syscall.Errno(1)) },
+		"dispose/message-loop/process exit": func(w *hostWindow) { w.dispose() },
+	}
+	for name, end := range endPaths {
+		t.Run(name, func(t *testing.T) {
+			desktopNoticeState.Lock()
+			desktopNoticeState.links, desktopNoticeState.window, desktopNoticeState.icon, desktopNoticeState.added = map[uint32]string{desktopNoticeID: "latest"}, 0x2a, 0, true
+			desktopNoticeState.Unlock()
+			previousNotify := desktopNotifyCall
+			defer func() { desktopNotifyCall = previousNotify }()
+			var commands []uintptr
+			desktopNotifyCall = func(command uintptr, _ *notifyIconData) uintptr { commands = append(commands, command); return 1 }
+			end(&hostWindow{hwnd: 0x2a})
+			if len(commands) != 1 || commands[0] != nimDelete {
+				t.Fatalf("shell commands=%v, want DELETE", commands)
+			}
+		})
 	}
 }
 

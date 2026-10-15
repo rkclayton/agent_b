@@ -319,8 +319,11 @@ func isMinimized(hwnd uintptr) bool {
 func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uintptr {
 	switch message {
 	case wmDesktopNotice:
-		if uint32(lParam&0xffff) == ninBalloonUserClick {
+		switch uint32(lParam & 0xffff) {
+		case ninBalloonUserClick:
 			desktopNotificationClicked(w, uint32(wParam))
+		case ninBalloonHide, ninBalloonTimeout:
+			desktopNotificationDismissed(uint32(wParam))
 		}
 		return 0
 	case wmNCCalcSize:
@@ -415,6 +418,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		if !recordHostPress(hwnd, "close", wParam) {
 			return 0
 		}
+		desktopNotificationDismissed(desktopNoticeID)
 		procDestroyWindow.Call(hwnd)
 		return 0
 	case wmHostActivate:
@@ -424,6 +428,7 @@ func (w *hostWindow) windowProcedure(hwnd, message, wParam, lParam uintptr) uint
 		return 0
 
 	case wmDestroy:
+		desktopNotificationDismissed(desktopNoticeID)
 		w.savePlacement()
 		procPostQuitMessage.Call(0)
 		return 0
@@ -880,11 +885,13 @@ func (w *hostWindow) finish(err error) {
 	default:
 	}
 	if err != nil && w.hwnd != 0 {
+		desktopNotificationDismissed(desktopNoticeID)
 		procDestroyWindow.Call(w.hwnd)
 	}
 }
 
 func (w *hostWindow) dispose() {
+	desktopNotificationDismissed(desktopNoticeID)
 	if w.controller != nil {
 		comCall(w.controller, 24) // Close
 		comRelease(w.controller)

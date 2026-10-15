@@ -155,6 +155,10 @@ test("every chat chip derives its box and glyph measures from the chat text size
   assert.match(css, /\.attachment-bubble-remove\{[^}]*width:calc\(var\(--ct\) \* 2\)[^}]*height:calc\(var\(--ct\) \* 2\)/);
 });
 
+test("thinking and tool heads fit their words without narrowing open bodies 2v3", () => {
+  assert.match(css, /\.chat-response-summary,[\s\S]*?\.chat-tool-group-head\s*\{[^}]*width:\s*max-content[^}]*max-width:\s*min\(72ch,\s*100%\)[^}]*justify-self:\s*start/); assert.match(css, /\.thinking-line\s*\{[^}]*width:\s*max-content[^}]*max-width:\s*min\(72ch,\s*100%\)[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s); assert.match(css, /\.tool-tick\s*\{[^}]*width:\s*max-content[^}]*max-width:\s*min\(72ch,\s*100%\)[^}]*grid-template-columns:\s*auto minmax\(0,\s*max-content\) auto auto/s); assert.doesNotMatch(css.match(/\.thinking-body,\s*\.tool-detail\s*\{([^}]*)\}/s)?.[1] || "", /(?:max-)?width\s*:/, "open bodies keep the fold width");
+});
+
 test("attachment remove drops one ready file and cancels only a readable PDF in progress 2u1", () => {
   assert.match(chat, /function removeQueuedAttachment\(file\)[\s\S]*queuedAttachments\.filter\(\(item\) => item !== file\)/);
   assert.match(chat, /remove: \(\) => removeQueuedAttachment\(file\)/);

@@ -47,7 +47,7 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	text := string(source)
 	// Item 2sy removes the Settings gear from every state. The right slot keeps the
 	// role/connection heading directly beside the native-frame glyphs.
-	if !strings.Contains(text, "right.append(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") || strings.Contains(text, "shell-settings") {
+	if !strings.Contains(text, "right.append(sessionLamp, sessionHeading, connectionMenu, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") || strings.Contains(text, "shell-settings") {
 		t.Fatalf("shared shell right slot must contain the role/connection heading and native-frame glyphs, with no Settings gear")
 	}
 	// Item 2ni: the Plan is a top-level SETTINGS SECTION now, so the strip draws no

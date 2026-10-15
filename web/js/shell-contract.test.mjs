@@ -18,6 +18,9 @@ const pages = await Promise.all(["index.html"].map(async (name) => [name, await 
 
 test("new folder leaves the menu for its own far-edge button 2u6", () => {
 	assert.match(shell, /iconButton\("folder-plus", "New folder", "chat-list-new-folder"\)/);
+	assert.match(shell, /listActions\.append\(listMenuButton, newChatButton\)/);
+	assert.match(shell, /listTop\.append\(listActions, newFolderButton\)/);
+	assert.match(shell, /listTop\.prepend\(listActions\)/);
 	assert.match(shell, /newFolderButton\.onclick = \(\) => \{ const name = prompt\("New folder name"\); if \(name\) void act\(\{ action: "add", parent: "", name \}\); \}/);
 	assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)/);
 	assert.doesNotMatch(shell, /button\("Folder", "", "chat-list-menu-action"\)/);

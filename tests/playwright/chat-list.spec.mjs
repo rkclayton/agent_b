@@ -66,12 +66,12 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await page.goto("http://localhost:59999/chat?setup=skip&session=p1", { waitUntil: "domcontentloaded" });
   const rows = page.locator(".chat-list-row[data-session]");
   await expect(rows).toHaveCount(5);
-  const listTop = page.locator(".chat-list-top-actions");
-  await expect(listTop.locator(":scope > button")).toHaveCount(3);
-  await expect(listTop.locator(":scope > button").first()).not.toHaveAttribute("title", /.+/);
-  await expect(listTop.locator(":scope > button").nth(1)).toHaveAttribute("title", "New chat");
-  await expect(listTop.locator(":scope > button").nth(2)).toHaveAttribute("title", "New folder");
-  await expect(listTop.locator(":scope > button").nth(2)).toHaveAttribute("aria-label", "New folder");
+	const listTop = page.locator(".chat-list-top-row");
+	await expect(listTop.locator("button")).toHaveCount(3);
+	await expect(listTop.locator("button").first()).not.toHaveAttribute("title", /.+/);
+	await expect(listTop.locator("button").nth(1)).toHaveAttribute("title", "New chat");
+	await expect(listTop.locator("button").nth(2)).toHaveAttribute("title", "New folder");
+	await expect(listTop.locator("button").nth(2)).toHaveAttribute("aria-label", "New folder");
   expect(await listTop.innerText()).toBe("");
   await expect(page.locator(".shell-settings")).toHaveCount(0);
   await page.locator(".chat-list-menu-button").click();
@@ -366,6 +366,11 @@ test("chat list rows, actions, independent state, resize persistence and capture
     expect(lefts).toEqual([4, 4, 4]); if (size === 12 && width !== 1920) await page.screenshot({ path: join(edgeEvidence, `collapsed-${width}.png`) });
   }
   await expect(page.locator(".shell-left > .chat-list-top-actions")).toBeVisible(); await expect(page.locator(".chat-list-top-actions")).toHaveCount(1);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const collapsedButtons = await page.locator(".shell-left button").evaluateAll((buttons) => buttons.map((button) => { const box = button.getBoundingClientRect(); return { className: button.className, x: box.x, width: box.width }; }));
+  console.log(`2V2 W0 ${JSON.stringify(collapsedButtons)}`);
+  expect(collapsedButtons.map(({ className }) => className)).toEqual(["chat-list-primary-action chat-list-menu-button", "chat-list-primary-action chat-list-new"]);
+  await expect(page.locator(".chat-list-new-folder")).toBeHidden();
   expect(await page.locator(".shell-left").evaluate((left) => [...left.children].map((child) => child.className))).toEqual(["agent-robot shell-app-robot running", "chat-list-top-actions", "shell-window-title"]);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-new").click(); await expect(rows).toHaveCount(++rowCount);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-menu-button").click(); await expect(page.locator(".chat-list-main-menu")).toBeVisible(); await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
@@ -379,6 +384,12 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(page.locator(".chat-list-panel")).toBeVisible();
   await expect(page.locator(".chat-list-top-row > .chat-list-top-actions")).toBeVisible(); await expect(page.locator(".chat-list-top-actions")).toHaveCount(1);
   await page.screenshot({ path: join(listEvidence, "reopened.png") });
+  for (let repeat = 0; repeat < 2; repeat++) {
+    const resize = await page.locator(".chat-list-resize").boundingBox(); await page.mouse.move(resize.x + 2, resize.y + 20); await page.mouse.down(); await page.mouse.move(0, resize.y + 20); await page.mouse.up();
+    await expect(page.locator(".shell-left > .chat-list-top-actions")).toBeVisible(); await expect(page.locator(".chat-list-new-folder")).toBeHidden();
+    await page.mouse.move(2, 100); await page.mouse.down(); await page.mouse.move(100, 100); await page.mouse.up();
+    await expect(page.locator(".chat-list-top-row > .chat-list-top-actions")).toBeVisible(); await expect(page.locator(".chat-list-top-row > .chat-list-new-folder")).toBeVisible();
+  }
   await page.setViewportSize({ width: 304, height: 254 });
   await page.screenshot({ path: join(evidence, "2qz-panel-narrowest.png") });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);

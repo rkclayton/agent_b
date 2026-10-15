@@ -51,7 +51,7 @@ function createShell(options = {}) {
   listMenuButton.setAttribute("aria-label", "Chat menu"); listMenuButton.removeAttribute("title");
   const newChatButton = iconButton("plus", "New chat", "chat-list-primary-action chat-list-new");
   const newFolderButton = iconButton("folder-plus", "New folder", "chat-list-new-folder");
-  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton, newFolderButton);
+  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton);
   const newChatMenu = node("div", "shell-menu shell-new-menu chat-list-main-menu");
   newChatMenu.hidden = true;
   const menuControllers = new WeakMap();
@@ -90,7 +90,7 @@ function createShell(options = {}) {
     chatPanel.hidden = panel.hidden || page !== "chat";
     panelHandle.hidden = !panel.hidden || page !== "chat";
     if (panel.hidden && page === "chat") appRobot.after(listActions);
-    else if (listTop?.isConnected) listTop.append(listActions);
+    else if (listTop?.isConnected) listTop.prepend(listActions);
   };
   const resizePanel = (handle) => handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
@@ -301,7 +301,7 @@ function createShell(options = {}) {
     const arranged = arrangeChats(store.sessions, chatTree);
     const pulseDelay = `-${performance.now() % 1000}ms`;
     chatList.replaceChildren();
-    listTop = node("div", "chat-list-top-row"); listTop.append(listActions); chatList.append(listTop);
+    listTop = node("div", "chat-list-top-row"); listTop.append(listActions, newFolderButton); chatList.append(listTop);
     const act = async (body, state = false) => {
       try {
         chatTree = await api("/api/chats/tree", body);

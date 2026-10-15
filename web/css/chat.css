@@ -22,9 +22,9 @@
 .chat-list { min-height: 0; overflow: auto; padding: 0 0 8px; scrollbar-width:thin; scrollbar-color:transparent transparent; }
 .chat-list:hover,.chat-list.scrolling{scrollbar-color:var(--mute) var(--bezel)}
 .chat-list::-webkit-scrollbar{width:6px;height:6px}.chat-list::-webkit-scrollbar-track,.chat-list::-webkit-scrollbar-thumb{background:transparent}.chat-list:hover::-webkit-scrollbar-track,.chat-list.scrolling::-webkit-scrollbar-track{background:var(--bezel)}.chat-list:hover::-webkit-scrollbar-thumb,.chat-list.scrolling::-webkit-scrollbar-thumb{background:var(--mute)}
-.chat-list-top-row{position:sticky;z-index:2;top:0;height:24px;background:var(--bezel)}
+.chat-list-top-row{position:sticky;z-index:2;top:0;display:flex;align-items:center;height:24px;background:var(--bezel)}
 .chat-list-top-actions{display:flex;align-items:center;height:24px}.chat-page .chat-list-primary-action{display:grid;place-items:center;width:24px;min-width:24px;height:24px;min-height:24px;padding:0;color:var(--mute);background:transparent;border-radius:0}.chat-page .chat-list-primary-action:hover,.chat-page .chat-list-primary-action:active{color:var(--ink);background:transparent}.chat-list-primary-action svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:square;stroke-linejoin:miter}
-.chat-list-top-row .chat-list-top-actions{width:100%}.chat-page .chat-list-new-folder{display:grid;place-items:center;margin-left:auto;width:18px;min-width:18px;height:18px;min-height:18px;padding:0;background:rgba(232,238,244,.08);border-radius:50%;color:var(--mute)}.chat-page .chat-list-new-folder:hover{background:rgba(232,238,244,.12);color:var(--ink)}.chat-list-new-folder svg{display:block;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:square;stroke-linejoin:miter}
+.chat-list-top-row .chat-list-top-actions{flex:1}.chat-page .chat-list-new-folder{display:grid;place-items:center;margin-left:auto;width:18px;min-width:18px;height:18px;min-height:18px;padding:0;background:rgba(232,238,244,.08);border-radius:50%;color:var(--mute)}.chat-page .chat-list-new-folder:hover{background:rgba(232,238,244,.12);color:var(--ink)}.chat-list-new-folder svg{display:block;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:square;stroke-linejoin:miter}
 .chat-list-menu-label{display:block;padding:2px 8px;color:var(--mute);font:500 var(--ct)/var(--lead-tight) var(--mono);}.chat-list-main-menu hr{height:1px;margin:2px 4px;border:0;background:rgba(112,125,139,.28)}
 .chat-list-group,.chat-list-folder { display: block; margin: 0; }
 .chat-list-group-name,.chat-list-folder > summary { position:relative;display: flex; align-items: center; min-height:calc(var(--lead-tight) + 4px); color: var(--mute); font: 500 var(--ct)/var(--lead-tight) var(--mono); }
@@ -387,7 +387,9 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-response-summary,
 .chat-step-summary,
 .chat-tool-group-head {
-  width: 100%;
+  width: max-content;
+  max-width: min(72ch, 100%);
+  justify-self: start;
   height: calc(var(--lead) + var(--ct) * 3 / 4);
   min-height: calc(var(--lead) + var(--ct) * 3 / 4);
   padding: 0 5px;
@@ -577,15 +579,18 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   50% { opacity: 0; }
 }
 .thinking-line {
-  width: 100%;
+  width: max-content;
   min-width: 0;
-  max-width: 100%;
+  max-width: min(72ch, 100%);
+  justify-self: start;
   min-height: calc(var(--ct) * 5 / 3);
   padding: 0 calc(var(--ct) * 5 / 12);
   color: var(--mute);
   text-align: left;
   font-size: var(--ct);
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   user-select: none;
 }
 .disclosure-caret {
@@ -647,12 +652,14 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
   padding-bottom: 0;
 }
 .tool-tick {
-  width: 100%;
+  width: max-content;
+  max-width: min(72ch, 100%);
+  justify-self: start;
   min-height: calc(var(--lead) + var(--ct) / 3);
   height: calc(var(--lead) + var(--ct) / 3);
   padding: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, max-content) auto auto;
   gap: calc(var(--ct) * 7 / 12);
   align-items: center;
   background: transparent;

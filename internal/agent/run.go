@@ -283,13 +283,6 @@ func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, 
 
 func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, request tools.DelegateRequest) (tools.DelegateResult, error) {
 	started := time.Now()
-	turns := 8
-	if request.Thoroughness == "thorough" {
-		turns = 20
-	}
-	if request.Write {
-		turns = 40
-	}
 	parentState := parent.Snapshot()
 	connectionID, connectionLabel, err := r.delegateConnection(ctx, parent, request.Connection)
 	if err != nil {
@@ -318,7 +311,7 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, reque
 		PlanDir: parent.PlanDir, PlanRepo: parent.PlanRepo, PlansRoot: parent.PlansRoot, SkillsRoot: parent.SkillsRoot, SkillStateRoot: parent.SkillStateRoot, PlanRepos: parent.PlanRepos,
 		NetworkBoundary: parentState.NetworkBoundary, NetworkBoundarySet: true,
 		MediaCapabilities: parentState.MediaCapabilities, MediaCapabilitiesSet: true, Runnable: true,
-		Run: session.RunState{Status: "idle", MaxTurns: turns}, ToolsEnabled: map[string]bool{
+		Run: session.RunState{Status: "idle"}, Unattended: parent.Unattended, ToolsEnabled: map[string]bool{
 			"read_file": true, "list_dir": true, "search": true, "fetch_url": true, "recall": true,
 		}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
 	}
@@ -340,23 +333,9 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, reque
 	if ctx.Err() != nil {
 		return tools.DelegateResult{}, ctx.Err()
 	}
-	partial := reason == "turn_ceiling"
-	if reason != "done" && !partial {
+	partial := false
+	if reason != "done" {
 		return tools.DelegateResult{}, fmt.Errorf("delegate stopped: %s: %s", reason, detail)
-	}
-	if partial {
-		instruction := "Tool access is now withdrawn. Return the best concise evidence-based summary from what you found; do not request or call another tool."
-		if parentRoom > 0 {
-			instruction += fmt.Sprintf(" Keep the answer within %d tokens and end on a complete sentence.", parentRoom)
-		}
-		message, _ := r.makeMessage(ctx, connection, "user", instruction, "history", 0)
-		child.Append(message)
-		child.DisableTools()
-		child.SetRun(session.RunState{Status: "idle", MaxTurns: 1})
-		finalReason, finalDetail, _ := r.Run(ctx, child, r.id("delegate-summary"))
-		if finalReason != "done" {
-			detail = strings.TrimSpace(detail + "; final summary: " + finalReason + ": " + finalDetail)
-		}
 	}
 	transcript := child.MessagesCopy()
 	summary := lastAssistantSummary(transcript)
@@ -368,7 +347,7 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, reque
 		message, _ := r.makeMessage(ctx, connection, "user", fmt.Sprintf("Tool access is now withdrawn. Rewrite your final answer within %d tokens and end on a complete sentence; do not request or call another tool.", parentRoom), "history", 0)
 		child.Append(message)
 		child.DisableTools()
-		child.SetRun(session.RunState{Status: "idle", MaxTurns: 1})
+		child.SetRun(session.RunState{Status: "idle"})
 		if finalReason, finalDetail, _ := r.Run(ctx, child, r.id("delegate-fit")); finalReason != "done" {
 			return tools.DelegateResult{}, fmt.Errorf("delegate shorten stopped: %s: %s", finalReason, finalDetail)
 		}
@@ -580,36 +559,6 @@ func workspaceFileChanges(root string, before map[string]workspaceFileState) map
 	return out
 }
 
-func announcedActionOnly(content string) bool {
-	text := strings.TrimSpace(content)
-	if text == "" || len([]rune(text)) > 400 || strings.ContainsAny(text, "\r\n") {
-		return false
-	}
-	lower := strings.ToLower(text)
-	for _, prefix := range []string{"i'll ", "i’ll ", "i will ", "i am going to ", "now i'll ", "now i’ll ", "now i will ", "now i am going to ", "let me "} {
-		if strings.HasPrefix(lower, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func turnCeilingDetail(turns int, result delivery.Result) string {
-	delivered := "no files"
-	if len(result.Items) > 0 {
-		items := make([]string, 0, len(result.Items))
-		for _, item := range result.Items {
-			value := item.SourcePath + " " + item.Status
-			if item.DeliveredPath != "" {
-				value += " to " + item.DeliveredPath
-			}
-			items = append(items, value)
-		}
-		delivered = strings.Join(items, ", ")
-	}
-	return fmt.Sprintf("completed %d turns; delivery: %s; continue: send Continue in this chat; the session history and delivered work are retained", turns, delivered)
-}
-
 func (r *Runner) applyMailboxBoundary(ctx context.Context, s *session.Session, runID string, approvalPending bool) (bool, string) {
 	if r.mailboxBoundary == nil || s.Role == "e" {
 		return false, ""
@@ -746,9 +695,6 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			}
 		})
 	}
-	if name == "remember" && rememberEchoesPreviousTool(s, args) {
-		return tools.CallOutcome{Content: "error: remember refused: this restates the immediately preceding tool result; the chat already records it"}
-	}
 	if path, ok := args["path"].(string); ok {
 		if resolved := resolveNamedPath(path); resolved != path {
 			args = cloneMetadata(args)
@@ -762,6 +708,18 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	path, _ := args["path"].(string)
 	skillRead := (name == "read_file" || name == "list_dir" || name == "search" || name == "search_text" || name == "find_files") && s.IsSkillPath(path)
+	skillPath, skillName, skillMutation := tools.SkillMutation(name, args, s)
+	if skillMutation {
+		eventArgs["skill"] = skillName
+		eventArgs["skill_path"] = skillPath
+		decision, err := r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
+		if err != nil {
+			return tools.CallOutcome{Content: "error: call canceled"}
+		}
+		if !approvalGranted(decision) {
+			return tools.CallOutcome{Content: "error: call denied by user"}
+		}
+	}
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
 			if s.Role == "e" {
@@ -822,7 +780,10 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	var gateErr error
 	isolatedMutation := s.IsolatedHelper && (name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script")
 	proposedConnector, connectorChange, connectorErr := tools.ParseConnectorChange(args)
-	if isolatedMutation {
+	if skillMutation {
+		// Every skill mutation has already received its own decision above. A
+		// chat- or run-scoped answer never turns into a standing skill grant.
+	} else if isolatedMutation {
 		// The helper changes only its disposable copy. The parent's ordinary
 		// write approval is asked once, immediately before a clean return applies.
 	} else if connectorChange {
@@ -906,7 +867,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if shellStart && decision == "session" {
 		r.grantShellSession(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: "service"})
 	}
-	if decision == "session" && !connectorChange {
+	if decision == "session" && !connectorChange && !skillMutation {
 		r.grantPolicyChat(s.ID, name)
 	}
 	if shellStart && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {
@@ -1048,34 +1009,6 @@ func callServiceApprovalAction(args map[string]any) string {
 		return fmt.Sprintf("Service %s operation %s", service, operation)
 	}
 	return fmt.Sprintf("Service %s %s %s", service, strings.ToUpper(method), path)
-}
-
-func rememberEchoesPreviousTool(s *session.Session, args map[string]any) bool {
-	note, _ := args["note"].(string)
-	messages := s.MessagesCopy()
-	if strings.TrimSpace(note) == "" || len(messages) == 0 || messages[len(messages)-1].Role != "tool" {
-		return false
-	}
-	words := func(value string) map[string]bool {
-		out := map[string]bool{}
-		for _, word := range regexp.MustCompile(`[\pL\pN]+`).FindAllString(strings.ToLower(value), -1) {
-			if len([]rune(word)) > 1 {
-				out[word] = true
-			}
-		}
-		return out
-	}
-	noteWords, resultWords := words(note), words(messages[len(messages)-1].Content)
-	if len(noteWords) == 0 {
-		return false
-	}
-	shared := 0
-	for word := range noteWords {
-		if resultWords[word] {
-			shared++
-		}
-	}
-	return strings.Contains(strings.ToLower(messages[len(messages)-1].Content), strings.ToLower(strings.TrimSpace(note))) || shared*5 >= len(noteWords)*3
 }
 
 func malformedToolTurnAction(finish string, calls int, retried bool) (bool, bool) {

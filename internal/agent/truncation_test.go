@@ -89,7 +89,7 @@ func TestDelegateKeepsSixReadsOutOfParentContext(t *testing.T) {
 	registry := tools.New(delegateFixtureTool{"read_file"}, delegateFixtureTool{"list_dir"}, delegateFixtureTool{"search"}, delegateFixtureTool{"fetch_url"}, delegateFixtureTool{"recall"}, delegate)
 	runner := NewRunner(events.NewBus(), registry, &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	runner.BindDelegate(delegate)
-	parent := &session.Session{ID: "parent", Role: "b", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "idle", MaxTurns: 20}, ToolsEnabled: map[string]bool{"delegate": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	parent := &session.Session{ID: "parent", Role: "b", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "idle"}, ToolsEnabled: map[string]bool{"delegate": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if _, err := runner.AddUser(context.Background(), parent, "research this"); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestDelegateRewritesOnceWhenAnswerCannotFitParent2to(t *testing.T) {
 	}
 }
 
-func TestDelegateQuickCapReturnsPartial(t *testing.T) {
+func TestDelegateQuickContinuesUntilTheModelFinishes2vf(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
@@ -170,11 +170,11 @@ func TestDelegateQuickCapReturnsPartial(t *testing.T) {
 			t.Fatal(err)
 		}
 		index := calls.Add(1)
-		if index == 9 {
-			if len(body.Tools) != 0 {
-				t.Fatalf("summary turn retained tools: %d", len(body.Tools))
+		if index == 11 {
+			if len(body.Tools) == 0 {
+				t.Fatal("ordinary final turn lost its tools")
 			}
-			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "Partial finding from the eight reads."}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 8}})
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "Complete finding after ten reads."}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 8}})
 			return
 		}
 		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("read-%d", index), "type": "function", "function": map[string]any{"name": "read_file", "arguments": fmt.Sprintf(`{"path":"file-%d"}`, index)}}}}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 5}})
@@ -189,7 +189,7 @@ func TestDelegateQuickCapReturnsPartial(t *testing.T) {
 	runner := NewRunner(events.NewBus(), tools.New(delegateFixtureTool{"read_file"}), &PromptRenderer{text: "parent", delegate: "read-only sub-task worker {{tools}}"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
 	parent := &session.Session{ID: "parent", AgentID: "main", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true}
 	result, err := runner.runDelegate(context.Background(), parent, tools.DelegateRequest{Task: "keep reading", Thoroughness: "quick"})
-	if err != nil || !result.Partial || result.ToolCalls != 8 || calls.Load() != 9 || !strings.Contains(result.Summary, "Partial finding") {
+	if err != nil || result.Partial || result.ToolCalls != 10 || calls.Load() != 11 || !strings.Contains(result.Summary, "Complete finding") {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
@@ -491,7 +491,7 @@ func truncationRunner(t *testing.T, baseURL, accounting string) (*Runner, *sessi
 	for _, name := range config.FullToolset() {
 		enabled[name] = true
 	}
-	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running", MaxTurns: cfg.Run.MaxTurns}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
+	item := &session.Session{ID: "main", ConnectionID: "main", Workspace: t.TempDir(), Run: session.RunState{Status: "running"}, Runnable: true, ToolsEnabled: enabled, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 10240}}
 	return runner, item, bus
 }
 

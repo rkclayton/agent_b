@@ -34,7 +34,7 @@ func TestNewChatFirstRequestContainsExactlyStartupContextAndNewUser(t *testing.T
 	})
 	toolset := tools.New(&runScriptPolicyTool{})
 	runner := NewRunner(bus, toolset, &PromptRenderer{text: "system\nmemory={{memory}}\ntools={{tools}}"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
-	item := &session.Session{ID: "new-chat", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, MemoryBlock: "remembered fact", Run: session.RunState{Status: "running", MaxTurns: 40}, ToolsEnabled: map[string]bool{"run_script": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
+	item := &session.Session{ID: "new-chat", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, MemoryBlock: "remembered fact", Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"run_script": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
 	if _, err := runner.AddUser(context.Background(), item, "new request"); err != nil {
 		t.Fatal(err)
 	}

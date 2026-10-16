@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,116 @@ import (
 	"harness/internal/session"
 	toolpkg "harness/internal/tools"
 )
+
+func skillApprovalFixture2vh(t *testing.T) (*Runner, *session.Session, <-chan events.Event, func()) {
+	t.Helper()
+	workspace, profile := t.TempDir(), t.TempDir()
+	skillsRoot := filepath.Join(profile, "skills")
+	if err := os.MkdirAll(skillsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(workspace)
+	cfg.Approval.Mode = config.ApprovalModeOff
+	cfg.Shell.ServiceAccount.Enabled = false
+	shell := toolpkg.NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	bus := events.NewBus()
+	coordinator := toolpkg.NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, bus)
+	registry := toolpkg.New(toolpkg.NewWriteFile(coordinator), toolpkg.NewEditFile(coordinator), shell)
+	runner := NewRunner(bus, registry, nil, nil, func() config.Config { return cfg })
+	eventCh, unsubscribe := bus.Subscribe()
+	item := &session.Session{ID: "skill-write", Workspace: workspace, SkillsRoot: skillsRoot, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"write_file": true, "edit_file": true, "shell": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	return runner, item, eventCh, unsubscribe
+}
+
+func TestSkillWriteAlwaysRaisesCardAndHonorsDecision2vh(t *testing.T) {
+	runner, item, eventCh, unsubscribe := skillApprovalFixture2vh(t)
+	defer unsubscribe()
+	target := filepath.Join(item.SkillsRoot, "fixture", "SKILL.md")
+	args := map[string]any{"path": target, "content": "# Fixture skill\n"}
+	done := make(chan toolpkg.CallOutcome, 1)
+	go func() { done <- runner.executeTool(context.Background(), item, "run", "approved", "write_file", args) }()
+	required := nextApprovalEvent(t, eventCh).Data.(map[string]any)
+	cardArgs := required["args"].(map[string]any)
+	if cardArgs["path"] != target || cardArgs["content"] != args["content"] || cardArgs["skill"] != "fixture" {
+		t.Fatalf("new-skill card=%#v", required)
+	}
+	if err := runner.gate.Decide(item.ID, "approved", "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; !outcome.OK {
+		t.Fatalf("approved outcome=%+v", outcome)
+	}
+	if body, err := os.ReadFile(target); err != nil || string(body) != args["content"] {
+		t.Fatalf("approved file=%q err=%v", body, err)
+	}
+
+	denied := filepath.Join(item.SkillsRoot, "denied", "SKILL.md")
+	go func() {
+		done <- runner.executeTool(context.Background(), item, "run", "denied", "write_file", map[string]any{"path": denied, "content": "denied"})
+	}()
+	nextApprovalEvent(t, eventCh)
+	if err := runner.gate.Decide(item.ID, "denied", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; outcome.OK || outcome.Content != "error: call denied by user" {
+		t.Fatalf("denied outcome=%+v", outcome)
+	}
+	if _, err := os.Stat(denied); !os.IsNotExist(err) {
+		t.Fatalf("denied file exists: %v", err)
+	}
+}
+
+func TestSkillEditCardShowsChangeAndApprovedEditLands2vh(t *testing.T) {
+	runner, item, eventCh, unsubscribe := skillApprovalFixture2vh(t)
+	defer unsubscribe()
+	target := filepath.Join(item.SkillsRoot, "fixture", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan toolpkg.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), item, "run", "edit", "edit_file", map[string]any{"path": target, "old_string": "before", "new_string": "after"})
+	}()
+	card := nextApprovalEvent(t, eventCh).Data.(map[string]any)["args"].(map[string]any)
+	if card["old_string"] != "before" || card["new_string"] != "after" || card["skill"] != "fixture" {
+		t.Fatalf("edit card=%#v", card)
+	}
+	if err := runner.gate.Decide(item.ID, "edit", "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; !outcome.OK {
+		t.Fatalf("edit outcome=%+v", outcome)
+	}
+	if body, _ := os.ReadFile(target); string(body) != "after\n" {
+		t.Fatalf("edit body=%q", body)
+	}
+}
+
+func TestSkillShellWriteRaisesSameCardWhenApprovalModeIsOff2vh(t *testing.T) {
+	runner, item, eventCh, unsubscribe := skillApprovalFixture2vh(t)
+	defer unsubscribe()
+	target := filepath.Join(item.SkillsRoot, "fixture", "SKILL.md")
+	command := `Set-Content -LiteralPath "` + target + `" -Value changed`
+	done := make(chan toolpkg.CallOutcome, 1)
+	go func() {
+		done <- runner.executeTool(context.Background(), item, "run", "shell", "shell", map[string]any{"command": command})
+	}()
+	data := nextApprovalEvent(t, eventCh).Data.(map[string]any)
+	card := data["args"].(map[string]any)
+	if data["boundary_escape"] != false || card["command"] != command || card["skill"] != "fixture" {
+		t.Fatalf("shell card=%#v", data)
+	}
+	if err := runner.gate.Decide(item.ID, "shell", "deny"); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := <-done; outcome.OK || outcome.Content != "error: call denied by user" {
+		t.Fatalf("shell outcome=%+v", outcome)
+	}
+}
 
 func TestConnectorChangeAlwaysUsesApprovalAndHotReloadsForRead(t *testing.T) {
 	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +314,7 @@ func TestCallServiceApprovalPolicy2rh(t *testing.T) {
 	makeRunner := func(mode string, confirm, unattended bool) *Runner {
 		cfg := config.Defaults(t.TempDir())
 		cfg.Approval.Mode = mode
-		cfg.Approval.Unattended = unattended
+		_ = unattended
 		cfg.Services["depot"] = config.Service{BaseURL: service.URL, Auth: "none", AllowedMethods: []string{"GET", "POST"}, TimeoutS: 5, MaxBodyKB: 64, RequireConfirmation: confirm}
 		return NewRunner(events.NewBus(), toolpkg.New(toolpkg.NewCallService(cfg.Services)), nil, nil, func() config.Config { return cfg })
 	}
@@ -249,7 +361,7 @@ func TestCallServiceApprovalPolicy2rh(t *testing.T) {
 	if outcome := runCard(config.ApprovalModeAll, "GET", "once", false); !outcome.OK {
 		t.Fatalf("all=%+v", outcome)
 	}
-	for _, unattended := range []*session.Session{{ID: "worker", Role: "c"}, {ID: "scheduled", Role: "b", Origin: "scheduled"}} {
+	for _, unattended := range []*session.Session{{ID: "worker", Role: "c", Unattended: true}, {ID: "scheduled", Role: "b", Origin: "scheduled", Unattended: true}} {
 		calls.Store(0)
 		runner := makeRunner(config.ApprovalModeBoundaryOnly, true, unattended.Role == "c")
 		unattended.ToolsEnabled = map[string]bool{"call_service": true}
@@ -311,9 +423,8 @@ func TestAskPausesForTypedOrChoiceAnswerAndNeverPausesUnattended2rj(t *testing.T
 		}
 		stop()
 	}
-	for _, s := range []*session.Session{{ID: "worker", Role: "c"}, {ID: "scheduled", Role: "b", Origin: "scheduled"}} {
+	for _, s := range []*session.Session{{ID: "worker", Role: "c", Unattended: true}, {ID: "scheduled", Role: "b", Origin: "scheduled", Unattended: true}} {
 		cfg := config.Defaults(t.TempDir())
-		cfg.Approval.Unattended = true
 		runner := NewRunner(events.NewBus(), toolpkg.New(toolpkg.NewAsk()), nil, nil, func() config.Config { return cfg })
 		s.ToolsEnabled = map[string]bool{"ask": true}
 		outcome := runner.executeTool(context.Background(), s, "run", "ask-1", "ask", map[string]any{"question": "Pick one"})
@@ -588,7 +699,7 @@ func TestBoundaryOnlyRunRecordsCycleNoticeAndContinues2pi(t *testing.T) {
 	eventCh, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
 	runner := NewRunner(bus, toolpkg.New(delegateFixtureTool{name: "list_dir"}), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
-	item := &session.Session{ID: "cycle-notice", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{"list_dir": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "cycle-notice", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"list_dir": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if _, err := runner.AddUser(context.Background(), item, "repeat once"); err != nil {
 		t.Fatal(err)
 	}

@@ -203,7 +203,7 @@ func newAgentConnectionFixture(t *testing.T, oldURL, newURL string) agentConnect
 	bus.SetSink(writers.Write)
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "coder", root)
 	if err != nil {

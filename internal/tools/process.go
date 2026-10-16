@@ -75,9 +75,6 @@ func (p *Process) call(ctx context.Context, s *session.Session, args map[string]
 	if strings.TrimSpace(command) == "" {
 		return CallDetail{Err: errors.New("command is required")}
 	}
-	if reason := skillWriteRefusal(command, s); reason != "" {
-		return CallDetail{Content: reason}
-	}
 	cfg := p.shell.config()
 	sandboxID, sandboxStatus, sandboxed, notice, disableErr := p.shell.sandboxExecution(s)
 	if disableErr != nil {

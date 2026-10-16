@@ -72,9 +72,9 @@ func TestEitherCountClearsTheFloor2ls(t *testing.T) {
 func TestASmallRunThatEndedBadlyStillReflects2ls(t *testing.T) {
 	server := floorServer(t, 3, 1)
 	for _, reason := range []string{
-		"tool_errors", "model_error", "model_unreachable", "wall_clock", "turn_ceiling",
-		"tool_budget", "context_exhausted", "context_ceiling", "length", "cycle",
-		"reply_empty", "reply_empty_reasoning_shown", "announced_action_and_stopped",
+		"tool_errors", "model_error", "model_unreachable", "wall_clock",
+		"context_exhausted", "context_ceiling", "length", "cycle",
+		"reply_empty", "reply_empty_reasoning_shown",
 		"connection_not_runnable", "aborted_mid_tool", "aborted_mid_model", "aborted_mid_run",
 	} {
 		skip, counts := server.belowReflectionFloor(map[string]any{

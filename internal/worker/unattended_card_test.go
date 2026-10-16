@@ -65,7 +65,7 @@ func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, current)
+	registry := session.NewRegistry(bus, writers, lookup, 0, current)
 	registry.SetPlansRoot(filepath.Join(data, "plans"))
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {

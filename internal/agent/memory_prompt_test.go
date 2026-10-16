@@ -111,7 +111,7 @@ func TestAChatRequestNeverSaysOperator2pz(t *testing.T) {
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile), tools.NewListDir(cfg.Tools.ListDir), tools.NewWriteFile(files), tools.NewEditFile(files),
 		tools.NewSearch(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), tools.NewGlob(cfg.Tools.FindFiles)), shell, tools.NewRemember(notes, bus), tools.NewRecall(notes),
 		fetch, tools.NewWebSearch(fetch, cfg.Tools.WebSearch), tools.NewRunScript(shell), tools.NewCallService(cfg.Services), tools.NewDelegate())
-	item := &session.Session{ID: "word", ConnectionID: "main", Workspace: root, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 1}, ToolsEnabled: map[string]bool{},
+	item := &session.Session{ID: "word", ConnectionID: "main", Workspace: root, Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{},
 		ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	for name := range registry.AllSchemas() {
 		item.ToolsEnabled[name] = true

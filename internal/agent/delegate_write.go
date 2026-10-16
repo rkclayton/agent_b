@@ -305,10 +305,6 @@ func (r *Runner) acquireDelegate(ctx context.Context, chatID, runID, connectionI
 	chatKey, connectionKey := "chat:"+chatID, "connection:"+connectionID
 	r.delegateMu.Lock()
 	r.delegateCalls[key]++
-	if r.delegateCalls[key] > 8 {
-		r.delegateMu.Unlock()
-		return nil, fmt.Errorf("delegate limit of eight helpers per run reached")
-	}
 	for {
 		limit := 1
 		if connection, ok := r.cfg().Connection(connectionID); ok {

@@ -39,7 +39,7 @@ func Defaults(workspace string) Config {
 		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", Toolset: FullToolset(), Thinking: true}},
 		Services: map[string]Service{}, Hooks: []Hook{},
 		Sandbox: Sandbox{Enabled: false, initialized: true},
-		Run:     RunConfig{MaxTurns: DefaultMaxTurns, MaxWallClockSeconds: DefaultMaxWallClockSeconds, MaxToolCalls: DefaultMaxToolCalls, CycleWindow: 5, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: defaultNotifications(), Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
+		Run:     RunConfig{MaxWallClockSeconds: DefaultMaxWallClockSeconds, CycleWindow: 5, MaxConcurrent: 4}, Cron: Cron{MaxRunMinutes: 20}, Approval: Approval{Mode: ApprovalModeBoundaryOnly}, Context: GlobalContext{SoftPct: .80, SummaryPct: .90, Accounting: "auto"}, Memory: Memory{Enabled: true, Dir: "memory", MaxTokens: 1500}, Deliver: defaultDeliver(), OperatorFiles: OperatorFiles{LogRetentionDays: 30}, Notifications: defaultNotifications(), Updates: defaultUpdates(), Telemetry: defaultTelemetry(), Reflection: defaultReflection(),
 		Tools:   Tools{ReadFile: ReadFileTool{DefaultLimit: 16 << 10, MaxLimit: 64 << 10}, Attachments: AttachmentTool{MaxBytes: 256 << 20, InlineMaxBytes: 2 << 20}, ListDir: ListDirTool{MaxEntries: 300, Ignore: []string{".git", "node_modules", "__pycache__", "vendor", "bin", "obj", "dist", ".venv"}}, Grep: GrepTool{MaxMatches: 50, MaxLineChars: 200}, Shell: ShellTool{OperatorCommands: []string{"git"}}, Fetch: FetchTool{TimeoutS: 20, MaxBytes: 2 << 20, MaxRedirects: 5, DefaultLimit: 32 << 10, MaxLimit: 256 << 10, AllowDomains: []string{}, DenyDomains: []string{}, AllowInternalHosts: []string{}}, WebSearch: WebSearchTool{Enabled: true, Engines: []string{"duckduckgo_html", "duckduckgo_lite", "bing", "brave", "wikipedia", "github", "hacker_news", "arxiv", "stackexchange", "pkg_go_dev", "npm"}, PerEngineTimeoutS: 8, BenchDurationMinutes: 30, initialized: true}, FindFiles: FindFilesTool{SkipRoots: []string{"Windows", "$Recycle.Bin", "System Volume Information", `ProgramData\Microsoft\Windows Defender*`, `Program Files\Windows Defender*`}}, Diagnostics: map[string][]string{".go": {"gopls"}, ".ts": {"typescript-language-server", "--stdio"}, ".tsx": {"typescript-language-server", "--stdio"}, ".js": {"typescript-language-server", "--stdio"}, ".jsx": {"typescript-language-server", "--stdio"}, ".py": {"pyright-langserver", "--stdio"}, ".cs": {"OmniSharp", "-lsp"}, ".rs": {"rust-analyzer"}}},
 		Shell:   Shell{Command: []string{"powershell", "-NoProfile", "-NonInteractive", "-Command"}, TimeoutS: 60, MaxTimeoutS: 600, MaxOutputLinesHead: 60, MaxOutputLinesTail: 40, OperatorContextIdleTimeoutMinutes: 20, Deny: []string{"rm -rf /", "format ", "diskpart", "shutdown", "Remove-Item -Recurse -Force C:\\"}, ServiceAccount: ShellServiceAccount{Enabled: false, Account: "agentb-svc", Domain: ".", initialized: true}},
 		Signing: Signing{TimestampURL: "http://timestamp.digicert.com"},
@@ -81,14 +81,8 @@ func applyDefaults(c *Config) {
 	if c.Workspace == "" {
 		c.Workspace = d.Workspace
 	}
-	if c.Run.MaxTurns == 0 {
-		c.Run.MaxTurns = d.Run.MaxTurns
-	}
 	if c.Run.MaxWallClockSeconds == 0 {
 		c.Run.MaxWallClockSeconds = d.Run.MaxWallClockSeconds
-	}
-	if c.Run.MaxToolCalls == 0 {
-		c.Run.MaxToolCalls = d.Run.MaxToolCalls
 	}
 	if c.Run.MaxConcurrent == 0 {
 		c.Run.MaxConcurrent = d.Run.MaxConcurrent

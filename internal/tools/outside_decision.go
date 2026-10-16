@@ -68,8 +68,59 @@ var assignedLiteral = regexp.MustCompile(`(?i)^\s*\$([a-z_][a-z0-9_]*)\s*=\s*["'
 var skillWriteVerb = regexp.MustCompile(`(?i)^(set-content|sc|add-content|ac|out-file|new-item|ni|remove-item|rm|ri|del|erase|rd|rmdir|mkdir|md|move|mv|move-item|copy|cp|copy-item|cpi|rename-item|ren|rni|clear-content|clc|set-item|tee|tee-object|icacls|takeown|attrib|open)$`)
 var skillInlineWrite = regexp.MustCompile(`(?i)(writeall\w*|appendall\w*|streamwriter)|>`)
 
-func skillWriteRefusal(source string, s *session.Session) string {
-	variables, inSkills := map[string]string{}, false
+// SkillMutation identifies a write aimed at the skills root. The dispatcher
+// uses it to raise the ordinary mutating card before any tool can make the
+// change. File tools and command tools share this one classifier so a command
+// cannot silently take a different path into the same folder.
+func SkillMutation(name string, args map[string]any, s *session.Session) (string, string, bool) {
+	if name == "write_file" || name == "edit_file" {
+		path, _ := args["path"].(string)
+		path = skillCandidate(path, s.Workspace)
+		if s.IsSkillPath(path) {
+			return path, skillName(path, s.SkillsRoot), true
+		}
+		return "", "", false
+	}
+	var source string
+	if name == "run_script" {
+		source, _ = args["source"].(string)
+	} else if name == "shell" || name == "process" {
+		if name == "process" && args["action"] != "start" {
+			return "", "", false
+		}
+		source, _ = args["command"].(string)
+	} else {
+		return "", "", false
+	}
+	path, ok := skillCommandWriteTarget(source, s)
+	if !ok {
+		return "", "", false
+	}
+	return path, skillName(path, s.SkillsRoot), true
+}
+
+func skillCandidate(path, base string) string {
+	path = ResolveNamedPath(path)
+	candidate := filepath.FromSlash(path)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(base, candidate)
+	}
+	return filepath.Clean(candidate)
+}
+
+func skillName(path, root string) string {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == "." || strings.HasPrefix(relative, "..") {
+		return filepath.Base(root)
+	}
+	if index := strings.IndexRune(relative, filepath.Separator); index >= 0 {
+		relative = relative[:index]
+	}
+	return relative
+}
+
+func skillCommandWriteTarget(source string, s *session.Session) (string, bool) {
+	variables, skillDir := map[string]string{}, ""
 	for _, statement := range skillStatementBreak.Split(source, -1) {
 		if match := assignedLiteral.FindStringSubmatch(statement); match != nil {
 			variables[strings.ToLower(match[1])] = match[2]
@@ -78,7 +129,12 @@ func skillWriteRefusal(source string, s *session.Session) string {
 		paths := literalPaths(statement)
 		if navigationVerbs[verb] && verb != "dir" && verb != "ls" && verb != "gci" && verb != "get-childitem" && verb != "tree" {
 			if len(paths) > 0 {
-				inSkills = s.IsSkillPath(paths[len(paths)-1])
+				candidate := skillCandidate(paths[len(paths)-1], s.Workspace)
+				if s.IsSkillPath(candidate) {
+					skillDir = candidate
+				} else {
+					skillDir = ""
+				}
 			}
 			continue
 		}
@@ -91,19 +147,28 @@ func skillWriteRefusal(source string, s *session.Session) string {
 				resolved = append(resolved, path)
 			}
 		}
-		targetsSkill := false
+		target := ""
 		if verb == "copy" || verb == "cp" || verb == "copy-item" || verb == "cpi" || verb == "move" || verb == "mv" || verb == "move-item" {
-			targetsSkill = len(resolved) > 0 && s.IsSkillPath(resolved[len(resolved)-1])
+			if len(resolved) > 0 {
+				target = resolved[len(resolved)-1]
+			}
 		} else if len(resolved) > 0 {
-			targetsSkill = s.IsSkillPath(resolved[0])
-		} else {
-			targetsSkill = inSkills
+			target = resolved[0]
+		} else if skillDir != "" {
+			target = skillDir
 		}
-		if targetsSkill {
-			return "skills folder is read-only: " + s.SkillsRoot + "; end the reply with Add <path> as a skill"
+		if target != "" {
+			base := s.Workspace
+			if skillDir != "" && !filepath.IsAbs(filepath.FromSlash(target)) {
+				base = skillDir
+			}
+			target = skillCandidate(target, base)
+			if s.IsSkillPath(target) {
+				return target, true
+			}
 		}
 	}
-	return ""
+	return "", false
 }
 func pathListReason(prefix string, paths []string) string {
 	if len(paths) == 0 {

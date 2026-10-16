@@ -18,7 +18,6 @@ type RunState struct {
 	Status         string `json:"status"`
 	RunID          string `json:"run_id"`
 	Turn           int    `json:"turn"`
-	MaxTurns       int    `json:"max_turns"`
 	QueuePosition  int    `json:"queue_position"`
 	Partial        string `json:"partial"`
 	LastStopReason string `json:"last_stop_reason"`
@@ -99,6 +98,7 @@ type Session struct {
 	ID, Label, AgentID, ConnectionID, Workspace                                      string
 	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot, SkillStateRoot string
 	ParentSessionID                                                                  string
+	Unattended                                                                       bool
 	// cards refused while unattended, for this run.
 	boundaryHits           []string
 	WorkspaceMissing       bool
@@ -301,7 +301,7 @@ func (s *Session) WriteRoot(path string) (string, error) {
 		return s.SkillStateRoot, nil
 	}
 	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
-		return "", fmt.Errorf("skills folder is read-only: %s", s.SkillsRoot)
+		return s.SkillsRoot, nil
 	}
 	// The worker never writes plan text. d writes its own plan folder; c is bound
 	// to a plan but may only ever write the repo, so the plans root is closed to

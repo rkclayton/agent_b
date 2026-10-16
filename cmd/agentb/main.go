@@ -91,7 +91,7 @@ func run(options cli.Options) int {
 	}
 	snapshot := func() config.Config { return cfg }
 
-	registry := session.NewRegistry(bus, writers, connections, cfg.Run.MaxTurns, snapshot)
+	registry := session.NewRegistry(bus, writers, connections, 0, snapshot)
 	toolRegistry, err := buildTools(cfg, bus, registry, workspace, options)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -110,6 +110,7 @@ func run(options cli.Options) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	item.Unattended = options.Unattended
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -163,11 +164,6 @@ func loadConfig(options cli.Options) (config.Config, error) {
 	cfg := *loaded
 	if err := config.ResolveConnectionCredentials(&cfg, filepath.Dir(path)); err != nil {
 		return cfg, err
-	}
-	// unattended is the existing rule, reached from a flag rather than
-	// reimplemented.
-	if options.Unattended {
-		cfg.Approval.Unattended = true
 	}
 	if options.Profile != "" {
 		if !pointAgentsAt(&cfg, options.Profile) {

@@ -207,9 +207,9 @@ func TestReasoningOnlyReplyIsShownAndNamed(t *testing.T) {
 	}
 }
 
-func TestAnnouncedActionWithoutToolIsNotDone(t *testing.T) {
+func TestAnnouncedActionWithoutToolIsTheDoneReply2vf(t *testing.T) {
 	reason, detail, reply := runSingleReply(t, map[string]any{"content": "Now I'll write the game as a single self-contained file."})
-	if reason != "announced_action_and_stopped" || detail != "announced an action and stopped" {
+	if reason != "done" || detail != "" {
 		t.Fatalf("run=(%q,%q)", reason, detail)
 	}
 	if !strings.Contains(reply.Content, "Now I'll write") {

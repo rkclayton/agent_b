@@ -49,9 +49,7 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	var metadata struct {
 		ConfigVersion *int `json:"config_version"`
 		Run           struct {
-			MaxTurns            *int `json:"max_turns"`
 			MaxWallClockSeconds *int `json:"max_wall_clock_seconds"`
-			MaxToolCalls        *int `json:"max_tool_calls"`
 		} `json:"run"`
 		Approval struct {
 			Mode string `json:"mode"`
@@ -63,14 +61,8 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 	if metadata.ConfigVersion == nil || *metadata.ConfigVersion < MinimumConfigVersion {
 		return nil, false, created, errors.New(ConfigurationTooOldMessage)
 	}
-	if metadata.Run.MaxTurns != nil && *metadata.Run.MaxTurns == 0 {
-		return nil, false, created, fmt.Errorf("run.max_turns: zero is not unlimited; omit it for the default %d or use a positive pathological-case backstop", DefaultMaxTurns)
-	}
 	if metadata.Run.MaxWallClockSeconds != nil && *metadata.Run.MaxWallClockSeconds == 0 {
 		return nil, false, created, fmt.Errorf("run.max_wall_clock_seconds: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxWallClockSeconds)
-	}
-	if metadata.Run.MaxToolCalls != nil && *metadata.Run.MaxToolCalls == 0 {
-		return nil, false, created, fmt.Errorf("run.max_tool_calls: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxToolCalls)
 	}
 	if *metadata.ConfigVersion != MinimumConfigVersion && *metadata.ConfigVersion != CurrentConfigVersion {
 		return nil, false, created, fmt.Errorf("config_version: unsupported value %d (current %d)", *metadata.ConfigVersion, CurrentConfigVersion)
@@ -98,7 +90,6 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		}
 	}
 	// Operator context is a launch-scoped state, never a startup instruction.
-	cfg.Approval.Unattended = false
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
 	applyDefaults(&cfg)
@@ -179,7 +170,6 @@ func (c Config) Save(path string) error {
 	}
 	persisted.Shell.OperatorContext = false
 	persisted.Shell.OperatorContextExpiresAt = ""
-	persisted.Approval.Unattended = false
 	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return err

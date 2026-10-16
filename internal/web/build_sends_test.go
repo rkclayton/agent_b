@@ -49,7 +49,7 @@ func buildPlanFixture(t *testing.T, prepare func(repo string)) (*Server, *sessio
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(data, "harness.json"), repo, RuntimeRoots{Application: repo, Data: data, Workspace: repo}, bus)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	promptPath := filepath.Join(data, "system.md")
 	if err := os.WriteFile(promptPath, []byte("system"), 0o600); err != nil {

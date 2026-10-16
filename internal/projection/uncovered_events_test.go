@@ -17,19 +17,19 @@ func TestPreviouslyUncoveredEventsPinWholeProjectionAndPatch2ue(t *testing.T) {
 		want string
 	}
 	pins := []pin{
-		{name: "policy revoked", kind: events.PolicyRevoked, want: "4b675345314bcb58f3a0bd43b5bcba6571aa327fde4eb39734187c694e1d77dc"},
-		{name: "policy denied", kind: events.PolicyDenied, want: "b195b468f43bb21db0c58ef17a34d7f83a03a349e33a9adcf5c43f8eef353cdf"},
-		{name: "memory cleared", kind: events.MemoryCleared, data: map[string]any{"dir": "workspace"}, want: "90bede9e3c6e7c0fb8c7aa7d07fe5c251840b8a20747fddfc6c181e018746fb5"},
-		{name: "session reopened", kind: events.SessionReopened, want: "19b82c13d833fbeb89880378c5ae735a6d85b15fb2a0c10f7130acd2302607ec"},
-		{name: "run queued", kind: events.RunQueued, data: map[string]any{"run_id": "queued-run", "position": 3, "behind": "agent-c"}, want: "0a46f77ce8364a325f0cdd41986bfee2ee2fdaaaff8bc83ea55330aea8ce26c2"},
-		{name: "run resumed", kind: events.RunResumed, want: "e2745062e91017cca1021d9df3c937fc431156e5993c95a8a0d8e9984c98e5c2"},
-		{name: "model progress", kind: events.ModelProgress, data: map[string]any{"turn": 2, "phase": "thinking"}, want: "0d074096d33693ed0d85cf3b264f69fcfe12b0cb96da9638c0182321138cdc5d"},
-		{name: "tool toggled", kind: events.ToolToggled, data: map[string]any{"name": "shell", "enabled": false}, want: "58f5b36ee01e69aac1ff3203578c389f19a954d147cdfe56c795de491e387248"},
-		{name: "message updated", kind: events.MessageUpdated, data: map[string]any{"id": "message-one", "patch": map[string]any{"content": "revised", "tokens": 9, "elided": true, "tool_calls": []any{}}}, want: "4180746917788bf1a8a3bda569b7cffa3e449b321d9741c458303f872b31cead"},
-		{name: "messages reminted", kind: events.MessagesReminted, data: map[string]any{"reminted": []any{map[string]any{"index": 1, "from": "message-one", "to": "message-two"}}}, want: "0eaa8b77081540f366fd0ad62299eaa33ed3ff83f08b825ecf89bc4b4b9fd7ab"},
-		{name: "cycle detected", kind: events.CycleDetected, want: "6d8b5ab3374b3a30bbfc7dee4ae76bd512c19e4f556a4edff10ceaa8e640c004"},
-		{name: "workspace conflict", kind: events.WorkspaceConflict, want: "f40d748d32c1dedfb303570caaa6319d9b277c2885fe80ffa061f59a74a846ee"},
-		{name: "compaction summary", kind: events.CompactionSummary, data: map[string]any{"dispatched": true, "usage": map[string]any{"prompt_tokens": 21, "completion_tokens": 8}}, want: "650438a7c90841726ab6a2ba23caaefb85ad43079b37b86818513c72ddd57ec9"},
+		{name: "policy revoked", kind: events.PolicyRevoked, want: "e4f4b656e16c801ebb3035f6074ef070ecc9c5879aff45e28e1497ec7b53e4ae"},
+		{name: "policy denied", kind: events.PolicyDenied, want: "4fa7fc4075276a6f765c18ff44dadbc2b47cdd1f2438af82295836af1f30b7c1"},
+		{name: "memory cleared", kind: events.MemoryCleared, data: map[string]any{"dir": "workspace"}, want: "3375487b897a0d539a5018a84e50aba168aedd6508d516fa1d4296cbd220bfdd"},
+		{name: "session reopened", kind: events.SessionReopened, want: "8b9d54d19e90cc5f97b9f8c225069e44710a048e11f10f9833d6238a931dfafb"},
+		{name: "run queued", kind: events.RunQueued, data: map[string]any{"run_id": "queued-run", "position": 3, "behind": "agent-c"}, want: "f6c3af7d7fca9d95c8de074489bc738833d7d52248f05a000d69672152e1d944"},
+		{name: "run resumed", kind: events.RunResumed, want: "d415bd9198e9c1741678f021c0bf4177f1dd07f533b80ba94bb6a5bb8d9da930"},
+		{name: "model progress", kind: events.ModelProgress, data: map[string]any{"turn": 2, "phase": "thinking"}, want: "1a93e1d08787f3606cdf0bb3ee8c27fcbeed022dbbb829686d486dc4582cbce9"},
+		{name: "tool toggled", kind: events.ToolToggled, data: map[string]any{"name": "shell", "enabled": false}, want: "58ee6a5fa6967cb07aaa3753e5d323dae92f297d11321118b9e2e47d22b19afa"},
+		{name: "message updated", kind: events.MessageUpdated, data: map[string]any{"id": "message-one", "patch": map[string]any{"content": "revised", "tokens": 9, "elided": true, "tool_calls": []any{}}}, want: "3da9083a40136f3a4471370b811442373aa31b8a193f9267ff5a76f5076df25d"},
+		{name: "messages reminted", kind: events.MessagesReminted, data: map[string]any{"reminted": []any{map[string]any{"index": 1, "from": "message-one", "to": "message-two"}}}, want: "168963defd522f214964bcf27c4c558304152cf5e5430efbc160aca258126482"},
+		{name: "cycle detected", kind: events.CycleDetected, want: "13f0b55e2bbf2db255473e03615da4fddc47f1ae9f6878a6d022687d3a184c49"},
+		{name: "workspace conflict", kind: events.WorkspaceConflict, want: "827aa9e575f074f521ae6c27da1dd915df329cef668d50031113714287048201"},
+		{name: "compaction summary", kind: events.CompactionSummary, data: map[string]any{"dispatched": true, "usage": map[string]any{"prompt_tokens": 21, "completion_tokens": 8}}, want: "621901a94b56ac5cfc5bb6f15e523be3a3442c8cbb5746b44fced986ffbb82c8"},
 	}
 
 	for index, test := range pins {

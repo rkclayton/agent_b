@@ -117,7 +117,7 @@ func TestTwelveFailuresAcrossAndWithinTurnsStillEndDone2tc(t *testing.T) {
 	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
 	bus := events.NewBus()
 	runner := NewRunner(bus, toolpkg.New(failureThenSuccessTool2tc{}), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
-	item := &session.Session{ID: "failure-chain", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 8}, ToolsEnabled: map[string]bool{"failure_fixture": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "failure-chain", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"failure_fixture": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if _, err := runner.AddUser(context.Background(), item, "keep going after failures"); err != nil {
 		t.Fatal(err)
 	}

@@ -337,7 +337,7 @@ func classify(itemID string, event events.Event) Outcome {
 	switch reason {
 	case "done":
 		return Outcome{ItemID: itemID, Marker: "x"}
-	case "context_exhausted", "tool_errors", "cycle", "turn_ceiling", "wall_clock", "tool_budget":
+	case "context_exhausted", "tool_errors", "cycle", "wall_clock":
 		return Outcome{ItemID: itemID, Marker: "!", Reason: reason}
 	case "":
 		return Outcome{ItemID: itemID, Marker: "!", Reason: "run stopped without a reason"}

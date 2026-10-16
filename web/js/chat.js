@@ -1275,7 +1275,7 @@ function noticeContent(session, entry, actionable) {
 		} else if (data.reason === "aborted_mid_tool") {
 			content.textContent = "stopped mid-tool";
 			if (data.detail) content.title = data.detail;
-		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty" || data.reason === "announced_action_and_stopped") {
+		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty") {
 			content.textContent = data.detail || reason;
 		} else if (data.reason === "done") {
 			// a run that finished shows only where its time went. "stopped:

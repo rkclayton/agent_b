@@ -2,8 +2,9 @@
 
 Agent_b executes shell commands selected by a model. Use it only where that authority is acceptable.
 
-Profile skills are operator-owned instructions. The harness reads their enabled index and serves explicit read-only file-tool requests inside the active
-profile's `skills` folder with its own non-elevated identity; canonical path checks refuse file-tool writes before dispatch. This routing is not containment.
+Profile skills are operator-owned instructions. The harness reads their enabled index and serves explicit file-tool requests inside the active
+profile's `skills` folder with its own non-elevated identity. Every file, shell, script, or process mutation under that root raises the existing mutating
+approval card even when generic approvals are off; the card names the skill and path and carries the proposed change. A denial writes nothing. This routing is not containment.
 Enabling a third-party skill trusts its instructions, while scripts it names retain the ordinary shell identity and approval policy.
 
 ## Workspace and shell boundary
@@ -352,6 +353,7 @@ Agent_b has two user-facing prompts. **Allow this** governs a risky action under
 the shipped `boundary-only` default runs tools without generic pre-execution confirmation, `mutating` pauses `write_file`, `edit_file`, `shell`,
 `run_script`, `process` starts, and every `call_service` method except GET and HEAD, and `all` pauses every tool call. A service with
 `require_confirmation:true` always raises **Allow this** before its call in any mode; unattended and scheduled runs decline it without sending.
+Skill-folder mutations also always raise **Allow this** in every mode and each mutation needs its own decision.
 **Run as you** governs every need for the operator's Windows identity: configured operator commands,
 built-in file operations outside the service account's reach, and operator-only interpreters. Every card offers **Yes, for this chat**, **Just once**,
 and **No**; when the request has an exact repo, folder, connector, or host subject it also offers **Always allow this exact scope**.
@@ -368,13 +370,10 @@ In `boundary-only`, registering a valid plan and deciding a detected tool loop d
 chat records `registered <repo> as a plan` or `stopped a loop after <n> turns, continuing differently` and the run carries on.
 `mutating` and `all` keep both cards unchanged. Unattended keeps its stricter no-question refusal for both.
 
-**Unattended (item 5f, v1.2.5; `internal/config/config.go`, `internal/agent/run.go`).** The Settings → Security switch **Unattended: never ask;
-boundary hits fail the item** changes WHO IS ASKED and nothing else. It narrows nothing about identity: tools still run as whoever they would have run as,
-and the boundary still refuses exactly what it refused before. With it on,
-a worker or scheduled run that would have raised any of the four cards — a policy approval, an identity escalation, a cycle decision,
-or a plan registration — instead records `[!] boundary: <what>` on its item and carries on, and the report lists every hit.
-A chat the operator is typing in stays attended regardless, because he is there and asking him is the point. Unattended and operator mode are independent:
-both on at once is a deliberate choice made in Settings, never one arrived at by accident.
+**Unattended.** A scheduled job can be created or updated with `unattended:true`; false is the default. A delegated run inherits its parent's choice.
+Nothing infers unattended behavior from the agent role, the scheduler, or the hour. In an unattended run, a policy approval, identity escalation,
+cycle decision, question, or plan registration is declined instead of waiting for a person. Attended cards wait until answered or the run is stopped.
+Unattended and operator mode are independent choices.
 
 When Windows denies a built-in file operation, shell output looks like an OS permission denial, or a requested interpreter exists only for the operator,
 Agent_b raises **Run as you** in every approval mode. **Just once** reruns only the displayed operation; **Yes, for this chat** sends later file, shell,

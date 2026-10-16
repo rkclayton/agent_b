@@ -3066,7 +3066,7 @@ if (realModel) {
     for (const event of (await sessionEvents(null)).slice(-40)) process.stdout.write(`WORKER EVENT ${event.type} ${event.session_id} ${JSON.stringify(event.data).slice(0, 220)}\n`);
     throw error;
   }
-  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2u]] 2u worker cannot finish this one  — stuck: turn_ceiling", 90000);
+  await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2u]] 2u worker cannot finish this one  — stuck: context_ceiling", 90000);
   await waitFileContains(join(browserPlanDir, "plan.md"), "- [!] [[2v]] 2v names no verifier  — stuck: no verifier named", 90000);
   await page.bringToFront();
   const questionText = "Which database should the cache use?";
@@ -3104,7 +3104,7 @@ if (realModel) {
   const doneText = await browserText("#plan-done");
   assert.match(doneText, /Ready to test, with gaps/, doneText);
   assert.match(doneText, /1 done · 2 stuck · 0 waiting/, doneText);
-  assert.match(doneText, /2u worker cannot finish this one: turn_ceiling/, doneText);
+  assert.match(doneText, /2u worker cannot finish this one: context_ceiling/, doneText);
   assert.match(doneText, /2v names no verifier: no verifier named/, doneText);
   assert.equal(await page.locator("#plan-go").innerText(), "Go");
   assert.equal(await page.locator("#plan-go").isDisabled(), true, "Go stayed live with nothing waiting");

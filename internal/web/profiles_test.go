@@ -542,7 +542,7 @@ func TestProfileSwitchRefusesLiveRun(t *testing.T) {
 	bus := events.NewBus()
 	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, bus)
 	server.SetProfiles(manager)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("live", cfg.DefaultAgentID(), "")
 	if err != nil {

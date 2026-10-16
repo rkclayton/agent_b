@@ -601,6 +601,13 @@ func TestFileUndoStoreBoundsAnd512KiBWriteCost2rk(t *testing.T) {
 	write := NewWriteFile(coordinator)
 	item := testSession(root, "bounded", "Bounded")
 	payload := strings.Repeat("x", 512<<10)
+	large := strings.Repeat("z", 600<<10)
+	if _, err := write.Call(context.Background(), item, map[string]any{"path": filepath.Join(root, "large.txt"), "content": large}); err != nil {
+		t.Fatalf("600 KiB write was refused: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "large.txt")); err != nil || string(data) != large {
+		t.Fatalf("600 KiB write differs: bytes=%d err=%v", len(data), err)
+	}
 	measurePath := filepath.Join(root, "measure.txt")
 	if err := os.WriteFile(measurePath, []byte(strings.Repeat("m", 512<<10)), 0o600); err != nil {
 		t.Fatal(err)

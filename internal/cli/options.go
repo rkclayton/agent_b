@@ -121,7 +121,7 @@ func ExitCode(reason string) int {
 		return 0
 	case "user_stop", "aborted_mid_run", "aborted_mid_tool", "aborted_mid_model", "cancellation_requested":
 		return 130 // the shell's convention for an interrupted job
-	case "wall_clock", "turn_ceiling", "tool_budget", "context_ceiling", "context_exhausted":
+	case "wall_clock", "context_ceiling", "context_exhausted":
 		return 3 // a limit was reached; the work may be resumable
 	case "tool_errors":
 		return 4

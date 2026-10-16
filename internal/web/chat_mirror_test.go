@@ -55,7 +55,7 @@ func mirroredSeed(t *testing.T, server *Server, chatID string) map[string]any {
 	return map[string]any{
 		"id": chatID, "label": "Phone scan", "agent_id": cfg.DefaultAgentID(),
 		"created_at": time.Now().UTC().Format(time.RFC3339Nano), "scratch": true,
-		"run":   map[string]any{"status": "idle", "max_turns": cfg.Run.MaxTurns},
+		"run":   map[string]any{"status": "idle", "max_turns": 0},
 		"tools": []any{}, "messages": []any{}, "runnable": true,
 	}
 }

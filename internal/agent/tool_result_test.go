@@ -296,7 +296,7 @@ func TestBrowserScreenshotResultNamesOneModelAttachment2qt(t *testing.T) {
 	}
 }
 
-func TestRememberRefusesImmediateToolResultEchoAndAcceptsDurableFact2kt(t *testing.T) {
+func TestRememberAcceptsImmediateToolResultEcho2vf(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
 	cfg.Shell.ServiceAccount.Enabled = false
@@ -306,13 +306,8 @@ func TestRememberRefusesImmediateToolResultEchoAndAcceptsDurableFact2kt(t *testi
 	item := &session.Session{ID: "memory", Workspace: root, ToolsEnabled: map[string]bool{"remember": true}}
 	item.Append(events.Message{Role: "tool", Name: "shell", Content: "PING google.com completed with exit=0"})
 	echo := runner.executeTool(context.Background(), item, "run", "echo", "remember", map[string]any{"note": "Pinged google.com with exit=0"})
-	if echo.OK || !strings.Contains(echo.Content, "immediately preceding tool result") || remember.normal != 0 {
+	if !echo.OK || remember.normal != 1 {
 		t.Fatalf("echo=%+v calls=%d", echo, remember.normal)
-	}
-	item.Append(events.Message{Role: "user", Content: "Remember that I prefer concise release reports."})
-	durable := runner.executeTool(context.Background(), item, "run", "durable", "remember", map[string]any{"note": "The operator prefers concise release reports."})
-	if !durable.OK || remember.normal != 1 {
-		t.Fatalf("durable=%+v calls=%d", durable, remember.normal)
 	}
 }
 

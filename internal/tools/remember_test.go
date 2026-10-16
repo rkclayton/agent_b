@@ -113,22 +113,13 @@ func TestRepositoryNoteUsesTheChatProjectAndRefusesAmbiguity2tt(t *testing.T) {
 	}
 }
 
-func TestRememberAllowanceGrowsWithTurnsAndRefusalIsNotOK2qj(t *testing.T) {
+func TestRememberHasNoPerRunWriteCount2vf(t *testing.T) {
 	remember, _, item, _ := memoryTools(t)
-	item.Run.LastRunID, item.Run.Turn, item.ToolsEnabled = "r30", 30, map[string]bool{"remember": true}
+	item.Run.LastRunID, item.Run.Turn, item.ToolsEnabled = "r30", 1, map[string]bool{"remember": true}
 	registry := New(remember)
-	for index := range 3 {
+	for index := range 7 {
 		if _, ok := registry.Call(context.Background(), item, "remember", map[string]any{"note": fmt.Sprintf("preference %d", index), "scope": "user"}); !ok {
 			t.Fatalf("note %d refused", index+1)
-		}
-	}
-	if result, ok := registry.Call(context.Background(), item, "remember", map[string]any{"note": "one too many", "scope": "user"}); ok || !strings.Contains(result, "3 notes this run") {
-		t.Fatalf("refusal=%q ok=%v", result, ok)
-	}
-	item.Run.LastRunID, item.Run.Turn = "r150", 150
-	for index := range 6 {
-		if _, ok := registry.Call(context.Background(), item, "remember", map[string]any{"note": fmt.Sprintf("machine fact %d", index), "scope": "environment"}); !ok {
-			t.Fatalf("150-turn note %d refused", index+1)
 		}
 	}
 }
@@ -253,47 +244,14 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	}
 	// Item 2kt: the description states the durable/transient boundary before a
 	// call and names the cost of falling through to the agent layer. Item 2jf
-	// rewrote it to carry scope, replaces and the per-run cap, which is why the
-	// number moved -- and the pin is why the move had to be deliberate. 2tt adds
+	// rewrote it to carry scope and replaces. 2vf removed the per-run cap and its
+	// schema wording. The pin is why that move has to be deliberate. 2tt adds
 	// project selection and 2tu documents distinctive fragment replacement.
-	const wantDelta = 613
+	const wantDelta = 451
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}
 	t.Logf("remember tools-block byte delta: +%d (%d to %d)", wantDelta, len(before), len(after))
-}
-
-// Item 2jf (c): TWO WRITES PER RUN, enforced by the tool rather than asked for
-// in the prompt. A rule the prompt asks for is a rule the model may follow; a
-// rule the tool enforces is a rule.
-func TestTwoNotesPerRunAndTheThirdIsRefused2jf(t *testing.T) {
-	remember, _, item, _ := memoryTools(t)
-	item.Run.LastRunID = "r1"
-	ctx := context.Background()
-	for index, note := range []string{"the user prefers focused tests", "the user reads reports in full"} {
-		result, err := remember.Call(ctx, item, map[string]any{"note": note, "scope": "user"})
-		if err != nil || !strings.HasPrefix(result, "ok: noted as user") {
-			t.Fatalf("note %d: %q %v", index+1, result, err)
-		}
-	}
-	third, err := remember.Call(ctx, item, map[string]any{"note": "a third fact", "scope": "user"})
-	if err != nil {
-		third = err.Error()
-	}
-	// The refusal says what to do instead, because a bare refusal teaches the
-	// model nothing.
-	for _, want := range []string{"2 notes this run", "replace one or skip"} {
-		if !strings.Contains(third, want) {
-			t.Errorf("the refusal does not say %q: %q", want, third)
-		}
-	}
-	// A NEW RUN gets its own two. The cap is per run, not per session — a long
-	// chat is not punished for a previous run's writes.
-	item.Run.LastRunID = "r2"
-	fourth, err := remember.Call(ctx, item, map[string]any{"note": "a fact in the next run", "scope": "user"})
-	if err != nil || !strings.HasPrefix(fourth, "ok: noted as user") {
-		t.Fatalf("a new run did not get its own allowance: %q %v", fourth, err)
-	}
 }
 
 // (b): the scope decides the layer, and an unscoped note is refused rather than

@@ -33,17 +33,9 @@ const (
 	boundaryRegister = "plan registration"
 )
 
-// unattended says whether this session answers its own cards. It is the
-// operator's switch AND the absence of an operator: a b or d chat is one he is
-// typing in, so it is attended regardless.
+// unattended is chosen on the job and inherited by a delegated run.
 func (g *Gate) unattended(s *session.Session) bool {
-	if s.Origin == "scheduled" {
-		return true
-	}
-	if !g.cfg().Approval.Unattended {
-		return false
-	}
-	return s.Role == "c" || s.Role == "e"
+	return s.Unattended
 }
 
 // refuseUnattended records the boundary hit and returns the decision the gate

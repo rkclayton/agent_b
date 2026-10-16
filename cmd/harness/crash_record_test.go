@@ -148,7 +148,7 @@ func TestRuntimeFatalTraceIsReportedOnceAtNextStart2p5(t *testing.T) {
 // operator's chat s34: run r643 started, 6,544 deltas, then the drag killed the
 // process and nothing closed it. These cases pin the close.
 func TestARunCutByProcessDeathIsClosedOnRestore(t *testing.T) {
-	live := session.RunState{Status: "running", RunID: "r643", Turn: 1, MaxTurns: 20, Partial: "half a sentence"}
+	live := session.RunState{Status: "running", RunID: "r643", Turn: 1, Partial: "half a sentence"}
 
 	// s34's shape: the last thing recorded was the model streaming.
 	midModel := closeRunCutByProcessDeath(live, []events.Event{
@@ -169,9 +169,6 @@ func TestARunCutByProcessDeathIsClosedOnRestore(t *testing.T) {
 		t.Errorf("a closed run kept in-flight state: %+v", midModel)
 	}
 	// The turn ceiling is configuration, not run state, and survives.
-	if midModel.MaxTurns != 20 {
-		t.Errorf("max turns = %d", midModel.MaxTurns)
-	}
 
 	// Cut while a tool was running, and cut with neither recorded.
 	midTool := closeRunCutByProcessDeath(live, []events.Event{{Type: events.ModelDelta}, {Type: events.ToolCallEvent}})

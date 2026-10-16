@@ -27,7 +27,7 @@ func TestCompletedRunResultLabelEndpoint(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "main", root)
 	if err != nil {
@@ -72,7 +72,7 @@ func TestRunResultLabelEndpointRejectsActiveAndUnknownLabels(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("main", "main", root)
 	if err != nil {

@@ -151,28 +151,6 @@ func (r *Runner) byteCapResult(name string, args map[string]any, content string,
 	return head + fmt.Sprintf("\n\n[tool result cut to fit the server's %d-byte request limit]\n\n", limit) + tail, ok, capped
 }
 
-// readCutShortResult ends a read whose next window cannot fit the context a
-// second time running: the compaction between the two refusals has
-// had its chance, so rather than retry until the run stops for tool errors,
-// the harness ends the read and the model answers from what it has read. The
-// result is a note, not an error, and the run's next requests carry no tools.
-func readCutShortResult(args, metadata map[string]any) (string, bool, map[string]any) {
-	path, _ := args["path"].(string)
-	where := fmt.Sprintf("offset=%d", integerArgument(args["offset"], 1))
-	if _, lineMode := args["line"]; lineMode {
-		where = fmt.Sprintf("line=%d", integerArgument(args["line"], 1))
-	}
-	needed, _ := metadata["original_result_tokens"].(int)
-	available, _ := metadata["result_token_limit"].(int)
-	content := fmt.Sprintf("note: the read was cut short: the context has no room for another window of %s at %s (%d tokens needed, %d available before the output reserve), so the harness has ended the read. Answer now from what you have read, and begin with one line saying the read was cut short and how far it got.", path, where, needed, available)
-	cut := cloneMetadata(metadata)
-	delete(cut, "retry_offset")
-	delete(cut, "retry_limit")
-	delete(cut, "retry_windows")
-	cut["read_cut_short"] = true
-	return content, true, cut
-}
-
 func integerArgument(value any, fallback int) int {
 	switch number := value.(type) {
 	case int:

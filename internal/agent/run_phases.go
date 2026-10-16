@@ -21,58 +21,58 @@ import (
 )
 
 type runState struct {
-	r                                                       *Runner
-	ctx                                                     context.Context
-	s                                                       *session.Session
-	runID                                                   string
-	runCfg                                                  config.RunConfig
-	wallExceeded                                            atomic.Bool
-	cancelWall                                              context.CancelFunc
-	wallTimer                                               *time.Timer
-	produced                                                map[string]delivery.Source
-	workspaceBefore                                         map[string]workspaceFileState
-	publishFinalBudget                                      bool
-	turn, toolCallsUsed                                     int
-	lengthSeen, malformedToolRetried, answeredThisRun       bool
-	truncatedToolRetry, retryInstruction                    string
-	refusalSentence                                         string
-	refusalAttempt                                          int
-	refusedTurn                                             int
-	readCutShort, accountingRepairTried, templateRetryTried bool
-	fallbackActive                                          bool
-	fallbackID                                              string
-	primaryLabel                                            string
-	primaryWindow                                           int
-	compacted                                               bool
-	runMessageLimit, runByteLimit, runWindow                int
-	guards                                                  *runGuards
-	currentReasoning                                        map[string]bool
-	connection                                              *config.Connection
-	windowSource                                            string
-	contextStop                                             func(int, string) (string, string, int)
-	client                                                  *llm.Client
-	enabled                                                 map[string]bool
-	request                                                 llm.Request
-	budget                                                  events.Budget
-	requestEvent                                            events.Event
-	response                                                llm.Response
-	callErr                                                 error
-	partial                                                 string
-	answerBegan                                             bool
-	callCtx                                                 context.Context
-	answerStarted                                           time.Time
-	toolCalls, durableToolCalls                             []events.ToolCall
-	assistant                                               events.Message
-	results                                                 []runToolResult
-	hooks                                                   []config.Hook
-	toolNames                                               []string
-	schemas                                                 []any
-	body                                                    map[string]any
-	system                                                  string
-	budgetErr                                               error
-	budgetBusy                                              bool
-	pinReady, flightReady, wallReady, deliveryReady         bool
-	shellReady, fileReady, budgetReady                      bool
+	r                                                 *Runner
+	ctx                                               context.Context
+	s                                                 *session.Session
+	runID                                             string
+	runCfg                                            config.RunConfig
+	wallExceeded                                      atomic.Bool
+	cancelWall                                        context.CancelFunc
+	wallTimer                                         *time.Timer
+	produced                                          map[string]delivery.Source
+	workspaceBefore                                   map[string]workspaceFileState
+	publishFinalBudget                                bool
+	turn                                              int
+	lengthSeen, malformedToolRetried, answeredThisRun bool
+	truncatedToolRetry, retryInstruction              string
+	refusalSentence                                   string
+	refusalAttempt                                    int
+	refusedTurn                                       int
+	accountingRepairTried, templateRetryTried         bool
+	fallbackActive                                    bool
+	fallbackID                                        string
+	primaryLabel                                      string
+	primaryWindow                                     int
+	compacted                                         bool
+	runMessageLimit, runByteLimit, runWindow          int
+	guards                                            *runGuards
+	currentReasoning                                  map[string]bool
+	connection                                        *config.Connection
+	windowSource                                      string
+	contextStop                                       func(int, string) (string, string, int)
+	client                                            *llm.Client
+	enabled                                           map[string]bool
+	request                                           llm.Request
+	budget                                            events.Budget
+	requestEvent                                      events.Event
+	response                                          llm.Response
+	callErr                                           error
+	partial                                           string
+	answerBegan                                       bool
+	callCtx                                           context.Context
+	answerStarted                                     time.Time
+	toolCalls, durableToolCalls                       []events.ToolCall
+	assistant                                         events.Message
+	results                                           []runToolResult
+	hooks                                             []config.Hook
+	toolNames                                         []string
+	schemas                                           []any
+	body                                              map[string]any
+	system                                            string
+	budgetErr                                         error
+	budgetBusy                                        bool
+	pinReady, flightReady, wallReady, deliveryReady   bool
+	shellReady, fileReady, budgetReady                bool
 }
 
 type runToolResult struct {
@@ -172,16 +172,8 @@ func stopMalformedTurn(detail string, turn int) (string, string, int) {
 	return "malformed_turn", detail, turn
 }
 
-func stopToolBudget(detail string, turn int) (string, string, int) {
-	return "tool_budget", detail, turn
-}
-
 func stopCycle(detail string, turn int) (string, string, int) {
 	return "cycle", detail, turn
-}
-
-func stopTurnCeiling(detail string, turn int) (string, string, int) {
-	return "turn_ceiling", detail, turn
 }
 
 func (x *runState) stop(reason, detail string, turns int) runOutcome {
@@ -239,9 +231,6 @@ func (x *runState) start() runOutcome {
 	if x.runCfg.MaxWallClockSeconds <= 0 {
 		x.runCfg.MaxWallClockSeconds = config.DefaultMaxWallClockSeconds
 	}
-	if x.runCfg.MaxToolCalls <= 0 {
-		x.runCfg.MaxToolCalls = config.DefaultMaxToolCalls
-	}
 	var wallContext context.Context
 	wallContext, x.cancelWall = context.WithCancel(x.ctx)
 	x.wallTimer = time.AfterFunc(time.Duration(x.runCfg.MaxWallClockSeconds)*time.Second, func() {
@@ -286,7 +275,6 @@ func (x *runState) start() runOutcome {
 	}
 	x.budgetReady = true
 	x.turn = 0
-	x.toolCallsUsed = 0
 	x.lengthSeen = false
 	x.truncatedToolRetry = ""
 	x.retryInstruction = ""
@@ -296,7 +284,7 @@ func (x *runState) start() runOutcome {
 	// read; from then on the model answers from what it has read, without
 	// tools. refusedTurn is the turn of the latest refusal (-1: none since the
 	// last window that fit). The elide between the two turns has had its chance.
-	x.refusedTurn, x.readCutShort = -1, false
+	x.refusedTurn = -1
 	x.accountingRepairTried = false
 	x.templateRetryTried = false
 	x.runMessageLimit, x.runByteLimit, x.runWindow = 0, 0, 0
@@ -434,9 +422,6 @@ func (x *runState) buildRequest() runOutcome {
 			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: x.retryInstruction})
 		}
 		x.request = llm.Request{Messages: messages, Tools: x.schemas, ToolChoice: "auto", Thinking: x.connection.Reasoning.Enabled}
-		if x.readCutShort {
-			x.request.ToolChoice = "none"
-		}
 		x.budget, x.budgetErr = r.budget.MeasureWithBusy(x.ctx, x.connection, x.s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: x.system, WithoutToolSystems: r.withoutToolSystems(x.connection, x.s, x.enabled, workspaceMemory), Schemas: x.schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 			x.budgetBusy = true
 			r.bus.Publish(events.New(events.ModelBusy, x.s.ID, x.runID, map[string]any{"host": modelHost(x.connection), "detail": err.Error()}))
@@ -828,8 +813,6 @@ func (x *runState) readAnswer() runOutcome {
 				finalContent = "[model returned an empty reply]"
 				stopReason, stopDetail = "reply_empty", "reply empty — no reasoning available"
 			}
-		} else if x.response.FinishReason == "stop" && announcedActionOnly(finalContent) {
-			stopReason, stopDetail = "announced_action_and_stopped", "announced an action and stopped"
 		}
 		r.stage(x.s, x.runID, x.turn, "append", func() {
 			visible, proposals := planProposalsFor(x.s, finalContent)
@@ -939,10 +922,6 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 			x.results = append(x.results, runToolResult{call: call, durableCall: x.durableToolCalls[index], args: args, argErr: err})
 		}
 	})
-	if x.toolCallsUsed+len(x.results) > x.runCfg.MaxToolCalls {
-		return x.stop("tool_budget", fmt.Sprintf("guessed tool-call backstop of %d would be exceeded", x.runCfg.MaxToolCalls), x.turn)
-	}
-	x.toolCallsUsed += len(x.results)
 	r.stage(x.s, x.runID, x.turn, "execute", func() {
 		// 1 means the window is unknown and nothing is clamped;
 		// 0 means no room is left, which clamps every later window read.
@@ -995,11 +974,7 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 			}
 			if _, batch := item.args["windows"]; item.call.Name == "read_file" && !batch {
 				if tooLarge, _ := item.metadata["result_too_large"].(bool); tooLarge {
-					if x.refusedTurn >= 0 && x.refusedTurn == x.turn-1 {
-						item.content, item.ok, item.metadata = readCutShortResult(item.args, item.metadata)
-						resultTokens = r.textTokens(x.ctx, x.connection, item.content)
-						x.readCutShort = true
-					} else if x.refusedTurn != x.turn {
+					if x.refusedTurn != x.turn {
 						x.refusedTurn = x.turn
 					}
 				} else if item.ok {
@@ -1080,13 +1055,6 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 }
 func (x *runState) endTurn() runOutcome {
 	r := x.r
-	maxTurns := r.cfg().Run.MaxTurns
-	if configured := x.s.Snapshot().Run.MaxTurns; configured > 0 {
-		maxTurns = configured
-	}
-	if x.turn >= maxTurns {
-		return x.stop("turn_ceiling", "maximum turns reached", x.turn)
-	}
 	r.stage(x.s, x.runID, x.turn, "compact", func() {
 		// after a refused window the elide runs even on a cold
 		// prefill, so a second refusal means nothing elidable was left.
@@ -1124,15 +1092,11 @@ func (x *runState) cleanupDelivery(reason, detail *string, turns int) {
 	for key, source := range workspaceFileChanges(x.s.Workspace, x.workspaceBefore) {
 		x.produced[key] = source
 	}
-	result := delivery.Result{}
 	x.r.stage(x.s, x.runID, turns, "append", func() {
 		if x.r.deliver != nil {
-			result = x.r.deliver(x.s, x.runID, delivery.SortedSources(x.produced))
+			x.r.deliver(x.s, x.runID, delivery.SortedSources(x.produced))
 		}
 	})
-	if *reason == "turn_ceiling" {
-		*detail = turnCeilingDetail(turns, result)
-	}
 }
 func (x *runState) cleanupWall() {
 	if x.wallReady {

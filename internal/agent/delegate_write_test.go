@@ -118,9 +118,11 @@ func TestWritingHelperBoundsCleanupAndSlots2rt(t *testing.T) {
 		}
 		done()
 	}
-	if _, err := runner.acquireDelegate(context.Background(), "chat", "run", cfg.Connections[0].ID); err == nil {
-		t.Fatal("ninth helper was not refused")
+	ninth, err := runner.acquireDelegate(context.Background(), "chat", "run", cfg.Connections[0].ID)
+	if err != nil {
+		t.Fatalf("ninth helper was refused: %v", err)
 	}
+	ninth()
 	cfg.Connections[0].MaxConcurrent = 4
 	four := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(string) (*config.Connection, bool) { return &cfg.Connections[0], true }, func() config.Config { return cfg })
 	releases := make([]func(), 4)
@@ -191,9 +193,8 @@ func TestDelegateConnectionApprovalOnceAndUnattendedRefusal2rt(t *testing.T) {
 		t.Fatalf("approved connection did not hold for chat: %v", err)
 	}
 
-	cfg.Approval.Unattended = true
 	unattended := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, func(id string) (*config.Connection, bool) { return cfg.Connection(id) }, func() config.Config { return cfg })
-	parent.Origin = "scheduled"
+	parent.Origin, parent.Unattended = "scheduled", true
 	if _, _, err := unattended.delegateConnection(context.Background(), parent, second.Label); err == nil {
 		t.Fatal("unattended cross-connection helper was not refused")
 	}
@@ -252,7 +253,7 @@ func TestDelegateUsesNamedConnection2rt(t *testing.T) {
 	helperConnection.ID, helperConnection.Label, helperConnection.BaseURL = "helper", "Helper fixture", helperServer.URL
 	cfg.Connections = []config.Connection{parentConnection, helperConnection}
 	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "parent", delegate: "helper {{tools}}"}, func(id string) (*config.Connection, bool) { return cfg.Connection(id) }, func() config.Config { return cfg })
-	parent := &session.Session{ID: "chat", ConnectionID: parentConnection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{RunID: "run", MaxTurns: 4}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	parent := &session.Session{ID: "chat", ConnectionID: parentConnection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{RunID: "run"}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	runner.delegateApproved[parent.ID+"\x00"+helperConnection.ID] = true
 	result, err := runner.runDelegate(context.Background(), parent, tools.DelegateRequest{Task: "answer", Connection: helperConnection.Label})
 	if err != nil || result.Summary != "helper done" || result.Connection != helperConnection.Label || helperCalls.Load() != 1 || parentCalls.Load() != 0 || parent.ConnectionID != parentConnection.ID {

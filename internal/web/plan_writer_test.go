@@ -48,7 +48,7 @@ func newPlanWriterFixture(t *testing.T) planWriterFixture {
 	t.Cleanup(func() { _ = writers.Close() })
 	bus.SetSink(writers.Write)
 	server := New(&cfg, filepath.Join(data, "harness.json"), repo, RuntimeRoots{Application: repo, Data: data, Workspace: repo}, bus)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {

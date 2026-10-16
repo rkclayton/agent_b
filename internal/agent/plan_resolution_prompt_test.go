@@ -76,7 +76,7 @@ func TestFakeModelResolvesNamedPlanAndAsksWhenAmbiguousFromStablePrompt(t *testi
 	coordinator := tools.NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, events.NewBus())
 	toolset := tools.New(tools.NewWriteFile(coordinator))
 	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
-	item := &session.Session{ID: "resolution", ConnectionID: connection.ID, Role: "b", Workspace: scratch, PlansRoot: plans, PlanRepos: func() []string { return []string{repo} }, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
+	item := &session.Session{ID: "resolution", ConnectionID: connection.ID, Role: "b", Workspace: scratch, PlansRoot: plans, PlanRepos: func() []string { return []string{repo} }, Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"write_file": true}, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
 	runner := NewRunner(events.NewBus(), toolset, renderer, lookup, func() config.Config { return cfg })
 	for _, brief := range []string{"Fix resolved.txt in the Alpha plan.", "Fix the shared configuration."} {
 		if _, err := runner.AddUser(context.Background(), item, brief); err != nil {

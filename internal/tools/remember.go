@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"harness/internal/config"
 	"harness/internal/events"
@@ -37,14 +36,10 @@ type Remember struct {
 	bus     *events.Bus
 	cfg     func() config.Config
 	planner *memory.PlannerNotes
-	mu      sync.Mutex
-	// writes counts this run's writes, per session and run. (c) is a per-RUN
-	// cap, so the key is both.
-	writes map[string]int
 }
 
 func NewRemember(manager *memory.Manager, bus *events.Bus) *Remember {
-	return &Remember{memory: manager, bus: bus, writes: map[string]int{}}
+	return &Remember{memory: manager, bus: bus}
 }
 
 // SetConfig gives the tool the layer budget. Without it the budget is the
@@ -54,7 +49,7 @@ func (r *Remember) SetPlanner(planner *memory.PlannerNotes) { r.planner = planne
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), environment (about this machine), or planner (local product feedback). For more than one project, pass project as its folder or name. If it supersedes a note, pass a distinctive part of that note as replaces; it is removed only when the part names one note in this layer. Two notes, plus one per 25 turns (six maximum), per run; a full layer refuses the write. Never save command output, tool results, transient state, or anything already recorded by this chat."
+	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), environment (about this machine), or planner (local product feedback). For more than one project, pass project as its folder or name. If it supersedes a note, pass a distinctive part of that note as replaces; it is removed only when the part names one note in this layer. Never save transient state."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
@@ -68,8 +63,6 @@ func (*Remember) Schema() map[string]any {
 		"required": []string{"note", "scope"},
 	}
 }
-
-const MaxWritesPerRun = 6
 
 // layerFor is (b)'s routing: user and environment are about the user and
 // the machine, so they follow the agent everywhere; repository is about this
@@ -106,18 +99,6 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 			return "", err
 		}
 		return "ok: noted for planner on this PC", nil
-	}
-	// two writes per run, counted here rather than asked for in the prompt.
-	key := s.ID + "\x00" + s.Run.LastRunID
-	r.mu.Lock()
-	written := r.writes[key]
-	r.mu.Unlock()
-	allowance := 2 + s.Run.Turn/25
-	if allowance > MaxWritesPerRun {
-		allowance = MaxWritesPerRun
-	}
-	if written >= allowance {
-		return "", fmt.Errorf("%d notes this run; replace one or skip", written)
 	}
 	target, fell := layerFor(scope), ""
 	path := ""
@@ -168,9 +149,6 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if duplicate {
 		return "ok: already noted" + fell, nil
 	}
-	r.mu.Lock()
-	r.writes[key] = written + 1
-	r.mu.Unlock()
 	replaced := ""
 	if strings.TrimSpace(write.Replaces) != "" {
 		replaced = " Replaced: " + firstWords(write.Replaces, 8) + "."

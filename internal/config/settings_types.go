@@ -102,9 +102,7 @@ const (
 )
 
 type RunConfig struct {
-	MaxTurns            int `json:"max_turns"`
 	MaxWallClockSeconds int `json:"max_wall_clock_seconds"`
-	MaxToolCalls        int `json:"max_tool_calls"`
 	CycleWindow         int `json:"cycle_window"`
 	MaxConcurrent       int `json:"max_concurrent"`
 	QueueDepth          int `json:"queue_depth"`
@@ -114,16 +112,10 @@ type Cron struct {
 	MaxRunMinutes int `json:"max_run_minutes"`
 }
 
-const DefaultMaxTurns = 10000
 const DefaultMaxWallClockSeconds = 6 * 60 * 60
-const DefaultMaxToolCalls = 1000
 
 type Approval struct {
 	Mode string `json:"mode"`
-	// unattended means nothing asks. It changes WHO IS ASKED,
-	// never who runs anything and never what the boundary permits - a refused
-	// thing is still refused, it is just recorded rather than raised.
-	Unattended bool `json:"unattended"`
 }
 
 type Deliver struct {

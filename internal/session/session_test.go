@@ -446,15 +446,15 @@ func TestRestoreUnknownConnectionIsNeverRunnable(t *testing.T) {
 	}
 }
 
-func TestSkillFolderIsReadableButNeverWritable(t *testing.T) {
+func TestSkillFolderResolvesForReadsAndApprovedWrites2vh(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "skills")
 	path := filepath.Join(root, "demo", "SKILL.md")
 	item := &Session{Workspace: t.TempDir(), SkillsRoot: root}
 	if got, err := item.ReadRoot(path); err != nil || got != root {
 		t.Fatalf("read root=%q err=%v", got, err)
 	}
-	if _, err := item.WriteRoot(path); err == nil || !strings.Contains(err.Error(), "read-only") {
-		t.Fatalf("write err=%v", err)
+	if got, err := item.WriteRoot(path); err != nil || got != root {
+		t.Fatalf("write root=%q err=%v", got, err)
 	}
 }
 

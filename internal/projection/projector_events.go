@@ -411,7 +411,7 @@ func projectSessionReset(next Snapshot, data map[string]any) Snapshot {
 	next.CompactionModelCalls = 0
 	next.CompactionPrompt = 0
 	next.CompactionCompletion = 0
-	next.Run = Run{Status: "idle", MaxTurns: next.Run.MaxTurns}
+	next.Run = Run{Status: "idle"}
 	next.Activity = Activity{CompletedStages: []string{}}
 	next.Timeline = []events.Event{}
 	next.Chat = []ChatEntry{}
@@ -451,7 +451,7 @@ func projectRunStopped(next Snapshot, record Record, data map[string]any) Snapsh
 	if boolValue(data["queue_held"]) {
 		status = "held"
 	}
-	next.Run = Run{Status: status, MaxTurns: next.Run.MaxTurns, QueuePosition: next.QueuedMessages, LastStopReason: stringValue(data["reason"]), LastStopDetail: stringValue(data["detail"]), LastRunID: record.Event.RunID}
+	next.Run = Run{Status: status, QueuePosition: next.QueuedMessages, LastStopReason: stringValue(data["reason"]), LastStopDetail: stringValue(data["detail"]), LastRunID: record.Event.RunID}
 	next.Activity.Stage = "wait_user"
 	next.Activity.StageState = "enter"
 	next.Activity.ActiveTool = ""

@@ -57,14 +57,14 @@ func TestActiveRunMessagesQueueAtZeroDepthAndDispatchInOrderAfterRunEnd(t *testi
 	}
 	defer writers.Close()
 	connectionLookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
-	registry := session.NewRegistry(bus, writers, connectionLookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	registry := session.NewRegistry(bus, writers, connectionLookup, 0, func() config.Config { return cfg })
 	item, err := registry.Create("main", connection.ID, workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner := NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, connectionLookup, func() config.Config { return cfg })
 	scheduler := NewScheduler(runner, registry, bus, func() config.Config { return cfg })
-	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
+	item.SetRun(session.RunState{Status: "running", RunID: "r0"})
 	scheduler.active[item.ID] = &activeRun{}
 	first, err := scheduler.Submit(context.Background(), item.ID, "first queued")
 	if err != nil || !first.Queued || first.Position != 1 {
@@ -166,8 +166,8 @@ func TestQueuedMessagesJoinAfterCompletedToolResultsAtNextBoundary2tl(t *testing
 func TestCanonicalTerminalReasonsAreClosed(t *testing.T) {
 	want := map[string]string{
 		"done": "done", "reply_empty_reasoning_shown": "reply-empty-reasoning-shown",
-		"announced_action_and_stopped": "announced-action-and-stopped", "aborted_mid_model": "cancelled-by-operator",
-		"turn_ceiling": "limit", "model_error": "model-error", "tool_errors": "tool-errors",
+		"aborted_mid_model": "cancelled-by-operator",
+		"model_error":       "model-error", "tool_errors": "tool-errors",
 		// Item 2lw (c): cycle was pinned here AS "harness-error", which is the
 		// defect that item names -- a run the cycle guard stopped is not a harness
 		// fault, and calling it one sends somebody looking for a bug that is not
@@ -190,8 +190,8 @@ func TestStopReturnsQueuedMessagesAndNextSubmitSendsOnlyNewWords(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer model.Close()
-	cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
-	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
+	_, connection, item, scheduler := schedulerFixture(t, model.URL)
+	item.SetRun(session.RunState{Status: "running", RunID: "r0"})
 	done := make(chan struct{})
 	close(done)
 	scheduler.active[item.ID] = &activeRun{cancel: func() {}, runID: "r0", done: done}
@@ -233,8 +233,8 @@ func TestModelUnreachableHoldsQueueDeduplicatesAndProbeReleases(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer model.Close()
-	cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
-	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
+	_, connection, item, scheduler := schedulerFixture(t, model.URL)
+	item.SetRun(session.RunState{Status: "running", RunID: "r0"})
 	scheduler.active[item.ID] = &activeRun{}
 	first, err := scheduler.Submit(context.Background(), item.ID, "same pending bytes")
 	if err != nil || first.Position != 1 {
@@ -451,7 +451,7 @@ func TestStopCancelsBlackholedApplyTemplateInUnderOneSecond(t *testing.T) {
 
 func TestStopDetachesUncooperativeRunAtBound(t *testing.T) {
 	_, _, item, scheduler := schedulerFixture(t, "http://127.0.0.1:1")
-	item.SetRun(session.RunState{Status: "running", RunID: "r1", MaxTurns: 40})
+	item.SetRun(session.RunState{Status: "running", RunID: "r1"})
 	scheduler.runner.beginFlight(item.ID, "r1")
 	scheduler.runner.setFlightStage(item.ID, "r1", 3, "call_model")
 	scheduler.active[item.ID] = &activeRun{cancel: func() {}, runID: "r1", done: make(chan struct{})}
@@ -509,7 +509,7 @@ func schedulerFixtureAccounting(t *testing.T, modelURL, accounting string) (conf
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
-	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	registry := session.NewRegistry(bus, writers, lookup, 0, func() config.Config { return cfg })
 	item, err := registry.Create("main", connection.ID, workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -760,8 +760,8 @@ func TestAMessageSentWhileStoppingIsReturnedAndNeverSentLater(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
 	}))
 	defer model.Close()
-	cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
-	item.SetRun(session.RunState{Status: "running", RunID: "r0", MaxTurns: cfg.Run.MaxTurns})
+	_, connection, item, scheduler := schedulerFixture(t, model.URL)
+	item.SetRun(session.RunState{Status: "running", RunID: "r0"})
 	done := make(chan struct{})
 	close(done)
 	scheduler.active[item.ID] = &activeRun{cancel: func() {}, runID: "r0", done: done}
@@ -834,7 +834,7 @@ func TestRunsAreAdmittedPerConnectionAndNameTheRoleAhead(t *testing.T) {
 		}
 		return nil, false
 	}
-	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	registry := session.NewRegistry(bus, writers, lookup, 0, func() config.Config { return cfg })
 	planner, _ := registry.Create("planner", first.ID, workspace)
 	chat, _ := registry.Create("chat", first.ID, workspace)
 	other, _ := registry.Create("other", second.ID, workspace)
@@ -898,7 +898,7 @@ func TestDefaultAdmitsFourConnectionsAndQueuesTheFifth2sg(t *testing.T) {
 		}
 		return nil, false
 	}
-	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, func() config.Config { return cfg })
+	registry := session.NewRegistry(bus, writers, lookup, 0, func() config.Config { return cfg })
 	scheduler := NewScheduler(NewRunner(bus, tools.New(), &PromptRenderer{text: "system"}, lookup, func() config.Config { return cfg }), registry, bus, func() config.Config { return cfg })
 	for index := 0; index < 4; index++ {
 		item, createErr := registry.Create(fmt.Sprintf("chat-%d", index), cfg.Connections[index].ID, workspace)

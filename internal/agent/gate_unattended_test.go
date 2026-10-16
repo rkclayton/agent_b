@@ -15,7 +15,7 @@ func unattendedGate(t *testing.T, on bool) (*Gate, *events.Bus) {
 	t.Helper()
 	bus := events.NewBus()
 	cfg := config.Defaults(t.TempDir())
-	cfg.Approval.Unattended = on
+	_ = on
 	return NewGate(bus, func() config.Config { return cfg }), bus
 }
 
@@ -26,7 +26,7 @@ func TestUnattendedRefusesEveryCardKindAndRecordsIt(t *testing.T) {
 	stream, stop := bus.Subscribe()
 	defer stop()
 
-	worker := &session.Session{ID: "w1", Role: "c"}
+	worker := &session.Session{ID: "w1", Role: "c", Unattended: true}
 	ctx := context.Background()
 	for _, item := range []struct {
 		name string
@@ -84,17 +84,15 @@ func TestUnattendedRefusesEveryCardKindAndRecordsIt(t *testing.T) {
 	}
 }
 
-// A chat the operator is typing in stays attended whatever the switch says: he
-// is there, and asking him is the point rather than an interruption.
-func TestUnattendedLeavesAnOperatorChatAlone(t *testing.T) {
+func TestUnattendedIsOnlyTheSessionChoice2vf(t *testing.T) {
 	gate, _ := unattendedGate(t, true)
 	for _, role := range []string{"b", "d"} {
 		if gate.unattended(&session.Session{ID: "s1", Role: role}) {
-			t.Fatalf("role %q must stay attended", role)
+			t.Fatalf("role %q became unattended without the choice", role)
 		}
 	}
-	if !gate.unattended(&session.Session{ID: "w1", Role: "c"}) {
-		t.Fatal("a worker must be unattended when the switch is on")
+	if !gate.unattended(&session.Session{ID: "w1", Role: "c", Unattended: true}) {
+		t.Fatal("the chosen unattended mode was ignored")
 	}
 }
 
@@ -106,51 +104,64 @@ func TestAttendedIsUnchanged(t *testing.T) {
 	}
 }
 
-func TestScheduledRunAlwaysRefusesCards2qs(t *testing.T) {
+func TestScheduledRunAsksUnlessUnattendedWasChosen2vf(t *testing.T) {
 	gate, bus := unattendedGate(t, false)
 	stream, stop := bus.Subscribe()
 	defer stop()
 	item := &session.Session{ID: "scheduled", Role: "b", Origin: "scheduled"}
-	decision, err := gate.WaitPolicyDecision(context.Background(), item, "r1", "c1", "shell", nil)
-	if err != nil || decision != "deny" || len(item.BoundaryHits()) != 1 {
-		t.Fatalf("decision=%q hits=%v err=%v", decision, item.BoundaryHits(), err)
-	}
-	select {
-	case event := <-stream:
-		if event.Type == events.ApprovalRequired {
-			t.Fatal("scheduled run raised a card")
+	result := make(chan string, 1)
+	go func() {
+		decision, _ := gate.WaitPolicyDecision(context.Background(), item, "r1", "c1", "shell", nil)
+		result <- decision
+	}()
+	for {
+		select {
+		case event := <-stream:
+			if event.Type == events.ApprovalRequired {
+				if err := gate.Decide(item.ID, "c1", "approve"); err != nil {
+					t.Fatal(err)
+				}
+				if decision := <-result; decision != "approve" {
+					t.Fatalf("decision=%q", decision)
+				}
+				return
+			}
+		case <-time.After(time.Second):
+			t.Fatal("scheduled attended job did not raise a card")
 		}
-	default:
 	}
 }
 
 // Item 2q2: a card in a b chat that nobody answers is refused after ten minutes,
 // recorded as a boundary hit, and the run goes on; one answered before then
 // behaves as today. A fast clock stands in for the ten minutes.
-func TestAnUnansweredCardIsRefusedAfterTenMinutes2q2(t *testing.T) {
+func TestAnUnansweredCardWaitsUntilTheRunIsStopped2vf(t *testing.T) {
 	gate, bus := unattendedGate(t, false)
-	gate.unansweredAfter = 50 * time.Millisecond
 	stream, stop := bus.Subscribe()
 	defer stop()
 	chat := &session.Session{ID: "s51", Role: "b"}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
 	started := time.Now()
-	decision, err := gate.WaitPolicyDecision(context.Background(), chat, "r1", "c1", "shell", map[string]any{"command": "Get-Process"})
-	if err != nil || decision != "deny" || time.Since(started) > 5*time.Second {
-		t.Fatalf("an unanswered card must be refused at its limit: %q %v after %s", decision, err, time.Since(started))
+	decision, err := gate.WaitPolicyDecision(ctx, chat, "r1", "c1", "shell", map[string]any{"command": "Get-Process"})
+	if err == nil || decision != "dismissed" || time.Since(started) < 125*time.Millisecond {
+		t.Fatalf("an unanswered card did not wait for run stop: %q %v after %s", decision, err, time.Since(started))
 	}
-	if hits := chat.BoundaryHits(); len(hits) != 1 || !strings.Contains(hits[0], "not answered — refused after 10 minutes") || !strings.Contains(hits[0], "shell") {
-		t.Fatalf("the refusal must be recorded with what was asked: %v", hits)
+	if hits := chat.BoundaryHits(); len(hits) != 0 {
+		t.Fatalf("an unanswered card recorded a refusal: %v", hits)
 	}
-	for decided := false; !decided; {
+	for {
 		select {
 		case event := <-stream:
 			data, _ := event.Data.(map[string]any)
-			decided = event.Type == events.ApprovalDecided && data["decision"] == "deny" && data["unanswered"] == true
-		case <-time.After(5 * time.Second):
-			t.Fatal("no unanswered decision was published")
+			if event.Type == events.ApprovalDecided && data["unanswered"] == true {
+				t.Fatal("an unanswered timer decision was published")
+			}
+		default:
+			goto drained
 		}
 	}
-	gate.unansweredAfter = 2 * time.Second
+drained:
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		_ = gate.Decide(chat.ID, "c2", "approve")

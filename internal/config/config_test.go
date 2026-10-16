@@ -214,9 +214,6 @@ func TestLoadCreatesConfigFromExample(t *testing.T) {
 	if got.Connections[0].Model != "" {
 		t.Fatalf("fresh default model = %q, want empty", got.Connections[0].Model)
 	}
-	if got.Run.MaxTurns != DefaultMaxTurns {
-		t.Fatalf("fresh config max_turns=%d, want %d", got.Run.MaxTurns, DefaultMaxTurns)
-	}
 	written, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -338,29 +335,8 @@ func TestSaveAndMaskKeepEmptyCatalogsAsArrays(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsExplicitZeroMaxTurns(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	cfg := Defaults(t.TempDir())
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	document["run"].(map[string]any)["max_turns"] = float64(0)
-	data, _ = json.Marshal(document)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), "zero is not unlimited") || !strings.Contains(err.Error(), fmt.Sprint(DefaultMaxTurns)) {
-		t.Fatalf("explicit zero error=%v", err)
-	}
-}
-
 func TestLoadRejectsExplicitZeroIndependentBackstops(t *testing.T) {
-	for _, field := range []string{"max_wall_clock_seconds", "max_tool_calls"} {
+	for _, field := range []string{"max_wall_clock_seconds"} {
 		t.Run(field, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "harness.json")
@@ -368,7 +344,7 @@ func TestLoadRejectsExplicitZeroIndependentBackstops(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			document := strings.Replace(string(template), `"`+field+`": `+map[string]string{"max_wall_clock_seconds": "21600", "max_tool_calls": "1000"}[field], `"`+field+`": 0`, 1)
+			document := strings.Replace(string(template), `"`+field+`": 21600`, `"`+field+`": 0`, 1)
 			if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -607,9 +583,6 @@ func TestHarnessExampleShipsBoundaryOnlyIndependentlyOfDefaults(t *testing.T) {
 	}
 	if document.Approval.Mode != "boundary-only" {
 		t.Fatalf("template approval mode=%q, want literal boundary-only", document.Approval.Mode)
-	}
-	if document.Run.MaxTurns != DefaultMaxTurns {
-		t.Fatalf("template max_turns=%d, want %d", document.Run.MaxTurns, DefaultMaxTurns)
 	}
 	if document.Deliver.Mode != DeliverModeBoth || document.Deliver.ExchangeFolder != `%USERPROFILE%\Agent_b` {
 		t.Fatalf("template delivery=%+v", document.Deliver)

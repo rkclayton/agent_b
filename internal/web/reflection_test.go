@@ -106,7 +106,7 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("chat", config.AgentID("Tester"), cfg.Workspace)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestAFailingSummaryLeavesTheRunsOutcomeAlone(t *testing.T) {
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	item, err := registry.Create("chat", config.AgentID("Tester"), cfg.Workspace)
 	if err != nil {

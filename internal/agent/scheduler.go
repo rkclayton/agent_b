@@ -226,7 +226,7 @@ func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text s
 	entry := queuedRun{s: item, runID: runID, userMessageID: message.ID, source: source}
 	s.queue = append(s.queue, entry)
 	position := len(s.queue)
-	item.SetRun(session.RunState{Status: "queued", RunID: runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: position})
+	item.SetRun(session.RunState{Status: "queued", RunID: runID, QueuePosition: position})
 	s.bus.Publish(events.New(events.RunQueued, sessionID, runID, s.queuedDataLocked(item, runID, position)))
 	return SubmitResult{RunID: runID, Queued: true, Position: position}, nil
 }
@@ -249,9 +249,9 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 	ctx, cancel := context.WithCancel(context.Background())
 	active := &activeRun{cancel: cancel, runID: entry.runID, done: make(chan struct{}), userMessageID: entry.userMessageID, source: entry.source}
 	s.active[entry.s.ID] = active
-	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID, MaxTurns: s.cfg().Run.MaxTurns})
+	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID})
 	runCfg := s.cfg().Run
-	s.bus.Publish(events.New(events.RunStarted, entry.s.ID, entry.runID, map[string]any{"run_id": entry.runID, "user_message_id": entry.userMessageID, "backstops": map[string]any{"wall_clock_seconds": runCfg.MaxWallClockSeconds, "tool_calls": runCfg.MaxToolCalls, "turn_ceiling": runCfg.MaxTurns}}))
+	s.bus.Publish(events.New(events.RunStarted, entry.s.ID, entry.runID, map[string]any{"run_id": entry.runID, "user_message_id": entry.userMessageID, "backstops": map[string]any{"wall_clock_seconds": runCfg.MaxWallClockSeconds}}))
 	entry.s.ResetBoundaryHits()
 	go func() {
 		reason, detail, turns := s.runner.Run(ctx, entry.s, entry.runID)
@@ -293,11 +293,11 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 		if len(delivered) > 0 {
 			next := delivered[0]
 			next.runID = fmt.Sprintf("r%d", s.ids.Add(1))
-			next.s.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns})
+			next.s.SetRun(session.RunState{Status: "queued", RunID: next.runID})
 			s.queue = append(s.queue, next)
 		}
 	}
-	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID}
+	state := session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID}
 	entry.s.SetRun(state)
 	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, false)
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
@@ -520,7 +520,7 @@ func (s *Scheduler) ReleaseModel(connectionID string) {
 			s.startLocked(next)
 		} else {
 			s.queue = append(s.queue, next)
-			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, MaxTurns: s.cfg().Run.MaxTurns, QueuePosition: len(s.queue)})
+			item.SetRun(session.RunState{Status: "queued", RunID: next.runID, QueuePosition: len(s.queue)})
 			s.bus.Publish(events.New(events.RunQueued, sessionID, next.runID, s.queuedDataLocked(item, next.runID, len(s.queue))))
 		}
 	}
@@ -590,7 +590,7 @@ func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason strin
 				reason = "done"
 			}
 			s.bus.Publish(events.New(events.RunStopping, entry.s.ID, entry.runID, map[string]any{"reason": reason}))
-			entry.s.SetRun(session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
+			entry.s.SetRun(session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
 			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, false)
 			stopped = append(stopped, entry.s.ID)
 		} else {
@@ -638,7 +638,7 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	}
 	priorRun := item.Snapshot().Run
 	turn := priorRun.Turn
-	state := session.RunState{Status: "idle", MaxTurns: s.cfg().Run.MaxTurns, LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID}
+	state := session.RunState{Status: "idle", LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID}
 	item.SetRun(state)
 	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, false)
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
@@ -761,11 +761,9 @@ func canonicalTerminalReason(reason string) string {
 		return "done"
 	case "reply_empty_reasoning_shown":
 		return "reply-empty-reasoning-shown"
-	case "announced_action_and_stopped":
-		return "announced-action-and-stopped"
 	case "aborted_mid_run", "aborted_mid_tool", "aborted_mid_model", "user_stop", "cancellation_requested":
 		return "cancelled-by-operator"
-	case "wall_clock", "cron_timeout", "turn_ceiling", "tool_budget", "context_exhausted", "context_ceiling":
+	case "wall_clock", "cron_timeout", "context_exhausted", "context_ceiling":
 		return "limit"
 	// malformed_turn joins these. s own scan found it
 	// LIVE and undeclared -- the model returned finish_reason tool_calls with no

@@ -174,7 +174,7 @@ Startup locates configuration in this order: an explicit launcher `-config` argu
 |---|---|
 | Process | `listen`, `workspace`, `log_dir` |
 | Connections and agent profiles | `agents[].{name,prompt,toolset,private,c,d}`, `images.{connection,model}`, and `connections[].{id,label,agent_profile,base_url,protocol,extract_url,model,credential,request_timeout_s,probe_mode,max_concurrent,models:[{model,attachment_handling,reads_images,sampling,reasoning,context:{n_ctx,reserve_output},system_prompt_override,capabilities,measurement}]}` |
-| Runs | `run.{max_turns,max_wall_clock_seconds,max_tool_calls,cycle_window,max_concurrent,queue_depth}`, `approval.mode`; `cycle_window` is consecutive identical call/result repeats before asking (default 5, 0 off) |
+| Runs | `run.{max_wall_clock_seconds,cycle_window,max_concurrent,queue_depth}`, `approval.mode`; `cycle_window` is consecutive identical call/result repeats before asking (default 5, 0 off) |
 | Connection concurrency | `connections[].max_concurrent` is the per-connection override; empty uses the server's probed parallel capacity, or 1 when none was reported. The global run limit still applies. |
 | Context and memory | `context.{soft_pct,summary_pct,accounting}`, `memory.{enabled,dir,max_tokens}` |
 | Operator files | `operator_files.{allow_mailbox_approvals,log_retention_days}` (mailbox approvals default off; live-log retention defaults to 30 days and never prunes evidence archives) |
@@ -183,7 +183,7 @@ Startup locates configuration in this order: an explicit launcher `-config` argu
 
 See [web/DESIGN.md](../web/DESIGN.md) for the UI contract, [INTERFACES.md](../INTERFACES.md) for events and APIs, [operator files](OPERATOR-FILES.md) for the local mailbox/bookshelf convention, and [SECURITY.md](../SECURITY.md) plus [Windows host hardening](HARDENING.md) before granting a model shell access. The UI uses only the six-color industrial-console system; artwork and vendored fonts live under `web/assets/`.
 
-`approval.mode` accepts `boundary-only` (the default; no generic confirmations), `mutating` (confirm `write_file`, `edit_file`, `shell`, and `run_script`), and `all` (confirm every tool call). The deprecated `off` value remains accepted as an alias for `boundary-only` but is hidden from Settings. A risky action under those rules uses **Allow this**; an operator-identity need uses **Run as you**. With the service account disabled, tools follow the selected mode normally. No mode disables the mandatory identity decision after a Windows identity or permission denial.
+`approval.mode` accepts `boundary-only` (the default; no generic confirmations), `mutating` (confirm `write_file`, `edit_file`, `shell`, and `run_script`), and `all` (confirm every tool call). The deprecated `off` value remains accepted as an alias for `boundary-only` but is hidden from Settings. A risky action under those rules uses **Allow this**; an operator-identity need uses **Run as you**. With the service account disabled, tools follow the selected mode normally. No mode disables the mandatory identity decision after a Windows identity or permission denial. A mutation under the profile skills folder always uses **Allow this**, including in `boundary-only` or `off`; its card names the skill and path and shows the proposed file content, edit, command, or script.
 
 Dependency licenses and included transitive modules are recorded in [docs/THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

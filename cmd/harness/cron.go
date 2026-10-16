@@ -47,6 +47,7 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 	r.sessions[job.ID] = item.ID
 	r.mu.Unlock()
 	item.Origin = "scheduled"
+	item.Unattended = job.Unattended
 	item.ScheduledFailure = job.LastFailure
 	item.ToggleTool("cronjob", false)
 	store := chatstore.New(filepath.Join(profile, "chats"))

@@ -318,7 +318,7 @@ func main() {
 		return llm.New(connection).Tokenize(ctx, text, false)
 	})
 	workspaceManager := workspaceinfo.New(memoryManager.Dir(), memoryManager.Path)
-	registry := session.NewRegistry(bus, writers, web.Connection, cfg.Run.MaxTurns, web.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, web.Connection, 0, web.ConfigSnapshot)
 	registry.SetMemoryLoader(memoryManager.Load)
 	registry.SetAgentMemoryLoader(memoryManager.LoadAgent)
 	registry.SetMachineMemoryLoader(memoryManager.LoadMachine)

@@ -71,14 +71,14 @@ func TestLedgerAggregatesAtRunEndAndSurvivesSessionDeletion(t *testing.T) {
 func TestReliabilityAttributionCountsKnownFailuresWithoutCallingStopsFailures(t *testing.T) {
 	counters := Counters{Tools: map[string]Tool{}}
 	add(&counters, events.New(events.ApprovalDecided, "main", "r1", map[string]any{"decision": "session"}), nil)
-	for _, reason := range []string{"model_error", "length", "tool_errors", "connection_not_runnable", "context_ceiling", "turn_ceiling", "safe", "emergency", "user_stop"} {
+	for _, reason := range []string{"model_error", "length", "tool_errors", "connection_not_runnable", "context_ceiling", "safe", "emergency", "user_stop"} {
 		add(&counters, events.New(events.RunStopped, "main", "r1", map[string]any{"reason": reason}), nil)
 	}
 	if counters.ApprovalsApproved != 1 {
 		t.Fatalf("approved=%d", counters.ApprovalsApproved)
 	}
 	got := counters.Reliability
-	if got.ModelFailures != 2 || got.HarnessFailures != 3 || got.BriefFailures != 1 {
+	if got.ModelFailures != 2 || got.HarnessFailures != 3 || got.BriefFailures != 0 {
 		t.Fatalf("attribution=%+v", got)
 	}
 }

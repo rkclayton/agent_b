@@ -27,7 +27,6 @@
    "status": "idle",
    "run_id": "",
    "turn": 0,
-   "max_turns": 0,
    "queue_position": 0,
    "partial": "",
    "last_stop_reason": ""
@@ -89,19 +88,6 @@
     "offset": 891
    },
    "operations": [
-    {
-     "op": "replace",
-     "path": "/run",
-     "value": {
-      "status": "idle",
-      "run_id": "",
-      "turn": 0,
-      "max_turns": 40,
-      "queue_position": 0,
-      "partial": "",
-      "last_stop_reason": ""
-     }
-    },
     {
      "op": "replace",
      "path": "/complete",
@@ -244,7 +230,6 @@
       "status": "running",
       "run_id": "r1",
       "turn": 0,
-      "max_turns": 40,
       "queue_position": 0,
       "partial": "",
       "last_stop_reason": ""
@@ -400,7 +385,6 @@
       "status": "held",
       "run_id": "",
       "turn": 0,
-      "max_turns": 40,
       "queue_position": 1,
       "partial": "",
       "last_stop_reason": "model_unreachable",
@@ -544,7 +528,6 @@
       "status": "running",
       "run_id": "r2",
       "turn": 0,
-      "max_turns": 40,
       "queue_position": 0,
       "partial": "",
       "last_stop_reason": ""
@@ -611,7 +594,6 @@
       "status": "idle",
       "run_id": "",
       "turn": 0,
-      "max_turns": 40,
       "queue_position": 0,
       "partial": "",
       "last_stop_reason": "done",

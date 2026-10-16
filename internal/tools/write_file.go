@@ -211,9 +211,6 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if !ok {
 		return "", fmt.Errorf("content is required")
 	}
-	if len(content) > 512*1024 {
-		return "", fmt.Errorf("content exceeds the 512 KB limit")
-	}
 	if s.Role == "d" {
 		if err := refuseRepoPolicyWrite(".", path); err != nil {
 			return "", err

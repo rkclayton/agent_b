@@ -50,7 +50,7 @@ func dispatchServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writers.Close() })
-	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot))
+	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Connection, 0, server.ConfigSnapshot))
 	return server
 }
 

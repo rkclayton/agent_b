@@ -205,7 +205,7 @@ func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writers.Close() })
-	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot))
+	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Connection, 0, server.ConfigSnapshot))
 
 	response := postConfigPatch(t, server, `{"agents":[{"name":"Coder","b":"small","c":"local","toolset":[]}]}`)
 	if response.Code != http.StatusOK {

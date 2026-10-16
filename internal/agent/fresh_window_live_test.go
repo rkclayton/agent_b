@@ -36,7 +36,7 @@ func TestFreshNinetyKConnectionAnswersHelloLive(t *testing.T) {
 	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	bus := newCapturedBus()
 	runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "Answer briefly."}, lookup, func() config.Config { return cfg })
-	item := &session.Session{ID: "fresh", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "fresh", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	item.Append(events.Message{ID: "hello", Role: "user", Content: "hello", Category: "history", Tokens: 1})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

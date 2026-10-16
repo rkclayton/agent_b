@@ -120,7 +120,7 @@ func TestDeliveryLiveServiceSplit(t *testing.T) {
 		Application: root, Data: temporary, Workspace: workspace,
 	}, bus)
 	server.SetProjection(projector, writers)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 
 	workspaces := session.NewWorkspaceRegistry()

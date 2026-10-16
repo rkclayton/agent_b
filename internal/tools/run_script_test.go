@@ -110,3 +110,19 @@ func TestRunScriptCapabilitySuiteSelectsInterpreterStdin(t *testing.T) {
 		}
 	}
 }
+
+func TestRunScriptAcceptsSixHundredKiBSource2vf(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PowerShell fixture")
+	}
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Shell.ServiceAccount.Enabled = false
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	source := "Write-Output ok\n#" + strings.Repeat("x", 600<<10)
+	detail := NewRunScript(shell).CallDetailed(context.Background(), testSession(root, "large-script", "Large script"), map[string]any{"language": "powershell", "source": source})
+	if detail.Err != nil || strings.Contains(detail.Content, "512 KB") {
+		t.Fatalf("600 KiB script was refused: %+v", detail)
+	}
+}

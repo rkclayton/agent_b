@@ -121,7 +121,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	runner := agent.NewRunner(secondBus, tools.New(), renderer, connections, func() config.Config { return cfg })
 	runner.ReserveIDs(restoredFloor)
 	fresh.Runnable = true
-	fresh.Run = session.RunState{Status: "running", MaxTurns: 40}
+	fresh.Run = session.RunState{Status: "running"}
 	message, err := runner.AddUser(context.Background(), fresh, "hello")
 	if err != nil {
 		t.Fatal(err)

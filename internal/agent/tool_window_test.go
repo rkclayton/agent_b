@@ -32,7 +32,7 @@ func TestSeveralLargeResultsShareTheRoomAndTheRunContinues2q9(t *testing.T) {
 	connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
 	connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
 	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: strings.Repeat("s", 18000)}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
-	item := &session.Session{ID: "s53", ConnectionID: "main", Workspace: root, Scratch: true, Runnable: true, Run: session.RunState{Status: "running", MaxTurns: 3}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	item := &session.Session{ID: "s53", ConnectionID: "main", Workspace: root, Scratch: true, Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	item.Append(events.Message{ID: "u", Role: "user", Category: "history", Content: strings.Repeat("p", 25200), Tokens: 7000})
 	item.Append(events.Message{ID: "a", Role: "assistant", Category: "history", ToolCalls: []events.ToolCall{{ID: "one", Name: "run_script"}, {ID: "two", Name: "run_script"}, {ID: "web", Name: "fetch_url"}}})
 	remaining := 32768 - 8192 - 12000 - toolResultContextMargin

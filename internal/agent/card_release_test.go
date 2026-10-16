@@ -92,7 +92,7 @@ func newCardRig(t *testing.T) *cardRig {
 	t.Cleanup(func() { writers.Close() })
 	lookup := func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }
 	current := func() config.Config { return cfg }
-	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, current)
+	registry := session.NewRegistry(bus, writers, lookup, 0, current)
 	rig.a, _ = registry.Create("a", connection.ID, workspace)
 	rig.b, _ = registry.Create("b", connection.ID, workspace)
 	if rig.a == nil || rig.b == nil {
@@ -226,7 +226,7 @@ func TestAnAnsweredRunIsNotHeldBehindAWaiterForAnotherModel(t *testing.T) {
 		return nil, false
 	}
 	current := func() config.Config { return cfg }
-	registry := session.NewRegistry(bus, writers, lookup, cfg.Run.MaxTurns, current)
+	registry := session.NewRegistry(bus, writers, lookup, 0, current)
 	holder, _ := registry.Create("holder", first.ID, workspace)
 	waitingA, _ := registry.Create("waiting-a", first.ID, workspace)
 	answeredB, _ := registry.Create("answered-b", second.ID, workspace)

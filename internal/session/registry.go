@@ -28,7 +28,6 @@ type Registry struct {
 	connections func(string) (*config.Connection, bool)
 	bus         *events.Bus
 	writers     *events.Writers
-	maxTurns    int
 	config      func() config.Config
 	memory      func(context.Context, string, string) (string, string, error)
 	agentMemory func(context.Context, string, string) (string, string, error)
@@ -43,8 +42,8 @@ type Registry struct {
 	planGrant      func(string) error
 }
 
-func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), maxTurns int, settings func() config.Config) *Registry {
-	return &Registry{sessions: map[string]*Session{}, reserved: map[string]bool{}, next: 2, connections: connections, bus: bus, writers: writers, maxTurns: maxTurns, config: settings}
+func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), _ int, settings func() config.Config) *Registry {
+	return &Registry{sessions: map[string]*Session{}, reserved: map[string]bool{}, next: 2, connections: connections, bus: bus, writers: writers, config: settings}
 }
 func (r *Registry) SetMemoryLoader(loader func(context.Context, string, string) (string, string, error)) {
 	r.memory = loader
@@ -474,7 +473,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle", MaxTurns: r.maxTurns}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle"}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		r.configureProjects(session)
 	}
@@ -1065,7 +1064,7 @@ func (r *Registry) Reset(id string) (string, error) {
 	s.compactionPrompt = 0
 	s.compactionCompletion = 0
 	s.LogPath = path
-	s.Run = RunState{Status: "idle", MaxTurns: r.maxTurns}
+	s.Run = RunState{Status: "idle"}
 	if r.memory != nil {
 		block, memoryPath, loadErr := r.folderMemory(s.Scratch, s.Workspace, s.ConnectionID)
 		if loadErr != nil {

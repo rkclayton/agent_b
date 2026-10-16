@@ -177,7 +177,6 @@ func TestOnlyACleanFinishProducesADoneMarker(t *testing.T) {
 		"tool_errors":       "!",
 		"context_exhausted": "!",
 		"cycle":             "!",
-		"turn_ceiling":      "!",
 		"wall_clock":        "!",
 		"model_error":       "!",
 		"":                  "!",

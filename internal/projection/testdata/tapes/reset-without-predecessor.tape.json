@@ -27,7 +27,6 @@
    "status": "idle",
    "run_id": "",
    "turn": 0,
-   "max_turns": 0,
    "queue_position": 0,
    "partial": "",
    "last_stop_reason": ""

@@ -14,13 +14,9 @@ import (
 
 // Item 2fv, the second walk's 3-long (v0.70.1/W6, run r5) on the fake llama.cpp
 // server with exact accounting at acme's n_ctx: after the chat's history, the
-// model reads long-input.txt in 16 KB windows. Each window is under a quarter
-// of the ceiling, so the running turn's newest four stay protected and nothing
-// the elide may touch frees enough; windows stop fitting. The first oversized
-// window is cut and saved; the second in a row ends the read, and the model —
-// offered no tools from then on — answers from what it read with the
-// cut-short line. The run ends done, not tool_errors.
-func TestALongReadEndsInAnAnswerWhenTheWindowFills(t *testing.T) {
+// model reads long-input.txt in 16 KB windows. When another window cannot fit,
+// the result says so but the next request still carries the complete toolset.
+func TestALongReadKeepsItsToolsAfterTwoCutWindows2vf(t *testing.T) {
 	nextOffset := regexp.MustCompile(`next_offset=(\d+)`)
 	choices := []any{}
 	server := newTemplateServer(t, func(body map[string]any, messages []map[string]any) map[string]any {
@@ -30,6 +26,9 @@ func TestALongReadEndsInAnAnswerWhenTheWindowFills(t *testing.T) {
 		choices = append(choices, body["tool_choice"])
 		if body["tool_choice"] == "none" {
 			return map[string]any{"content": "The read was cut short partway through long-input.txt, after the windows above; every line read so far is numbered in order."}
+		}
+		if len(choices) >= 6 {
+			return map[string]any{"content": "TOOLS STILL AVAILABLE"}
 		}
 		if text, _ := messages[len(messages)-1]["content"].(string); strings.Contains(text, "more=false") {
 			return map[string]any{"content": "Read to the end: 3000 lines."}
@@ -86,23 +85,16 @@ func TestALongReadEndsInAnAnswerWhenTheWindowFills(t *testing.T) {
 	if reason != "done" {
 		t.Fatalf("run ended %s (%s) after %d turns; refused %d, cut %d", reason, detail, turns, refused, cut)
 	}
-	if refused != 0 || cut != 1 {
-		t.Fatalf("refused=%d cut=%d; want no refusal and exactly one cut-short", refused, cut)
+	if cut != 0 {
+		t.Fatalf("cut=%d; the harness must not end the read", cut)
 	}
-	if last := choices[len(choices)-1]; last != "none" {
-		t.Fatalf("the answering request's tool_choice = %v, want none", last)
+	for index, choice := range choices {
+		if choice == "none" {
+			t.Fatalf("request %d lost its tools", index+1)
+		}
 	}
 	messages := item.MessagesCopy()
-	if answer := messages[len(messages)-1]; answer.Role != "assistant" || !strings.Contains(answer.Content, "cut short") {
+	if answer := messages[len(messages)-1]; answer.Role != "assistant" || answer.Content != "TOOLS STILL AVAILABLE" {
 		t.Fatalf("the run's last message = %+v", answer)
-	}
-	// The next message runs with tools again.
-	if _, err := runner.AddUser(context.Background(), item, "Thanks."); err != nil {
-		t.Fatal(err)
-	}
-	start := len(choices)
-	runner.Run(context.Background(), item, "r6")
-	if next := choices[start]; next == "none" {
-		t.Fatal("the next run was still denied tools")
 	}
 }

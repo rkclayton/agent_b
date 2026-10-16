@@ -242,15 +242,11 @@ func TestAZeroSectionStillOverwrites2ly(t *testing.T) {
 	live := machine
 	live.Chat.TextSize = "large"
 	live.Chat.Typeface = "Comic Sans"
-	live.Run.MaxTurns = 999
 	if err := SelectProfile(&live, baseline, nil); err != nil {
 		t.Fatal(err)
 	}
 	if live.Chat.TextSize != machine.Chat.TextSize || live.Chat.Typeface != machine.Chat.Typeface {
 		t.Errorf("the machine's typography did not come back: %+v", live.Chat)
-	}
-	if live.Run.MaxTurns != machine.Run.MaxTurns {
-		t.Errorf("run.max_turns = %d, want the machine's %d", live.Run.MaxTurns, machine.Run.MaxTurns)
 	}
 }
 

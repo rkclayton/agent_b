@@ -277,14 +277,8 @@ func (c Config) validateServices() error {
 }
 
 func (c Config) validateRun() error {
-	if c.Run.MaxTurns < 1 {
-		return fmt.Errorf("run.max_turns: must be positive; zero is not unlimited (omit it for the default %d)", DefaultMaxTurns)
-	}
 	if c.Run.MaxWallClockSeconds < 1 {
 		return fmt.Errorf("run.max_wall_clock_seconds: must be positive")
-	}
-	if c.Run.MaxToolCalls < 1 {
-		return fmt.Errorf("run.max_tool_calls: must be positive")
 	}
 	if c.Run.MaxConcurrent < 1 {
 		return fmt.Errorf("run.max_concurrent: must be positive")

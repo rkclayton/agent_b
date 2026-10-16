@@ -112,7 +112,7 @@ func operatorTestServer(t *testing.T) (*Server, *tools.Shell, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writers.Close() })
-	server.SetRegistry(session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot))
+	server.SetRegistry(session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot))
 	shell := tools.NewShell(cfg.Shell)
 	server.SetShellSecurity(nil, shell)
 	return server, shell, path

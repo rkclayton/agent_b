@@ -108,9 +108,6 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	if !ok || strings.TrimSpace(command) == "" {
 		return CallDetail{Err: fmt.Errorf("command is required")}
 	}
-	if reason := skillWriteRefusal(command, item); reason != "" {
-		return CallDetail{Content: reason}
-	}
 	sandboxID, sandboxStatus, sandboxed, sandboxNotice, disableErr := s.sandboxExecution(item)
 	if disableErr != nil {
 		return CallDetail{Err: disableErr}

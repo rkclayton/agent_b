@@ -31,7 +31,6 @@ type Run struct {
 	Status         string `json:"status"`
 	RunID          string `json:"run_id"`
 	Turn           int    `json:"turn"`
-	MaxTurns       int    `json:"max_turns"`
 	QueuePosition  int    `json:"queue_position"`
 	Partial        string `json:"partial"`
 	LastStopReason string `json:"last_stop_reason"`

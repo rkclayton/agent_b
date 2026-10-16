@@ -24,6 +24,7 @@ func (*Cronjob) Schema() map[string]any {
 		"schedule": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "name": map[string]any{"type": "string"},
 		"skills": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "skill": map[string]any{"type": "string"},
 		"repeat": map[string]any{"type": "integer", "minimum": 1}, "job_id": map[string]any{"type": "string"}, "deliver": map[string]any{"type": "string"},
+		"unattended": map[string]any{"type": "boolean"},
 	}, "required": []string{"action"}}
 }
 func (c *Cronjob) Call(ctx context.Context, item *session.Session, raw map[string]any) (string, error) {
@@ -50,6 +51,9 @@ func (c *Cronjob) Call(ctx context.Context, item *session.Session, raw map[strin
 	a.Skill, _ = raw["skill"].(string)
 	a.JobID, _ = raw["job_id"].(string)
 	a.Deliver, _ = raw["deliver"].(string)
+	if value, ok := raw["unattended"].(bool); ok {
+		a.Unattended = &value
+	}
 	if n, ok := raw["repeat"].(float64); ok {
 		a.Repeat = int(n)
 	} else if n, ok := raw["repeat"].(int); ok {

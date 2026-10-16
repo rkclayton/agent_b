@@ -59,44 +59,30 @@ func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *te
 	}
 }
 
-func TestSkillFolderWritesAreNeverSilent2pe(t *testing.T) {
+func TestEverySkillWriteToolUsesTheSharedMutationClassifier2vh(t *testing.T) {
 	requireWindowsPathFixture(t)
 	workspace, profile := t.TempDir(), t.TempDir()
 	skillsRoot := filepath.Join(profile, "skills")
 	target := filepath.Join(skillsRoot, "fixture", "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	item := &session.Session{ID: "skill-fence", Role: "b", Workspace: workspace, SkillsRoot: skillsRoot}
-	cfg := config.Defaults(workspace)
-	cfg.Shell.ServiceAccount.Enabled = false
-	shell := NewShell(cfg.Shell)
-	shell.Configure(cfg)
-	check := func(name string, detail CallDetail) {
-		t.Helper()
-		text := detail.Content
-		if detail.Err != nil {
-			text += detail.Err.Error()
+	for _, call := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"write_file", map[string]any{"path": target, "content": "changed"}},
+		{"edit_file", map[string]any{"path": target, "old_string": "before", "new_string": "after"}},
+		{"shell", map[string]any{"command": `Set-Content -LiteralPath "` + target + `" -Value changed`}},
+		{"run_script", map[string]any{"language": "powershell", "source": `Set-Content -LiteralPath "` + target + `" -Value changed`}},
+		{"process", map[string]any{"action": "start", "command": `Set-Content -LiteralPath "` + target + `" -Value changed`}},
+	} {
+		path, skill, ok := SkillMutation(call.name, call.args, item)
+		if !ok || path != target || skill != "fixture" {
+			t.Errorf("%s mutation=(%q,%q,%t)", call.name, path, skill, ok)
 		}
-		if !strings.Contains(strings.ToLower(text+" "+detail.OperatorOverrideReason), strings.ToLower(skillsRoot)) {
-			t.Errorf("%s silently reached skills: %+v", name, detail)
-		}
-	}
-	_, writeErr := NewWriteFile(nil).Call(context.Background(), item, map[string]any{"path": target, "content": "changed"})
-	check("write_file", CallDetail{Err: writeErr})
-	_, editErr := NewEditFile(nil).Call(context.Background(), item, map[string]any{"path": target, "old_string": "original", "new_string": "changed"})
-	check("edit_file", CallDetail{Err: editErr})
-	check("shell", shell.CallDetailed(context.Background(), item, map[string]any{"command": `Set-Content -LiteralPath "` + target + `" -Value changed`}))
-	check("run_script", NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": `Set-Content -LiteralPath "` + target + `" -Value changed`}))
-	if data, _ := os.ReadFile(target); string(data) != "original" {
-		t.Fatalf("skills file changed to %q", data)
 	}
 }
 
-func TestShellAndRunScriptRefuseEveryVisibleSkillWrite2ua(t *testing.T) {
+func TestCommandClassifierSeesVisibleSkillWritesAndLeavesReadsAlone2vh(t *testing.T) {
 	requireWindowsPathFixture(t)
 	workspace, profile := t.TempDir(), t.TempDir()
 	skillsRoot := filepath.Join(profile, "skills")
@@ -107,40 +93,23 @@ func TestShellAndRunScriptRefuseEveryVisibleSkillWrite2ua(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := &session.Session{ID: "skill-write", Role: "b", Workspace: workspace, SkillsRoot: skillsRoot}
-	want := "skills folder is read-only: " + skillsRoot + "; end the reply with Add <path> as a skill"
-	for _, service := range []bool{false, true} {
-		cfg := config.Defaults(workspace)
-		cfg.Shell.ServiceAccount.Enabled = service
-		cfg.Shell.TrustedFolders = []config.TrustedFolder{{Path: profile}}
-		shell := NewShell(cfg.Shell)
-		shell.Configure(cfg)
-		for _, command := range []string{
-			`Copy-Item "` + workspace + `\source" "` + skillsRoot + `\copied" -Recurse`,
-			`$target = "` + skillsRoot + `\fixture\new.txt"; Set-Content $target changed`,
-			`Set-Location "` + skillsRoot + `"; Set-Content .\new.txt changed`,
-		} {
-			if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Content != want {
-				t.Errorf("service=%t command=%q: %+v", service, command, got)
-			}
-			if got, _ := shell.CallAsOperator(context.Background(), item, map[string]any{"command": command}); got != want {
-				t.Errorf("operator command=%q: %q", command, got)
-			}
+	for _, command := range []string{
+		`Copy-Item "` + workspace + `\source" "` + skillsRoot + `\copied" -Recurse`,
+		`$target = "` + skillsRoot + `\fixture\new.txt"; Set-Content $target changed`,
+		`Set-Location "` + skillsRoot + `"; Set-Content .\new.txt changed`,
+	} {
+		if _, _, ok := SkillMutation("shell", map[string]any{"command": command}, item); !ok {
+			t.Errorf("write command was not classified: %q", command)
 		}
-		source := `Set-Content -LiteralPath "` + filepath.Join(skillsRoot, "fixture", "new.txt") + `" -Value changed`
-		if got := NewRunScript(shell).CallDetailed(context.Background(), item, map[string]any{"language": "powershell", "source": source}); got.Content != want {
-			t.Errorf("script: %+v", got)
-		}
-		if !service {
-			for _, command := range []string{`Get-ChildItem "` + skillsRoot + `"`, `Get-Content "` + filepath.Join(skillsRoot, "fixture", "SKILL.md") + `"`} {
-				if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Err != nil {
-					t.Errorf("read command=%q: %+v", command, got)
-				}
-			}
+	}
+	for _, command := range []string{`Get-ChildItem "` + skillsRoot + `"`, `Get-Content "` + filepath.Join(skillsRoot, "fixture", "SKILL.md") + `"`} {
+		if _, _, ok := SkillMutation("shell", map[string]any{"command": command}, item); ok {
+			t.Errorf("read command was classified as a mutation: %q", command)
 		}
 	}
 }
 
-func TestSkillScriptsReadAndCopyOutWhileEveryRelativeWriteStaysRefused2uu(t *testing.T) {
+func TestSkillScriptsReadAndCopyOutWhileEveryRelativeWriteIsClassified2vh(t *testing.T) {
 	requireWindowsPathFixture(t)
 	workspace, profile := t.TempDir(), t.TempDir()
 	skillsRoot := filepath.Join(profile, "skills")
@@ -166,7 +135,7 @@ func TestSkillScriptsReadAndCopyOutWhileEveryRelativeWriteStaysRefused2uu(t *tes
 		"copy out":          `Copy-Item "` + scriptPath + `" "` + filepath.Join(workspace, "report.ps1") + `"`,
 		"write beside read": `Get-Content "` + filepath.Join(skillsRoot, "fixture", "SKILL.md") + `" | Out-Null; Set-Content "` + filepath.Join(workspace, "seen.txt") + `" ok`,
 	} {
-		if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Err != nil || strings.Contains(got.Content, "skills folder is read-only") || got.OperatorOverrideReason != "" {
+		if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Err != nil || got.OperatorOverrideReason != "" {
 			t.Errorf("%s did not run: %+v", name, got)
 		}
 	}
@@ -177,8 +146,8 @@ func TestSkillScriptsReadAndCopyOutWhileEveryRelativeWriteStaysRefused2uu(t *tes
 		"pwd relative": `Set-Location "` + skillsRoot + `"; Set-Content "$PWD\new.txt" changed`,
 		"out-file":     `Set-Location "` + skillsRoot + `"; 'changed' | Out-File x.txt`,
 	} {
-		if got := shell.CallDetailed(context.Background(), item, map[string]any{"command": command}); got.Content != "skills folder is read-only: "+skillsRoot+"; end the reply with Add <path> as a skill" {
-			t.Errorf("%s = %+v", name, got)
+		if path, _, ok := SkillMutation("shell", map[string]any{"command": command}, item); !ok || !item.IsSkillPath(path) {
+			t.Errorf("%s mutation=(%q,%t)", name, path, ok)
 		}
 	}
 }

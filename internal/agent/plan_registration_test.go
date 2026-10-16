@@ -53,7 +53,7 @@ func TestAddPlanSentenceUsesAllowThisAndApprovalControlsRegistration(t *testing.
 			registrations := 0
 			item := &session.Session{
 				ID: "plan-chat", ConnectionID: connection.ID, Role: "b", Workspace: root, Runnable: true,
-				Run: session.RunState{Status: "running", MaxTurns: 4}, ToolsEnabled: map[string]bool{},
+				Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{},
 				ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{},
 				PlanRepos: func() []string { return append([]string(nil), repos...) },
 				RegisterPlan: func(path string) (session.Plan, bool, error) {

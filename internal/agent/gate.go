@@ -63,8 +63,6 @@ type Gate struct {
 	reacquire    func(ctx context.Context, sessionID, runID string) error
 	standingPath string
 	standingMu   sync.Mutex
-	// how long a card waits for an answer before it is refused.
-	unansweredAfter time.Duration
 }
 
 func (g *Gate) WaitQuestion(ctx context.Context, s *session.Session, runID, callID, question string, choices []string) (string, error) {
@@ -294,15 +292,6 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 		defer ticker.Stop()
 		mailbox = ticker.C
 	}
-	// a card nobody answers is refused after ten minutes, as the
-	// unattended path refuses it, so a card raised while he sleeps costs the run
-	// ten minutes rather than the night.
-	limit := g.unansweredAfter
-	if limit <= 0 {
-		limit = 10 * time.Minute
-	}
-	unanswered := time.NewTimer(limit)
-	defer unanswered.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -316,21 +305,6 @@ func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, cal
 				g.publishDecision(wait, "dismissed")
 				return "dismissed", ctx.Err()
 			}
-		case <-unanswered.C:
-			g.mu.Lock()
-			if wait.decided {
-				g.mu.Unlock()
-				signal = <-wait.decision
-				break
-			}
-			wait.decided = true
-			g.mu.Unlock()
-			reason := fmt.Sprintf("[!] boundary: not answered — refused after 10 minutes (%s)", wait.name)
-			if g.bus != nil {
-				g.bus.Publish(events.New(events.ApprovalDecided, s.ID, runID, map[string]any{"call_id": callID, "name": wait.name, "decision": "deny", "unanswered": true, "boundary": reason}))
-			}
-			s.RecordBoundaryHit(reason)
-			signal = approvalSignal{decision: "deny", logged: true}
 		case signal = <-wait.decision:
 		case <-mailbox:
 			decision, err := g.mailboxDecision(s.ID)

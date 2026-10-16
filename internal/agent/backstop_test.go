@@ -32,18 +32,24 @@ func backstopFixture(t *testing.T, handler http.HandlerFunc, configure func(*con
 	return runner, item, server.Close
 }
 
-func TestToolBudgetStopsBeforeExcessCall(t *testing.T) {
+func TestCallsContinuePastTheOldToolBudget2vf(t *testing.T) {
+	requests := 0
 	runner, item, closeServer := backstopFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests > 1 {
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+			return
+		}
 		delta := map[string]any{"tool_calls": []any{
 			map[string]any{"index": 0, "id": "c1", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"a","content":"a"}`}},
 			map[string]any{"index": 1, "id": "c2", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"b","content":"b"}`}},
 		}}
 		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 1}})
-	}, func(cfg *config.Config) { cfg.Run.MaxToolCalls = 1 })
+	}, func(*config.Config) {})
 	defer closeServer()
 	reason, detail, _ := runner.Run(context.Background(), item, "r1")
-	if reason != "tool_budget" || detail == "" || item.ToolCalls["write_file"] != 0 {
-		t.Fatalf("reason=%q detail=%q calls=%d", reason, detail, item.ToolCalls["write_file"])
+	if reason != "done" || detail != "" || item.ToolCalls["write_file"] != 2 || requests != 2 {
+		t.Fatalf("reason=%q detail=%q calls=%d requests=%d", reason, detail, item.ToolCalls["write_file"], requests)
 	}
 }
 
@@ -60,10 +66,14 @@ func TestWallClockStopsBlockedModel(t *testing.T) {
 	}
 }
 
-func TestExistingTurnCeilingRemainsIndependent(t *testing.T) {
+func TestRunContinuesPastTheOldTurnCeiling2vf(t *testing.T) {
 	var requests int
 	runner, item, closeServer := backstopFixture(t, func(w http.ResponseWriter, _ *http.Request) {
 		requests++
+		if requests > 1 {
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}})
+			return
+		}
 		delta := map[string]any{"tool_calls": []any{
 			map[string]any{"index": 0, "id": "c1", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"a","content":"a"}`}},
 		}}
@@ -71,10 +81,10 @@ func TestExistingTurnCeilingRemainsIndependent(t *testing.T) {
 			"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}},
 			"usage":   map[string]any{"prompt_tokens": 10, "completion_tokens": 1},
 		})
-	}, func(cfg *config.Config) { cfg.Run.MaxTurns = 1 })
+	}, func(*config.Config) {})
 	defer closeServer()
 	reason, _, turns := runner.Run(context.Background(), item, "r1")
-	if reason != "turn_ceiling" || turns != 1 || requests != 1 {
+	if reason != "done" || turns != 2 || requests != 2 {
 		t.Fatalf("reason=%q turns=%d requests=%d", reason, turns, requests)
 	}
 }

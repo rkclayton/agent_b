@@ -219,6 +219,7 @@ type Job struct {
 	Runs        int       `json:"runs"`
 	Next        time.Time `json:"next_run"`
 	Paused      bool      `json:"paused,omitempty"`
+	Unattended  bool      `json:"unattended"`
 	Repeating   bool      `json:"repeating"`
 	LastFailure string    `json:"last_failure,omitempty"`
 }
@@ -226,6 +227,7 @@ type Args struct {
 	Action, Schedule, Prompt, Name, Skill, JobID, Deliver string
 	Skills                                                []string
 	Repeat                                                int
+	Unattended                                            *bool
 }
 type Reply struct {
 	Job     Job    `json:"job,omitempty"`
@@ -360,6 +362,9 @@ func (m *Manager) Apply(ctx context.Context, a Args) (Reply, error) {
 			return Reply{}, errors.New("prompt is required")
 		}
 		j := Job{ID: id(), Name: strings.TrimSpace(a.Name), Schedule: a.Schedule, Prompt: a.Prompt, Skills: append([]string(nil), a.Skills...), Deliver: a.Deliver, Repeat: a.Repeat, Next: spec.Next, Repeating: spec.Repeating}
+		if a.Unattended != nil {
+			j.Unattended = *a.Unattended
+		}
 		if j.Name == "" {
 			j.Name = j.ID
 		}
@@ -400,6 +405,9 @@ func (m *Manager) Apply(ctx context.Context, a Args) (Reply, error) {
 		}
 		if a.Repeat > 0 {
 			j.Repeat = a.Repeat
+		}
+		if a.Unattended != nil {
+			j.Unattended = *a.Unattended
 		}
 		m.jobs[i] = j
 		err = m.saveLocked()

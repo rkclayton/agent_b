@@ -267,8 +267,6 @@ func add(c *Counters, event events.Event, r *run) {
 			c.Reliability.ModelFailures++
 		} else if reason == "tool_errors" || reason == "connection_not_runnable" || reason == "context_ceiling" || reason == "context_exhausted" {
 			c.Reliability.HarnessFailures++
-		} else if reason == "turn_ceiling" {
-			c.Reliability.BriefFailures++
 		}
 	default:
 		recorded = false

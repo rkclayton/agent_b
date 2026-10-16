@@ -30,7 +30,7 @@ func planLintServer(t *testing.T) (*Server, *session.Registry, *events.Bus, stri
 	}
 	t.Cleanup(func() { writers.Close() })
 	server := New(&cfg, filepath.Join(data, "harness.json"), repo, RuntimeRoots{Application: repo, Data: data, Workspace: repo}, bus)
-	registry := session.NewRegistry(bus, writers, server.Connection, cfg.Run.MaxTurns, server.ConfigSnapshot)
+	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	return server, registry, bus, repo
 }

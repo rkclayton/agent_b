@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -401,6 +402,9 @@ func TestFetchTimeout(t *testing.T) {
 }
 
 func TestFetchBrowserTimeoutReturnsAnEnvelope2va(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("SKIPPED: browser fallback uses the installed Windows browser; Ubuntu has no equivalent product path.")
+	}
 	cfg := fetchTestConfig()
 	cfg.TimeoutS = 1
 	tool := NewFetch(cfg)

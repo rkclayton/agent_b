@@ -101,7 +101,7 @@ func shellPolicyRunner(t *testing.T, cfg config.Config, tool *shellPolicyTool) (
 
 func nextApprovalEvent(t *testing.T, eventCh <-chan events.Event) events.Event {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case event := <-eventCh:

@@ -467,6 +467,102 @@ func TestAChangeLandingDuringChatOpenIsSentOnce2rf(t *testing.T) {
 	}
 }
 
+func TestRunningChatAnswerPrecedesThreeHundredPatches2vc(t *testing.T) {
+	for _, route := range []string{"resync", "chat.open"} {
+		t.Run(route, func(t *testing.T) {
+			server := measuredServer(t, 1, 1)
+			live, device := newPhoneStreamState(), &recordingDevice{}
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { server.streamUnitsToDeviceOpening(ctx, device, nil, live); close(done) }()
+			defer func() { cancel(); <-done }()
+			device.waitFor(t, "the initial snapshot", func(unit map[string]any) bool { return unit["kind"] == "snapshot" && unit["session_id"] == "chat-0" })
+			device.mu.Lock()
+			device.units = nil
+			device.mu.Unlock()
+
+			request := fmt.Sprintf(`{"v":1,"kind":"request","id":"open","route":%q,"body":{"session_id":"chat-0"}}`, route)
+			answer := server.dispatchAppMessage("device-1", []byte(request), live)
+			for index := 0; index < 300; index++ {
+				server.bus.Publish(events.New(events.SessionRenamed, "chat-0", "run", map[string]any{"label": fmt.Sprintf("live-%03d", index)}))
+				time.Sleep(2 * time.Millisecond)
+			}
+			if err := device.Deliver(answer); err != nil {
+				t.Fatal(err)
+			}
+			live.activate()
+			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				device.mu.Lock()
+				patches := 0
+				for _, unit := range device.units {
+					if unit["kind"] == "patch" {
+						patches++
+					}
+				}
+				device.mu.Unlock()
+				if patches == 300 {
+					break
+				}
+			}
+			device.mu.Lock()
+			defer device.mu.Unlock()
+			seenAnswer, patches := false, 0
+			var expectedCursor map[string]any
+			for _, unit := range device.units {
+				if unit["kind"] == "response" {
+					seenAnswer = true
+					body, _ := unit["body"].(map[string]any)
+					if route == "resync" {
+						sessions, _ := body["sessions"].(map[string]any)
+						chat, _ := sessions["chat-0"].(map[string]any)
+						expectedCursor, _ = chat["cursor"].(map[string]any)
+					} else {
+						snapshot, _ := body["snapshot"].(map[string]any)
+						expectedCursor, _ = snapshot["cursor"].(map[string]any)
+					}
+				}
+				if unit["kind"] == "patch" {
+					if !seenAnswer {
+						t.Fatal("a running-chat patch arrived before its answer")
+					}
+					data, _ := unit["data"].(map[string]any)
+					if previous, _ := data["previous_cursor"].(map[string]any); !reflect.DeepEqual(previous, expectedCursor) {
+						t.Fatalf("patch %d has a cursor gap: previous=%v want=%v", patches+1, previous, expectedCursor)
+					}
+					expectedCursor, _ = data["cursor"].(map[string]any)
+					patches++
+				}
+			}
+			if patches != 300 {
+				t.Fatalf("after the answer: %d patches, want 300", patches)
+			}
+		})
+	}
+}
+
+func TestIdleChatOpenBytesAndDeliveryFailure2vc(t *testing.T) {
+	server := measuredServer(t, 1, 1)
+	request := []byte(`{"v":1,"kind":"request","id":"idle","route":"chat.open","body":{"session_id":"chat-0"}}`)
+	want := server.dispatchAppMessage("device-1", request, nil)
+	for index := 0; index < 5; index++ {
+		live := newPhoneStreamState()
+		got := server.dispatchAppMessage("device-1", request, live)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("idle open %d changed its response bytes", index+1)
+		}
+		failure := errors.New("transport closed while sending")
+		returned := deliverPhoneAnswer(deviceSinkFunc(func([]byte) error { return failure }), server, "idle", got, live)
+		var response appResponseUnit
+		if json.Unmarshal(returned, &response) != nil || response.Status != http.StatusServiceUnavailable || !strings.Contains(string(response.Body), failure.Error()) {
+			t.Fatalf("failed delivery answer = %s", returned)
+		}
+	}
+}
+
+type deviceSinkFunc func([]byte) error
+
+func (fn deviceSinkFunc) Deliver(unit []byte) error { return fn(unit) }
+
 func TestChatNameDoesNotWaitForItsStoredFolder2sn(t *testing.T) {
 	server, _, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()

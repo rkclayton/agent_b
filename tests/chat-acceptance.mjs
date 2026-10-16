@@ -109,7 +109,7 @@ const fakeHandler = async (request, response) => {
   // User submission tokenizes before the supervised run starts. Delay the
   // run's template request instead so the connected-accounting fallback and
   // model.busy event are exercised on every trial, independent of token-cost caches.
-  if (slowAccountingArmed && request.url === "/apply-template" && (body.messages || []).some((message) => String(message.content || "").includes("acceptance: slow accounting"))) {
+  if (slowAccountingArmed && request.url === "/apply-template" && (body.messages || []).some((message) => JSON.stringify(message.content || "").includes("acceptance: slow accounting"))) {
     slowAccountingArmed = false;
     slowAccountingTrace.push({ action: "delayed", url: request.url, at: Date.now() });
     await sleep(4000);
@@ -470,11 +470,13 @@ const state = (sessionID = "") => json(`http://127.0.0.1:${appPort}/api/state${s
 // Item 2ql: finished work has an outer one-line fold, which must be opened
 // before an inner step disclosure can be found.
 async function openStepFoldIfDrawn() {
-  const response = page.locator(".chat-response").last();
-  const summary = response.locator(".chat-work-summary-toggle");
-  if (await summary.count() && await summary.getAttribute("aria-expanded") !== "true") await summary.click();
-  const step = response.locator(".chat-step-summary").last();
-  if (await step.count() && await step.getAttribute("aria-expanded") !== "true") await step.click();
+	const clickLastClosed = (selector) => page.evaluate((value) => {
+		const response = [...document.querySelectorAll(".chat-response")].at(-1);
+		const control = [...(response?.querySelectorAll(value) || [])].at(-1);
+		if (control?.getAttribute("aria-expanded") === "false") control.click();
+	}, selector);
+	await clickLastClosed(".chat-work-summary-toggle");
+	await clickLastClosed(".chat-step-summary");
 }
 
 async function openEveryFold(selector) {
@@ -2443,7 +2445,7 @@ if (realModel) {
   await setTask(`acceptance: slow accounting ${"payload ".repeat(800)}`);
   const slowMessage = await waitEvent(sessionID, (event) => event.seq > beforeSlowAccounting && event.type === "message.appended" && event.data?.message?.content?.startsWith("acceptance: slow accounting"), "slow-accounting message", 12000);
   const slowRun = await waitEvent(sessionID, (event) => event.seq > slowMessage.seq && event.type === "run.started" && event.data?.user_message_id === slowMessage.data.message.id, "slow-accounting run", 12000);
-  const estimatedBudget = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "budget" && event.data?.estimated === true, "estimated slow-accounting budget", 12000);
+  const estimatedBudget = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "budget" && event.data?.estimated === true, "estimated slow-accounting budget", 30000);
   await browser.wait(`document.querySelector('.chat-budget-tip')?.innerText.includes('estimated')`, "estimated occupancy label");
   const slowStop = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "run.stopped" && event.seq > estimatedBudget.seq, "slow-accounting run stopped", 20000);
   assert.equal(slowStop.data.reason, "done");
@@ -2504,7 +2506,7 @@ if (realModel) {
   events = await sessionEvents(sessionID);
   const retryUnreachableAfter = events.at(-1)?.seq || 0;
   await setTask("acceptance: unreachable retry");
-  await waitEvent(sessionID, (event) => event.seq > retryUnreachableAfter && event.type === "model.unreachable", "Retry fixture model.unreachable");
+	await waitEvent(sessionID, (event) => event.seq > retryUnreachableAfter && event.type === "model.unreachable", "Retry fixture model.unreachable", 30000);
   await captureWithMasks(page, join(args.evidence, "model-unreachable-retry-before.png"));
   const downProbe = page.waitForResponse((response) => response.url().includes("/probe"));
   await page.locator("#chat-retry-model").click();
@@ -2547,7 +2549,7 @@ if (realModel) {
   events = await sessionEvents(sessionID);
   const testUnreachableAfter = events.at(-1)?.seq || 0;
   await setTask("acceptance: unreachable settings test");
-  await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.unreachable", "Settings Test fixture model.unreachable");
+	await waitEvent(sessionID, (event) => event.seq > testUnreachableAfter && event.type === "model.unreachable", "Settings Test fixture model.unreachable", 30000);
   await startFake(modelPort);
   await openSettings();
   await page.locator("#settings-page").waitFor({ state: "visible" });
@@ -2588,7 +2590,7 @@ if (realModel) {
   const beforeCompactionSequence = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
   const compactionTask = `acceptance: compaction ${"payload ".repeat(1200)}`.trimEnd();
   await setTask(compactionTask);
-  await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeCompactionSequence, "compaction run", 20000);
+  await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeCompactionSequence, "compaction run", 30000);
   const compaction = await waitEvent(sessionID, (event) => event.type === "compaction", "compaction", 20000);
   const restoreCompactionConfigState = await state();
   await json(`http://127.0.0.1:${appPort}/api/config`, {

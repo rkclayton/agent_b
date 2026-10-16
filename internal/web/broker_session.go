@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"sync"
 
@@ -60,30 +61,9 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 			return nil
 		}
 		answer := server.dispatchAppMessage(device, plaintext, live)
-		prepared := live.preparedAnswer()
-		parts, err := appSplit(answer, appUnitMax)
-		if err != nil {
-			if prepared {
-				live.cancelPrepared()
-			}
-			return answer
-		}
-		if len(parts) == 1 && !prepared {
-			return answer
-		}
-		for _, part := range parts {
-			if err = client.Deliver(part); err != nil {
-				if prepared {
-					live.cancelPrepared()
-				}
-				log.Printf("broker: a response part was not sent: %v", err)
-				return nil
-			}
-		}
-		if prepared {
-			live.activate()
-		}
-		return nil
+		var request appRequestUnit
+		_ = json.Unmarshal(plaintext, &request)
+		return deliverPhoneAnswer(client, server, request.ID, answer, live)
 	})
 	client.OnSessionEvent(func(message string) {
 		c.recordSession(pairing, message)
@@ -132,6 +112,33 @@ type deviceSink interface {
 	Deliver(plaintext []byte) error
 }
 
+func deliverPhoneAnswer(client deviceSink, server *Server, requestID string, answer []byte, live *phoneStreamState) []byte {
+	prepared := live.preparedAnswer()
+	parts, err := appSplit(answer, appUnitMax)
+	if err != nil {
+		if prepared {
+			live.cancelPrepared()
+		}
+		return answer
+	}
+	if len(parts) == 1 && !prepared {
+		return answer
+	}
+	for _, part := range parts {
+		if err = client.Deliver(part); err != nil {
+			if prepared {
+				live.cancelPrepared()
+			}
+			log.Printf("broker: request %q response delivery failed: %v", requestID, err)
+			return server.appProblem(requestID, 503, "response delivery failed: "+err.Error())
+		}
+	}
+	if prepared {
+		live.activate()
+	}
+	return nil
+}
+
 type phoneStreamState struct {
 	mu       sync.Mutex
 	epoch    uint64
@@ -139,26 +146,23 @@ type phoneStreamState struct {
 	session  string
 	cursor   projection.Cursor
 	prepared bool
-	ready    chan struct{}
+	held     []projection.Patch
+	changed  chan struct{}
 }
 
-func newPhoneStreamState() *phoneStreamState { return &phoneStreamState{} }
+func newPhoneStreamState() *phoneStreamState {
+	return &phoneStreamState{changed: make(chan struct{}, 1)}
+}
 func (p *phoneStreamState) reset() {
 	p.mu.Lock()
-	if p.mode == 1 {
-		close(p.ready)
-	}
 	p.epoch++
-	p.mode, p.session, p.cursor, p.prepared, p.ready = 0, "", projection.Cursor{}, false, nil
+	p.mode, p.session, p.cursor, p.prepared, p.held = 0, "", projection.Cursor{}, false, nil
 	p.mu.Unlock()
 }
 func (p *phoneStreamState) begin(session string) uint64 {
 	p.mu.Lock()
-	if p.mode == 1 {
-		close(p.ready)
-	}
 	p.epoch++
-	p.mode, p.session, p.cursor, p.prepared, p.ready = 1, session, projection.Cursor{}, false, make(chan struct{})
+	p.mode, p.session, p.cursor, p.prepared, p.held = 1, session, projection.Cursor{}, false, nil
 	epoch := p.epoch
 	p.mu.Unlock()
 	return epoch
@@ -173,8 +177,7 @@ func (p *phoneStreamState) prepare(epoch uint64, cursor projection.Cursor) {
 func (p *phoneStreamState) abortUnlessPrepared(epoch uint64) {
 	p.mu.Lock()
 	if p.epoch == epoch && !p.prepared {
-		close(p.ready)
-		p.mode, p.ready = 0, nil
+		p.mode, p.held = 0, nil
 	}
 	p.mu.Unlock()
 }
@@ -189,36 +192,47 @@ func (p *phoneStreamState) activate() {
 	p.mu.Lock()
 	if p.prepared && p.mode == 1 {
 		p.mode, p.prepared = 2, false
-		close(p.ready)
-		p.ready = nil
+		select {
+		case p.changed <- struct{}{}:
+		default:
+		}
 	}
 	p.mu.Unlock()
 }
 func (p *phoneStreamState) accept(patch projection.Patch) bool {
-	for {
-		p.mu.Lock()
-		if p.mode == 0 {
-			p.mu.Unlock()
-			return true
-		}
-		if patch.SessionID != p.session || p.session == "" {
-			p.mu.Unlock()
-			return false
-		}
-		if p.mode == 1 {
-			ready := p.ready
-			p.mu.Unlock()
-			<-ready
-			continue
-		}
-		if !patch.Transient && patch.Cursor.Generation == p.cursor.Generation && patch.Cursor.Offset <= p.cursor.Offset {
-			p.mu.Unlock()
-			return false
-		}
-		p.cursor = patch.Cursor
-		p.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.mode == 0 {
 		return true
 	}
+	if patch.SessionID != p.session || p.session == "" {
+		return false
+	}
+	if p.mode == 1 || len(p.held) > 0 {
+		p.held = append(p.held, patch)
+		return false
+	}
+	if !patch.Transient && patch.Cursor.Generation == p.cursor.Generation && patch.Cursor.Offset <= p.cursor.Offset {
+		return false
+	}
+	p.cursor = patch.Cursor
+	return true
+}
+func (p *phoneStreamState) release() []projection.Patch {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.mode != 2 || len(p.held) == 0 {
+		return nil
+	}
+	ready := make([]projection.Patch, 0, len(p.held))
+	for _, patch := range p.held {
+		if !patch.Transient && patch.Cursor.Generation == p.cursor.Generation && patch.Cursor.Offset <= p.cursor.Offset {
+			continue
+		}
+		p.cursor, ready = patch.Cursor, append(ready, patch)
+	}
+	p.held = nil
+	return ready
 }
 
 func (s *Server) streamToDevice(ctx context.Context, client deviceSink) {
@@ -259,6 +273,10 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		}
 	}
 	var patches <-chan projection.Patch
+	var liveChanged <-chan struct{}
+	if live != nil {
+		liveChanged = live.changed
+	}
 	activities := map[string]string{}
 	if s.projector != nil && s.writers != nil {
 		cursors := s.writers.SessionCursors()
@@ -300,6 +318,10 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 	}
 	for {
 		select {
+		case <-liveChanged:
+			for _, patch := range live.release() {
+				send(map[string]any{"v": 1, "kind": "patch", "data": patch})
+			}
 		case <-dropped:
 			return
 		case patch, ok := <-patches:

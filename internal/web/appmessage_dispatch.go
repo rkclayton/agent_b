@@ -107,6 +107,7 @@ func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStr
 
 	body := request.Body
 	path := route.path
+	holdEpoch, holdSession := uint64(0), ""
 	switch request.Route {
 	case "tool":
 		// The path segment arrives as a field for the same reason the route set is
@@ -187,6 +188,10 @@ func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStr
 		}
 		if err := json.Unmarshal(body, &session); err == nil && session.SessionID != "" {
 			path += "?session=" + session.SessionID
+			if live != nil {
+				holdSession, holdEpoch = session.SessionID, live.begin(session.SessionID)
+				defer live.abortUnlessPrepared(holdEpoch)
+			}
 		}
 		body = nil
 	case "state":
@@ -194,7 +199,19 @@ func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStr
 	}
 
 	request.Body = body
-	return s.serveAsPhone(deviceID, request, route.method, path, body)
+	answer := s.serveAsPhone(deviceID, request, route.method, path, body)
+	if live != nil && holdSession != "" {
+		var response appResponseUnit
+		var state struct {
+			Sessions map[string]projection.Snapshot `json:"sessions"`
+		}
+		if json.Unmarshal(answer, &response) == nil && response.Status == http.StatusOK && json.Unmarshal(response.Body, &state) == nil {
+			if snapshot, ok := state.Sessions[holdSession]; ok {
+				live.prepare(holdEpoch, snapshot.Cursor)
+			}
+		}
+	}
+	return answer
 }
 
 func (s *Server) dispatchChatOpen(request appRequestUnit, live *phoneStreamState) []byte {

@@ -16,6 +16,8 @@ The installed app is a singleton. Its own WebView2 window falls back to an Edge 
 
 [Operator reference](docs/REFERENCE.md) — the surfaces, the tools, configuration, updates, and where your data lives.
 
+[Rules](docs/RULES.md) — every way a run can end, a call can be refused, or a result can be changed.
+
 [Where the work lives](docs/REPOSITORIES.md) — the four repositories, what each owns, and what the VPS is for.
 
 ## From a prompt

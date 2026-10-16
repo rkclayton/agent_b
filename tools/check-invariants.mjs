@@ -13,7 +13,7 @@ export const rules = [
   "Nothing in the product, its fixtures or its public pages is specific to a client",
   "Nothing pushed names a model, tool or vendor; commits are his identity only",
   "No button, menu, toggle or field exists that he did not ask for in his own words",
-  "Unattended mode and scheduled runs never ask; a would-be prompt is denied and recorded",
+  "A job explicitly marked unattended never asks; a would-be prompt is denied and recorded",
   "Six colours, dark, no nested and no horizontal scrolling",
   "Nothing the product, its installer or its tests start takes his screen or his focus",
   "Installing and updating never need elevation, and signing never lands on a user",

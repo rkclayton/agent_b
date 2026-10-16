@@ -68,3 +68,24 @@ func TestStampDocumentLeavesOtherReferencesAlone(t *testing.T) {
 		t.Fatalf("meta not first in head: %s", got)
 	}
 }
+
+func TestHelpDocumentsComeFromTheInstalledDocs2vg(t *testing.T) {
+	root := t.TempDir()
+	webDir, docsDir := filepath.Join(root, "web"), filepath.Join(root, "docs")
+	if err := os.MkdirAll(webDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(docsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "RULES.md"), []byte("# Rules\nfixture rule"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(t.TempDir())
+	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: root}, events.NewBus())
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/help/rules", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "fixture rule") || !strings.Contains(response.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("status=%d content-type=%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+}

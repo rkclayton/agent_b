@@ -24,7 +24,10 @@ test("new folder leaves the menu for its own far-edge button 2u6", () => {
 	assert.match(shell, /newFolderButton\.onclick = \(\) => \{ const name = prompt\("New folder name"\); if \(name\) void act\(\{ action: "add", parent: "", name \}\); \}/);
 	assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)/);
 	assert.doesNotMatch(shell, /button\("Folder", "", "chat-list-menu-action"\)/);
-	assert.match(shell, /if \(hasD\) \{[\s\S]*newChatMenu\.append\(label, plan, rule\);[\s\S]*\}\s*newChatMenu\.append\(openSettings\)/);
+	assert.match(shell, /if \(hasD\) \{[\s\S]*newChatMenu\.append\(label, plan, rule\);[\s\S]*\}\s*const helpRule/);
+	assert.match(shell, /reference\.href = "\/help\/reference"/);
+	assert.match(shell, /rules\.href = "\/help\/rules"/);
+	assert.match(shell, /newChatMenu\.append\(openSettings, helpRule, helpLabel, reference, rules\)/);
 	assert.match(chatCSS, /\.chat-list-new-folder\{[^}]*margin-left:auto[^}]*width:18px[^}]*height:18px[^}]*border-radius:50%/);
 });
 

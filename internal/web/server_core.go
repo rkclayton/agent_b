@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net"
 	"net/http"
@@ -399,6 +400,8 @@ func retiredPhoneRoutes(next http.Handler) http.Handler {
 // dispatcher call THE SAME HANDLERS rather than a second implementation of them.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/help/reference", s.helpDocument("REFERENCE.md"))
+	mux.HandleFunc("/help/rules", s.helpDocument("RULES.md"))
 	mux.HandleFunc("/", s.page)
 	mux.HandleFunc("/chat", s.page)
 	mux.HandleFunc("/plan", s.page)
@@ -485,6 +488,76 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/agents/", s.replayGuard(s.agentAction))
 	mux.HandleFunc("/api/agents", s.replayGuard(s.agentsEndpoint))
 	return mux
+}
+
+func (s *Server) helpDocument(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := os.ReadFile(filepath.Join(filepath.Dir(s.webDir), "docs", name))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s · Agent_b</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/chat.css"></head><body class="help-page"><main class="help-doc">%s</main></body></html>`, html.EscapeString(strings.TrimSuffix(name, ".md")), renderHelpMarkdown(body))
+	}
+}
+
+func renderHelpMarkdown(body []byte) string {
+	var out strings.Builder
+	inTable := false
+	closeTable := func() {
+		if inTable {
+			out.WriteString("</tbody></table>")
+			inTable = false
+		}
+	}
+	for _, raw := range strings.Split(string(body), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "| ") {
+			cells := strings.Split(strings.Trim(line, "| "), " | ")
+			if len(cells) != 5 || cells[0] == "---" {
+				continue
+			}
+			if cells[0] == "Rule" {
+				closeTable()
+				out.WriteString("<table><thead><tr>")
+				for _, cell := range cells {
+					fmt.Fprintf(&out, "<th>%s</th>", html.EscapeString(cell))
+				}
+				out.WriteString("</tr></thead><tbody>")
+				inTable = true
+				continue
+			}
+			out.WriteString("<tr>")
+			labels := []string{"Rule", "When", "You see", "Set where", "Asked by"}
+			for index, cell := range cells {
+				value := html.EscapeString(cell)
+				if strings.HasPrefix(cell, "**") && strings.HasSuffix(cell, "**") {
+					value = "<strong>" + html.EscapeString(strings.Trim(cell, "*")) + "</strong>"
+				} else if strings.HasPrefix(cell, "`") && strings.HasSuffix(cell, "`") {
+					value = "<code>" + html.EscapeString(strings.Trim(cell, "`")) + "</code>"
+				}
+				fmt.Fprintf(&out, `<td data-label="%s">%s</td>`, labels[index], value)
+			}
+			out.WriteString("</tr>")
+			continue
+		}
+		closeTable()
+		switch {
+		case strings.HasPrefix(line, "# "):
+			fmt.Fprintf(&out, "<h1>%s</h1>", html.EscapeString(strings.TrimPrefix(line, "# ")))
+		case strings.HasPrefix(line, "## "):
+			fmt.Fprintf(&out, "<h2>%s</h2>", html.EscapeString(strings.TrimPrefix(line, "## ")))
+		case line != "":
+			fmt.Fprintf(&out, "<p>%s</p>", html.EscapeString(line))
+		}
+	}
+	closeTable()
+	return out.String()
 }
 
 // hardeningRequest is what the protection scripts are given. NOTHING IN IT

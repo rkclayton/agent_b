@@ -1,5 +1,7 @@
 /* One base size drives every relative chat size. Settings supplies whole pixels
    through --chat-size; the untouched default remains 12px. */
+.help-page{height:auto;min-height:100dvh;overflow:auto}.help-doc{width:min(1120px,100%);padding:24px}.help-doc h1,.help-doc h2{margin:0 0 16px;font:500 calc(var(--ct) * 4 / 3)/calc(var(--lead-tight) * 4 / 3) var(--mono);}.help-doc h2{margin-top:32px;color:var(--signal);font-size:var(--ct);}.help-doc p{margin:0 0 8px}.help-doc table{width:100%;border-collapse:collapse}.help-doc th,.help-doc td{padding:4px 8px;border:1px solid rgba(112,125,139,.28);text-align:left;vertical-align:top}.help-doc th{color:var(--mute);font-weight:500}.help-doc code{color:var(--trace);font-family:var(--mono);overflow-wrap:anywhere}.help-doc tr:has(strong) td{padding-top:12px;color:var(--ink)}
+@media(max-width:600px){.help-doc{padding:16px}.help-doc thead{display:none}.help-doc table,.help-doc tbody,.help-doc tr,.help-doc td{display:block}.help-doc tr{padding:8px 0;border-top:1px solid rgba(112,125,139,.28)}.help-doc td{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;padding:2px 0;border:0}.help-doc td::before{content:attr(data-label);color:var(--mute)}.help-doc tr:has(strong) td{display:block;padding:8px 0 0}.help-doc tr:has(strong) td::before,.help-doc tr:has(strong) td:empty{display:none}}
 .chat-page {
   --ct: var(--chat-size, 12px);
   --lead: calc(var(--ct) * 5 / 3);
@@ -58,6 +60,8 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-list-panel .shell-menu,.chat-list-main-menu { width: min(220px, calc(100vw - 16px)); }
 .chat-list-row-menu { min-width: 150px; }
 .chat-list-menu-action { display: block; width: 100%; min-height: 28px; text-align: left; }
+.chat-list-main-menu a.chat-list-menu-action { padding:4px 12px; color:var(--ink); text-decoration:none; }
+.chat-list-main-menu a.chat-list-menu-action:hover { background:rgba(232,238,244,.12); }
 .chat-list-menu-action.alarm { color: var(--alarm); }
 .chat-list-move-choices { border-top: 1px solid rgba(112,125,139,.28); }
 .chat-list-resize { position: absolute; z-index:3; top: 0; right: -4px; bottom: 0; width: 8px; cursor: ew-resize; }

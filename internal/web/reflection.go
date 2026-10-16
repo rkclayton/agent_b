@@ -398,8 +398,8 @@ func (s *Server) reflectionNotes(w http.ResponseWriter, r *http.Request) {
 		"total":          total,
 		"removed":        removed,
 		"retention_days": int(memory.TombstoneRetention.Hours() / 24),
-		// the retrieval cap each layer is loaded under, stated where the
-		// operator is looking at the notes and not only in the documentation.
+		// the file cap for each layer, stated where the operator is looking at
+		// the notes and not only in the documentation.
 		"max_tokens": s.ConfigSnapshot().Memory.MaxTokens,
 	})
 }

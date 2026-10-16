@@ -283,6 +283,8 @@ func (m *Manager) migrateBuiltInMemory() error {
 	return os.WriteFile(marker, []byte("migrated\n"), 0o600)
 }
 func (m *Manager) load(ctx context.Context, path, connectionID, heading string) (string, string, error) {
+	_ = ctx
+	_ = connectionID
 	if !m.cfg().Memory.Enabled {
 		return "", path, nil
 	}
@@ -307,26 +309,7 @@ func (m *Manager) load(ctx context.Context, path, connectionID, heading string) 
 	if err := scanner.Err(); err != nil {
 		return "", path, err
 	}
-	maxTokens := m.cfg().Memory.MaxTokens
-	dropped := 0
-	for len(lines) > 0 {
-		body := memoryBlock(heading, layerName(heading), lines, dropped)
-		tokens, countErr := 0, error(nil)
-		if m.count != nil {
-			tokens, countErr = m.count(ctx, connectionID, body)
-		} else {
-			countErr = errors.New("token counter unavailable")
-		}
-		if countErr != nil {
-			tokens = (len([]rune(body)) + 3) / 4
-		}
-		if maxTokens <= 0 || tokens <= maxTokens {
-			return body, path, nil
-		}
-		lines = lines[1:]
-		dropped++
-	}
-	return "", path, nil
+	return memoryBlock(heading, lines), path, nil
 }
 
 func (m *Manager) Read(workspace string) (string, error) {
@@ -494,23 +477,11 @@ func (m *Manager) clearPath(path string) error {
 	return err
 }
 
-// layerName turns the injected heading into the words the model and the
-// operator both use for that layer, so the notice says which one is full.
-func layerName(heading string) string {
-	if strings.Contains(strings.ToLower(heading), "agent") {
-		return "agent memory"
-	}
-	return "folder memory"
-}
-
-func memoryBlock(heading, layer string, lines []string, dropped int) string {
+func memoryBlock(heading string, lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
 	out := []string{heading}
-	if dropped > 0 {
-		out = append(out, fmt.Sprintf("[%d older %s notes are omitted here because the layer is over its budget. Nothing has been deleted. When you have a spare turn, consolidate the oldest notes into fewer lines with remember, keeping every fact that still holds.]", dropped, layer))
-	}
 	out = append(out, lines...)
 	return strings.Join(out, "\n")
 }
@@ -524,10 +495,8 @@ func (m *Manager) NoteAgent(agentID, note string) (string, bool, error) {
 // a note is written rarely, scoped, replacing, and within a budget.
 //
 // Write carries what the note needs to be accountable for itself. Everything
-// here is a property of the FILE rather than of the injection: trimmed
-// the oldest notes on the way IN and asked the model to consolidate, which meant
-// the file grew forever and the operator never met the limit. (d) reverses that
-// — the write is refused and the model is told to replace something it names.
+// here is a property of the FILE rather than of prompt injection. The newest
+// note is saved and oldest records are removed until the bounded file fits.
 type Write struct {
 	Note     string
 	Scope    string // user | repository | environment
@@ -543,27 +512,30 @@ type Write struct {
 	Budget int
 }
 
-// ErrMemoryFull is (d): the write is refused and the caller is told to replace a
-// note it names. The harness never trims.
-var ErrMemoryFull = errors.New("memory full")
-
 // ErrNoteNotFound is (b): a replaces that names nothing is a mistake worth
 // reporting rather than quietly becoming an ordinary write.
 var ErrNoteNotFound = errors.New("the note to replace was not found")
 var ErrScopeMismatch = errors.New("replacement scope mismatch")
 
-// WriteNote does (b), (d) and (e) in ONE pass over the file, because a replace
-// and a budget check that ran separately could each pass and together overflow.
+// WriteNote preserves the original API for reflection and import callers.
 func (m *Manager) WriteNote(path string, write Write) (bool, error) {
+	duplicate, _, err := m.WriteNoteResult(path, write)
+	return duplicate, err
+}
+
+// WriteNoteResult saves the new note, then evicts oldest notes until the layer
+// fits. The newest note is retained even when it alone exceeds a configured
+// budget: remember never refuses the fact it was asked to save.
+func (m *Manager) WriteNoteResult(path string, write Write) (bool, int, error) {
 	note := strings.TrimSpace(write.Note)
 	if note == "" {
-		return false, fmt.Errorf("note is empty")
+		return false, 0, fmt.Errorf("note is empty")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return false, err
+		return false, 0, err
 	}
 	lines := []string{}
 	for _, line := range strings.Split(normalize(string(data)), "\n") {
@@ -575,7 +547,7 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 	// twice or refused as full.
 	for _, line := range lines {
 		if strings.EqualFold(noteTextOf(line), note) {
-			return true, nil
+			return true, 0, nil
 		}
 	}
 	// the old note goes in the SAME write. A replace that left the old one
@@ -603,12 +575,12 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 			for _, index := range shown {
 				previews = append(previews, firstNoteWords(noteTextOf(lines[index]), 8))
 			}
-			return false, fmt.Errorf("%w: %q %s; notes: %s", ErrNoteNotFound, replaced, kind, strings.Join(previews, "; "))
+			return false, 0, fmt.Errorf("%w: %q %s; notes: %s", ErrNoteNotFound, replaced, kind, strings.Join(previews, "; "))
 		}
 		matched := matches[0]
 		oldScope := parseNote(lines[matched]).Scope
 		if oldScope != write.Scope {
-			return false, fmt.Errorf("%w: existing note is %s; new note is %s", ErrScopeMismatch, scopeName(oldScope), scopeName(write.Scope))
+			return false, 0, fmt.Errorf("%w: existing note is %s; new note is %s", ErrScopeMismatch, scopeName(oldScope), scopeName(write.Scope))
 		}
 		archived = lines[matched]
 		kept := append([]string(nil), lines[:matched]...)
@@ -616,26 +588,38 @@ func (m *Manager) WriteNote(path string, write Write) (bool, error) {
 		lines = kept
 	}
 	lines = append(lines, formatNote(note, write))
-	// the budget is on the FILE, and a write that would exceed it is
-	// refused with what to do about it. The estimate is the same crude
-	// characters-over-four the loader falls back to, so the two agree.
-	if write.Budget > 0 {
-		body := strings.Join(lines, "\n")
-		if tokens := (len([]rune(body)) + 3) / 4; tokens > write.Budget {
-			used := (len([]rune(normalize(string(data)))) + 3) / 4
-			return false, fmt.Errorf("%w: used %d of %d tokens; free %d tokens before writing this note; replace a note you name, or skip", ErrMemoryFull, used, write.Budget, tokens-write.Budget)
-		}
+	dropped := 0
+	for write.Budget > 0 && len(lines) > 1 && (len([]rune(strings.Join(lines, "\n")))+3)/4 > write.Budget {
+		lines = lines[1:]
+		dropped++
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+		return false, dropped, err
 	}
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		return false, err
+	if archived == "" && dropped == 0 {
+		file, openErr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if openErr != nil {
+			return false, 0, openErr
+		}
+		prefix := ""
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			prefix = "\n"
+		}
+		_, writeErr := file.WriteString(prefix + lines[len(lines)-1] + "\n")
+		closeErr := file.Close()
+		if writeErr != nil {
+			return false, 0, writeErr
+		}
+		if closeErr != nil {
+			return false, 0, closeErr
+		}
+	} else if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		return false, dropped, err
 	}
 	if archived != "" {
-		return false, appendReplacement(path, archived, write)
+		return false, dropped, appendReplacement(path, archived, write)
 	}
-	return false, nil
+	return false, dropped, nil
 }
 
 func normalizedWords(value string) string {

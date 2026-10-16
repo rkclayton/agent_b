@@ -379,7 +379,7 @@ func (x *runState) buildRequest() runOutcome {
 		systemSkills := r.prompt.RenderSkillParts(x.connection, x.s, x.toolNames, x.s.ProjectBlock, skills)
 		workspaceMemory := x.s.WorkspaceMemory()
 		systemWorkspaceMemory := r.prompt.RenderSkillParts(x.connection, x.s, x.toolNames, x.s.ProjectBlock, skills, workspaceMemory, "")
-		x.system = r.prompt.RenderSkillParts(x.connection, x.s, x.toolNames, x.s.ProjectBlock, skills, workspaceMemory, x.s.AgentMemoryBlock, x.s.MachineMemoryBlock)
+		x.system = r.prompt.RenderSkillParts(x.connection, x.s, x.toolNames, x.s.ProjectBlock, skills, workspaceMemory)
 		messages := []llm.Message{}
 		requestRecords := make([]events.Message, 0, len(records))
 		current := runningTurnIDs(records, x.s.RunPin())

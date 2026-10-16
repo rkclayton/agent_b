@@ -529,7 +529,7 @@ Each bound D chat writes only its immutable plan and may read its repository or 
 `logs/*.jsonl` and retained `chats/*.jsonl` contain complete prompts and responses, including file contents and command output, and are ignored for that reason.
 Operational logs may rotate; retained chat journals remain until the operator explicitly confirms deletion of that chat.
 
-`memory/*.md` contains model-authored notes that are injected into future sessions' system prompts for the same workspace.
+`memory/*.md` contains model-authored notes exposed on demand through `recall`; future system prompts carry only the folder's saved-note count.
 The `remember` and `recall` tools deliberately run as the Agent_b application identity rather than through the service-account `FileIdentity` wrapper.
 This is a narrow exception: neither tool accepts a path, filename, workspace, or routing argument;
 the application derives the one reachable file from the operator-configured memory directory and the active session workspace.

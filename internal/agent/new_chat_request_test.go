@@ -34,7 +34,7 @@ func TestNewChatFirstRequestContainsExactlyStartupContextAndNewUser(t *testing.T
 	})
 	toolset := tools.New(&runScriptPolicyTool{})
 	runner := NewRunner(bus, toolset, &PromptRenderer{text: "system\nmemory={{memory}}\ntools={{tools}}"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
-	item := &session.Session{ID: "new-chat", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, MemoryBlock: "remembered fact", Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"run_script": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
+	item := &session.Session{ID: "new-chat", ConnectionID: connection.ID, Workspace: t.TempDir(), Runnable: true, MemoryBlock: "## Folder memory\n- remembered fact", Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{"run_script": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}, Budget: events.Budget{NCtx: 32768, Reserve: 8192}}
 	if _, err := runner.AddUser(context.Background(), item, "new request"); err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +50,8 @@ func TestNewChatFirstRequestContainsExactlyStartupContextAndNewUser(t *testing.T
 	if toolsBody, ok := body["tools"].([]any); !ok || len(toolsBody) != 1 {
 		t.Fatalf("2 tool schemas: tools=%#v", body["tools"])
 	}
-	if content, ok := messages[0].Content.(string); !ok || !strings.Contains(content, "memory=remembered fact") {
-		t.Fatalf("3 memory injection: content=%#v", content)
+	if content, ok := messages[0].Content.(string); !ok || !strings.Contains(content, "memory=This folder has 1 saved notes; recall reads them.") || strings.Contains(content, "remembered fact") {
+		t.Fatalf("3 memory count: content=%#v", content)
 	}
 	if messages[1].Role != "user" || messages[1].Content != "new request" {
 		t.Fatalf("4 new user message: message=%#v", messages[1])

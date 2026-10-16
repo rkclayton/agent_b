@@ -34,10 +34,18 @@ func (r *Recall) Call(_ context.Context, s *session.Session, _ map[string]any) (
 	}
 	parts := []string{}
 	if workspace != "" {
-		parts = append(parts, "Folder memory:\n"+workspace)
+		parts = append(parts, "Folder memory:\n"+newestFirst(workspace))
 	}
 	if agent != "" {
-		parts = append(parts, "Agent memory:\n"+agent)
+		parts = append(parts, "Agent memory:\n"+newestFirst(agent))
 	}
 	return strings.Join(parts, "\n\n"), nil
+}
+
+func newestFirst(value string) string {
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	for left, right := 0, len(lines)-1; left < right; left, right = left+1, right-1 {
+		lines[left], lines[right] = lines[right], lines[left]
+	}
+	return strings.Join(lines, "\n")
 }

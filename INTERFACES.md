@@ -124,9 +124,10 @@ each row naming its layer kind and its layer FILE; `POST /api/reflection-notes/c
 `/restore` `{file,note}` and `/remove` `{file,note,confirm}` act on one note,
 and the file name is validated against the memory directory so no other path can be named. **A third memory layer, `machine`** (`<memory-dir>/machine.md`),
 holds facts about the host rather than about a folder or an agent, is written only by reflection,
-and is loaded into the prompt beside the other two under its own heading and the same budget. **The retrieval cap is `memory.max_tokens`, 1500 by default,
-applied per layer:** a layer over it is loaded with its oldest notes omitted and the prompt says how many were omitted and that nothing was deleted;
-the count is also shown on Settings -> Activity beside the notes.
+and is available through `recall` beside the other two. Saved note text is never injected into the system prompt; the folder layer contributes only
+`This folder has <n> saved notes; recall reads them.` **The file cap is `memory.max_tokens`, 16384 by default, applied per layer:** every new note is saved,
+then oldest notes are dropped until the file fits; `remember` reports the dropped count. `recall` returns every retained note newest first and the ordinary
+per-result window bounds that one result. Settings -> Activity continues to show the retained notes and count.
 
 **Prompt cache across runs (item 6, measured v1.0.1/W2 from retained logs):** within a run the server reports most of the prefix cached (82% mean on a run's
 last response). At a run boundary the rendered prefix — messages and the tools block — is byte-identical in 161 of 298 retained boundaries,

@@ -30,7 +30,7 @@ func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testi
 	text := string(shipped)
 
 	for _, want := range []string{
-		"Remember only a correction the user gave, a preference they stated, or a fact about their project you had to discover. Recall first; one note per fact; give it a scope.",
+		"Remember only a correction the user gave, a preference they stated, or a fact about their project you had to discover. Saved notes stay in recall, not this prompt. Recall first; one note per fact; give it a scope.",
 		"Rules: work in the repo or folder the user names; ask when more than one could match; nothing named → this chat's folder.",
 	} {
 		if strings.Count(text, want) != 1 {
@@ -87,6 +87,16 @@ func TestMemorySentenceAgreesWithTheRememberAndRecallDescriptions(t *testing.T) 
 	}
 	if strings.Contains(text, "delete") || strings.Contains(text, "prune it by hand") {
 		t.Error("the prompt implies the harness removes notes; it never does")
+	}
+}
+
+func TestPromptCarriesOnlyTheSavedNoteCount2vi(t *testing.T) {
+	renderer := &PromptRenderer{text: "system\n{{memory}}"}
+	item := &session.Session{Workspace: t.TempDir(), MemoryBlock: "Notes from earlier sessions in this folder:\n- private fixture fact"}
+	got := renderer.RenderSkillParts(&config.Connection{}, item, []string{"recall"}, "", "", item.WorkspaceMemory())
+	const want = "This folder has 1 saved notes; recall reads them."
+	if !strings.Contains(got, want) || strings.Contains(got, "private fixture fact") {
+		t.Fatalf("prompt=%q, want count line only", got)
 	}
 }
 
@@ -187,7 +197,7 @@ func TestTrustedOutsideProjectRulesAndNotesReachTheNextRecordedRequest2tt(t *tes
 	if reason, detail, _ := runner.Run(context.Background(), item, "r1"); reason != "done" {
 		t.Fatalf("run=%s %s", reason, detail)
 	}
-	if !strings.Contains(stub.last, "outside project fixture rule") || !strings.Contains(stub.last, "outside project fixture note") {
+	if !strings.Contains(stub.last, "outside project fixture rule") || strings.Contains(stub.last, "outside project fixture note") || !strings.Contains(stub.last, "This folder has 0 saved notes; recall reads them.") {
 		t.Fatalf("request lacks project context: %s", stub.last)
 	}
 }

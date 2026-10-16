@@ -136,12 +136,9 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		UntrustedInTurn: s.UntrustedInTurn(),
 		Budget:          r.budget(),
 	}
-	duplicate, err := r.memory.WriteNote(path, write)
+	duplicate, dropped, err := r.memory.WriteNoteResult(path, write)
 	if err != nil {
-		// a full layer and a missing replaces are both answers the
-		// model can act on, not harness failures. They come back as tool errors
-		// with the instruction in them rather than as an error the run stops on.
-		if errors.Is(err, memory.ErrMemoryFull) || errors.Is(err, memory.ErrNoteNotFound) {
+		if errors.Is(err, memory.ErrNoteNotFound) {
 			return "", err
 		}
 		return "", err
@@ -153,13 +150,19 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	if strings.TrimSpace(write.Replaces) != "" {
 		replaced = " Replaced: " + firstWords(write.Replaces, 8) + "."
 	}
+	trimmed := ""
+	if dropped == 1 {
+		trimmed = " Dropped 1 oldest note."
+	} else if dropped > 1 {
+		trimmed = fmt.Sprintf(" Dropped %d oldest notes.", dropped)
+	}
 	r.bus.Publish(events.New(events.MemoryNoted, s.ID, s.Run.LastRunID, map[string]any{
 		"note": note, "path": path, "target": target, "agent_id": s.AgentID,
 		// the transcript row shows scope and whether it replaced.
 		"scope": scope, "replaced": strings.TrimSpace(write.Replaces) != "", "replaced_note": firstWords(write.Replaces, 8),
 		"untrusted_in_turn": write.UntrustedInTurn,
 	}))
-	return fmt.Sprintf("ok: noted as %s; active next session.%s%s", scope, replaced, fell), nil
+	return fmt.Sprintf("ok: noted as %s; active next session.%s%s%s", scope, replaced, trimmed, fell), nil
 }
 
 func firstWords(value string, count int) string {
@@ -170,8 +173,7 @@ func firstWords(value string, count int) string {
 	return strings.Join(words, " ")
 }
 
-// budget is the per-layer file budget. It is the same number the injection has
-// always used, now enforced on the file instead of by trimming on the way in.
+// budget is the per-layer file budget retained under its compatible key.
 func (r *Remember) budget() int {
 	if r.cfg == nil {
 		return 0

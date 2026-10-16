@@ -166,6 +166,43 @@ func TestRecallReadsRememberEntryAndRememberStillDetectsDuplicate(t *testing.T) 
 	}
 }
 
+func TestRememberReportsTrimAndRecallReturnsNewestFirst2vi(t *testing.T) {
+	remember, recall, item, _ := memoryTools(t)
+	remember.cfg = func() config.Config {
+		cfg := config.Defaults(item.Workspace)
+		cfg.Memory.MaxTokens = 40
+		return cfg
+	}
+	ctx := context.Background()
+	first := strings.Repeat("first durable fact ", 7)
+	second := strings.Repeat("newest durable fact ", 7)
+	if _, err := remember.Call(ctx, item, map[string]any{"note": first, "scope": "user"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := remember.Call(ctx, item, map[string]any{"note": second, "scope": "user"})
+	if err != nil || !strings.Contains(result, "Dropped 1 oldest note.") {
+		t.Fatalf("remember=%q err=%v", result, err)
+	}
+	recalled, err := recall.Call(ctx, item, nil)
+	if err != nil || strings.Contains(recalled, first) || !strings.Contains(recalled, second) {
+		t.Fatalf("recall=%q err=%v", recalled, err)
+	}
+
+	remember.cfg = func() config.Config {
+		cfg := config.Defaults(item.Workspace)
+		cfg.Memory.MaxTokens = 1000
+		return cfg
+	}
+	third := "third and newest"
+	if _, err := remember.Call(ctx, item, map[string]any{"note": third, "scope": "user"}); err != nil {
+		t.Fatal(err)
+	}
+	recalled, err = recall.Call(ctx, item, nil)
+	if err != nil || strings.Index(recalled, third) > strings.Index(recalled, second) {
+		t.Fatalf("recall is not newest first: %q err=%v", recalled, err)
+	}
+}
+
 func TestRememberSavesAndRecallsRepositoryGateNote2ve(t *testing.T) {
 	remember, recall, item, _ := memoryTools(t)
 	note := "The repository CI gate says do not bypass tools/check-release.mjs."

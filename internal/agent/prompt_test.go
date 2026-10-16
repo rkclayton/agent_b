@@ -78,27 +78,22 @@ func TestProjectInstructionsSitAfterToolNamesAndBeforeMemory(t *testing.T) {
 	renderer := &PromptRenderer{text: "prefix tools={{tools}}\n{{project}}\nbody\n{{memory}}"}
 	connection := &config.Connection{}
 	item := &session.Session{Workspace: "workspace", ProjectBlock: "PROJECT BLOCK"}
-	base := renderer.RenderParts(connection, item, []string{"read_file"}, "", "")
-	full := renderer.RenderParts(connection, item, []string{"read_file"}, item.ProjectBlock, "MEMORY BLOCK")
-	toolsAt, projectAt, memoryAt := strings.Index(full, "tools=read_file"), strings.Index(full, "PROJECT BLOCK"), strings.Index(full, "MEMORY BLOCK")
+	full := renderer.RenderParts(connection, item, []string{"read_file"}, item.ProjectBlock, "- MEMORY BLOCK")
+	toolsAt, projectAt, memoryAt := strings.Index(full, "tools=read_file"), strings.Index(full, "PROJECT BLOCK"), strings.Index(full, "This folder has 1 saved notes")
 	if toolsAt < 0 || projectAt <= toolsAt || memoryAt <= projectAt {
 		t.Fatalf("prompt order=%q", full)
 	}
-	if delta := len(full) - len(base); delta != len("PROJECT BLOCK")+len("MEMORY BLOCK")+1 {
-		t.Fatalf("byte delta=%d base=%q full=%q", delta, base, full)
-	}
 }
 
-func TestAgentAddendumAndTwoMemoryLayersHaveStableOrder(t *testing.T) {
+func TestAgentAddendumPrecedesTheMemoryCount(t *testing.T) {
 	renderer := &PromptRenderer{text: "tools={{tools}}\n{{agent}}\n{{project}}\n{{memory}}"}
 	item := &session.Session{Workspace: "workspace", PromptAddendum: "Prefer terse reports."}
-	value := renderer.RenderMemoryParts(&config.Connection{}, item, []string{"read_file"}, "PROJECT", "WORKSPACE MEMORY", "AGENT MEMORY")
+	value := renderer.RenderMemoryParts(&config.Connection{}, item, []string{"read_file"}, "PROJECT", "- workspace fixture", "- agent fixture")
 	toolsAt := strings.Index(value, "tools=read_file")
 	addendumAt := strings.Index(value, "BEGIN OPERATOR AGENT ADDENDUM")
 	projectAt := strings.Index(value, "PROJECT")
-	workspaceAt := strings.Index(value, "WORKSPACE MEMORY")
-	agentAt := strings.Index(value, "AGENT MEMORY")
-	if toolsAt < 0 || addendumAt <= toolsAt || projectAt <= addendumAt || workspaceAt <= projectAt || agentAt <= workspaceAt {
+	memoryAt := strings.Index(value, "This folder has 1 saved notes")
+	if toolsAt < 0 || addendumAt <= toolsAt || projectAt <= addendumAt || memoryAt <= projectAt || strings.Contains(value, "workspace fixture") || strings.Contains(value, "agent fixture") {
 		t.Fatalf("prompt order=%q", value)
 	}
 }

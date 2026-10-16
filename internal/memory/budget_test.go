@@ -10,10 +10,7 @@ import (
 	"harness/internal/config"
 )
 
-// A layer over its budget must tell the model what to do about it, and which
-// layer is full. The old notice said "prune it by hand", which the model cannot
-// act on and the operator never sees.
-func TestOverBudgetNoticeNamesTheLayerAndAsksForConsolidation(t *testing.T) {
+func TestLoadReturnsEverySavedNoteWithoutPromptBudgetTrimming2vi(t *testing.T) {
 	root := t.TempDir()
 	cfg := func() config.Config {
 		return config.Config{Memory: config.Memory{Enabled: true, Dir: root, MaxTokens: 220}}
@@ -29,28 +26,13 @@ func TestOverBudgetNoticeNamesTheLayerAndAsksForConsolidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, testCase := range []struct{ heading, want string }{
-		{"## Agent memory", "agent memory"},
-		{"## Folder memory", "folder memory"},
-	} {
-		block, _, err := manager.load(context.Background(), path, "p", testCase.heading)
+	for _, heading := range []string{"## Agent memory", "## Folder memory"} {
+		block, _, err := manager.load(context.Background(), path, "p", heading)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(block, "older "+testCase.want+" notes are omitted here because the layer is over its budget") {
-			t.Fatalf("notice does not name the %s layer:\n%s", testCase.want, firstLines(block, 3))
-		}
-		if !strings.Contains(block, "Nothing has been deleted.") {
-			t.Error("notice does not say the file is intact")
-		}
-		if !strings.Contains(block, "consolidate the oldest notes into fewer lines with remember") {
-			t.Error("notice does not ask for consolidation through the existing tool")
-		}
-		if !strings.Contains(block, "keeping every fact that still holds") {
-			t.Error("notice does not constrain the consolidation")
-		}
-		if strings.Contains(block, "prune it by hand") {
-			t.Error("the old un-actionable wording survived")
+		if strings.Count(block, "durable fact worth keeping") != 40 || strings.Contains(block, "omitted") {
+			t.Fatalf("load did not return all notes: %s", firstLines(block, 3))
 		}
 	}
 
@@ -64,8 +46,7 @@ func TestOverBudgetNoticeNamesTheLayerAndAsksForConsolidation(t *testing.T) {
 	}
 }
 
-// Under budget there is no notice at all.
-func TestUnderBudgetHasNoNotice(t *testing.T) {
+func TestUnderBudgetLoadsTheSameList(t *testing.T) {
 	root := t.TempDir()
 	cfg := func() config.Config {
 		return config.Config{Memory: config.Memory{Enabled: true, Dir: root, MaxTokens: 5000}}

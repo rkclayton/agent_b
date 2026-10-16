@@ -158,41 +158,42 @@ func TestAReplacementFragmentMustNameOnlyOneNote2tu(t *testing.T) {
 	}
 }
 
-// (d): the budget is on the FILE and a write that would exceed it is REFUSED
-// with what to do. Item 2eb trimmed on the way in, so the file grew forever and
-// the operator never met the limit; the harness never trims now.
-func TestAFullLayerRefusesTheWriteAndSaysWhatToDo2jf(t *testing.T) {
+func TestAFullLayerSavesTheNewNoteAndDropsTheOldest2vi(t *testing.T) {
 	manager, path := writer(t)
 	// A budget of 40 tokens is about 160 characters.
 	long := strings.Repeat("a durable fact ", 8)
 	if _, err := manager.WriteNote(path, Write{Note: long, Scope: "user", Budget: 40}); err != nil {
 		t.Fatalf("the first note did not fit a 40-token budget: %v", err)
 	}
-	_, err := manager.WriteNote(path, Write{Note: long + " and another", Scope: "user", Budget: 40})
-	if !errors.Is(err, ErrMemoryFull) {
-		t.Fatalf("the second note was not refused: %v", err)
+	newest := long + " and another"
+	_, dropped, err := manager.WriteNoteResult(path, Write{Note: newest, Scope: "user", Budget: 40})
+	if err != nil {
+		t.Fatalf("the second note was refused: %v", err)
 	}
-	// The message has to be actionable, or the model cannot do anything about it.
-	for _, want := range []string{"replace a note you name", "of 40 tokens"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not say %q: %v", want, err)
+	if dropped != 1 {
+		t.Fatalf("dropped=%d, want 1", dropped)
+	}
+	notes, _ := manager.Notes(path)
+	if len(notes) != 1 || notes[0].Text != strings.TrimSpace(newest) {
+		t.Fatalf("the newest note was not kept alone: %+v", notes)
+	}
+}
+
+func TestMemoryLayerFullBound2vi(t *testing.T) {
+	manager, path := writer(t)
+	const budget = 16384
+	for index := range 200 {
+		note := fmt.Sprintf("fact %03d %s", index, strings.Repeat("x", 400))
+		if _, _, err := manager.WriteNoteResult(path, Write{Note: note, Scope: "user", Budget: budget}); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// THE HARNESS NEVER TRIMS: the file is exactly what it was.
+	body, err := os.ReadFile(path)
+	if err != nil || (len([]rune(string(body)))+3)/4 > budget || !strings.Contains(string(body), "fact 199") {
+		t.Fatalf("bytes=%d err=%v", len(body), err)
+	}
 	notes, _ := manager.Notes(path)
-	if len(notes) != 1 || notes[0].Text != strings.TrimSpace(long) {
-		t.Fatalf("the refused write disturbed the file: %+v", notes)
-	}
-	// And a REPLACE gets in where an append could not, which is the whole point
-	// of refusing rather than trimming.
-	if _, err := manager.WriteNote(path, Write{
-		Note: "a shorter fact", Scope: "user", Replaces: strings.TrimSpace(long), Budget: 40,
-	}); err != nil {
-		t.Fatalf("a replace was refused by the budget it made room in: %v", err)
-	}
-	if notes, _ := manager.Notes(path); len(notes) != 1 || notes[0].Text != "a shorter fact" {
-		t.Fatalf("the replace did not land: %+v", notes)
-	}
+	t.Logf("memory file full bound: %d notes, %d bytes", len(notes), len(body))
 }
 
 func TestADuplicateIsStillADuplicate2jf(t *testing.T) {

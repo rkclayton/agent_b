@@ -1300,7 +1300,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	skillsSystem := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock)
 	memoryBlock := s.WorkspaceMemory()
 	workspaceMemory := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock, "")
-	system := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock, s.AgentMemoryBlock, s.MachineMemoryBlock)
+	system := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock, memoryBlock)
 	// As the run's own assembly does, harness abort records lead the list: a
 	// system-role record mid-history is refused by chat templates.
 	all := s.MessagesCopy()

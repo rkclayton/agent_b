@@ -75,7 +75,7 @@ func (r *PromptRenderer) Reload() error {
 	return nil
 }
 func (r *PromptRenderer) Render(connection *config.Connection, s *session.Session, toolNames []string, memory string) string {
-	return r.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, memory, s.AgentMemoryBlock, s.MachineMemoryBlock)
+	return r.RenderMemoryParts(connection, s, toolNames, s.ProjectBlock, memory)
 }
 func (r *PromptRenderer) RenderParts(connection *config.Connection, s *session.Session, toolNames []string, project, memory string) string {
 	return r.RenderMemoryParts(connection, s, toolNames, project, memory, "")
@@ -136,10 +136,8 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 	if trimmed := strings.TrimSpace(skills); trimmed != "" {
 		present = append(present, trimmed)
 	}
-	for _, layer := range layers {
-		if trimmed := strings.TrimSpace(layer); trimmed != "" {
-			present = append(present, trimmed)
-		}
+	if len(layers) > 0 {
+		present = append(present, memoryPromptLine(layers[0]))
 	}
 	memory := strings.TrimSpace(strings.Join(present, "\n\n"))
 	value = strings.ReplaceAll(value, "{{memory}}", memory)
@@ -164,4 +162,14 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 		value = strings.TrimRight(value, "\r\n")
 	}
 	return value
+}
+
+func memoryPromptLine(folderMemory string) string {
+	count := 0
+	for _, line := range strings.Split(folderMemory, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- ") {
+			count++
+		}
+	}
+	return fmt.Sprintf("This folder has %d saved notes; recall reads them.", count)
 }

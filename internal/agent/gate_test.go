@@ -112,7 +112,7 @@ func TestSkillShellWriteRaisesSameCardWhenApprovalModeIsOff2vh(t *testing.T) {
 	runner, item, eventCh, unsubscribe := skillApprovalFixture2vh(t)
 	defer unsubscribe()
 	target := filepath.Join(item.SkillsRoot, "fixture", "SKILL.md")
-	command := `Set-Content -LiteralPath "` + target + `" -Value changed`
+	command := `Set-Content -LiteralPath "` + target + `" -Value changed; printf changed > "` + target + `"`
 	done := make(chan toolpkg.CallOutcome, 1)
 	go func() {
 		done <- runner.executeTool(context.Background(), item, "run", "shell", "shell", map[string]any{"command": command})

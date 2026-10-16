@@ -14,7 +14,7 @@ import (
 var (
 	Commit          string
 	Dirty           string
-	Tag             = "v1.60.84"
+	Tag             = "v1.60.85"
 	ReleaseIdentity = "agentb-release-identity:development"
 )
 

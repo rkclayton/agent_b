@@ -2938,10 +2938,10 @@ if (realModel) {
     await page.locator(".chat-list-menu-button").click();
     await sleep(40);
   }
-  assert.deepEqual(roleLabels, ["Chat", "Folder", "agent_d · agent_b — plan", "Settings"]);
+  assert.deepEqual(roleLabels, ["agent_d · agent_b — plan", "Settings", "Reference", "Rules"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   const beforeDIDs = new Set(Object.keys((await state()).sessions));
-  await roleChoices.nth(2).click();
+  await roleChoices.filter({ hasText: "agent_d · agent_b — plan" }).click();
   // The selected list row reads the chat's name; role remains server metadata.
   let dSession;
   for (let attempt = 0; attempt < 100 && !dSession; attempt++) {

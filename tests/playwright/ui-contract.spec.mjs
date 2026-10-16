@@ -815,6 +815,13 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   }
   await expect(finished.page.locator(".chat-response-author")).toHaveCount(0); await finished.context.close();
 
+  const noRunState = snapshot("idle");
+  noRunState.sessions[id].chat = noRunState.sessions[id].chat.map(({ run_id, ...entry }) => entry);
+  const noRun = await open("idle", "no-run-2vk.test", noRunState);
+  await expect(noRun.page.getByRole("button", { name: "Undo file changes" })).toHaveCount(0);
+  await expect(noRun.page.locator(".chat-work-files-toggle")).toHaveCount(0);
+  await noRun.context.close();
+
   const shellOnly = snapshot("idle"); shellOnly.sessions[id].chat = [replay[0], replay[1], replay[2], replay.at(-1)]; shellOnly.sessions[id].cursor.offset = 4;
   const shellPage = await open("idle", "shell-only-2rk.test", shellOnly);
   await expect(shellPage.page.locator(".chat-work-undo")).toHaveCount(0);

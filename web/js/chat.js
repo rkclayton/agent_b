@@ -468,9 +468,10 @@ function groupResponses(entries) {
 		const role = entryRole(entry);
 		if (response && entryRole(response) !== role) { boundary = entry.key || `${role}:${grouped.length}`; response = null; }
     if (!response) {
-			response = { type: "response", key: `response:${boundary}`, agent_role: role, items: [] };
+			response = { type: "response", key: `response:${boundary}`, agent_role: role, run_id: entry.run_id || "", items: [] };
       grouped.push(response);
     }
+    if (!response.run_id && entry.run_id) response.run_id = entry.run_id;
     response.items.push(entry);
   }
   return grouped;
@@ -646,6 +647,7 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
     summaryToggle.onclick = () => { touched.add(key); expanded.has(key) ? expanded.delete(key) : expanded.add(key); render(); };
     view.work = { root, head, summaryToggle, caret, fileLabel, rows, controls };
   }
+  view.work.runID = runID || "";
   const open = expanded.has(key);
   const items = blocks.flatMap((block) => block.steps);
   const duration = responseSummary(items).duration;
@@ -655,12 +657,12 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
   const remaining = Number.isInteger(view.work.remaining) ? view.work.remaining : changed.size;
   const prefix = `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}`;
   if (changed.size) {
-    if (!view.work.fileToggle) {
+    if (view.work.runID && !view.work.fileToggle) {
       const toggle = document.createElement("span"); toggle.className = "chat-work-files-toggle"; toggle.tabIndex = 0; toggle.setAttribute("role", "button");
       const activate = async () => {
         if (view.work.filesOpen) { view.work.filesOpen = false; view.work.files = null; view.work.diffs = {}; render(); return; }
         try {
-          const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(runID)}`;
+          const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(view.work.runID)}`;
           const result = await api(`/api/file-undo${query}`, undefined, "GET");
           view.work.files = result.files || []; view.work.remaining = view.work.files.length; view.work.diffs = {}; view.work.filesOpen = true;
         } catch (error) { if (error.status === 410) view.work.available = false; else view.work.result = error.message; }
@@ -670,11 +672,14 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
       toggle.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); void activate(); } };
       view.work.fileToggle = toggle; view.work.available = true;
     }
-    view.work.fileToggle.textContent = ` · ${remaining} file${remaining === 1 ? "" : "s"} · file tools only`;
-    setAttribute(view.work.fileToggle, "aria-label", `${remaining} files changed`);
-    setAttribute(view.work.fileToggle, "aria-expanded", String(!!view.work.filesOpen));
-    view.work.fileLabel.nodeValue = view.work.fileToggle.textContent;
-    const countNode = view.work.available === false ? view.work.fileLabel : view.work.fileToggle;
+    const fileText = ` · ${remaining} file${remaining === 1 ? "" : "s"} · file tools only`;
+    if (view.work.fileToggle) {
+      view.work.fileToggle.textContent = fileText;
+      setAttribute(view.work.fileToggle, "aria-label", `${remaining} files changed`);
+      setAttribute(view.work.fileToggle, "aria-expanded", String(!!view.work.filesOpen));
+    }
+    view.work.fileLabel.nodeValue = fileText;
+    const countNode = view.work.runID && view.work.available !== false ? view.work.fileToggle : view.work.fileLabel;
     setText(view.work.summaryToggle, prefix);
     view.work.caret.nodeValue = ` ${open ? "▾" : "▸"}`;
     const nodes = [view.work.summaryToggle, countNode, view.work.caret];
@@ -684,20 +689,20 @@ function renderFinishedWork(session, view, responseKey, runID, blocks) {
     const nodes = [view.work.summaryToggle, view.work.caret];
     if (nodes.length !== view.work.head.childNodes.length || nodes.some((node, index) => view.work.head.childNodes[index] !== node)) view.work.head.replaceChildren(...nodes);
   }
-  if (changed.size && !view.work.undo) {
+  if (changed.size && view.work.runID && !view.work.undo) {
     const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-work-undo"; undo.textContent = "Undo file changes";
-    undo.onclick = async () => { if (!confirm("Undo file changes from this run? File tools only.")) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
+    undo.onclick = async () => { if (!confirm("Undo file changes from this run? File tools only.")) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:view.work.runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
     view.work.undo = undo; view.work.controls.append(undo);
   }
-  if (view.work.undo) view.work.undo.hidden = !changed.size;
+  if (view.work.undo) view.work.undo.hidden = !changed.size || !view.work.runID;
   if (view.work.result) { if (!view.work.outcome) { view.work.outcome = document.createElement("span"); view.work.outcome.className = "chat-work-undo-result"; view.work.controls.append(view.work.outcome); } setText(view.work.outcome, view.work.result); }
   reconcileChildren(view.work.rows, open ? blocks.map((block) => renderResponseBlock(session, view, block, false, { forceOpen: true, movedPast: true })) : []);
   view.work.root.querySelector(":scope > .chat-file-list")?.remove();
-  if (view.work.filesOpen) view.work.root.append(renderFileUndoList(session, runID, view.work));
+  if (view.work.filesOpen && view.work.runID) view.work.root.append(renderFileUndoList(session, view.work));
   return view.work.root;
 }
 
-function renderFileUndoList(session, runID, work) {
+function renderFileUndoList(session, work) {
   const list = document.createElement("div"); list.className = "chat-file-list";
   for (const file of work.files || []) {
     const item = document.createElement("div"); item.className = "chat-file-item";
@@ -705,7 +710,7 @@ function renderFileUndoList(session, runID, work) {
     const open = document.createElement("button"); open.type = "button"; open.className = "chat-file-open"; open.textContent = `${file.path} · ${file.kind}`; open.setAttribute("aria-expanded", String(!!work.diffs?.[file.id]));
     open.onclick = async () => {
       if (work.diffs?.[file.id]) { delete work.diffs[file.id]; render(); return; }
-      const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(runID)}&file_id=${encodeURIComponent(file.id)}`;
+      const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(work.runID)}&file_id=${encodeURIComponent(file.id)}`;
       try { work.diffs ||= {}; work.diffs[file.id] = await api(`/api/file-undo${query}`, undefined, "GET"); } catch (error) { work.result = error.message; }
       render();
     };
@@ -714,7 +719,7 @@ function renderFileUndoList(session, runID, work) {
       if (!confirm("Undo file changes from this run? File tools only.")) return;
       undo.disabled = true;
       try {
-        const result = await api("/api/file-undo", { session_id:session.id, run_id:runID, file_id:file.id, confirm:true });
+        const result = await api("/api/file-undo", { session_id:session.id, run_id:work.runID, file_id:file.id, confirm:true });
         work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore";
         if ((result.restored || []).length) { work.files = work.files.filter((entry) => entry.id !== file.id); work.remaining = work.files.length; delete work.diffs[file.id]; }
       } catch (error) { work.result = error.message; }

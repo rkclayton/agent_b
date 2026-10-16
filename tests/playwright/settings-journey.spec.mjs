@@ -16,7 +16,7 @@
 // a product defect and not a model mood.
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -785,4 +785,74 @@ test("a refused save keeps the drafts and marks only its field", async () => {
   await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("renamed while refused");
   await expect(editor.locator(`[data-path="connections.${id}.base_url"]`)).toHaveValue("127.0.0.1:9");
   await page.close();
+});
+
+test("finished turns undo their own real file changes before and after restart 2vk", async () => {
+	test.setTimeout(120000);
+	const original = (name) => `${name}-original\n`;
+	let page = await harness.context.newPage();
+	let initialState = await harness.getState();
+	let sessionID = Object.keys(initialState.sessions)[0];
+	if (!sessionID) {
+		const created = await page.request.post(`${harness.base}/api/sessions`, { data: { label: "Undo acceptance" }, headers: { "X-AgentB-Mutation-Token": harness.mutationToken } });
+		expect(created.status()).toBe(201);
+		await expect.poll(async () => Object.keys((await harness.getState()).sessions).length).toBe(1);
+		initialState = await harness.getState();
+		sessionID = Object.keys(initialState.sessions)[0];
+	}
+	const workspace = initialState.sessions[sessionID].workspace;
+	for (const name of ["alpha", "beta", "gamma"]) for (const suffix of ["one", "two"]) await writeFile(join(workspace, `undo-${name}-${suffix}.txt`), original(`${name}-${suffix}`));
+	await page.goto(`${harness.base}/chat?session=${sessionID}`);
+	const run = async (name) => {
+		await page.locator("#chat-task").fill(`acceptance: undo-files ${name}`);
+		await page.locator("#chat-send").click();
+		await expect(page.locator(".chat-response").filter({ hasText: `UNDO FILES ${name} DONE` })).toBeVisible({ timeout: 30000 });
+		await expect.poll(async () => (await harness.getState()).sessions[sessionID].run.status).toBe("idle");
+	};
+	await run("alpha");
+	const alpha = page.locator(".chat-response").filter({ hasText: "UNDO FILES alpha DONE" });
+	await alpha.getByRole("button", { name: "2 files changed" }).click();
+	await expect(alpha.locator(".chat-file-open")).toHaveCount(2);
+	for (const file of await alpha.locator(".chat-file-open").all()) await file.click();
+	await expect(alpha.locator(".chat-file-diff")).toHaveCount(2);
+	page.once("dialog", (dialog) => dialog.accept());
+	await alpha.locator(".chat-file-undo").first().click();
+	await expect(alpha.getByRole("button", { name: /1 files? changed/ })).toBeVisible();
+	page.once("dialog", (dialog) => dialog.accept());
+	await alpha.getByRole("button", { name: "Undo file changes" }).click();
+	await expect(alpha.locator(".chat-work-undo-result")).toContainText("restored undo-alpha-two.txt");
+	for (const suffix of ["one", "two"]) expect(await readFile(join(workspace, `undo-alpha-${suffix}.txt`), "utf8")).toBe(original(`alpha-${suffix}`));
+
+	await run("beta");
+	await run("gamma");
+	await page.close();
+	await harness.stop();
+	harness = await start({ exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"], streamDelayMs: 800, reuseConfig: true });
+	page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat?session=${sessionID}`);
+	const replay = (await harness.getState()).sessions[sessionID].chat;
+	const runIDs = Object.fromEntries(["beta", "gamma"].map((name) => [name, replay.find((entry) => entry.text === `UNDO FILES ${name} DONE`)?.run_id]));
+	expect(runIDs.beta).toBeTruthy();
+	expect(runIDs.gamma).toBeTruthy();
+	expect(runIDs.beta).not.toBe(runIDs.gamma);
+	const beta = page.locator(".chat-response").filter({ hasText: "UNDO FILES beta DONE" });
+	const gamma = page.locator(".chat-response").filter({ hasText: "UNDO FILES gamma DONE" });
+	await beta.getByRole("button", { name: "2 files changed" }).click();
+	await expect(beta.locator(".chat-file-open")).toHaveCount(2);
+	for (const file of await beta.locator(".chat-file-open").all()) await file.click();
+	await expect(beta.locator(".chat-file-diff")).toHaveCount(2);
+	const betaUndo = page.waitForRequest((request) => request.url().endsWith("/api/file-undo") && request.method() === "POST");
+	page.once("dialog", (dialog) => dialog.accept());
+	await beta.getByRole("button", { name: "Undo file changes" }).click();
+	expect((await betaUndo).postDataJSON().run_id).toBe(runIDs.beta);
+	await expect(beta.locator(".chat-work-undo-result")).toContainText("restored undo-beta-one.txt");
+	for (const suffix of ["one", "two"]) {
+		expect(await readFile(join(workspace, `undo-beta-${suffix}.txt`), "utf8")).toBe(original(`beta-${suffix}`));
+		expect(await readFile(join(workspace, `undo-gamma-${suffix}.txt`), "utf8")).toBe(`gamma-${suffix}-changed\n`);
+	}
+	page.once("dialog", (dialog) => dialog.accept());
+	await gamma.getByRole("button", { name: "Undo file changes" }).click();
+	await expect(gamma.locator(".chat-work-undo-result")).toContainText("restored undo-gamma-one.txt");
+	for (const suffix of ["one", "two"]) expect(await readFile(join(workspace, `undo-gamma-${suffix}.txt`), "utf8")).toBe(original(`gamma-${suffix}`));
+	await page.close();
 });

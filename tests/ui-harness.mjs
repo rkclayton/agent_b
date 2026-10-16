@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 
@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -92,6 +92,20 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 		if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(); }
 		const modelRequest = JSON.parse(requestBody || "{}");
 		modelRequests.push(modelRequest);
+		const messages = modelRequest.messages || [];
+		const userAt = messages.findLastIndex((message) => message.role === "user");
+		const user = String(messages[userAt]?.content || "");
+		const undoCase = /acceptance: undo-files ([a-z]+)/.exec(user)?.[1];
+		if (modelRequest.stream && undoCase) {
+			const results = messages.slice(userAt + 1).filter((message) => message.role === "tool").length;
+			if (!results) {
+				const tool_calls = ["one", "two"].map((suffix, index) => ({ index, id: `undo-${undoCase}-${suffix}`, type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: `undo-${undoCase}-${suffix}.txt`, content: `${undoCase}-${suffix}-changed\n` }) } }));
+				response.writeHead(200, { "Content-Type": "text/event-stream" });
+				return void response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+			}
+			response.writeHead(200, { "Content-Type": "text/event-stream" });
+			return void response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: `UNDO FILES ${undoCase} DONE` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+		}
 		if (!modelRequest.stream) {
 			response.writeHead(200, { "Content-Type": "application/json" });
 			return void response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ui harness reply" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } }));
@@ -110,7 +124,13 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 
   const appPort = await freePort();
   const configPath = join(dataRoot, "harness.json");
-  await writeFile(configPath, JSON.stringify(configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL, memoryEnabled }), null, 2));
+  let config = configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL, memoryEnabled });
+  if (reuseConfig) {
+		config = JSON.parse(await readFile(configPath, "utf8"));
+		config.listen = `127.0.0.1:${appPort}`;
+		for (const connection of config.connections || []) connection.base_url = `http://127.0.0.1:${modelPort}`;
+	}
+  await writeFile(configPath, JSON.stringify(config, null, 2));
 
   let stderr = "";
   const app = spawn(resolve(exe), ["-config", configPath, "-app-root", resolve(appRoot), "-data-root", dataRoot], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });

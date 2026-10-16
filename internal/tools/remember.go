@@ -27,9 +27,11 @@ import (
 //     belief is one action instead of an append and a stale line;
 //   - TWO WRITES PER RUN, enforced here. The third is refused with what to do
 //     instead;
+//
 // the layer has a BUDGET on the file. trimmed on the way in and
-//     asked the model to consolidate, so the file grew forever and nobody met
-//     the limit. The write is refused now and the harness never trims.
+//
+//	asked the model to consolidate, so the file grew forever and nobody met
+//	the limit. The write is refused now and the harness never trims.
 type Remember struct {
 	memory  *memory.Manager
 	bus     *events.Bus
@@ -105,10 +107,6 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		}
 		return "ok: noted for planner on this PC", nil
 	}
-	if memory.AboutAgentNote(note) {
-		return "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do", nil
-	}
-
 	// two writes per run, counted here rather than asked for in the prompt.
 	key := s.ID + "\x00" + s.Run.LastRunID
 	r.mu.Lock()

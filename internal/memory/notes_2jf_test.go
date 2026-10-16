@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,25 +10,6 @@ import (
 
 	"harness/internal/config"
 )
-
-func TestAboutAgentNotesAreMarkedButExcludedFromRecall2p3(t *testing.T) {
-	manager, path := writer(t)
-	manager.count = func(context.Context, string, string) (int, error) { return 1, nil }
-	if err := os.WriteFile(path, []byte("- 2026-01-01 STAY IN WORKSPACE because approval wedges\n- 2026-01-02 the operator prefers tabs\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	block, _, err := manager.load(context.Background(), path, "", "Notes:")
-	if err != nil || !strings.Contains(block, "about-agent: yes") {
-		t.Fatalf("marked block=%q err=%v", block, err)
-	}
-	recalled := FilterRecall(block)
-	if strings.Contains(recalled, "STAY IN WORKSPACE") || !strings.Contains(recalled, "prefers tabs") {
-		t.Fatalf("recall=%q", recalled)
-	}
-	if recalled = FilterRecall("- 2026-01-01 STAY IN WORKSPACE because approval wedges\n- 2026-01-02 the operator prefers tabs"); strings.Contains(recalled, "STAY IN WORKSPACE") {
-		t.Fatalf("raw recall=%q", recalled)
-	}
-}
 
 // Item 2jf: the file is where the rules live, because the file is what survives.
 func writer(t *testing.T) (*Manager, string) {

@@ -246,7 +246,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   Simple file discovery/read commands return a structured unsuccessful routing refusal naming the first-class replacement tool, and the command is not executed.
   With the service split enabled, an out-of-workspace discovery path instead reports the operator-decision boundary and supplies no replacement call.
   The existing shell also exposes the executable's read-on-demand `browser` subcommand: `& $env:AGENTB_EXE browser` prints the verbs; `start`, `nav`, `eval`, `text`, `screenshot`, `click`, `fill`, `press`, `wait`, and `pick` drive headless Edge through its local DevTools protocol. This registers no tool and adds nothing to the system prompt. Drive results name the acted-on element, title, and address. A screenshot is written under the workspace's `screenshots/`, delivered as a file, and attached to the next model request only on a connection that reads images; the ordinary image bound applies.
-- `remember {note,scope,replaces?}` writes user, repository, or environment memory as below.
+- `remember {note,scope,replaces?}` writes user, repository, or environment memory as below. Within the existing count and layer-size bounds, the note's words do not change whether it is saved or recalled.
   Scope `planner` instead appends one dated local product note to `<data-root>/planner/notes-for-planner.md`; it is never returned by `recall`, sent,
   or placed in a repository. A private custom agent reads shared and private memory, but every memory write goes only to its private file.
   Neither tool accepts a path and neither is widened by operator mode.

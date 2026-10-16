@@ -175,17 +175,15 @@ func TestRecallReadsRememberEntryAndRememberStillDetectsDuplicate(t *testing.T) 
 	}
 }
 
-func TestRememberRefusesRulesAboutItsOwnTools2p3(t *testing.T) {
+func TestRememberSavesAndRecallsRepositoryGateNote2ve(t *testing.T) {
 	remember, recall, item, _ := memoryTools(t)
-	result, err := remember.Call(context.Background(), item, map[string]any{"note": "do not search outside the workspace, the approval wedges", "scope": "user"})
-	if err != nil || result != "error: remember refused: notes about the agent's own tools are not kept; the user decides what the agent may do" {
-		t.Fatalf("refusal=%q err=%v", result, err)
+	note := "The repository CI gate says do not bypass tools/check-release.mjs."
+	result, err := remember.Call(context.Background(), item, map[string]any{"note": note, "scope": "repository"})
+	if err != nil || result != "ok: noted as repository; active next session." {
+		t.Fatalf("remember=%q err=%v", result, err)
 	}
-	if recalled, _ := recall.Call(context.Background(), item, nil); recalled != "No saved notes for this folder." {
-		t.Fatalf("refused note was saved: %q", recalled)
-	}
-	if result, err = remember.Call(context.Background(), item, map[string]any{"note": "the user prefers tabs", "scope": "user"}); err != nil || !strings.HasPrefix(result, "ok: noted") {
-		t.Fatalf("ordinary preference=%q err=%v", result, err)
+	if recalled, err := recall.Call(context.Background(), item, nil); err != nil || !strings.Contains(recalled, note) {
+		t.Fatalf("recall=%q err=%v", recalled, err)
 	}
 }
 

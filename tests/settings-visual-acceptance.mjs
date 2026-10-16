@@ -32,9 +32,12 @@ async function skillSource(root, name, description, extra = false) {
 async function activityFixture(dataRoot) {
 	const directory = join(dataRoot, "stats");
 	await mkdir(directory, { recursive: true });
-	await writeFile(join(directory, "agent_b.json"), `${JSON.stringify({
+	const memory = join(dataRoot, "memory");
+	await mkdir(memory, { recursive: true });
+	await writeFile(join(memory, "user.md"), "- 2026-10-15 The repository CI gate says do not bypass tools/check-release.mjs.  [scope: repository]\n");
+	await writeFile(join(directory, "ui.json"), `${JSON.stringify({
 		version: 1,
-		agent_id: "agent_b",
+		agent_id: "ui",
 		agent: {
 			chats: 2, runs: 3, turns: 12,
 			tools: {
@@ -187,7 +190,7 @@ async function captureCandidate(candidate, paths) {
 			for (const label of ["First repository chat", "Second repository chat"]) {
 				const created = await candidate.context.request.post(`${candidate.base}/api/sessions`, {
 					headers: { "X-AgentB-Mutation-Token": candidate.mutationToken },
-					data: { agent_id: "agent_b", label, role: "c", plan_id: plan.id },
+					data: { agent_id: "ui", label, role: "c", plan_id: plan.id },
 				});
 				assert.equal(created.status(), 201, await created.text());
 				const session = (await created.json()).session;
@@ -222,7 +225,7 @@ async function captureCandidate(candidate, paths) {
 async function countProduction(candidate) {
   const context = await candidate.browser.newContext({ viewport: { width: 1920, height: 1080 } });
   const page = await context.newPage();
-  await openSettings(page, production);
+  await openSettings(page, production === "candidate" ? candidate.base : production);
   for (const section of await page.locator(".settings-nav button").allInnerTexts()) {
     await page.locator(".settings-nav button", { hasText: section, exact: true }).click();
     report.sentences.before[section] = (await sectionFacts(page)).sentences.length;
@@ -234,7 +237,7 @@ let candidate;
 try {
 	const dataRoot = join(temp, "data");
 	await activityFixture(dataRoot);
-  candidate = await start({ exe: resolve(exe), appRoot: resolve("."), data: dataRoot, agents: ["Review"] });
+  candidate = await start({ exe: resolve(exe), appRoot: resolve("."), data: dataRoot, agents: ["Review"], memoryEnabled: true });
   report.candidate = candidate.base;
   const paths = await fixtures(candidate);
   await captureCandidate(candidate, paths);

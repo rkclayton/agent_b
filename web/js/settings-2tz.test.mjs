@@ -9,7 +9,7 @@ const subhead = (label) => `<div class="settings-subhead">${label}</div>`;
 const context = () => ({
   store: {
     active: "s",
-    sessions: { s: { agent_memory_content: "- 2026-10-12 preference text [scope: user, about-agent: yes]" } },
+    sessions: { s: { agent_memory_content: "- 2026-10-12 preference text [scope: user]" } },
     config: {
       profiles: { active: "one", names: ["one", "two"] },
       shell: { trusted_folders: [{ path: "C:\\work", added_at: "2026-10-12T00:00:00Z", source: "settings" }] },

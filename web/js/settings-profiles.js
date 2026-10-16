@@ -12,7 +12,7 @@ export function renderProfilesPage(context) {
   const memoryRows = notes.map((raw, index) => {
     const date = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0] || "—";
     const tail = /\[([^\]]+)\]\s*$/.exec(raw)?.[1] || "";
-    const kind = /scope:\s*([^,]+)/.exec(tail)?.[1]?.trim() || (tail.includes("about-agent") ? "agent" : "note");
+    const kind = /scope:\s*([^,]+)/.exec(tail)?.[1]?.trim() || "note";
     const note = raw.replace(/^\d{4}-\d{2}-\d{2}\s*/, "").replace(/\s*\[[^\]]+\]\s*$/, "");
     const open = expanded.has(`profile-memory-note:${index}`);
     return `<tr class="profile-memory-note ${open ? "open" : ""}"><td>${html(date)}</td><td>${html(kind)}</td><td><button type="button" class="memory-note-text" data-action="profile-memory-note-toggle" data-id="${index}" title="${attr(note)}">${html(note)}</button></td><td><button type="button" data-action="remove-agent-memory" data-id="${attr(raw)}" data-confirm="this memory note">Remove</button></td></tr>`;

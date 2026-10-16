@@ -6,7 +6,7 @@ let credentialList = [];
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
-let store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
+let store, armed, drafts, errors, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
   brokerStatus = context.brokerStatus || {};
@@ -16,7 +16,7 @@ function useSettingsContext(context) {
   credentialMessage = context.credentialMessage || "";
   credentialAlarm = !!context.credentialAlarm;
   credentialDevice = context.credentialDevice || {};
-  ({ store, armed, drafts, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
+  ({ store, armed, drafts, errors, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
 function shell(active) {
@@ -102,7 +102,7 @@ function shell(active) {
 	const sandboxStatus = store.sandbox || {};
 	const sandboxState = sandboxStatus.available ? "ready" : (sandboxStatus.reason || "Docker Sandbox is unavailable");
 	const trustedFolders = Array.isArray(store.config.shell?.trusted_folders) ? store.config.shell.trusted_folders : [];
-	const trustedRows = trustedFolders.map((entry, index) => `<tr><td><input id="trusted-folder-${index}" value="${attr(entry.path)}" aria-label="Allowed directory"></td><td>${html((entry.added_at || "").slice(0, 10))} · ${entry.source === "card" ? "card" : "Settings"}</td><td><button type="button" data-action="trusted-folder-change" data-id="${index}">Change</button><button type="button" data-action="trusted-folder-delete" data-id="${index}">Delete</button></td></tr>`).join("");
+	const trustedRows = trustedFolders.map((entry, index) => { const path = String(entry.path || ""), valid = /^(?:[a-z]:[\\/]|\\\\|\/)/i.test(path); return `<tr><td><span id="trusted-folder-${index}" class="allowed-directory-path" contenteditable="plaintext-only" role="textbox" aria-label="Allowed directory" title="${attr(path)}">${html(path)}</span>${valid ? "" : '<span class="allowed-directory-invalid">not a path</span>'}</td><td>${html((entry.added_at || "").slice(0, 10))} · ${entry.source === "card" ? "card" : "Settings"}</td><td><button type="button" data-action="trusted-folder-change" data-id="${index}">Change</button><button type="button" data-action="trusted-folder-delete" data-id="${index}">Delete</button></td></tr>`; }).join("");
 	const confirmedSubnets = new Set(store.config.shell?.confirmed_local_subnets || []);
 	const detectedSubnets = hardeningStatus.detected_local_subnets || [];
 	const subnetChoices = detectedSubnets.length
@@ -122,6 +122,7 @@ function shell(active) {
 	<p class="settings-note">This defeats the service-account OS boundary for every tool in every chat until it expires.</p>
 	${subhead("Allowed Directories", "A directory and its descendants skip outside-folder prompts.")}
 	<table class="allowed-directories"><thead><tr><th>Directory</th><th>Added</th><th></th></tr></thead><tbody>${trustedRows}<tr><td><input id="trusted-folder-new" placeholder="C:\\folder" aria-label="Add allowed directory"></td><td>—</td><td><button type="button" data-action="trusted-folder-add">Add</button></td></tr></tbody></table>
+	${errors.get("shell.trusted_folders") ? `<p class="settings-feedback alarm">${html(errors.get("shell.trusted_folders"))}</p>` : ""}
 	${brokerRows()}
 	${credentialRows()}
 	${subhead("Experimental", "")}

@@ -708,9 +708,15 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		}
 		if shell, ok := patch["shell"].(map[string]any); ok {
 			if _, changed := shell["trusted_folders"]; changed {
-				if err := normalizeTrustedFolders(&next, "settings"); err != nil {
+				covered, err := normalizeTrustedFolders(&next, "settings")
+				if err != nil {
 					s.mu.Unlock()
 					writeError(w, 400, err.Error(), "shell.trusted_folders")
+					return
+				}
+				for _, parent := range covered {
+					s.mu.Unlock()
+					writeError(w, 409, "already allowed by "+parent, "shell.trusted_folders")
 					return
 				}
 			}

@@ -24,6 +24,7 @@ import { promisify } from "node:util";
 
 import { start } from "../ui-harness.mjs";
 import { decodePNG } from "../png.mjs";
+import { auditLayoutSnapshot, collectLayoutSnapshot } from "../layout-gate.mjs";
 import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
 const run = promisify(execFile);
@@ -368,6 +369,32 @@ test("Entra credentials show account controls and configuration without defaults
 	const evidence = join(repo, "candidate", "rel-1.44.0-w7-entra", "settings-credentials.png");
 	await mkdir(join(repo, "candidate", "rel-1.44.0-w7-entra"), { recursive: true });
 	await page.screenshot({ path: evidence, fullPage: true });
+	await page.close();
+});
+
+test("adding an already covered directory says which parent allows it 2vj", async () => {
+	const page = await harness.context.newPage();
+	await page.goto(`${harness.base}/chat`);
+	const token = await page.locator('meta[name="agentb-mutation-token"]').getAttribute("content");
+	const parent = "C:\\fixture\\parent";
+	const long = "C:\\fixture\\a-very-long-directory-name-that-must-end-in-an-ellipsis-at-the-cell-edge";
+	const seeded = await page.request.post(`${harness.base}/api/config`, { headers: { "X-AgentB-Mutation-Token": token }, data: { shell: { trusted_folders: [{ path: parent, source: "settings" }, { path: long, source: "settings" }, { path: "not-a-path", source: "settings" }] } } });
+	expect(seeded.ok(), await seeded.text()).toBe(true);
+	await toggleSettings(page); await page.locator('.settings-nav [data-id="shell"]').click();
+	const evidence = join(repo, "logs", "evidence", "rel-1.62.127", "captures"); await mkdir(evidence, { recursive: true });
+	for (const width of [1280, 1024]) {
+		await page.setViewportSize({ width, height: 860 });
+		expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+		const style = await page.locator(".allowed-directory-path").nth(1).evaluate((node) => { const css = getComputedStyle(node); return { ellipsis: css.textOverflow, clipped: node.scrollWidth > node.clientWidth, title: node.title, background: css.backgroundColor }; });
+		expect(style).toEqual({ ellipsis: "ellipsis", clipped: true, title: long, background: "rgba(0, 0, 0, 0)" });
+		await page.screenshot({ path: join(evidence, `after-${width}.png`), fullPage: true });
+		await page.locator(".allowed-directory-path").evaluateAll((nodes) => nodes.forEach((node) => { const input = document.createElement("input"); input.value = node.textContent; input.id = node.id; node.replaceWith(input); }));
+		await page.screenshot({ path: join(evidence, `before-${width}.png`), fullPage: true });
+		await page.locator('[id^="trusted-folder-"]:not(#trusted-folder-new)').evaluateAll((nodes) => nodes.forEach((node) => { const span = document.createElement("span"); span.textContent = node.value; span.id = node.id; span.className = "allowed-directory-path"; span.contentEditable = "plaintext-only"; span.setAttribute("role", "textbox"); span.setAttribute("aria-label", "Allowed directory"); span.title = node.value; node.replaceWith(span); }));
+	}
+	await page.locator("#trusted-folder-new").fill(`${parent}\\child`); await page.locator('[data-action="trusted-folder-add"]').click();
+	await expect(page.locator(".settings-feedback", { hasText: `already allowed by ${parent}` })).toBeVisible();
+	await expect(page.locator(".allowed-directory-path")).toHaveCount(3);
 	await page.close();
 });
 

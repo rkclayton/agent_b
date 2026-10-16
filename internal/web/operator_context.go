@@ -226,7 +226,7 @@ func directNetworkPolicyField(patch map[string]any) string {
 	if !ok {
 		return ""
 	}
-	for _, field := range []string{"allow_local_network", "confirmed_local_subnets", "allowed_model_ranges", "trusted_folders"} {
+	for _, field := range []string{"allow_local_network", "confirmed_local_subnets", "allowed_model_ranges"} {
 		if _, present := shell[field]; present {
 			return "shell." + field
 		}

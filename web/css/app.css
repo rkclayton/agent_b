@@ -2066,7 +2066,7 @@
 .profile-memory-table th, .allowed-directories th { color: var(--mute); font-weight: 400; }
 .memory-note-text { max-width: 42ch; overflow: hidden; padding: 0; background: transparent; color: var(--ink); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .profile-memory-note.open .memory-note-text { max-width: none; white-space: normal; }
-.allowed-directories input { min-width: 32ch; }
+.allowed-directories input { min-width: 32ch; }.allowed-directory-path{display:block;width:min(42ch,50vw);overflow:hidden;color:var(--ink);text-overflow:ellipsis;white-space:nowrap}.allowed-directory-invalid{display:block;color:var(--alarm)}
 .profile-skills-row button { white-space: nowrap; }
 .skills-table, .skill-add-preview { width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
 .skills-table th, .skills-table td, .skill-add-preview td { padding: 4px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -2186,7 +2186,7 @@
 }
 @media (max-width: 639px) {
   .allowed-directories { width: 100%; table-layout: fixed; }
-  .allowed-directories input { width: 100%; min-width: 0; }
+  .allowed-directories input,.allowed-directory-path { width: 100%; min-width: 0; }
   .profile-skills-row > div { flex-wrap: wrap; }
 }
 

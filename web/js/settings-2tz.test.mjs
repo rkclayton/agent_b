@@ -40,3 +40,11 @@ test("Security removes unattended and standing grants, tables Allowed Directorie
   assert.equal(heads.at(-1), "Experimental");
   assert.ok(page.indexOf("Service identity") < page.indexOf("Docker Sandbox"));
 });
+
+test("Allowed Directories draws paths as text and marks a non-path 2vj", () => {
+  const value = context(); value.store.config.shell.trusted_folders.push({ path: "not-a-path", source: "settings" });
+  const page = renderSecurityPage("shell", null, value);
+  assert.match(page, /class="allowed-directory-path"[^>]*title="C:\\work"[^>]*>C:\\work<\/span>/);
+  assert.match(page, /not-a-path[\s\S]*not a path/);
+  assert.doesNotMatch(page, /id="trusted-folder-0"[^>]*<input/);
+});

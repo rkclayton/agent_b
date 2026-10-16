@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -71,8 +70,8 @@ func (c Config) validateBasics() error {
 		}
 	}
 	for i, folder := range c.Shell.TrustedFolders {
-		if !filepath.IsAbs(folder.Path) {
-			return fmt.Errorf("shell.trusted_folders[%d].path: absolute path required", i)
+		if strings.TrimSpace(folder.Path) == "" {
+			return fmt.Errorf("shell.trusted_folders[%d].path: required", i)
 		}
 		if folder.Source != "card" && folder.Source != "settings" {
 			return fmt.Errorf("shell.trusted_folders[%d].source: must be card or settings", i)

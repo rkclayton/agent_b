@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -26,6 +27,41 @@ func TestTrustedFolderChoicePersistsCanonicalFolder(t *testing.T) {
 	}
 	loaded, _, _, err := config.Load(path)
 	if err != nil || len(loaded.Shell.TrustedFolders) != 1 || loaded.Shell.TrustedFolders[0].Source != "card" {
+		t.Fatalf("loaded=%+v err=%v", loaded.Shell.TrustedFolders, err)
+	}
+}
+
+func TestTrustedFolderParentsSwallowChildren2vj(t *testing.T) {
+	root := t.TempDir()
+	parent, child, grandchild, sibling := filepath.Join(root, "Projects"), filepath.Join(root, "Projects", "X"), filepath.Join(root, "Projects", "X", "Y"), filepath.Join(root, "Other")
+	cfg := config.Defaults(root)
+	cfg.Shell.TrustedFolders = []config.TrustedFolder{{Path: child}, {Path: sibling}, {Path: grandchild}, {Path: parent}}
+	if _, err := normalizeTrustedFolders(&cfg, "settings"); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Shell.TrustedFolders) != 2 || !session.SamePath(cfg.Shell.TrustedFolders[0].Path, sibling) || !session.SamePath(cfg.Shell.TrustedFolders[1].Path, parent) {
+		t.Fatalf("reduced=%+v", cfg.Shell.TrustedFolders)
+	}
+	if runtime.GOOS == "windows" {
+		cfg.Shell.TrustedFolders = []config.TrustedFolder{{Path: `C:\2vj\projects`}, {Path: `C:\2vj\Projects\X`}}
+		if _, err := normalizeTrustedFolders(&cfg, "settings"); err != nil || len(cfg.Shell.TrustedFolders) != 1 {
+			t.Fatalf("case-insensitive reduction=%+v err=%v", cfg.Shell.TrustedFolders, err)
+		}
+	}
+}
+
+func TestTrustedFolderParentsAreReducedWhenConfigLoads2vj(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "Projects")
+	cfg := config.Defaults(root)
+	cfg.Shell.TrustedFolders = []config.TrustedFolder{{Path: filepath.Join(parent, "X"), Source: "settings"}, {Path: parent, Source: "settings"}, {Path: "not-a-path", Source: "settings"}}
+	path := filepath.Join(root, "harness.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	_ = New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: root}, events.NewBus())
+	loaded, _, _, err := config.Load(path)
+	if err != nil || len(loaded.Shell.TrustedFolders) != 2 || loaded.Shell.TrustedFolders[1].Path != "not-a-path" {
 		t.Fatalf("loaded=%+v err=%v", loaded.Shell.TrustedFolders, err)
 	}
 }

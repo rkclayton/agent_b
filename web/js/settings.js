@@ -1207,7 +1207,7 @@ async function runAction(event, button, action, id) {
 		if (action === "trusted-folder-delete") folders.splice(Number(id), 1);
 		else {
 			const input = sheet.querySelector(action === "trusted-folder-add" ? "#trusted-folder-new" : `#trusted-folder-${CSS.escape(id)}`);
-			const path = input?.value.trim(); if (!path) return;
+			const path = (input?.value || input?.textContent || "").trim(); if (!path) return;
 			const entry = { path, added_at: new Date().toISOString(), source: "settings" };
 			if (action === "trusted-folder-add") folders.push(entry); else folders[Number(id)] = entry;
 		}

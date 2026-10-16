@@ -126,6 +126,9 @@ type operatorTimer interface {
 func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *events.Bus) *Server {
 	cfg.Shell.OperatorContext = false
 	cfg.Shell.OperatorContextExpiresAt = ""
+	if covered, err := normalizeTrustedFolders(cfg, "settings"); err == nil && len(covered) > 0 {
+		_ = cfg.Save(path)
+	}
 	server := &Server{
 		cfg: cfg, configPath: path, webDir: webDir, roots: roots, bus: bus, mutationToken: newMutationToken(), browserSession: newMutationToken(), submissions: newIdempotentSubmissions(),
 		startedAt:          time.Now().UTC().Format(time.RFC3339),
@@ -290,32 +293,63 @@ func (s *Server) ConfigSnapshot() config.Config {
 	return result
 }
 
-func normalizeTrustedFolders(cfg *config.Config, source string) error {
-	now, seen, out := time.Now().UTC().Format(time.RFC3339), map[string]bool{}, make([]config.TrustedFolder, 0, len(cfg.Shell.TrustedFolders))
+func normalizeTrustedFolders(cfg *config.Config, source string) (map[string]string, error) {
+	if len(cfg.Shell.TrustedFolders) == 0 {
+		return map[string]string{}, nil
+	}
+	type folder struct {
+		entry    config.TrustedFolder
+		absolute bool
+	}
+	now, items := time.Now().UTC().Format(time.RFC3339), make([]folder, 0, len(cfg.Shell.TrustedFolders))
 	for _, entry := range cfg.Shell.TrustedFolders {
-		if strings.TrimSpace(entry.Path) == "" {
-			return fmt.Errorf("folder is required")
+		entry.Path = strings.TrimSpace(entry.Path)
+		if entry.Path == "" {
+			return nil, fmt.Errorf("folder is required")
 		}
-		real, err := session.RealPath(strings.TrimSpace(entry.Path))
-		if err != nil {
-			return err
+		absolute := filepath.IsAbs(entry.Path)
+		if absolute {
+			real, err := session.RealPath(entry.Path)
+			if err != nil {
+				return nil, err
+			}
+			entry.Path = real
 		}
-		key := strings.ToLower(real)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		entry.Path = real
 		if entry.Source == "" {
 			entry.Source = source
 		}
 		if entry.AddedAt == "" {
 			entry.AddedAt = now
 		}
-		out = append(out, entry)
+		items = append(items, folder{entry, absolute})
+	}
+	covered, out := map[string]string{}, make([]config.TrustedFolder, 0, len(items))
+	for i, item := range items {
+		parent := ""
+		if item.absolute {
+			for j, other := range items {
+				if i == j || !other.absolute {
+					continue
+				}
+				base, target := other.entry.Path, item.entry.Path
+				if runtime.GOOS == "windows" {
+					base, target = strings.ToLower(base), strings.ToLower(target)
+				}
+				rel, err := filepath.Rel(base, target)
+				if err == nil && ((rel == "." && j < i) || (rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
+					parent = other.entry.Path
+					break
+				}
+			}
+		}
+		if parent != "" {
+			covered[item.entry.Path] = parent
+		} else {
+			out = append(out, item.entry)
+		}
 	}
 	cfg.Shell.TrustedFolders = out
-	return nil
+	return covered, nil
 }
 
 func (s *Server) TrustFolders(paths []string) error {
@@ -325,7 +359,7 @@ func (s *Server) TrustFolders(paths []string) error {
 	for _, path := range paths {
 		next.Shell.TrustedFolders = append(next.Shell.TrustedFolders, config.TrustedFolder{Path: path})
 	}
-	if err := normalizeTrustedFolders(&next, "card"); err != nil {
+	if _, err := normalizeTrustedFolders(&next, "card"); err != nil {
 		s.mu.Unlock()
 		return err
 	}

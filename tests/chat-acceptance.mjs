@@ -2446,12 +2446,13 @@ if (realModel) {
   const slowMessage = await waitEvent(sessionID, (event) => event.seq > beforeSlowAccounting && event.type === "message.appended" && event.data?.message?.content?.startsWith("acceptance: slow accounting"), "slow-accounting message", 12000);
   const slowRun = await waitEvent(sessionID, (event) => event.seq > slowMessage.seq && event.type === "run.started" && event.data?.user_message_id === slowMessage.data.message.id, "slow-accounting run", 12000);
   const accountingBudget = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "budget", "slow-accounting budget", 30000);
-  await browser.wait(`document.querySelector('.chat-budget-tip')?.innerText.length > 0`, "occupancy label");
-  const occupancy = await page.locator(".chat-budget-tip").innerText();
-  assert.equal(occupancy.includes("estimated"), accountingBudget.data.estimated === true, occupancy);
   const slowStop = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "run.stopped" && event.seq > accountingBudget.seq, "slow-accounting run stopped", 20000);
   assert.equal(slowStop.data.reason, "done");
   await waitProjectedChatText(sessionID, "Slow accounting recovered with an estimate.", "slow-accounting answer", 20000);
+  await browser.wait(`document.querySelector('.chat-budget-tip')?.innerText.length > 0`, "occupancy label");
+  const occupancy = await page.locator(".chat-budget-tip").innerText();
+  const projectedBudget = (await state()).sessions[sessionID].budget;
+  assert.equal(occupancy.includes("estimated"), projectedBudget.estimated === true, occupancy);
   events = await sessionEvents(sessionID);
   await writeFile(join(args.evidence, "slow-accounting-events.json"), JSON.stringify({ trace: slowAccountingTrace, events: events.filter((event) => event.seq > beforeSlowAccounting).map((event) => ({ seq: event.seq, type: event.type, data: event.data })) }, null, 2));
   assert.ok(events.some((event) => event.run_id === slowRun.run_id && event.type === "budget"));

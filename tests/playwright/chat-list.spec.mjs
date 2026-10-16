@@ -77,10 +77,13 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(page.locator(".shell-settings")).toHaveCount(0);
   await page.locator(".chat-list-menu-button").click();
   const listMenu = page.locator(".chat-list-main-menu");
-  await expect(listMenu.locator(":scope > *")).toHaveCount(1);
-  await expect(listMenu.locator(":scope > span")).toHaveCount(0);
+  await expect(listMenu.locator(":scope > *")).toHaveCount(5);
+  await expect(listMenu.locator(":scope > span")).toHaveText(["Help"]);
   await expect(listMenu.locator(":scope > button")).toHaveText(["Settings"]);
-  await expect(listMenu.locator(":scope > hr")).toHaveCount(0);
+  await expect(listMenu.locator(":scope > hr")).toHaveCount(1);
+  const helpLinks = listMenu.locator(":scope > a");
+  await expect(helpLinks).toHaveText(["Reference", "Rules"]);
+  expect(await helpLinks.evaluateAll((links) => links.map(({ pathname, target }) => [pathname, target]))).toEqual([["/help/reference", "_blank"], ["/help/rules", "_blank"]]);
   await page.keyboard.press("Escape");
   expect(await rows.evaluateAll((items) => items.map((item) => item.dataset.session))).toEqual(["p2", "p1", "f1", "f2", "root"]);
   await expect(page.locator('[data-session="worker"]')).toHaveCount(0);
@@ -360,8 +363,8 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.store.config.agents[0].d = "fixture"; bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
   await page.locator(".chat-list-menu-button").click();
   await expect(page.locator(".shell-new-menu > button")).toHaveText(["agent_d · agent_b — plan", "Settings"]);
-  await expect(page.locator(".shell-new-menu > .chat-list-menu-label")).toHaveText("New");
-  await expect(page.locator(".shell-new-menu > hr")).toHaveCount(1);
+  await expect(page.locator(".shell-new-menu > .chat-list-menu-label")).toHaveText(["New", "Help"]);
+  await expect(page.locator(".shell-new-menu > hr")).toHaveCount(2);
   await page.getByTitle("Open plan chat").click(); await expect(rows).toHaveCount(++rowCount); expect(actions.at(-1).role).toBe("d");
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.store.config.agents[0].d = "fixture"; bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
   await page.locator(".chat-list-new").click(); await expect(rows).toHaveCount(++rowCount); expect(actions.at(-1).role).not.toBe("d");

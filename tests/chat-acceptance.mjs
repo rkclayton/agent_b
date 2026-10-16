@@ -2589,7 +2589,7 @@ if (realModel) {
     body: JSON.stringify({ context: { ...normalContext, soft_pct: .04, summary_pct: .05 } }),
   });
   const beforeCompactionSequence = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
-  const compactionTask = `acceptance: compaction ${"payload ".repeat(1200)}`.trimEnd();
+  const compactionTask = "acceptance: compaction";
   await setTask(compactionTask);
   await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.seq > beforeCompactionSequence, "compaction run", 30000);
   const compaction = await waitEvent(sessionID, (event) => event.type === "compaction", "compaction", 20000);

@@ -11,6 +11,7 @@ param(
     [string]$Dirty = '',
     # Acceptance tests opt in. Release builds keep their existing signing path.
     [switch]$SignForTest,
+    [switch]$TestSignatureWithoutTimestamp,
     # Defender recovery only: admit an existing, already-signed test executable
     # without asking Go to recreate the quarantined unsigned linker output.
     [switch]$UseExistingSignedBinary,
@@ -19,6 +20,8 @@ param(
     # its own disposable payload instead.
     [string]$SigningThumbprint
 )
+
+if ($TestSignatureWithoutTimestamp -and -not $SignForTest) { throw '-TestSignatureWithoutTimestamp requires -SignForTest.' }
 
 # Item 2eu: the release step builds the exe once, into the candidate, and records
 # what it built. The installer never builds; it installs this exe only when its
@@ -135,9 +138,9 @@ if ($UseExistingSignedBinary) {
     if (-not $SignForTest) { throw '-UseExistingSignedBinary requires -SignForTest.' }
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Existing signed test candidate not found: $binary" }
     $existingSignature = Get-AuthenticodeSignature -LiteralPath $binary
-    if ($existingSignature.Status -ne 'Valid' -or -not $existingSignature.TimeStamperCertificate -or
+    if ($existingSignature.Status -ne 'Valid' -or ((-not $TestSignatureWithoutTimestamp) -and -not $existingSignature.TimeStamperCertificate) -or
         $existingSignature.SignerCertificate.Subject -ne 'CN=Agent_b Disposable Test Signing') {
-        throw 'EXISTING TEST CANDIDATE REFUSED: a valid, timestamped disposable-test signature is required.'
+        throw 'EXISTING TEST CANDIDATE REFUSED: a valid disposable-test signature with the requested timestamp policy is required.'
     }
 } else {
     # `go build -o` may leave an existing, newer output in place when the
@@ -205,7 +208,7 @@ if ($UseExistingSignedBinary) {
             $null = New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force
             Copy-Item -LiteralPath $from -Destination $to
         }
-        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $testPayloadRoot -PayloadOnly
+        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $testPayloadRoot -PayloadOnly -NoTimestamp:$TestSignatureWithoutTimestamp
         if ($LASTEXITCODE -ne 0) { throw "Disposable payload signing exited $LASTEXITCODE." }
         $payloadRoot = $testPayloadRoot
     }
@@ -223,7 +226,7 @@ if ($UseExistingSignedBinary) {
     # identity probe below. This ordering is intentional: signing after
     # -version would still expose the raw Go output to real-time protection.
     if ($SignForTest) {
-        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $sourceRoot -BinaryOnly
+        & (Join-Path $sourceRoot 'tools\sign-test-candidate.ps1') -SourceDirectory $sourceRoot -BinaryOnly -NoTimestamp:$TestSignatureWithoutTimestamp
     }
 }
 
@@ -287,13 +290,13 @@ $manifest = [ordered]@{
 }
 if ($SignForTest) {
     $testSignature = Get-AuthenticodeSignature -LiteralPath $binary
-    if ($testSignature.Status -ne 'Valid' -or -not $testSignature.TimeStamperCertificate) {
-        throw 'SIGNED TEST CANDIDATE REFUSED: Authenticode signature or timestamp no longer verifies.'
+    if ($testSignature.Status -ne 'Valid' -or ((-not $TestSignatureWithoutTimestamp) -and -not $testSignature.TimeStamperCertificate)) {
+        throw 'SIGNED TEST CANDIDATE REFUSED: Authenticode signature does not verify with the requested timestamp policy.'
     }
     $manifest['test_signature'] = [ordered]@{
         thumbprint = $testSignature.SignerCertificate.Thumbprint
         subject = $testSignature.SignerCertificate.Subject
-        timestamped = $true
+        timestamped = -not $TestSignatureWithoutTimestamp
     }
 }
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))

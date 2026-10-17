@@ -52,6 +52,12 @@ const waitForChildExit = (child, timeout = 5000) => child?.exitCode !== null
   ? Promise.resolve()
   : Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(timeout)]);
 const record = (name) => { scenarios.push(name); process.stdout.write(`PASS ${name}\n`); };
+const finishJourney = async (name, sessionID) => {
+  await writeFile(join(args.evidence, "result.json"), JSON.stringify({ journey: name, scenarios, duration_ms: Date.now() - startedAt, session_id: sessionID }, null, 2));
+  process.stdout.write(`JOURNEY PASS ${name} ${Date.now() - startedAt} ms\n`);
+  await edgeContext.close(); terminateChildren(); await Promise.all(children.map((child) => waitForChildExit(child))); await stopFake();
+  process.exit(0);
+};
 const freePort = async () => {
   for (;;) {
     const probe = createServer();
@@ -723,6 +729,55 @@ if (!realModel) {
 	record("update-fixture-absent-from-chat");
 }
 record("open-chat");
+
+if (args.journey) {
+  const name = args.journey;
+  const sessionID = await page.locator(".chat-list-row.selected").getAttribute("data-session");
+  assert.ok(sessionID, `${name} has no selected chat`);
+  if (name === "chat-and-reply") {
+    await setTask("acceptance: journey chat and reply");
+    await waitProjectedChatText(sessionID, "Acceptance response.", name, 20000);
+  } else if (name === "build-and-restore") {
+    await page.reload();
+    await browser.wait(`document.querySelector('.chat-list-row.selected')`, name);
+    assert.equal((await state()).build.commit, args["expected-commit"]);
+  } else if (name === "settings-pages" || name === "connections" || name === "worker-plans") {
+    await openSettings();
+    const section = name === "connections" ? "connections" : name === "worker-plans" ? "plan" : "about";
+    await page.locator(`.settings-nav [data-id="${section}"]`).click();
+    await page.locator("#settings-page").waitFor({ state: "visible" });
+  } else if (name === "run-lifecycle") {
+    await setTask("acceptance: live tool");
+    await waitProjectedChatText(sessionID, "LIVE TOOL COMPLETE", name, 30000);
+  } else if (name === "turn-grouping-and-finished-work") {
+    await setTask("acceptance: failures continue");
+    await waitProjectedChatText(sessionID, "FAILURES CONTINUED TO ANSWER", name, 30000);
+    await openStepFoldIfDrawn();
+  } else if (name === "attachments-and-ocr") {
+    await page.locator("#chat-attach").click();
+    await page.locator("#chat-attach-exchange").click();
+    await browser.wait(`[...document.querySelectorAll('#chat-exchange-files button')].some(item=>item.innerText.includes('phone-note.txt'))`, name);
+    assert.equal(await clickText("#chat-exchange-files button", "phone-note.txt · 26 B"), true);
+    await browser.wait(`[...document.querySelectorAll('.chat-pending-file')].some(item=>item.innerText.includes('phone-note.txt') && item.querySelector('.attachment-bubble-remove'))`, name);
+    await setTask("acceptance: attachment");
+    await waitProjectedChatText(sessionID, "Attachment received and rendered.", name);
+  } else if (name === "compaction") {
+    for (let attempt = 0; attempt < 12; attempt++) { await setTask(`acceptance: compaction ${attempt}`); await waitProjectedChatText(sessionID, "Compaction answer", name, 30000); }
+    assert.ok((await sessionEvents(sessionID)).some((event) => event.type === "context.compacted"), "compaction journey emitted no context.compacted event");
+  } else if (name === "undo") {
+    await setTask("acceptance: scratch file");
+    await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", name);
+    const response = page.locator(".chat-response").filter({ hasText: "SCRATCH FILE COMPLETE" });
+    await response.getByRole("button", { name: /files? changed/ }).click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await response.getByRole("button", { name: "Undo file changes" }).click();
+    await response.locator(".chat-work-undo-result").waitFor({ state: "visible" });
+  } else {
+    throw new Error(`unknown acceptance journey: ${name}`);
+  }
+  record(`journey-${name}`);
+  await finishJourney(name, sessionID);
+}
 
 if (args["release-short"] === "true") {
   const sessionID = await page.locator(".chat-list-row.selected").getAttribute("data-session");

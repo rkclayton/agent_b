@@ -28,7 +28,7 @@ $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptR
 $candidateState = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $installerMatrix = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'test-installer.ps1')
 $apart = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\run-apart.ps1')
-foreach ($required in @('clock-timed-tests', 'long-packaged-chat-run', 'installer-matrix', 'TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc', 'TestWatchCoalescesBurstAndStillNoticesOneChange', 'TestCallServiceExecCredentialSuccessBearerAndCacheExpiry', 'TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt', 'test-chat-acceptance.ps1', 'test-installer.ps1', 'Invoke-WithReleaseCandidate', 'candidate-final.json', 'ToArray()', 'ConvertTo-Json')) {
+foreach ($required in @('clock-timed-tests', 'long-packaged-chat-run', 'installer-matrix', 'TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc', 'TestWatchCoalescesBurstAndStillNoticesOneChange', 'TestCallServiceExecCredentialSuccessBearerAndCacheExpiry', 'TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt', 'test-chat-journeys.ps1', 'test-installer.ps1', 'Invoke-WithReleaseCandidate', 'candidate-final.json', 'ToArray()', 'ConvertTo-Json')) {
     if ($apart -notmatch [regex]::Escape($required)) { throw "The apart command is missing $required." }
 }
 foreach ($required in @('$previousPreference', "`$ErrorActionPreference = 'Continue'", '$exitCode = $LASTEXITCODE')) {

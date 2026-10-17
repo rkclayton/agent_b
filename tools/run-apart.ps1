@@ -59,7 +59,7 @@ Invoke-ApartArm 'clock-timed-tests' {
 }
 Invoke-ApartArm 'long-packaged-chat-run' {
     Invoke-WithReleaseCandidate {
-        & $windowsPowerShell -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File (Join-Path $repository 'tests\test-chat-acceptance.ps1') -SkipBuild -ExpectedCommit $commit -ExpectedDirty false -Headless true -EvidenceDirectory (Join-Path (Split-Path -Parent $ResultPath) "apart-$Tag-chat")
+        & $windowsPowerShell -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File (Join-Path $repository 'tests\test-chat-journeys.ps1') -SkipBuild -ExpectedCommit $commit -ExpectedDirty false -EvidenceDirectory (Join-Path (Split-Path -Parent $ResultPath) "apart-$Tag-chat")
     }
 }
 Invoke-ApartArm 'installer-matrix' {

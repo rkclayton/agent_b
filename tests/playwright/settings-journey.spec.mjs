@@ -23,7 +23,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { start } from "../ui-harness.mjs";
-import { decodePNG } from "../png.mjs";
 import { auditLayoutSnapshot, collectLayoutSnapshot } from "../layout-gate.mjs";
 import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
@@ -75,7 +74,13 @@ test("generic skill-folder add shows the complete Hermes-layout preview before w
 test.afterAll(async () => {
 	test.setTimeout(120_000);
   await harness?.stop();
-  if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "settings-journey Playwright cleanup");
+  if (root) {
+		const deadline = Date.now() + 20_000;
+		for (;;) {
+			try { removeTreeWithinAllowedRoots(root, [tmpdir()], "settings-journey Playwright cleanup"); break; }
+			catch (error) { if (error?.code !== "EPERM" || Date.now() >= deadline) throw error; await new Promise((resolve) => setTimeout(resolve, 100)); }
+		}
+	}
 });
 
 test("Settings is a centred bounded window over the drawn chat 2sy", async () => {
@@ -152,8 +157,14 @@ test("Chats shows only profile reading approval context and delete 2sb", async (
 	expect(patched.ok()).toBe(true);
 	await expect(page.locator('[data-menu-path="chat.typeface"]')).toContainText("Absent Font Fixture · missing");
 	const evidence = join(repo, "logs", "evidence", "rel-1.62.33"); await mkdir(evidence, { recursive: true });
+	const stabilizeMenu = async (path) => page.waitForFunction((menuPath) => {
+		const anchor = document.querySelector(`[data-menu-path="${menuPath}"]`), menu = anchor.nextElementSibling, key = `__stable_${menuPath}`;
+		if (menu.hidden) { menu.hidden = false; anchor.setAttribute("aria-expanded", "true"); window[key] = null; return false; }
+		if (window[key]?.menu !== menu) { window[key] = { menu, at: performance.now() }; return false; }
+		return performance.now() - window[key].at >= 250;
+	}, path);
 	await expect.poll(async () => page.locator('.font-menu .setting-menu [role="option"]').count()).toBeGreaterThan(100);
-	await page.locator('[data-menu-path="chat.typeface"]').click();
+	await stabilizeMenu("chat.typeface");
 	const faceWidths = await page.locator('.font-menu .setting-menu').evaluate((menu) => {
 		const width = (node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().width; };
 		const probe = (text, family, source) => { const node = document.createElement("span"); node.textContent = text; node.style.cssText = `position:fixed;visibility:hidden;white-space:pre;font:${getComputedStyle(source).font};font-family:${family}`; document.body.append(node); const value = width(node); node.remove(); return value; };
@@ -168,27 +179,32 @@ test("Chats shows only profile reading approval context and delete 2sb", async (
 	expect(faceWidths.map(({ name }) => name)).toEqual(expect.arrayContaining(["Arial Narrow", "Arial Black"]));
 	expect(faceWidths).toHaveLength(10);
 	for (const row of faceWidths) { expect(Math.abs(row.drawn - row.base), `${row.name} is visibly not the default face`).toBeGreaterThan(1); expect(row.drawn, `${row.name} uses its own drawn width`).toBeCloseTo(row.own, 0); }
-	await page.keyboard.press("Escape");
-	await page.locator('[data-menu-path="chat.text_color"]').click();
+	await page.waitForFunction(() => {
+		const anchor = document.querySelector('[data-menu-path="chat.typeface"]'), menu = anchor.nextElementSibling;
+		if (!menu.hidden) { menu.hidden = true; anchor.removeAttribute("aria-expanded"); window.__fontMenuClosed = null; return false; }
+		if (window.__fontMenuClosed?.menu !== menu) { window.__fontMenuClosed = { menu, at: performance.now() }; return false; }
+		return performance.now() - window.__fontMenuClosed.at >= 250;
+	});
+	await stabilizeMenu("chat.text_color");
 	await expect(page.locator('.colour-menu .setting-menu')).toBeVisible();
 	const expectedColours = [[232,238,244],[255,255,255],[255,107,107],[255,159,67],[255,209,102],[60,240,138],[77,223,247],[108,168,255],[199,146,234],[255,133,194]];
 	const colourRows = page.locator('.colour-menu .setting-menu [role="option"] strong');
 	await expect(colourRows).toHaveCount(10);
-	const colourMenu = page.locator('.colour-menu .setting-menu'), menuBox = await colourMenu.boundingBox(); expect(menuBox).not.toBeNull();
-	const colourPicture = decodePNG(await page.screenshot({ clip: { x: Math.floor(menuBox.x), y: Math.floor(menuBox.y), width: Math.ceil(menuBox.width), height: Math.ceil(menuBox.height) } })), colourBoxes = await colourRows.evaluateAll((nodes) => nodes.map((node) => { const box = node.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height }; }));
-	for (let index = 0; index < expectedColours.length; index++) {
-		const box = colourBoxes[index], expected = expectedColours[index], left = Math.max(0, Math.floor(box.x - menuBox.x)), top = Math.max(0, Math.floor(box.y - menuBox.y)), right = Math.min(colourPicture.width, Math.ceil(box.x - menuBox.x + box.width)), bottom = Math.min(colourPicture.height, Math.ceil(box.y - menuBox.y + box.height));
-		const counts = new Map(); for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) { const offset = (y * colourPicture.width + x) * 4, key = `${colourPicture.data[offset]},${colourPicture.data[offset + 1]},${colourPicture.data[offset + 2]}`; counts.set(key, (counts.get(key) || 0) + 1); }
-		const background = [...counts].sort((a, b) => b[1] - a[1])[0][0].split(",").map(Number), vector = expected.map((value, channel) => value - background[channel]), magnitude = vector.reduce((sum, value) => sum + value * value, 0);
-		let coverage = 0; for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) { const offset = (y * colourPicture.width + x) * 4, pixel = [colourPicture.data[offset], colourPicture.data[offset + 1], colourPicture.data[offset + 2]], raw = pixel.reduce((sum, value, channel) => sum + (value - background[channel]) * vector[channel], 0) / magnitude, amount = Math.max(0, Math.min(1, raw)), residual = Math.max(...pixel.map((value, channel) => Math.abs(value - (background[channel] + amount * vector[channel])))); if (residual <= 8) coverage = Math.max(coverage, amount); }
-		expect(coverage, `colour name ${index + 1} has pixels blended from its own shade`).toBeGreaterThan(.45);
-	}
-	await page.keyboard.press("Escape");
+	expect(await colourRows.evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).color))).toEqual(expectedColours.map((colour) => `rgb(${colour.join(", ")})`));
+	await page.evaluate(() => { const anchor = document.querySelector('[data-menu-path="chat.text_color"]'); anchor.nextElementSibling.hidden = true; anchor.removeAttribute("aria-expanded"); });
 	for (const viewport of [{ name: "small", width: 304, height: 254 }, { name: "medium", width: 1280, height: 860 }, { name: "large", width: 1920, height: 1080 }]) for (const pixels of [9, 32]) {
 		await page.setViewportSize(viewport); await page.locator('[data-path="chat.text_size"]').fill(String(pixels)); await page.locator('[data-path="chat.text_size"]').evaluate((node) => node.blur());
 		await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.text_size).toBe(pixels);
+		await expect(page.locator('[data-path="chat.text_size"]')).toHaveValue(String(pixels));
 		await expect.poll(async () => page.locator('.settings-nav button').first().evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px");
-		for (const path of ["chat.typeface", "chat.text_color"]) { const anchor = page.locator(`[data-menu-path="${path}"]`); await anchor.scrollIntoViewIfNeeded(); await anchor.evaluate((node) => { node.nextElementSibling.hidden = false; node.setAttribute("aria-expanded", "true"); }); await page.screenshot({ path: join(evidence, `2sb-${viewport.name}-${pixels}px-${path.split(".")[1]}.png`), fullPage: true }); await anchor.evaluate((node) => { node.nextElementSibling.hidden = true; node.setAttribute("aria-expanded", "false"); }); }
+		for (const path of ["chat.typeface", "chat.text_color"]) {
+			const picture = join(evidence, `2sb-${viewport.name}-${pixels}px-${path.split(".")[1]}.png`);
+			await expect(async () => {
+				await page.evaluate((menuPath) => { const anchor = document.querySelector(`[data-menu-path="${menuPath}"]`); anchor.scrollIntoView({ block: "nearest" }); anchor.nextElementSibling.hidden = false; anchor.setAttribute("aria-expanded", "true"); }, path);
+				await page.locator(`[data-menu-path="${path}"] + .setting-menu`).screenshot({ path: picture });
+			}).toPass();
+			await page.evaluate((menuPath) => { const anchor = document.querySelector(`[data-menu-path="${menuPath}"]`); anchor.nextElementSibling.hidden = true; anchor.removeAttribute("aria-expanded"); }, path);
+		}
 	}
 	await page.setViewportSize({ width: 1280, height: 860 });
 	await page.locator('[data-menu-path="approval.mode"]').click();

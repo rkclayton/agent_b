@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$SourceDirectory,
     [string]$Thumbprint,
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
+    [switch]$NoTimestamp,
     [switch]$PayloadOnly,
     [switch]$BinaryOnly
 )
@@ -63,10 +64,14 @@ if (-not $PayloadOnly) {
 $cli = Join-Path $root 'agentb.exe'
 if (Test-Path -LiteralPath $cli -PathType Leaf) { $targets += $cli }
 foreach ($target in $targets) {
-    $signature = Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl
-    if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw "Test candidate signing failed for ${target}: $($signature.Status) $($signature.StatusMessage)" }
+    $signature = if ($NoTimestamp) {
+        Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256
+    } else {
+        Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl
+    }
+    if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid' -or ((-not $NoTimestamp) -and -not $signature.TimeStamperCertificate)) { throw "Test candidate signing failed for ${target}: $($signature.Status) $($signature.StatusMessage)" }
     $verified = Get-AuthenticodeSignature -LiteralPath $target
-    if ($verified.Status -ne 'Valid' -or $verified.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or -not $verified.TimeStamperCertificate) { throw "Test candidate signature did not verify after signing: $target" }
+    if ($verified.Status -ne 'Valid' -or $verified.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or ((-not $NoTimestamp) -and -not $verified.TimeStamperCertificate)) { throw "Test candidate signature did not verify after signing: $target" }
 }
 
 if ((-not $PayloadOnly) -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -76,9 +81,9 @@ if ((-not $PayloadOnly) -and (Test-Path -LiteralPath $manifestPath -PathType Lea
     $manifest | Add-Member -Force -NotePropertyName test_signature -NotePropertyValue ([ordered]@{
         thumbprint = $certificate.Thumbprint
         subject = $certificate.Subject
-        timestamped = $true
+        timestamped = -not $NoTimestamp
     })
     [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
-Write-Host "SIGNED TEST CANDIDATE: $($targets.Count) file(s) with $($certificate.Thumbprint), timestamped"
+Write-Host "SIGNED TEST CANDIDATE: $($targets.Count) file(s) with $($certificate.Thumbprint), $(if ($NoTimestamp) { 'without timestamp' } else { 'timestamped' })"
 exit 0

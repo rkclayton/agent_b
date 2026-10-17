@@ -16,6 +16,7 @@ param(
 	[switch]$TwoRVOnly,
 	[switch]$TwoU9Only,
 	[switch]$CronOnly,
+    [string]$Journey,
     [switch]$ExpectStableShell,
     [ValidateSet('true', 'false')]
     [string]$Headless = 'true'
@@ -107,7 +108,7 @@ try {
     # step's build runs here; with it, the source must already hold the exe and
     # its candidate-final.json.
     if (-not $SkipBuild) {
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $sourceRoot -SignForTest
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $sourceRoot -SignForTest -TestSignatureWithoutTimestamp
         if ($LASTEXITCODE -ne 0) { throw "Candidate build failed with exit code $LASTEXITCODE." }
     }
     & (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\install-Agent_b.ps1') @installArguments
@@ -135,6 +136,7 @@ try {
 		if ($TwoRVOnly) { $arguments += @('--2rv-only', 'true') }
 		if ($TwoU9Only) { $arguments += @('--2u9-only', 'true') }
 		if ($CronOnly) { $arguments += @('--cron-only', 'true') }
+		if (-not [string]::IsNullOrWhiteSpace($Journey)) { $arguments += @('--journey', $Journey) }
         if (-not [string]::IsNullOrWhiteSpace($seedProfile)) { $arguments += @('--seed-profile', $seedProfile) }
         & (Get-Command node.exe -ErrorAction Stop).Source @arguments
         if ($LASTEXITCODE -ne 0) { throw "Chat acceptance failed with exit code $LASTEXITCODE." }

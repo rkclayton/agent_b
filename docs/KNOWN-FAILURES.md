@@ -15,5 +15,7 @@ These are known test failures with scheduled follow-up work. They are not releas
 | `compaction` journey | `context.compacted` event | Twelve short exchanges produced no `context.compacted` event on either isolated attempt. | 187 | open — item 2vp |
 | `Profiles and Connections share fields, whole numbers, switches, and stable failure layout 2t0` | Playwright settings layout | Passed one of three isolated reruns, fewer than the required two. | 186 | open — item 2vp |
 | `Settings geometry follows the six-color console contract 2sy` | Playwright 1920 px geometry | Failed all three isolated reruns at 1920 px. | 187 | open — item 2vp |
+| `TestSessionEndIsRecordedBeforeWindowsEndsTheProcess` | hosted Windows all-packages job | The session-end query returned `0` on the original job and the single failed-job rerun. | 188 | open — item 2vp |
+| `TestTheSessionEndWindowExistsAsSoonAsTheWatchReturns` | hosted Windows all-packages job | The watcher returned before its guard window existed on the original job and the single failed-job rerun. | 188 | open — item 2vp |
 | `Chats shows only profile reading approval context and delete 2sb` | Playwright colour measurement | Ten consecutive isolated runs passed after waiting for the stable current menu state. | 185 | closed — item 2vn |
 | `Chats shows only profile reading approval context and delete 2sb` | Playwright menu overlay | Ten consecutive isolated runs passed after waiting for the stable current menu state. | 185 | closed — item 2vn |

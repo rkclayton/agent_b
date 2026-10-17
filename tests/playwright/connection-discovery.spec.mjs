@@ -733,6 +733,7 @@ test("an unassigned planner leaves the entry and shows the one line in the pane"
 
 test("Profiles and Connections share fields, whole numbers, switches, and stable failure layout 2t0", async () => {
   const styles = (nodes) => nodes.map((node) => { const value = getComputedStyle(node); return { tag: node.tagName, element: node.outerHTML, background: value.backgroundColor, color: value.color, border: value.border, family: value.fontFamily, size: value.fontSize, height: value.lineHeight, weight: value.fontWeight }; });
+  const settle = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   for (const viewport of [{ width: 304, height: 254 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }]) {
     const page = await harness.context.newPage({ viewport });
     await page.goto(`${harness.base}/chat`); await openSettings(page);
@@ -744,14 +745,17 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     const builtIn = await agentMetrics();
     await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
     await expect(page.locator('.settings-content [data-field="private"]')).toBeVisible();
+    await settle(page);
     const added = await agentMetrics();
     await page.locator('.settings-nav [data-id="shell"]').click();
     const settingsSwitch = page.locator('.settings-content button.switch').first();
     const switchPaint = async (node) => { const value = getComputedStyle(node), track = getComputedStyle(node, '::before'); return { background: value.backgroundColor, width: value.width, height: value.height, track: [track.width, track.height, track.top] }; };
     await settingsSwitch.hover();
+    await settle(page);
     const settingsPaint = await settingsSwitch.evaluate(switchPaint);
     await page.locator('.settings-nav [data-id="connections"]').click();
     await page.locator('[data-action="connection-toggle"]').first().click();
+    await settle(page);
     const reference = await page.locator('.connection-primary .setting-row > label').first().evaluate((node) => { const value=getComputedStyle(node); return { background:value.backgroundColor,color:value.color,border:value.border,family:value.fontFamily,size:value.fontSize,height:value.lineHeight,weight:value.fontWeight }; });
     const connectionFields = await page.locator('.connection-editor input:not([type="checkbox"]), .connection-editor select, .connection-editor textarea').evaluateAll(styles);
     const fieldByTag = Object.fromEntries(connectionFields.map((field) => [field.tag, field]));
@@ -764,6 +768,7 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     }
     const connectionSwitch = page.locator('.connection-primary button.switch').first();
     await connectionSwitch.hover();
+    await settle(page);
     expect(await connectionSwitch.evaluate(switchPaint)).toEqual(settingsPaint);
     const positions = async () => page.locator('.connection-primary').evaluate((root) => [...root.querySelectorAll(':scope > .setting-row')].map((row) => ({ label: row.querySelector(':scope > label')?.textContent.trim() || 'actions', left: row.getBoundingClientRect().left })));
     const before = await positions();

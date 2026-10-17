@@ -276,7 +276,18 @@ func (s *Store) Move(id, folder string) (string, error) {
 		return "", err
 	}
 	destination := filepath.Join(parent, name)
-	return destination, os.Rename(entry.Path, destination)
+	return destination, renameChat(entry.Path, destination, os.Rename)
+}
+
+func renameChat(source, destination string, rename func(string, string) error) error {
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		err := rename(source, destination)
+		if err == nil || !errors.Is(err, fs.ErrPermission) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 func (s *Store) NoticeStates() (map[string]NoticeState, error) {

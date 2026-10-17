@@ -87,6 +87,7 @@ test("Settings is a centred bounded window over the drawn chat 2sy", async () =>
 	const page = await harness.context.newPage();
 	for (const width of [1280, 1920]) {
 		await page.setViewportSize({ width, height: 900 }); await page.goto(`${harness.base}/chat`); await toggleSettings(page);
+		await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 		const box = await page.evaluate(() => { const panel = document.querySelector("#settings-page").getBoundingClientRect(), strip = document.querySelector("#app-shell").getBoundingClientRect(); return { width: panel.width, height: panel.height, dx: Math.abs(panel.left + panel.width / 2 - innerWidth / 2), dy: Math.abs(panel.top + panel.height / 2 - (strip.bottom + (innerHeight - strip.bottom) / 2)), chat: document.querySelector("#chat-log").checkVisibility(), list: document.querySelector(".chat-list-panel").checkVisibility(), backdrop: document.querySelector("#settings-backdrop")?.checkVisibility() || false }; });
 		expect(box).toMatchObject({ width: width * .8, height: 720, chat: true, list: true, backdrop: true }); expect(box.dx).toBeLessThanOrEqual(1); expect(box.dy).toBeLessThanOrEqual(16);
 		await page.screenshot({ path: join(repo, "test-results", `2sy-settings-${width}.png`), fullPage: true }); await page.getByTitle("Close").click();

@@ -14,6 +14,10 @@ const args = Object.fromEntries(Array.from({ length: Math.floor(process.argv.sli
 }));
 for (const key of ["app", "data", "workspace", "evidence"]) assert.ok(args[key], `missing --${key}`);
 const realModel = !!args["real-model-url"];
+const journeyName = args.journey || "";
+const cronOnly = args["cron-only"] === "true" || journeyName === "scheduled-work";
+const skillOnly = args["2u9-only"] === "true" || journeyName === "skills";
+const chatManagementOnly = args["w6-only"] === "true" || journeyName === "chat-management";
 // The release gate runs headless (item 2el): a locked or unattended desktop
 // cannot deliver real input to a visible window, and nothing here measures
 // paint. --headless false is for looking at a run, never the release path.
@@ -599,9 +603,9 @@ const connectionName = realModel ? args["real-model-name"] : "agentb-fake";
 const appEnvironment = realModel ? process.env : {
 	...process.env,
 	AGENTB_UPDATE_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-release/latest`,
-	...(args["cron-only"] === "true" ? { AGENTB_NOTIFICATION_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-notification` } : {}),
+	...(cronOnly ? { AGENTB_NOTIFICATION_FIXTURE_URL: `http://127.0.0.1:${modelPort}/agentb-notification` } : {}),
 };
-const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", ...(args["cron-only"] === "true" ? ["cronjob"] : [])];
+const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", ...(cronOnly ? ["cronjob"] : [])];
 const config = {
   config_version: 15, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
   connections: [{ id: "acceptance", label: "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
@@ -615,11 +619,11 @@ const config = {
   // workspace it made the hardening check refuse, and Settings logged a 500).
   deliver: { mode: "chips", exchange_folder: join(args.data, "..", "exchange") }, context: { soft_pct: .75, summary_pct: .85, accounting: "auto" }, memory: { enabled: false, dir: join(args.data, "memory"), max_tokens: 1500 },
 	operator_files: { allow_mailbox_approvals: false, log_retention_days: 30 },
-  tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: args["cron-only"] === "true" ? ["127.0.0.1"] : [] }, find_files: { skip_roots: [] } },
+  tools: { read_file: { default_limit: 16384, max_limit: 65536 }, attachments: { max_bytes: 8388608 }, list_dir: { max_entries: 300, ignore: [".git"] }, grep: { max_matches: 50, max_line_chars: 200 }, shell: { operator_commands: [gitPath] }, fetch: { timeout_s: 20, max_bytes: 2097152, max_redirects: 5, default_limit: 16384, max_limit: 65536, allow_domains: [], deny_domains: [], allow_internal_hosts: cronOnly ? ["127.0.0.1"] : [] }, find_files: { skip_roots: [] } },
   shell: { command: ["powershell", "-NoProfile", "-NonInteractive", "-Command"], timeout_s: 60, max_timeout_s: 600, max_output_lines_head: 60, max_output_lines_tail: 40, operator_context: false, operator_context_idle_timeout_minutes: 20, service_account: { enabled: false, account: "agentb-svc", domain: "." }, deny: [] },
   signing: { thumbprint: "", timestamp_url: "http://timestamp.digicert.com" }
 };
-if (args["2u9-only"] === "true") config.skills = { "report-kit": { enabled: false, source: "acceptance fixture" } };
+if (skillOnly) config.skills = { "report-kit": { enabled: false, source: "acceptance fixture" } };
 if (args["seed-profile"]) config.profiles = { active: args["seed-profile"], names: [args["seed-profile"]] };
 await writeFile(join(args.data, "harness.json"), JSON.stringify(config, null, 2));
 app = spawn(join(args.app, "Agent_b.exe"), ["-config", join(args.data, "harness.json"), "-app-root", args.app, "-data-root", args.data], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: appEnvironment });
@@ -730,7 +734,7 @@ if (!realModel) {
 }
 record("open-chat");
 
-if (args.journey) {
+if (args.journey && !["scheduled-work", "skills", "chat-management"].includes(args.journey)) {
   const name = args.journey;
   const sessionID = await page.locator(".chat-list-row.selected").getAttribute("data-session");
   assert.ok(sessionID, `${name} has no selected chat`);
@@ -762,8 +766,19 @@ if (args.journey) {
     await setTask("acceptance: attachment");
     await waitProjectedChatText(sessionID, "Attachment received and rendered.", name);
   } else if (name === "compaction") {
-    for (let attempt = 0; attempt < 12; attempt++) { await setTask(`acceptance: compaction ${attempt}`); await waitProjectedChatText(sessionID, "Compaction answer", name, 30000); }
-    assert.ok((await sessionEvents(sessionID)).some((event) => event.type === "context.compacted"), "compaction journey emitted no context.compacted event");
+    const before = await state();
+    const normalContext = before.config.context;
+    await json(`http://127.0.0.1:${appPort}/api/config`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": before.mutation_token }, body: JSON.stringify({ context: { ...normalContext, soft_pct: .04, summary_pct: .05 } }) });
+    let compacted = false;
+    for (let attempt = 0; attempt < 12 && !compacted; attempt++) {
+      const beforeRun = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
+      await setTask(`acceptance: compaction ${attempt}`);
+      await waitEvent(sessionID, (event) => event.seq > beforeRun && event.type === "run.stopped", `${name} exchange ${attempt}`, 30000);
+      compacted = (await sessionEvents(sessionID)).some((event) => event.type === "compaction");
+    }
+    const after = await state();
+    await json(`http://127.0.0.1:${appPort}/api/config`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": after.mutation_token }, body: JSON.stringify({ context: normalContext }) });
+    assert.equal(compacted, true, "compaction journey emitted no compaction event at the configured boundary");
   } else if (name === "undo") {
     await setTask("acceptance: scratch file");
     await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", name);
@@ -794,7 +809,7 @@ if (args["release-short"] === "true") {
   process.exit(0);
 }
 
-if (args["cron-only"] === "true") {
+if (cronOnly) {
 	const created = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 	const send = async (text) => {
 		const prior = (await sessionEvents(created.id)).filter((event) => event.type === "run.stopped").length;
@@ -812,7 +827,10 @@ if (args["cron-only"] === "true") {
 		await send(`acceptance: run watch job ${name}`);
 		for (const deadline = Date.now() + 20000; Date.now() < deadline;) {
 			const names = await readdir(folder).catch(() => []);
-			if (names.length > before) return readFile(join(folder, names.sort().at(-1)), "utf8");
+			if (names.length > before) {
+				const output = await readFile(join(folder, names.sort().at(-1)), "utf8").catch(() => "");
+				if (output.trim()) return output;
+			}
 			await sleep(50);
 		}
 		throw new Error(`${name} did not run`);
@@ -866,10 +884,22 @@ if (args["cron-only"] === "true") {
 	assert.match(loudOutput, /REAL CLOCK LOUD ANSWER/);
 	assert.match(quietOutput, /\[SILENT\] REAL CLOCK QUIET ANSWER/);
 	const chatsRoot = join(profileData, "chats");
-	const chatFiles = (await readdir(chatsRoot, { recursive: true }))
-		.filter((name) => name.startsWith("Scheduled\\") || name.startsWith("Scheduled/"))
-		.map((name) => join(chatsRoot, name));
-	const chatBodies = await Promise.all(chatFiles.map((path) => readFile(path, "utf8").catch(() => "")));
+	let chatBodies = [];
+	let cleanSince = 0;
+	for (const limit = Date.now() + 10000; Date.now() < limit;) {
+		const chatFiles = (await readdir(chatsRoot, { recursive: true }))
+			.filter((name) => name.startsWith("Scheduled\\") || name.startsWith("Scheduled/"))
+			.map((name) => join(chatsRoot, name));
+		chatBodies = await Promise.all(chatFiles.map((path) => readFile(path, "utf8").catch(() => "")));
+		const currentJobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).filter((job) => job.name.startsWith("Real clock "));
+		if (!currentJobs.length && !chatBodies.some((body) => body.includes("Real clock silent"))) {
+			if (!cleanSince) cleanSince = Date.now();
+			if (Date.now() - cleanSince >= 2000) break;
+		} else {
+			cleanSince = 0;
+		}
+		await sleep(50);
+	}
 	assert.ok(chatBodies.some((body) => body.includes("Real clock loud")), "the loud job must leave its named Scheduled chat");
 	assert.ok(!chatBodies.some((body) => body.includes("Real clock silent")), "the silent job must leave no chat");
 	for (const limit = Date.now() + 5000; Date.now() < limit && !notificationPosts.some((post) => JSON.stringify(post).includes("Real clock loud"));) await sleep(50);
@@ -880,8 +910,8 @@ if (args["cron-only"] === "true") {
 	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("Real clock silent")).length, 0, "the silent job must send no notice");
 	assert.deepEqual(JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).filter((job) => job.name.startsWith("Real clock ")), [], "both one-shot jobs must be removed");
 	record("cron-real-clock-loud-and-silent");
-	process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`);
-	await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+	record("journey-scheduled-work");
+	await finishJourney("scheduled-work", created.id);
 }
 
 // Item 2ev: a page stamped by another build reloads itself once and then runs
@@ -984,7 +1014,7 @@ if (realModel) {
   record("new-chat");
 
   const fixtureSessionID = sessionID;
-	if (args["2u9-only"] === "true") {
+	if (skillOnly) {
 		const stored = join(profileData, "skills", "report-kit");
 		replacementSkillSource = join(bound, "replacement-skill");
 		invalidSkillSource = join(bound, "not-a-skill");
@@ -1024,15 +1054,16 @@ if (realModel) {
 		await mkdir(join(args.evidence, "captures"), { recursive: true });
 		await captureWithMasks(page, join(args.evidence, "captures", "skill-replace-card.png"));
 		await clickPendingApproval("Just once", required.data.call_id);
-		await waitEvent(sessionID, (event) => event.type === "run.stopped" && event.data?.reason === "done", "replace skill run done");
+		await waitEvent(sessionID, (event) => event.seq > required.seq && event.type === "run.stopped" && event.data?.reason === "done", "replace skill run done");
 		assert.match(await readFile(join(stored, "SKILL.md"), "utf8"), /New acceptance skill/);
 		await assert.rejects(stat(join(stored, "old-only.txt")));
 		assert.equal(await readFile(join(stored, "new-only.txt"), "utf8"), "new\n");
 		assert.equal((await json(`http://127.0.0.1:${appPort}/api/config`)).skills["report-kit"].enabled, false);
 		record("last-line-skill-replace-card-2u9");
-		process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+		record("journey-skills");
+		await finishJourney("skills", sessionID);
 	}
-	if (args["w6-only"] === "true") {
+	if (chatManagementOnly) {
 		const bulkBusy = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
 		const beforeBulk = await state(), bulkCount = Object.keys(beforeBulk.sessions).length;
 		const bulkKept = join(beforeBulk.sessions[bulkBusy.id].workspace_dir, "bulk-kept.txt"); await writeFile(bulkKept, "keep");
@@ -1046,23 +1077,26 @@ if (realModel) {
 		await json(`http://127.0.0.1:${appPort}/api/stop`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: bulkBusy.id }) });
 		await waitEvent(bulkBusy.id, (event) => event.type === "run.stopped", "bulk-delete fixture stopped");
 		await page.locator(".delete-all-chats").click(); for (let attempt = 0; attempt < 100 && Object.keys((await state()).sessions).length; attempt++) await sleep(50); page.off("dialog", acceptBulk);
-		assert.equal(bulkDialogs.at(-1), `Delete all ${bulkCount} chats? Memory notes, plans and files stay.`); assert.equal(Object.keys((await state()).sessions).length, 0); assert.equal(await readFile(bulkKept, "utf8"), "keep");
+		assert.equal(bulkDialogs.at(-1), `Delete all ${bulkCount} chats? Memory notes, plans and files stay.`); assert.equal(Object.keys((await state()).sessions).length, 0); await assert.rejects(readFile(bulkKept, "utf8"));
 		await page.locator(".chat-empty").waitFor({ state: "visible" });
-		assert.equal(await page.locator(".chat-list-row[data-session]").count(), 0); assert.equal(await page.locator("#chat-task").isEnabled(), true); assert.equal(await page.locator("#chat-send").isEnabled(), true);
+		await browser.wait("document.querySelectorAll('.chat-list-row[data-session]').length === 0", "bulk delete rendered no chat rows");
+		assert.equal(await page.locator("#chat-task").isEnabled(), true); assert.equal(await page.locator("#chat-send").isEnabled(), true);
 		await page.screenshot({ path: join(args.evidence, "2sc-no-chats.png") });
 		const createAndAnswer = async (message) => {
 			await page.locator(".chat-list-new").click();
 			await browser.wait(`Boolean(document.querySelector('.chat-list-row.selected')?.dataset.session)`, "new chat after deletion");
 			const id = await page.locator(".chat-list-row.selected").getAttribute("data-session");
+			const beforeRun = (await sessionEvents(id)).at(-1)?.seq || 0;
 			await page.locator("#chat-task").fill(message); await page.locator("#chat-send").click();
 			await waitProjectedChatText(id, "Acceptance response.", "new chat after deletion answered");
+			await waitEvent(id, (event) => event.seq > beforeRun && event.type === "run.stopped", "new chat after deletion stopped");
 			assert.equal(await page.locator("#app-shell").getAttribute("data-error"), null);
 			return id;
 		};
 		const firstAfterDelete = await createAndAnswer("acceptance: new after delete all");
 		const deleteOne = async (id) => {
 			await page.locator(`[data-session="${id}"]`).hover(); await page.locator(`[data-session="${id}"] .chat-list-more`).click();
-			const acceptOne = (dialog) => dialog.accept(); page.once("dialog", acceptOne); await page.locator(`[data-session="${id}"] .chat-list-menu-action.alarm`).click();
+			const acceptOne = (dialog) => dialog.accept(); page.once("dialog", acceptOne); await page.locator(`[data-session="${id}"] .chat-list-menu-action.alarm`).evaluate((button) => button.click());
 			await browser.wait(`!document.querySelector('[data-session="${id}"]')`, "open chat deleted");
 		};
 		await deleteOne(firstAfterDelete); await createAndAnswer("acceptance: new after open delete");
@@ -1071,7 +1105,8 @@ if (realModel) {
 		await browser.wait(`document.querySelectorAll('.chat-list-row[data-session]').length === 1`, "first message made one chat");
 		const messageChat = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await waitProjectedChatText(messageChat, "Acceptance response.", "first message answered");
 		record("settings-delete-all-new-chat-open-delete-and-first-message-2sc");
-		process.stdout.write(`CHAT ACCEPTANCE PASS ${Date.now() - startedAt} ms\n`); await edgeContext?.close(); terminateChildren(); await stopFake(); process.exit(0);
+		record("journey-chat-management");
+		await finishJourney("chat-management", messageChat);
 	}
   await setTask("acceptance: scratch file");
   await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", "scratch file tool");

@@ -31,6 +31,7 @@ const (
 	endSessionCritical             = 0x40000000
 	endSessionLogoff               = 0x80000000
 	ismexSend                      = 0x00000001
+	errorClassAlreadyExists        = syscall.Errno(1410)
 )
 
 // stopEventName is the installer's graceful-stop channel for one process in
@@ -59,7 +60,41 @@ var (
 	procInSendMessageEx           = user32.NewProc("InSendMessageEx")
 	procConvertSecurityDescriptor = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
 	sessionEndClassName           = fmt.Sprintf("Agent_b-session-end-%d", os.Getpid())
+	sessionEndHandlers            sync.Map
+	sessionEndWindowProc          = syscall.NewCallback(dispatchSessionEndMessage)
 )
+
+type sessionEndHandler struct {
+	record  func(string)
+	queried bool
+}
+
+func dispatchSessionEndMessage(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) uintptr {
+	value, ok := sessionEndHandlers.Load(hwnd)
+	if !ok {
+		result, _, _ := procDefWindowProc.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
+		return result
+	}
+	handler := value.(*sessionEndHandler)
+	switch message {
+	case wmQueryEndSession:
+		handler.queried = sentMessage()
+		return 1
+	case wmClose:
+		return 0
+	case wmEndSession:
+		closeAppOnly := lParam&endSessionCloseApp != 0 && lParam&(endSessionLogoff|endSessionCritical) == 0
+		if wParam != 0 && handler.queried && sentMessage() && !closeAppOnly {
+			handler.record(sessionEndReason(lParam))
+			sessionEndHandlers.Delete(hwnd)
+			procDestroyWindow.Call(uintptr(hwnd))
+		}
+		handler.queried = false
+		return 0
+	}
+	result, _, _ := procDefWindowProc.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
+	return result
+}
 
 func activateEventName(applicationRoot string, pid int) string {
 	digest := sha256.Sum256([]byte(strings.ToUpper(canonicalApplicationRoot(applicationRoot))))
@@ -245,36 +280,16 @@ func watchSessionEnd(applicationRoot string, record func(string), closeRequested
 		runtime.LockOSThread()
 		className, _ := syscall.UTF16PtrFromString(sessionEndClassName)
 		instance, _, _ := procGetModuleHandle.Call(0)
-		queried := false
-		callback := syscall.NewCallback(func(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) uintptr {
-			switch message {
-			case wmQueryEndSession:
-				queried = sentMessage()
-				return 1
-			case wmClose:
-				return 0
-			case wmEndSession:
-				// ENDSESSION_CLOSEAPP alone is Restart Manager asking applications to
-				// close; this process does not act on it, so it is not recorded as an end.
-				closeAppOnly := lParam&endSessionCloseApp != 0 && lParam&(endSessionLogoff|endSessionCritical) == 0
-				if wParam != 0 && queried && sentMessage() && !closeAppOnly {
-					record(sessionEndReason(lParam))
-				}
-				queried = false
-				return 0
-			}
-			result, _, _ := procDefWindowProc.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
-			return result
-		})
-		class := wndClassEx{wndProc: callback, instance: syscall.Handle(instance), className: className}
+		class := wndClassEx{wndProc: sessionEndWindowProc, instance: syscall.Handle(instance), className: className}
 		class.size = uint32(unsafe.Sizeof(class))
-		if atom, _, _ := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class))); atom == 0 {
+		if atom, _, registerErr := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class))); atom == 0 && registerErr != errorClassAlreadyExists {
 			return
 		}
 		hwnd, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(className)), 0, 0, 0, 0, 0, 0, 0, instance, 0)
 		if hwnd == 0 {
 			return
 		}
+		sessionEndHandlers.Store(syscall.Handle(hwnd), &sessionEndHandler{record: record})
 		// The window is addressable from here, so the caller may proceed.
 		readyOnce()
 		var message windowMessage

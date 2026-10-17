@@ -39,10 +39,7 @@ foreach ($name in $Journeys) {
             [IO.File]::WriteAllText($stderr, 'planted journey failure', [Text.UTF8Encoding]::new($false)); $exitCode = 23
         } else {
             $arguments = @('-NoLogo','-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',(Join-Path $PSScriptRoot 'test-chat-acceptance.ps1'),'-SkipBuild','-ExpectedCommit',$ExpectedCommit,'-ExpectedDirty',$ExpectedDirty,'-Headless','true','-EvidenceDirectory',$journeyEvidence)
-            if ($definition.mode -ceq 'cron') { $arguments += '-CronOnly' }
-            elseif ($definition.mode -ceq 'skills') { $arguments += '-TwoU9Only' }
-            elseif ($definition.mode -ceq 'chat-management') { $arguments += '-W6Only' }
-            else { $arguments += @('-Journey', $name) }
+            $arguments += @('-Journey', $name)
             $savedModulePath = $env:PSModulePath
             try {
                 if ($PSVersionTable.PSEdition -eq 'Core') {

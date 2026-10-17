@@ -22,6 +22,7 @@ export function renderChatsPage(active, context) {
   const faces = installed.map((family) => ({ value: family, label: family, face: safeFace(family) }));
   if (!installed.includes(chosen)) faces.unshift({ value: chosen, label: chosen, missing: true, face: "IBM Plex Sans" });
   const colors = TEXT_COLORS.map(([value, label, color]) => ({ value, label, color }));
+  const deleteError = context.errors.get("chat_root");
   return `${context.subhead("Reading")}
     ${context.field("chat.text_size", "text size", `<input class="setting-input number" type="number" min="9" max="32" step="1" data-path="chat.text_size" data-kind="number" value="${context.attr(size)}">`, false, "Set transcript text size from 9 to 32 pixels.")}
     ${context.menuSetting("chat.typeface", "typeface", faces, chosen, "font-menu", "Choose the transcript typeface.")}
@@ -30,6 +31,7 @@ export function renderChatsPage(active, context) {
     ${context.subhead("Context")}
     ${renderContextPage(active, context)}
     ${context.subhead("Delete")}
+    ${deleteError ? context.errorMarkup(deleteError, "group:chat_root", "settings-group-error field-error") : ""}
     ${context.row("all chats", `<button type="button" class="delete-all-chats" data-action="delete-all-chats" ${chatCount ? "" : "disabled"}>Delete all chats</button>`, "", `${chatCount} chat${chatCount === 1 ? "" : "s"}`)}`;
 }
 import { actionTable } from "./settings-action-table.js";

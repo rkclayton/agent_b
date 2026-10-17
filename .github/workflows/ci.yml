@@ -27,7 +27,7 @@ jobs:
         shell: pwsh
         run: |
           $result = Join-Path $env:RUNNER_TEMP 'go-test.json'
-          go test -json ./... 2>&1 | Tee-Object -FilePath $result
+          go test -p 1 -json ./... 2>&1 | Tee-Object -FilePath $result
           $testExit = $LASTEXITCODE
           node tests/gate-result.mjs --go-json $result
           if ($testExit -ne 0) { exit $testExit }
@@ -57,7 +57,7 @@ jobs:
         run: |
           result="$RUNNER_TEMP/go-test.json"
           set +e
-          go test -json ./... | tee "$result"
+          go test -p 1 -json ./... | tee "$result"
           test_exit=${PIPESTATUS[0]}
           set -e
           node tests/gate-result.mjs --go-json "$result"

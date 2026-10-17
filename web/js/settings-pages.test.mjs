@@ -53,6 +53,13 @@ test("every Settings page renderer accepts the controller context", () => {
   for (const page of pages) assert.equal(typeof page, "string");
 });
 
+test("Chats shows the running-chat refusal beside Delete 2vp", () => {
+  const context = pageContext();
+  context.store.sessions = { busy: { id: "busy" } };
+  context.errors.set("chat_root", "Busy chat is running");
+  assert.match(renderChatsPage(null, context), /settings-group-error field-error[^>]*>Busy chat is running/);
+});
+
 test("Connections offers the saved runs-at-once override and learned default 2v4", () => {
   const context = pageContext();
   const connection = { id: "local", label: "Local", base_url: "http://fixture.invalid", model: "model", max_concurrent: 2, sampling: { thinking: {}, nonthinking: {} }, context: {}, reasoning: {}, capabilities: { parallel_capacity: 4 } };

@@ -345,3 +345,17 @@ func TestNoticeModeAndLastUserMessageSurviveMoveAndRestart2re(t *testing.T) {
 		t.Fatalf("states=%+v err=%v", states, err)
 	}
 }
+
+func TestMoveRetriesATransientWindowsSharingDenial2vp(t *testing.T) {
+	attempts := 0
+	err := renameChat("source", "destination", func(_, _ string) error {
+		attempts++
+		if attempts < 3 {
+			return &os.PathError{Op: "rename", Path: "source", Err: os.ErrPermission}
+		}
+		return nil
+	})
+	if err != nil || attempts != 3 {
+		t.Fatalf("err=%v attempts=%d", err, attempts)
+	}
+}

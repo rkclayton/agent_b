@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { measuredAllowance, proofSelection, sourceHash, startupFailure, startupWaitMs, verifyRun } from "../tools/compaction-proof.mjs";
+import { measuredAllowance, proofPlan, proofSelection, runEnding, sourceHash, startupFailure, startupWaitMs, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -29,6 +29,21 @@ test("the proof uses the measured start allowance and the active agent model 2ur
   assert.equal(startupFailure(startupWaitMs, "agents[0].c: invalid"), "candidate page did not answer after 8.036 seconds; last log: agents[0].c: invalid");
   assert.equal(measuredAllowance(1000, [500, 5000]), 60000);
   assert.equal(measuredAllowance(1000, [500, 5000], 30), 360000);
+});
+
+test("every proof run uses the installed model window and one scaled workload 2vr", () => {
+  const machine = { connections: [{ id: "main", model: "chosen", models: [{ model: "chosen", context: { n_ctx: 32768 } }] }] };
+  const profile = { agents: [{ name: "agent_b", b: "main" }] };
+  const plan = proofPlan(machine, profile);
+  assert.equal(plan.window, 32768);
+  assert.ok(plan.runs.every((run) => run.window <= plan.window));
+  assert.deepEqual(plan.runs.map((run) => run.files), [120, 120, 120, 120, 40]);
+});
+
+test("a stalled or turnless trace names its ending 2vr", () => {
+  const repeated = [budget(1, 500), budget(2, 500)];
+  assert.match(runEnding(repeated, new Error("fresh completion timed out after measured allowance")), /^expired allowance:/);
+  assert.equal(runEnding([{ seq: 1, type: "run.stopped", data: { reason: "model_unreachable" } }]), "terminal event: run.stopped model_unreachable");
 });
 
 test("the tracked source hash excludes tests and is stable", async () => {

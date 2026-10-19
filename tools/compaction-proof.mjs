@@ -25,6 +25,19 @@ export function proofSelection(machine, profile) {
   return { agent: { ...original, c: "", d: "" }, connection, model, record: { connection: "active profile agent_b role b", model: model.model, window } };
 }
 
+export function proofPlan(machine, profile) {
+  const window = proofSelection(machine, profile).record.window;
+  const sized = (minimum) => Math.ceil(40 * window / 32768) * minimum;
+  const runs = [
+    { name: "fresh", minimum: 3 },
+    { name: "typed-continue", minimum: 3, interrupt: true, continueText: "continue" },
+    { name: "Continue", minimum: 3, interrupt: true, continueText: "Continue" },
+    { name: "queued-message", minimum: 3, queue: true },
+    { name: "full", minimum: 1 }
+  ].map((run) => ({ ...run, window, files: sized(run.minimum) }));
+  return { window, runs };
+}
+
 async function filesBelow(directory) {
   const result = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -53,7 +66,16 @@ export async function sourceHash(root = here) {
 }
 
 const fixed = (budget) => Object.entries(budget?.categories || {}).filter(([name]) => fixedKeys.has(name)).reduce((sum, [, value]) => sum + Number(value || 0), 0);
-export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false) {
+export function runEnding(events, error) {
+  const budgets = events.filter((event) => event.type === "budget" && event.data?.used_measured > 0);
+  const repeated = budgets.length > 1 && budgets.at(-1).data.used_measured === budgets.at(-2).data.used_measured;
+  if (budgets.length && !repeated) return "";
+  if (error && /timed out.*allowance/.test(error.message)) return `expired allowance: ${error.message}`;
+  const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
+  return stopped ? `terminal event: run.stopped ${stopped.data?.reason || "without a reason"}` : `last event: ${events.at(-1)?.type || "none"}`;
+}
+
+export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "") {
   const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
   const compactions = events.filter((event) => event.type === "compaction");
   const lines = notes.trimEnd().split(/\r?\n/);
@@ -79,6 +101,7 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   if (output) {
     process.stdout.write(`\nCOMPACTION TRACE: ${name}\n| turn | server prompt | line | crossed | compaction | count after | fixed prompt | share cut |\n| ---: | ---: | ---: | :---: | :---: | ---: | ---: | ---: |\n`);
     for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.before.data.used_measured} | ${Math.ceil(row.before.data.ceiling * .9)} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.length})` : "no"} | ${row.after?.data?.used_measured ?? "—"} | ${fixed(row.before.data)} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} |\n`);
+    if (ending) process.stdout.write(`\nPROOF END: ${ending}\n`);
     process.stdout.write(`\n| condition | pass | deciding turn |\n| ---: | :---: | ---: |\n${conditions.map((one) => `| ${one.condition} | ${one.pass ? "yes" : "no"} | ${one.turn} |`).join("\n")}\n`);
   }
   const measurements = compactions.map((compact) => { const { before, after } = around(compact); return { before: before?.data?.used_measured, fixed_prompt_before: before && fixed(before.data), after: after?.data?.used_measured, fixed_prompt_after: after && fixed(after.data) }; });
@@ -187,7 +210,8 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
         }
         await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, activityBase, spec.files);
       } catch (error) { runError = error; }
-      const checked = assessRun(spec.name, await eventsIn(prepared.data, id), prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true);
+      const events = await eventsIn(prepared.data, id);
+      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError));
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
       await writeFile(join(prepared.workspace, "notes.md"), "");
       if (runError) throw runError;
@@ -204,15 +228,14 @@ export async function dryStart({ app, sourceData, window }) {
 }
 
 export async function prove({ app, sourceData, root = here, record, only = "" }) {
-  const short = [{ name: "fresh", files: 60, minimum: 3 }, { name: "typed-continue", files: 60, minimum: 3, interrupt: true, continueText: "continue" }, { name: "Continue", files: 60, minimum: 3, interrupt: true, continueText: "Continue" }, { name: "queued-message", files: 60, minimum: 3, queue: true }];
-  const wanted = new Set(only ? only.split(",") : [...short.map((one) => one.name), "full"]);
   const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active;
-  const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), ownWindow = proofSelection(machine, profile).record.window;
-  const sample = await dryStart({ app, sourceData, window: 48000 }), timing = { startupMs: sample.startupMs, startupAllowanceMs: Math.ceil(sample.startupMs * 1.5) };
+  const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), plan = proofPlan(machine, profile);
+  const wanted = new Set(only ? only.split(",") : plan.runs.map((run) => run.name));
+  const sample = await dryStart({ app, sourceData, window: plan.window }), timing = { startupMs: sample.startupMs, startupAllowanceMs: Math.ceil(sample.startupMs * 1.5) };
   process.stdout.write(`COMPACTION PROOF CALIBRATION: startup ${(sample.startupMs / 1000).toFixed(3)} seconds; scored-start allowance ${(timing.startupAllowanceMs / 1000).toFixed(3)} seconds\n`);
-  const selectedShort = short.filter((one) => wanted.has(one.name)), checked = [
-    ...(selectedShort.length ? await runGroup(app, sourceData, 48000, selectedShort, false, timing) : []),
-    ...(wanted.has("full") ? await runGroup(app, sourceData, ownWindow, [{ name: "full", files: Math.ceil(40 * ownWindow / 32768), minimum: 1 }], false, timing) : [])
+  const selectedShort = plan.runs.filter((run) => run.name !== "full" && wanted.has(run.name)), full = plan.runs.find((run) => run.name === "full"), checked = [
+    ...(selectedShort.length ? await runGroup(app, sourceData, plan.window, selectedShort, false, timing) : []),
+    ...(wanted.has("full") ? await runGroup(app, sourceData, plan.window, [full], false, timing) : [])
   ];
   const failure = checked.flatMap((run) => run.conditions.filter((one) => !one.pass).map((one) => ({ ...one, run: run.run }))).at(0);
   if (failure) throw new Error(`condition ${failure.condition} at turn ${failure.turn} of ${failure.run}: ${failure.message}`);
@@ -226,7 +249,7 @@ async function main() {
   const pairs = process.argv.slice(2), args = {}; for (let i = 0; i < pairs.length; i += 2) args[pairs[i].replace(/^--/, "")] = pairs[i + 1];
   const root = resolve(args.source || here), record = resolve(args.record || join(root, "tests", "compaction-proof.json"));
   if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
-  if (args.mode === "start") { try { const result = await dryStart({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), window: Number(args.window || 48000) }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
+  if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
   try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only }); process.stdout.write("COMPACTION PROOF: passed\n"); }
   catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
 }

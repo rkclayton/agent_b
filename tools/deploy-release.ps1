@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^v\d+\.\d+\.\d+$')][string]$Tag,
     [string]$SigningThumbprint = '',
     [switch]$ResumeStagedCandidate,
-    [ValidateSet('', 'set aside on his word, 2026-10-14 15:37')]
+    [ValidateSet('', 'set aside on his word, 2026-10-14 15:37', 'fix the problem then release this one and proceed, on his word, 2026-10-19 14:23')]
     [string]$CompactionProofOperatorSkip = ''
 )
 

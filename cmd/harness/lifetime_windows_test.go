@@ -33,15 +33,11 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 		t.Fatalf("run marker: %v", err)
 	}
 	closes := make(chan struct{}, 1)
+	existingWindows := sessionEndWindowSet()
 	watchSessionEnd(root, life.stopped, func() { closes <- struct{}{} })
 
-	findWindow := user32.NewProc("FindWindowW")
 	sendMessage := user32.NewProc("SendMessageW")
-	className, _ := syscall.UTF16PtrFromString(sessionEndClassName)
-	var hwnd uintptr
-	for deadline := time.Now().Add(5 * time.Second); hwnd == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		hwnd, _, _ = findWindow.Call(uintptr(unsafe.Pointer(className)), 0)
-	}
+	hwnd := newSessionEndWindow(existingWindows)
 	if hwnd == 0 {
 		t.Fatal("the session-end window was never created")
 	}
@@ -116,6 +112,30 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	if body, err := os.ReadFile(life.markerPath); err != nil || json.Unmarshal(body, &stopped) != nil || stopped.ExitCause != "session_end" {
 		t.Fatalf("stopped marker = %+v, err=%v", stopped, err)
 	}
+}
+
+func sessionEndWindowSet() map[syscall.Handle]bool {
+	windows := make(map[syscall.Handle]bool)
+	sessionEndHandlers.Range(func(key, _ any) bool {
+		windows[key.(syscall.Handle)] = true
+		return true
+	})
+	return windows
+}
+
+func newSessionEndWindow(existing map[syscall.Handle]bool) uintptr {
+	var hwnd syscall.Handle
+	for deadline := time.Now().Add(5 * time.Second); hwnd == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		sessionEndHandlers.Range(func(key, _ any) bool {
+			candidate := key.(syscall.Handle)
+			if !existing[candidate] {
+				hwnd = candidate
+				return false
+			}
+			return true
+		})
+	}
+	return uintptr(hwnd)
 }
 
 func TestAnUnrecordedEndIsReportedAtTheNextStart(t *testing.T) {

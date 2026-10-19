@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -59,7 +59,9 @@ test("the release gate skips an equal hash and refuses an unreachable changed so
     const equal = spawnSync(process.execPath, [resolve("tools/compaction-proof.mjs"), "--mode", "gate", "--source", root, "--record", record], { encoding: "utf8", windowsHide: true });
     assert.equal(equal.status, 0); assert.match(equal.stdout, /source unchanged/);
     await writeFile(source, "package contextmgr\n ");
-    const changed = spawnSync(process.execPath, [resolve("tools/compaction-proof.mjs"), "--mode", "gate", "--source", root, "--record", record], { encoding: "utf8", windowsHide: true });
+    const raw = join(root, "evidence", "gate.txt");
+    const changed = spawnSync(process.execPath, [resolve("tools/compaction-proof.mjs"), "--mode", "gate", "--source", root, "--record", record, "--raw-output", raw], { encoding: "utf8", windowsHide: true });
     assert.equal(changed.status, 1); assert.match(changed.stderr, /^BUILT, NOT RELEASED: compaction is not proved: model unreachable/m);
+    assert.equal(await readFile(raw, "utf8"), changed.stderr);
   } finally { removeTreeWithinAllowedRoots(root, [tmpdir()], "compaction gate test cleanup"); }
 });

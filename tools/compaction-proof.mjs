@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
@@ -247,11 +248,18 @@ export async function prove({ app, sourceData, root = here, record, only = "" })
 
 async function main() {
   const pairs = process.argv.slice(2), args = {}; for (let i = 0; i < pairs.length; i += 2) args[pairs[i].replace(/^--/, "")] = pairs[i + 1];
+  let raw;
+  if (args["raw-output"]) {
+    const path = resolve(args["raw-output"]); await mkdir(dirname(path), { recursive: true }); raw = createWriteStream(path, { flags: "w" });
+    for (const target of [process.stdout, process.stderr]) { const write = target.write.bind(target); target.write = (chunk, ...rest) => { raw.write(chunk); return write(chunk, ...rest); }; }
+  }
   const root = resolve(args.source || here), record = resolve(args.record || join(root, "tests", "compaction-proof.json"));
-  if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
-  if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
-  try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only }); process.stdout.write("COMPACTION PROOF: passed\n"); }
-  catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
+  try {
+    if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
+    if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
+    try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only }); process.stdout.write("COMPACTION PROOF: passed\n"); }
+    catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
+  } finally { if (raw) await new Promise((done) => raw.end(done)); }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

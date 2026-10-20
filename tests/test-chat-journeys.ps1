@@ -12,7 +12,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 . (Join-Path $repository 'scripts\windows-tools.ps1')
-$manifest = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'acceptance\journeys.json') | ConvertFrom-Json
+$decodedManifest = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'acceptance\journeys.json') | ConvertFrom-Json
+# Windows PowerShell 5.1 preserves ConvertFrom-Json's top-level array as one
+# pipeline object; enumerate it once so the thirteen journey objects stay thirteen.
+$manifest = @($decodedManifest | ForEach-Object { $_ })
 $known = @($manifest | ForEach-Object name)
 if (-not $Journeys.Count) { $Journeys = $known }
 foreach ($name in @($Journeys + $RequiredJourneys)) { if ($name -notin $known) { throw "Unknown acceptance journey: $name" } }

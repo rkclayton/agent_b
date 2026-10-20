@@ -42,6 +42,7 @@ This page describes the build of 2026-10-16.
 | Rule | When | You see | Set where | Asked by |
 | --- | --- | --- | --- | --- |
 | **Your approval** |  |  |  |  |
+| Elevated application start | Agent_b starts with an elevated Administrator token. | SECURITY: Agent_b refuses to run with an elevated Administrator token; local administrators can launch it normally by double-clicking start-Agent_b.cmd in File Explorer (do not use Run as administrator) | always | item 2as |
 | User override unavailable | A tool has no implementation for running as the signed-in user. | `error: tool %s has no user-identity override` | always | built-in |
 | **Your folders and files** |  |  |  |  |
 | Project choice required | A repository note could belong to more than one active project. | `error: repository note refused: name one project: ` | always | built-in |

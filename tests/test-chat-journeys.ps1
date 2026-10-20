@@ -58,6 +58,11 @@ foreach ($name in $Journeys) {
                 $env:PSModulePath = $savedModulePath
             }
             $exitCode = [int]$child.ExitCode
+            $nativeOutput = if (Test-Path -LiteralPath $stdout) { Get-Content -Raw -LiteralPath $stdout } else { '' }
+            if ($exitCode -eq 0 -and $nativeOutput -notmatch "(?m)^JOURNEY PASS $([regex]::Escape($name)) [0-9]+ ms\r?$") {
+                $exitCode = 24
+                Add-Content -LiteralPath $stderr -Value "native terminal missing: JOURNEY PASS $name <milliseconds> ms"
+            }
         }
         $attempts.Add([ordered]@{ attempt=$attempt; exit_code=$exitCode; duration_ms=[long]([DateTime]::UtcNow-$started).TotalMilliseconds; stderr=$stderr; evidence=$journeyEvidence })
         if ($exitCode -eq 0) { break }

@@ -19,6 +19,7 @@ test("every former packaged checkpoint belongs to exactly one named journey 2vm"
 });
 
 test("the journey runner builds once, isolates profiles, and reruns one failure once 2vm", () => {
+  assert.doesNotMatch(runner, /\$manifest\s*=\s*@\(Get-Content/, "Windows PowerShell must not nest the decoded journey array");
   assert.ok(runner.indexOf("build-candidate.ps1") < runner.indexOf("foreach ($name in $Journeys)"));
   assert.match(runner, /for \(\$attempt = 1; \$attempt -le 2; \$attempt\+\+\)/);
   assert.match(runner, /test-chat-acceptance\.ps1.*-SkipBuild/s);

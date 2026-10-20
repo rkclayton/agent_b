@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 . (Join-Path $repository 'scripts\windows-tools.ps1')
-$manifest = @(Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'acceptance\journeys.json') | ConvertFrom-Json)
+$manifest = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'acceptance\journeys.json') | ConvertFrom-Json
 $known = @($manifest | ForEach-Object name)
 if (-not $Journeys.Count) { $Journeys = $known }
 foreach ($name in @($Journeys + $RequiredJourneys)) { if ($name -notin $known) { throw "Unknown acceptance journey: $name" } }

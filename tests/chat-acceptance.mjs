@@ -2514,6 +2514,7 @@ if (realModel) {
   await setTask("acceptance: attachment OCR");
   await waitProjectedChatText(sessionID, "Attachment received and rendered.", "OCR attachment answer");
   const ocrMessage = await waitEvent(sessionID, (event) => event.type === "message.appended" && event.data.message?.attachments?.some((item) => item.path.endsWith("ocr-acceptance.png")), "OCR attachment retained in JSONL");
+  process.stdout.write(`OCR ATTACHMENTS ${JSON.stringify(ocrMessage.data.message.attachments.map((item) => ({ path: item.path, kind: item.kind, sidecar: item.sidecar || "" })))}\n`);
   assert.equal(ocrMessage.data.message.attachments.length, 1);
   record("trusted-image-input-ocr-sidecar-before-send-and-retained");
 
@@ -2537,6 +2538,7 @@ if (realModel) {
   const slowRun = await waitEvent(sessionID, (event) => event.seq > slowMessage.seq && event.type === "run.started" && event.data?.user_message_id === slowMessage.data.message.id, "slow-accounting run", 12000);
   const accountingBudget = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "budget", "slow-accounting budget", 30000);
   const slowStop = await waitEvent(sessionID, (event) => event.run_id === slowRun.run_id && event.type === "run.stopped" && event.seq > accountingBudget.seq, "slow-accounting run stopped", 20000);
+  process.stdout.write(`SLOW ACCOUNTING WAIT ${JSON.stringify({ message_seq: slowMessage.seq, run_id: slowRun.run_id, budget_seq: accountingBudget.seq, stopped_seq: slowStop.seq, reason: slowStop.data.reason })}\n`);
   assert.equal(slowStop.data.reason, "done");
   await waitProjectedChatText(sessionID, "Slow accounting recovered with an estimate.", "slow-accounting answer", 20000);
   await browser.wait(`document.querySelector('.chat-budget-tip')?.innerText.length > 0`, "occupancy label");

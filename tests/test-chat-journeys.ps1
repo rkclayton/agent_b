@@ -53,10 +53,11 @@ foreach ($name in $Journeys) {
                 }
                 $child = Start-Quiet -FilePath $windowsPowerShell -ArgumentList $arguments -StandardOutput $stdout -StandardError $stderr
                 $child.WaitForExit()
+                $child.Refresh()
             } finally {
                 $env:PSModulePath = $savedModulePath
             }
-            $exitCode = $child.ExitCode
+            $exitCode = [int]$child.ExitCode
         }
         $attempts.Add([ordered]@{ attempt=$attempt; exit_code=$exitCode; duration_ms=[long]([DateTime]::UtcNow-$started).TotalMilliseconds; stderr=$stderr; evidence=$journeyEvidence })
         if ($exitCode -eq 0) { break }

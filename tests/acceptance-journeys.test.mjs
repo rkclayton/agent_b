@@ -24,6 +24,7 @@ test("the journey runner builds once, isolates profiles, and reruns one failure 
   assert.match(runner, /for \(\$attempt = 1; \$attempt -le 2; \$attempt\+\+\)/);
   assert.match(runner, /test-chat-acceptance\.ps1.*-SkipBuild/s);
   assert.match(runner, /-StandardOutput \$stdout -StandardError \$stderr/);
+  assert.match(runner, /\$child\.WaitForExit\(\)\s*\$child\.Refresh\(\)[\s\S]*\$exitCode\s*=\s*\[int\]\$child\.ExitCode/);
   assert.match(runner, /'flaky'/);
   assert.match(runner, /'failed-required'/);
   assert.match(runner, /'known-failure'/);

@@ -116,6 +116,11 @@ test("turn summaries use the drawn action sentence and fold later kinds into ste
   assert.equal(failed.failed, 1);
 });
 
+test("an automatic announced-action continuation is named in the turn sentence 2vt", () => {
+  const continued = { type: "notice", key: "retry", event: { type: "model.retry", data: { reason: "announced_action" } } };
+  assert.equal(responseSummarySentence(responseSummary([continued])), "Continued once");
+});
+
 test("every dispatcher tool has the design page vocabulary 2uw", () => {
   const names = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "chat_history", "cronjob", "image", "todo", "ask", "process", "code"];
   for (const name of names) {

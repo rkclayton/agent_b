@@ -112,6 +112,7 @@ export function responseSummary(items = []) {
   for (const item of items) {
     if (item?.type === "agent" && (thoughtTokens(item) > 0 || !item.done)) add("thought");
     else if (item?.type === "tool") add(toolActionKind(item));
+    else if (item?.type === "notice" && item.event?.type === "model.retry" && item.event?.data?.reason === "announced_action") add("continued_once");
     else if (item?.type === "notice" && item.event?.type === "files.delivered") add("files.delivered", Array.isArray(item.event.data?.items) ? item.event.data.items.length : 0);
   }
   return { tools, thoughts, answers, failed, duration, actions };
@@ -131,6 +132,7 @@ function toolActionKind(item) {
 function actionClause({ kind, count }) {
   const one = count === 1;
   switch (kind) {
+  case "continued_once": return "continued once";
   case "thought": return one ? "thought for a moment" : `thought ${count} times`;
   case "read_file": return one ? "read a file" : `read ${count} files`;
   case "looked_around": return one ? "looked around" : `looked around ${count} times`;

@@ -12,6 +12,12 @@ const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url
 const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), "utf8");
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
 
+test("the continued turn sentence is visible 2vt", async ({ page }) => {
+  await mkdir("logs/evidence/rel-1.62.136/captures", { recursive:true }); await page.route("http://continued.test/**", (route) => new URL(route.request().url()).pathname === "/" ? route.fulfill({ contentType:"text/html; charset=utf-8", body:`<style>${tokensCSS}${chatCSS}body{background:var(--well);color:var(--ink);padding:24px}</style><button class="chat-step-summary"><span id="sentence"></span><span class="chat-step-caret">›</span></button><script type="module">import {responseSummary,responseSummarySentence} from '/js/chat-response-groups.js';sentence.textContent=responseSummarySentence(responseSummary([{type:'notice',event:{type:'model.retry',data:{reason:'announced_action'}}}]));</script>` }) : route.fulfill({ path:webRoot + new URL(route.request().url()).pathname.slice(1) }));
+  await page.goto("http://continued.test/"); await expect(page.locator("#sentence")).toHaveText("Continued once");
+  for (const width of [304,1280,1920]) { await page.setViewportSize({width,height:254}); expect(await page.locator(".chat-step-summary").evaluate((node) => node.scrollWidth <= node.clientWidth && node.getBoundingClientRect().right <= innerWidth)).toBe(true); await page.screenshot({path:`logs/evidence/rel-1.62.136/captures/continued-once-${width}.png`}); }
+});
+
 test("attachment page progress and remove remain visible on the bubble", async ({ page }) => {
   expect(chatJS).toContain("page ${upload.page} of ${upload.total}");
   expect(chatJS).toContain('/api/attachments/stop');

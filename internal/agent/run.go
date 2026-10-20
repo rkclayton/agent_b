@@ -1521,6 +1521,19 @@ func nullable(value int) any {
 	}
 	return value
 }
+func announcedActionOnly(content string) bool {
+	text := strings.TrimSpace(content)
+	if text == "" || len([]rune(text)) > 400 || strings.ContainsAny(text, "\r\n") {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, prefix := range []string{"i'll ", "i’ll ", "i will ", "i am going to ", "now i'll ", "now i’ll ", "now i will ", "now i am going to ", "let me "} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
 func boolPointer(value bool) *bool { return &value }
 func preview(value string) string {
 	value = strings.ReplaceAll(value, "\r", "")

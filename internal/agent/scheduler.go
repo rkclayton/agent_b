@@ -770,7 +770,7 @@ func canonicalTerminalReason(reason string) string {
 	// calls twice and the run stopped with a reason nothing named, so the
 	// accounting called it a harness defect. It is the model s output that was
 	// malformed, so it belongs here.
-	case "model_error", "model_unreachable", "length", "malformed_turn":
+	case "model_error", "model_unreachable", "length", "malformed_turn", "announced_action_and_stopped":
 		return "model-error"
 	case "tool_errors":
 		return "tool-errors"

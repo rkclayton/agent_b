@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -207,12 +208,55 @@ func TestReasoningOnlyReplyIsShownAndNamed(t *testing.T) {
 	}
 }
 
-func TestAnnouncedActionWithoutToolIsTheDoneReply2vf(t *testing.T) {
-	reason, detail, reply := runSingleReply(t, map[string]any{"content": "Now I'll write the game as a single self-contained file."})
-	if reason != "done" || detail != "" {
-		t.Fatalf("run=(%q,%q)", reason, detail)
-	}
-	if !strings.Contains(reply.Content, "Now I'll write") {
-		t.Fatalf("reply=%+v", reply)
+func TestAnnouncedActionContinuesOnceAndAWorkingTurnResetsIt2vt(t *testing.T) {
+	announce := map[string]any{"content": "I'll start by reading the skill-authoring guide."}
+	call := map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "list", "type": "function", "function": map[string]any{"name": "list_dir", "arguments": `{"path":"."}`}}}}
+	for _, test := range []struct {
+		name, want string
+		replies    []map[string]any
+		continues  int
+	}{
+		{"once", "done", []map[string]any{announce, {"content": "done"}}, 1},
+		{"twice", "announced_action_and_stopped", []map[string]any{announce, announce}, 1},
+		{"tool resets", "done", []map[string]any{announce, call, announce, {"content": "done"}}, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			continued := 0
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Messages []struct{ Role, Content string } `json:"messages"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Fatal(err)
+				}
+				for _, message := range request.Messages {
+					if message.Role == "user" && message.Content == "[harness note]\nContinue from the recorded context." {
+						continued++
+					}
+				}
+				index := int(calls.Add(1)) - 1
+				finish := "stop"
+				if _, ok := test.replies[index]["tool_calls"]; ok {
+					finish = "tool_calls"
+				}
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": test.replies[index], "finish_reason": finish}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 4}})
+			}))
+			defer model.Close()
+			root := t.TempDir()
+			cfg := config.Defaults(root)
+			cfg.Context.Accounting = "estimated"
+			connection := cfg.Connections[0]
+			connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+			connection.Capabilities.NCtx, connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = 32768, true, true
+			cfg.Connections = []config.Connection{connection}
+			runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "system"}, func(id string) (*config.Connection, bool) { return &connection, id == connection.ID }, func() config.Config { return cfg })
+			item := &session.Session{ID: "main", ConnectionID: "main", Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{"list_dir": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+			item.Append(events.Message{ID: "u1", Role: "user", Content: "work", Category: "history"})
+			reason, _, _ := runner.Run(context.Background(), item, "r1")
+			if reason != test.want || int(calls.Load()) != len(test.replies) || continued != test.continues {
+				t.Fatalf("reason=%q calls=%d continues=%d", reason, calls.Load(), continued)
+			}
+		})
 	}
 }

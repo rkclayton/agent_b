@@ -23,6 +23,7 @@ This page describes the build of 2026-10-16.
 | Cycle detected | The model repeats the same call cycle. | `cycle` | always | built-in |
 | Finished normally | The model completes the task. | `done` | always | built-in |
 | Length reached | The model response reaches its output length. | `length` | connection context | built-in |
+| Announced, no call | The model twice in a row announces an action and makes no call. | `announced_action_and_stopped` | always | operator 2026-10-19 |
 | Malformed turn | The model twice names tool calls without returning calls. | `malformed_turn` | always | built-in |
 | Model error | The model server returns an ordinary model error. | `model_error` | connection | built-in |
 | Model unreachable | The configured model server cannot be reached. | `model_unreachable` | connection | built-in |

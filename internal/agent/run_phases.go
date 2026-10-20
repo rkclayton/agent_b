@@ -34,6 +34,7 @@ type runState struct {
 	publishFinalBudget                                bool
 	turn                                              int
 	lengthSeen, malformedToolRetried, answeredThisRun bool
+	announcedActionContinued, autoContinue            bool
 	truncatedToolRetry, retryInstruction              string
 	refusalSentence                                   string
 	refusalAttempt                                    int
@@ -280,6 +281,7 @@ func (x *runState) start() runOutcome {
 	x.retryInstruction = ""
 	x.malformedToolRetried = false
 	x.answeredThisRun = false
+	x.announcedActionContinued, x.autoContinue = false, false
 	// a read_file window refused on two consecutive turns ends the
 	// read; from then on the model answers from what it has read, without
 	// tools. refusedTurn is the turn of the latest refusal (-1: none since the
@@ -416,6 +418,11 @@ func (x *runState) buildRequest() runOutcome {
 		}
 		if !hadUser {
 			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
+		}
+		if x.autoContinue {
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: "[harness note]\nContinue from the recorded context."})
+			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
+			x.autoContinue = false
 		}
 		if x.retryInstruction != "" {
 			messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "[harness note]\n" + x.retryInstruction})
@@ -733,6 +740,9 @@ func (x *runState) readAnswer() runOutcome {
 		x.toolCalls = append(x.toolCalls, events.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 	}
 	rawToolCalls := append([]events.ToolCall(nil), x.toolCalls...)
+	if len(rawToolCalls) > 0 {
+		x.announcedActionContinued = false
+	}
 	x.s.RecordModelTurn()
 	x.answeredThisRun = true
 	if retry, stop := malformedToolTurnAction(x.response.FinishReason, len(x.toolCalls), x.malformedToolRetried); retry {
@@ -805,6 +815,7 @@ func (x *runState) readAnswer() runOutcome {
 		}
 		finalContent := x.response.Content
 		stopReason, stopDetail := "done", ""
+		continueAnnouncedAction := false
 		if strings.TrimSpace(finalContent) == "" {
 			if reasoning := strings.TrimSpace(visibleReasoning); reasoning != "" {
 				finalContent = reasoning + "\n\n[answer taken from the model's reasoning]"
@@ -812,6 +823,12 @@ func (x *runState) readAnswer() runOutcome {
 			} else {
 				finalContent = "[model returned an empty reply]"
 				stopReason, stopDetail = "reply_empty", "reply empty — no reasoning available"
+			}
+		} else if x.response.FinishReason == "stop" && announcedActionOnly(finalContent) {
+			if x.announcedActionContinued {
+				stopReason, stopDetail = "announced_action_and_stopped", "announced an action and stopped twice in a row"
+			} else {
+				continueAnnouncedAction = true
 			}
 		}
 		r.stage(x.s, x.runID, x.turn, "append", func() {
@@ -826,6 +843,11 @@ func (x *runState) readAnswer() runOutcome {
 		// a final message that is exactly the registration sentence
 		// raises the user's card; the line stays in the transcript above it.
 		finalText, _ := parsePlanProposals(finalContent)
+		if continueAnnouncedAction {
+			x.announcedActionContinued, x.autoContinue = true, true
+			r.bus.Publish(events.New(events.ModelRetry, x.s.ID, x.runID, map[string]any{"turn": x.turn, "next_turn": x.turn + 1, "reason": "announced_action", "attempt": 1, "max_attempts": 1}))
+			return runAgainOutcome
+		}
 		if stopReason != "done" {
 			return x.stop(stopReason, stopDetail, x.turn)
 		}

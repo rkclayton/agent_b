@@ -8,11 +8,16 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"harness/internal/events"
 )
 
 func TestRulesPageMatchesRuntime2vg(t *testing.T) {
 	root := filepath.Join("..", "..")
 	sources := map[string]string{}
+	for _, reason := range events.StopReasons {
+		sources[reason] = "run end"
+	}
 	scheduler := ruleRead(t, filepath.Join(root, "internal", "agent", "scheduler.go"))
 	function := regexp.MustCompile(`(?s)func canonicalTerminalReason\(.*?\n\}`).FindString(scheduler)
 	for _, line := range strings.Split(function, "\n") {

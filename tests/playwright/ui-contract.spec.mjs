@@ -18,6 +18,23 @@ test("the continued turn sentence is visible 2vt", async ({ page }) => {
   for (const width of [304,1280,1920]) { await page.setViewportSize({width,height:254}); expect(await page.locator(".chat-step-summary").evaluate((node) => node.scrollWidth <= node.clientWidth && node.getBoundingClientRect().right <= innerWidth)).toBe(true); await page.screenshot({path:`logs/evidence/rel-1.62.136/captures/continued-once-${width}.png`}); }
 });
 
+test("2w0 reply headings tables and rules render in the real bubble", async ({ page }) => {
+  const reply = "## Summary\n\n**Ready** for review.\n\n## Evidence\n\n| Item | Owner | State | Count | Note |\n| :--- | :--- | :---: | ---: | --- |\n| A very long value that must wrap inside the bubble rather than widen it | agent | `ready` | 12 | compact |\n\n## Checks\n\n- headings\n- table\n\n---\n\n## Result\n\nDone.";
+  await page.route("http://markdown-2w0.test/**", (route) => new URL(route.request().url()).pathname === "/" ? route.fulfill({ contentType:"text/html; charset=utf-8", body:`<!doctype html><style>:root{--bezel:#0D1014;--well:#080A0D;--ink:#E8EEF4;--mute:#707D8B;--line:rgba(112,125,139,.28);--sans:sans-serif;--mono:monospace;--chat-size:12px}${tokensCSS}${chatCSS}</style><main class="chat-page"><section id="bubble" class="chat-entry chat-agent chat-response"><div class="chat-content chat-response-content"><div class="chat-response-answer" id="answer"></div></div></section></main><script type="module">import {renderMarkdown} from '/js/markdown.js';renderMarkdown(answer,${JSON.stringify(reply)});</script>` }) : route.fulfill({ path:webRoot + new URL(route.request().url()).pathname.slice(1) }));
+  await page.goto("http://markdown-2w0.test/");
+  await expect(page.locator(".chat-markdown-heading")).toHaveText(["Summary", "Evidence", "Checks", "Result"]);
+  await expect(page.locator(".chat-markdown-table")).toHaveCount(1);
+  await expect(page.locator(".chat-markdown-table code")).toHaveText("ready");
+  await expect(page.locator(".chat-response-answer hr")).toHaveCount(1);
+  await mkdir("logs/evidence/rel-1.62.143/captures", { recursive:true });
+  for (const width of [1280, 1920, 304]) {
+    await page.setViewportSize({ width, height: 760 });
+    const measured = await page.locator("#bubble").evaluate((bubble) => ({ bubble: bubble.scrollWidth <= bubble.clientWidth, answer: bubble.querySelector(".chat-response-answer").scrollWidth <= bubble.querySelector(".chat-response-answer").clientWidth, table: bubble.querySelector("table").getBoundingClientRect().right <= bubble.getBoundingClientRect().right + 1 }));
+    expect(measured).toEqual({ bubble:true, answer:true, table:true });
+    await page.screenshot({ path:`logs/evidence/rel-1.62.143/captures/markdown-${width}.png`, fullPage:true });
+  }
+});
+
 test("attachment page progress and remove remain visible on the bubble", async ({ page }) => {
   expect(chatJS).toContain("page ${upload.page} of ${upload.total}");
   expect(chatJS).toContain('/api/attachments/stop');
@@ -567,11 +584,11 @@ test("a restored long chat keeps its words and scroll position 2t3", async ({ br
   expect(measurements.scrollHeight).toBeGreaterThan(measurements.clientHeight);
   expect(measurements.wheel).toBeLessThan(measurements.start); expect(measurements.keyUp).toBeLessThan(measurements.scrollbar); expect(measurements.keyDown).toBeGreaterThan(measurements.keyUp);
   expect(Math.abs(measurements.afterRenders - held)).toBeLessThanOrEqual(1);
-  const fold = page.locator(".chat-step-summary").filter({ hasText: "Read 2 files" }); await fold.click();
-  await page.locator(".chat-step-summary").filter({ hasText: "1 row" }).click();
+  const fold = page.locator(".chat-work-summary-toggle").first(); await fold.click();
+  await page.locator(".chat-work-summary-toggle").nth(1).click();
   await expect(page.getByText(notice, { exact: true })).toHaveCount(2);
   await expect(page.locator(".chat-notice-row").getByText(notice, { exact: true })).toHaveCount(1);
-  await expect(page.locator(".chat-step-fold:not(.headerless)").getByText(notice, { exact: true })).toHaveCount(1);
+  await expect(page.locator(".chat-work-rows").getByText(notice, { exact: true })).toHaveCount(1);
   await expect(page.locator(".chat-render-failure")).toHaveText("notice event:malformed could not render · notice event is missing or is not an object");
   const copied = await log.evaluate((node) => { const selection = getSelection(), range = document.createRange(), data = new DataTransfer(); range.selectNodeContents(node); selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); selection.removeAllRanges(); return data.getData("text/plain"); });
   expect(copied.match(new RegExp(notice.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(2);
@@ -625,7 +642,7 @@ test("fresh context leaves every transcript entry visible and says how much and 
     const stopped = "stopped: context exhausted · newest result is 17000 tokens and does not fit the 16000-token window";
     await expect(log).toContainText(line);
     await expect(log).toContainText(fallback);
-    for (const fold of await page.locator(".chat-step-summary:visible").all()) {
+    for (const fold of await page.locator(".chat-work-summary-toggle:visible").all()) {
       if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
     }
     await expect(log).toContainText(stopped);
@@ -668,6 +685,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
     { type: "agent", key: "narration-one", run_id: runID, text: "Checked the build inputs.", reasoning: "Compared the recorded inputs.", reasoningTokens: 7, done: true, thinkingMS: 40 },
     { type: "tool", key: "failed-then-retried", run_id: runID, name: "shell", args: { command: "git stash pop --index synthetic-extra" }, result: { ok: false, error_class: "exit_nonzero", ms: 12 }, content: "synthetic conflict" },
     { type: "tool", key: "retry-succeeded", run_id: runID, name: "shell", args: { command: "git stash pop --index synthetic-extra" }, result: { ok: true, ms: 18 }, content: "synthetic success" },
+    { type: "notice", key: "continued-once", run_id: runID, event: { type: "model.retry", data: { reason: "announced_action" } } },
     { type: "agent", key: "narration-two", run_id: runID, text: "Verified the rebuilt output.", reasoning: "Read the synthetic verification result.", reasoningTokens: 11, done: true, thinkingMS: 55 },
     { type: "tool", key: "final-tool", run_id: runID, name: "read_file", args: { path: "C:\\synthetic\\evidence\\result.txt" }, result: { ok: true, ms: 8 }, content: "synthetic proof" },
     { type: "tool", key: "edit-first", run_id: runID, name: "edit_file", args: { path: "C:\\synthetic\\first.txt" }, result: { ok: true, ms: 4 }, content: "changed" },
@@ -772,17 +790,17 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await finished.page.getByRole("button", { name: "2 files changed" }).click();
   await expect(finished.page.locator(".chat-file-list")).toHaveCount(0);
   await finished.page.setViewportSize({ width:1000, height:760 });
+  await finished.page.locator(".chat-work-summary-toggle").click();
   await expect(finished.page.locator(".chat-todo")).toHaveCount(1);
   await expect(finished.page.locator(".chat-todo-row")).toHaveText(["✓ Inspect inputs", "→ Run checks", "· Write report"]);
   await mkdir("logs/evidence/rel-1.62.35/captures", { recursive: true });
   await finished.page.screenshot({ path: "logs/evidence/rel-1.62.35/captures/todo-1280x860.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2ql-s56-finished.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2qm-idle.png", fullPage: true });
-  await finished.page.locator(".chat-work-summary-toggle").click();
   await expect(finished.page.getByText("Checked the build inputs.")).toBeVisible();
-  await expect(finished.page.locator(".chat-narration-line .chat-step-summary")).toHaveCount(2);
+  await expect(finished.page.locator(".chat-work-narration")).toHaveText(["Checked the build inputs.", "Verified the rebuilt output."]);
+  await expect(finished.page.locator(".chat-work-rows .chat-step-summary")).toHaveCount(0);
   await expect(finished.page.locator(".chat-step-fold.alarm")).toHaveCount(0);
-  await expect(finished.page.locator(".chat-step-summary").filter({ hasText: "ran 2 commands" })).toContainText("Thought for a moment");
   await expect(finished.page.getByText("thought · 7 tokens")).toBeVisible();
   await expect(finished.page.locator(".tool-tick").first()).toContainText(/shell\s*·\s*git stash pop/);
   expect(await auditDisclosures(finished.page)).toEqual([]);
@@ -844,27 +862,21 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await askPage.context.close();
 
   const live = await open("running", "live-2ql.test");
-  await expect(live.page.locator(".chat-work-summary")).toHaveCount(0);
-  const liveBlocks = live.page.locator(".chat-response-block");
-  await expect(liveBlocks).toHaveCount(2);
-  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).toHaveCount(0);
-  const hoverBox = await live.page.evaluate(() => { const box = document.querySelectorAll(".chat-response-block")[1].getBoundingClientRect(); return { x: box.x, y: box.y }; });
-  await live.page.mouse.move(hoverBox.x + 4, hoverBox.y + 4);
+  const liveHead = live.page.locator(".chat-work-summary"), liveRows = live.page.locator(".chat-work-rows");
+  await expect(liveHead).toHaveCount(1);
+  await expect(live.page.locator(".chat-work-status")).toHaveText("Verified the rebuilt output.");
+  await expect(live.page.locator(".chat-narration-line")).toHaveCount(0);
+  await expect(liveRows.locator(":scope > *")).toHaveCount(0);
+  const clickedTop = await liveHead.evaluate((node) => { document.querySelector("#chat-log").scrollTop = document.querySelector("#chat-log").scrollHeight; return node.getBoundingClientRect().top; });
+  await live.page.locator(".chat-work-summary-toggle").click();
+  await expect(liveRows.locator(":scope > *")).not.toHaveCount(0);
+  expect(Math.abs(await liveHead.evaluate((node) => node.getBoundingClientRect().top) - clickedTop)).toBeLessThanOrEqual(1);
   await live.page.evaluate((next) => { next.sessions["chat-2ql"].chat.push({ type: "agent", key: "hovered-next", run_id: "run-2ql", text: "Started another step.", done: true }, { type: "tool", key: "hovered-tool", run_id: "run-2ql", name: "read_file", args: { path: "C:\\synthetic\\next.txt" }, result: { ok: true, ms: 2 }, content: "next" }); next.sessions["chat-2ql"].cursor.offset += 50; globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }); }, snapshot("running"));
-  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
-  const clickedTop = await liveBlocks.nth(0).locator(".chat-step-summary").evaluate((node) => { document.querySelector("#chat-log").scrollTop = document.querySelector("#chat-log").scrollHeight; return node.getBoundingClientRect().top; });
-  await liveBlocks.nth(0).locator(".chat-step-summary").click();
-  expect(Math.abs(await liveBlocks.nth(0).locator(".chat-step-summary").evaluate((node) => node.getBoundingClientRect().top) - clickedTop)).toBeLessThanOrEqual(1);
-  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  await expect(live.page.locator(".chat-work-status")).toHaveText("Started another step.");
   for (let event = 0; event < 20; event++) await live.page.evaluate(({ next, event }) => { next.sessions["chat-2ql"].cursor.offset += event + 200; globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }); }, { next: snapshot("running"), event });
-  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).not.toHaveCount(0);
-  await liveBlocks.nth(0).locator(".chat-step-summary").click();
-  await expect(liveBlocks.nth(0).locator(".chat-step-rows > *")).toHaveCount(0);
-  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
-  await liveBlocks.nth(1).locator(".chat-step-summary").click();
-  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).toHaveCount(0);
-  await liveBlocks.nth(1).locator(".chat-step-summary").click();
-  await expect(liveBlocks.nth(1).locator(".chat-step-rows > *")).not.toHaveCount(0);
+  await expect(liveRows.locator(":scope > *")).not.toHaveCount(0);
+  await live.page.locator(".chat-work-summary-toggle").click();
+  await expect(liveRows.locator(":scope > *")).toHaveCount(0);
   expect(await auditDisclosures(live.page)).toEqual([]);
   const liveStatus = live.page.locator("#chat-status-line");
   await expect(liveStatus).toBeVisible();
@@ -880,8 +892,8 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await live.page.mouse.move(listEdge.x + 2, 80); await live.page.mouse.down(); await live.page.mouse.move(0, 80); await live.page.mouse.up();
   for (const width of [304, 1280, 1920]) {
     await live.page.setViewportSize({ width, height: 760 });
-    const gap = await liveBlocks.first().locator(".chat-narration-line").evaluate((row) => { const summary = row.querySelector(".chat-step-summary").getBoundingClientRect(), answer = row.querySelector(".chat-response-answer").getBoundingClientRect(); return innerWidth <= 600 ? summary.top - answer.bottom : summary.left - answer.right; });
-    expect(gap).toBeGreaterThanOrEqual(7); expect(gap).toBeLessThanOrEqual(12);
+    const stacked = await live.page.locator(".chat-work-fold").evaluate((fold) => { const head=fold.querySelector(".chat-work-summary").getBoundingClientRect(), status=fold.querySelector(".chat-work-status").getBoundingClientRect(); return { left:Math.abs(head.left-status.left), below:status.top>=head.bottom, inside:status.right<=fold.getBoundingClientRect().right+1 }; });
+    expect(stacked.left).toBeLessThanOrEqual(1); expect(stacked.below).toBe(true); expect(stacked.inside).toBe(true);
     await live.page.screenshot({ path: `test-results/2sm-live-${width}.png`, fullPage: true });
   }
   await expect(live.page.locator("#chat-status-strip")).toHaveCount(0);
@@ -897,18 +909,72 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await live.page.screenshot({ path: "test-results/2ql-s56-live.png", fullPage: true });
   await live.page.screenshot({ path: "test-results/2qm-running.png", fullPage: true });
   await live.context.close();
+
+  await mkdir("logs/evidence/rel-1.62.143/captures", { recursive: true });
+  for (const width of [1280, 304]) {
+    const initial = snapshot("running"); initial.sessions[id].chat = replay.slice(0, 4); initial.sessions[id].cursor.offset = 4;
+    const sampled = await open("running", `stable-head-${width}.test`, initial, "Checked the build inputs.");
+    await sampled.page.setViewportSize({ width, height: 860 });
+    await sampled.page.evaluate((show) => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.toggle("chat-list-visible",show); document.body.classList.toggle("chat-list-hidden",!show); panel.hidden=!show; handle.hidden=show; }, width > 360);
+    await sampled.page.waitForTimeout(100);
+    await sampled.page.evaluate((show) => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.toggle("chat-list-visible",show); document.body.classList.toggle("chat-list-hidden",!show); panel.hidden=!show; handle.hidden=show; }, width > 360);
+    const samples = [];
+    const measure = async (t) => samples.push(await sampled.page.evaluate((time) => {
+      const head = document.querySelector(".chat-work-summary") || [...document.querySelectorAll(".chat-step-summary")].at(-1);
+      if (!head.dataset.sampleIdentity) head.dataset.sampleIdentity = `head-${globalThis.__headSerial = (globalThis.__headSerial || 0) + 1}`;
+      const box = head.getBoundingClientRect();
+      const response = head.closest(".chat-response")?.getBoundingClientRect();
+      const strip = document.querySelector("#chat-status-line")?.getBoundingClientRect();
+      return { t: time, x: box.x, y: box.y, row_y: box.y - (response?.y || 0), width: box.width, element_id: head.dataset.sampleIdentity, strip_x: strip?.x ?? null, strip_y: strip?.y ?? null };
+    }, t));
+    for (const [index, offset] of [4, 7, replay.length - 1].entries()) {
+      await measure(index * 250);
+      const next = snapshot("running"); next.sessions[id].chat = replay.slice(0, offset); next.sessions[id].cursor.offset = offset;
+      await sampled.page.evaluate((state) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: state }), next);
+      await sampled.page.waitForTimeout(250);
+      if (width <= 360) await sampled.page.evaluate(() => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.add("chat-list-hidden"); document.body.classList.remove("chat-list-visible"); panel.hidden=true; handle.hidden=false; });
+      if (index === 0 || index === 2) await sampled.page.screenshot({ path:`logs/evidence/rel-1.62.143/captures/live-status-${index === 0 ? "first" : "latest"}-${width}.png`, fullPage:true });
+    }
+    await measure(750);
+    const done = snapshot("idle");
+    await sampled.page.evaluate((state) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: state }), done);
+    await sampled.page.waitForTimeout(250);
+    if (width <= 360) await sampled.page.evaluate(() => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.add("chat-list-hidden"); document.body.classList.remove("chat-list-visible"); panel.hidden=true; handle.hidden=false; });
+    await measure(1000);
+    console.log(`2w1 ${width} samples`, JSON.stringify(samples));
+    const finished = samples.at(-1), liveSamples = samples.slice(0, -1);
+    expect(new Set(samples.map((sample) => sample.element_id)).size, "one head element for the whole run").toBe(1);
+    expect(Math.max(...samples.map((sample) => Math.abs(sample.x - finished.x))), "head x stays within one pixel").toBeLessThanOrEqual(1);
+    expect(Math.max(...samples.map((sample) => Math.abs(sample.row_y - finished.row_y))), "head stays on the same response row").toBeLessThanOrEqual(1);
+    expect(Math.max(...liveSamples.map((sample) => sample.strip_x)) - Math.min(...liveSamples.map((sample) => sample.strip_x))).toBeLessThanOrEqual(1);
+    expect(Math.max(...liveSamples.map((sample) => sample.strip_y)) - Math.min(...liveSamples.map((sample) => sample.strip_y))).toBeLessThanOrEqual(1);
+    await expect(sampled.page.locator(".chat-work-status")).toHaveCount(0);
+    await sampled.page.locator(".chat-work-summary-toggle").evaluate((node) => node.click());
+    await expect(sampled.page.locator(".chat-work-rows .chat-step-summary")).toHaveCount(0);
+    await expect(sampled.page.locator(".chat-work-narration")).toHaveText(["Checked the build inputs.", "Verified the rebuilt output."]);
+    const flat = await sampled.page.locator(".chat-work-fold").evaluate((fold) => {
+      const reply = document.querySelector(".chat-response-final .chat-response-answer"), style = getComputedStyle(reply);
+      const nodes = [fold.querySelector(".chat-work-summary"), ...fold.querySelectorAll(".chat-work-narration,.thinking-line,.tool-tick")];
+      const parent = fold.querySelector(".chat-work-rows").getBoundingClientRect();
+      return { font: [style.fontFamily, style.fontSize], nodes: nodes.map((node) => { const seen = getComputedStyle(node), box = node.getBoundingClientRect(); return { font:[seen.fontFamily,seen.fontSize], right:box.right, parentRight:parent.right, float:seen.float, marginLeft:seen.marginLeft }; }) };
+    });
+    expect(flat.nodes.every((node) => node.font[0] === flat.font[0] && node.font[1] === flat.font[1])).toBe(true);
+    expect(flat.nodes.every((node) => node.right <= node.parentRight + 1 && node.float === "none" && node.marginLeft !== "auto")).toBe(true);
+    await sampled.page.screenshot({ path: `logs/evidence/rel-1.62.143/captures/finished-flat-${width}.png`, fullPage: true });
+    await sampled.context.close();
+  }
   const thoughtState = snapshot("running"), thought = { type: "agent", key: "plain-thought", run_id: runID, reasoning: "The complete thought stays here.", reasoningTokens: 2484, reasoningTokensEstimated: true, thinkingMS: 108300, text: "", done: false };
   thoughtState.sessions[id].chat = [replay[0], thought]; thoughtState.sessions[id].cursor.offset = 2;
   const thoughtPage = await open("running", "thought-2tr.test", thoughtState, "Review the synthetic build record."); await thoughtPage.page.setViewportSize({ width: 1280, height: 860 });
   const liveThoughtLine = thoughtPage.page.locator('[data-entry-key="thought:plain-thought"] .thinking-line'), beforeTop = await liveThoughtLine.evaluate((node) => node.getBoundingClientRect().top);
-  thoughtState.sessions[id].chat = [replay[0], { ...thought, text: "Answer with thought.", done: true }, { type: "agent", key: "plain-answer", run_id: runID, text: "Answer without thought.", done: true }]; thoughtState.sessions[id].cursor.offset = 3; await thoughtPage.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), thoughtState);
+  thoughtState.sessions[id].chat = [replay[0], { ...thought, text: "Answer with thought.", done: true }, { type: "agent", key: "plain-answer", run_id: runID, text: "Answer without thought.", done: true }]; thoughtState.sessions[id].cursor.offset = 3; thoughtState.sessions[id].run.status = "idle"; thoughtState.sessions[id].activity = { completed_stages: [] }; await thoughtPage.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), thoughtState);
   await expect(thoughtPage.page.getByText("Answer with thought.")).toBeVisible();
-  const thoughtBlock = thoughtPage.page.locator('.chat-response-block').filter({ hasText: "Answer with thought." }), thoughtLine = thoughtBlock.locator('.thinking-line'); await expect(thoughtLine).toHaveCount(1);
-  const thoughtProof = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line'), answer = block.querySelector('.chat-response-answer'), plain = [...document.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')); const box = (node) => node.getBoundingClientRect(), style = (node) => { const seen = getComputedStyle(node); return [seen.color, seen.fontSize, seen.marginTop]; }; return { lineVisible: line.getClientRects().length > 0, lineAbove: box(line).bottom <= box(answer).top, aligned: Math.abs(box(line).left - box(answer).left) <= 1, chipVisible: [...block.querySelectorAll('.chat-step-summary')].some((node) => node.getClientRects().length), afterTop: box(line).top, styles: [style(answer), style(plain)] }; });
+  const thoughtBlock = thoughtPage.page.locator('.chat-response'), thoughtLine = thoughtBlock.locator('.thinking-line'); await expect(thoughtLine).toHaveCount(1);
+  const thoughtProof = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line'), narration = block.querySelector('.chat-work-narration'), plain = [...document.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')); const box = (node) => node.getBoundingClientRect(), font = (node) => { const seen = getComputedStyle(node); return [seen.fontFamily, seen.fontSize]; }; return { lineVisible: line.getClientRects().length > 0, lineAbove: box(line).bottom <= box(plain).top, aligned: Math.abs(box(line).left - box(plain).left) <= 6, chipVisible: block.querySelector('.chat-work-summary').getClientRects().length > 0, afterTop: box(line).top, fonts: [font(line), font(narration), font(plain)] }; });
   console.log("2tr thought closed", JSON.stringify({ beforeTop, ...thoughtProof }));
-  expect.soft(thoughtProof.lineVisible && thoughtProof.lineAbove && thoughtProof.aligned && thoughtProof.chipVisible, "thought line above and the finished-work chip remains reachable").toBe(true); expect.soft(thoughtProof.afterTop, "thought line did not move").toBeCloseTo(beforeTop, 1); expect.soft(thoughtProof.styles[0], "answer styling").toEqual(thoughtProof.styles[1]);
+  expect.soft(thoughtProof.lineVisible && thoughtProof.lineAbove && thoughtProof.aligned && thoughtProof.chipVisible, "thought line above and the finished-work chip remains reachable").toBe(true); expect.soft(new Set(thoughtProof.fonts.map((value) => value.join("|"))).size, "work text uses the reply font").toBe(1);
   await expect(thoughtLine).toContainText("thought · ~2,484 tokens · 108.3 s"); await mkdir("logs/evidence/rel-1.62.84/captures", { recursive: true }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-closed.png", fullPage: true });
-  await thoughtLine.click(); const thoughtBody = thoughtBlock.locator('.thinking-body'), opened = await thoughtBody.isVisible(), bodyBetween = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line').getBoundingClientRect(), body = block.querySelector('.thinking-body').getBoundingClientRect(), answer = block.querySelector('.chat-response-answer').getBoundingClientRect(); return line.bottom <= body.top && body.bottom <= answer.top; }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-open.png", fullPage: true }); await thoughtLine.click(); expect.soft(opened && bodyBetween && !await thoughtBody.isVisible(), "one press opens in place and a second closes").toBe(true);
+  await thoughtLine.click(); const thoughtBody = thoughtBlock.locator('.thinking-body'), opened = await thoughtBody.isVisible(), bodyBetween = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line').getBoundingClientRect(), body = block.querySelector('.thinking-body').getBoundingClientRect(), answer = [...block.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')).getBoundingClientRect(); return line.bottom <= body.top && body.bottom <= answer.top; }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-open.png", fullPage: true }); await thoughtLine.click(); expect.soft(opened && bodyBetween && !await thoughtBody.isVisible(), "one press opens in place and a second closes").toBe(true);
   console.log("2tr thought proof", JSON.stringify({ beforeTop, ...thoughtProof, bodyBetween }));
   await thoughtPage.context.close();
 });

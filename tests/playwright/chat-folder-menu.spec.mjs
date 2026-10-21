@@ -206,6 +206,7 @@ test("pointer resting on a tool row does not detach newest-line follow 2qf", asy
 		return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
 	});
 	await page.goto(`http://localhost:59999/chat?setup=skip&session=${id}`, { waitUntil: "domcontentloaded" });
+	await page.locator(".chat-work-summary-toggle").click();
 	await page.locator('[data-entry-key="tool:t0"] button').first().hover();
 	await page.evaluate(({ id }) => {
 		for (let index = 1; index <= 20; index++) {

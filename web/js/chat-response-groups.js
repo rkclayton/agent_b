@@ -87,6 +87,15 @@ export function responseBlocks(items = []) {
   return blocks;
 }
 
+export function classifyResponseBlocks(blocks = []) {
+  const lastTurn = blocks.findLastIndex((block) => block.prose);
+  return blocks.map((block, index) => ({
+    ...block,
+    interstitial: !!block.prose && (index < lastTurn || block.steps.some((item) => item?.type === "tool" || item?.type === "streaming-tool")),
+    lastTurn: index === lastTurn,
+  }));
+}
+
 export function responseHasOnlyThoughts(items = []) {
   return items.length > 0 && items.every((item) => item?.type === "agent");
 }

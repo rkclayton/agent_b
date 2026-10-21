@@ -25,14 +25,84 @@ export function renderMarkdown(root, text) {
         list.append(item);
       }
       root.append(list);
+    } else if (headingLine(lines[index])) {
+      const heading = headingLine(lines[index]);
+      const node = document.createElement(`h${heading.level}`);
+      node.className = "chat-markdown-heading";
+      inline(document, node, heading.text);
+      root.append(node);
+      index++;
+    } else if (tableAt(lines, index)) {
+      const parsed = tableBlock(document, lines, index);
+      root.append(parsed.node);
+      index = parsed.next;
+    } else if (ruleLine(lines[index])) {
+      root.append(document.createElement("hr"));
+      index++;
     } else if (lines[index].trim()) {
       const paragraph = [];
-      while (index < lines.length && lines[index].trim() && !lines[index].trimStart().startsWith("```") && !listLine(lines[index])) paragraph.push(lines[index++]);
+      while (index < lines.length && lines[index].trim() && !lines[index].trimStart().startsWith("```") && !listLine(lines[index]) && !headingLine(lines[index]) && !tableAt(lines, index) && !ruleLine(lines[index])) paragraph.push(lines[index++]);
       const p = document.createElement("p");
       inline(document, p, paragraph.join("\n"));
       root.append(p);
     } else index++;
   }
+}
+
+function headingLine(line) {
+  const match = /^\s{0,3}(#{1,4})\s+(.+?)\s*$/.exec(line);
+  return match ? { level: match[1].length, text: match[2] } : null;
+}
+
+function ruleLine(line) {
+  const value = line.trim();
+  return /^(?:-{3,}|\*{3,}|_{3,})$/.test(value);
+}
+
+function tableCells(line) {
+  let value = line.trim();
+  if (!value.includes("|")) return null;
+  if (value.startsWith("|")) value = value.slice(1);
+  if (value.endsWith("|")) value = value.slice(0, -1);
+  const cells = value.split("|").map((cell) => cell.trim());
+  return cells.length > 1 ? cells : null;
+}
+
+function tableAt(lines, index) {
+  const header = tableCells(lines[index] || "");
+  const separator = tableCells(lines[index + 1] || "");
+  return !!header && !!separator && header.length === separator.length && separator.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function tableBlock(document, lines, start) {
+  const headings = tableCells(lines[start]);
+  const separators = tableCells(lines[start + 1]);
+  const alignments = separators.map((cell) => cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : "left");
+  const table = document.createElement("table");
+  table.className = "chat-markdown-table";
+  const thead = document.createElement("thead");
+  const headingRow = document.createElement("tr");
+  for (const [index, text] of headings.entries()) headingRow.append(tableCell(document, "th", text, alignments[index]));
+  thead.append(headingRow);
+  const tbody = document.createElement("tbody");
+  let index = start + 2;
+  while (index < lines.length) {
+    const cells = tableCells(lines[index]);
+    if (!cells) break;
+    const row = document.createElement("tr");
+    for (let column = 0; column < headings.length; column++) row.append(tableCell(document, "td", cells[column] || "", alignments[column]));
+    tbody.append(row);
+    index++;
+  }
+  table.append(thead, tbody);
+  return { node: table, next: index };
+}
+
+function tableCell(document, tagName, text, alignment) {
+  const cell = document.createElement(tagName);
+  cell.style.textAlign = alignment;
+  inline(document, cell, text);
+  return cell;
 }
 
 function listLine(line) {

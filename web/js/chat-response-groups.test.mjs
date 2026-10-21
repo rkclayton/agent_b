@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
+import { classifyResponseBlocks, groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
 
 const tool = (key, name, ok = true, ms = 1) => ({ type: "tool", key, name, args: {}, result: { ok, ms } });
 const thought = (key, tokens, text = "") => ({ type: "agent", key, reasoning: "x", reasoningTokens: tokens, text, done: true, thinkingMS: 2 });
@@ -73,6 +73,19 @@ test("response blocks keep prose visible and assign only their following steps",
   ]);
   assert.equal(blocks[1].steps[0].text, "");
   assert.equal(blocks[1].steps[0].reasoning, "first thought");
+});
+
+test("2w2 classifies interstitial text from turn structure, never its words", () => {
+  const turns = [];
+  for (let index = 1; index <= 5; index++) {
+    turns.push({ type: "agent", key: `sentence-${index}`, text: `Status ${index}`, done: true });
+    turns.push(tool(`tool-${index}`, "read_file"));
+  }
+  turns.push({ type: "agent", key: "final", text: "let me verify is ordinary final prose", done: true });
+  const classified = classifyResponseBlocks(responseBlocks(turns));
+  assert.deepEqual(classified.filter((block) => block.interstitial).map((block) => block.prose.text), ["Status 1", "Status 2", "Status 3", "Status 4", "Status 5"]);
+  assert.equal(classified.at(-1).interstitial, false);
+  assert.equal(classified.at(-1).lastTurn, true);
 });
 
 test("tool-only responses create no empty prose region", () => {

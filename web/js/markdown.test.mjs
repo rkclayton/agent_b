@@ -9,6 +9,7 @@ class FakeNode {
     this.tagName = tagName;
     this.children = [];
     this._text = "";
+    this.style = {};
   }
 
   append(...nodes) {
@@ -81,4 +82,26 @@ test("prose-only messages have no copy control", () => {
   renderMarkdown(root, "Plain prose with `inline code`.");
   assert.equal(root.children.length, 1);
   assert.equal(root.children[0].tagName, "p");
+});
+
+test("2w0 headings, pipe tables and rules render without changing pipe prose", () => {
+  const document = new FakeDocument();
+  const root = new FakeNode(document, "div");
+  renderMarkdown(root, "## Results\n\n| Name | State | Note |\n| :--- | :---: | ---: |\n| alpha | **ready** | `12` |\n\n---\n\nA lone | stays prose.");
+
+  assert.equal(root.children[0].tagName, "h2");
+  assert.equal(root.children[0].className, "chat-markdown-heading");
+  assert.equal(root.children[0].textContent, "Results");
+  const table = root.children[1];
+  assert.equal(table.tagName, "table");
+  assert.equal(table.className, "chat-markdown-table");
+  assert.deepEqual(table.children[0].children[0].children.map((cell) => [cell.tagName, cell.textContent, cell.style.textAlign]), [
+    ["th", "Name", "left"], ["th", "State", "center"], ["th", "Note", "right"],
+  ]);
+  assert.deepEqual(table.children[1].children[0].children.map((cell) => [cell.tagName, cell.textContent, cell.children.find((child) => child.tagName)?.tagName || ""]), [
+    ["td", "alpha", ""], ["td", "ready", "strong"], ["td", "12", "code"],
+  ]);
+  assert.equal(root.children[2].tagName, "hr");
+  assert.equal(root.children[3].tagName, "p");
+  assert.equal(root.children[3].textContent, "A lone | stays prose.");
 });

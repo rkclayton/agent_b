@@ -27,7 +27,6 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const documents = [
   "README.md",
-  "docs/REFERENCE.md",
   "docs/HARDENING.md",
   "docs/OPERATOR-FILES.md",
   "docs/SCREENSHOT-GATE.md",

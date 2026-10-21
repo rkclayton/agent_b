@@ -14,8 +14,6 @@ The installed app is a singleton. Its own WebView2 window falls back to an Edge 
 
 ## Everything else
 
-[Operator reference](docs/REFERENCE.md) — the surfaces, the tools, configuration, updates, and where your data lives.
-
 [Rules](docs/RULES.md) — every way a run can end, a call can be refused, or a result can be changed.
 
 [Where the work lives](docs/REPOSITORIES.md) — the four repositories, what each owns, and what the VPS is for.
@@ -36,7 +34,7 @@ It is installed beside the app and signed with it. **The installer does not put
 it on your PATH** — a deliberate decision, not an oversight: editing shared,
 length-limited machine state on every deployment pass is a well-known way to
 break a working machine. Run it by its path, or add the directory once —
-[the reference](docs/REFERENCE.md#the-command-line-agent) has the one-liner for
+the command-line help has the one-liner for
 each install mode.
 
     %LOCALAPPDATA%\Programs\Agent_b\agentb.exe        per-user install
@@ -53,6 +51,6 @@ npm ci
 npm run test:ui
 ```
 
-Node and Playwright are test-only dependencies. See the [operator reference](docs/REFERENCE.md), [hardening runbook](docs/HARDENING.md), [security model](SECURITY.md), [runtime contracts](INTERFACES.md), and [test gates](tests/README.md).
+Node and Playwright are test-only dependencies. See the [hardening runbook](docs/HARDENING.md), [security model](SECURITY.md), [runtime contracts](INTERFACES.md), and [test gates](tests/README.md).
 
 Apache-2.0. See [NOTICE](NOTICE) and [third-party notices](docs/THIRD_PARTY_NOTICES.md).

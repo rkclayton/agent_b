@@ -15,7 +15,7 @@ import (
 // imports inside those files inherit it and no asset of an earlier build is
 // reused from the browser cache; assets are also revalidated on every use.
 
-var staticReference = regexp.MustCompile(`((?:src|href)=")/static/([^"]+)(")`)
+var staticAsset = regexp.MustCompile(`((?:src|href)=")/static/([^"]+)(")`)
 
 var versionedStatic = regexp.MustCompile(`^/static/~[0-9a-f]{1,64}/`)
 
@@ -46,7 +46,7 @@ func staticVersion(build string) string {
 // /static/ reference in the document under /static/~<version>/.
 func stampDocument(document []byte, build string) []byte {
 	text := string(document)
-	text = staticReference.ReplaceAllString(text, "${1}/static/~"+staticVersion(build)+"/${2}${3}")
+	text = staticAsset.ReplaceAllString(text, "${1}/static/~"+staticVersion(build)+"/${2}${3}")
 	meta := `<meta name="agentb-build" content="` + build + `">`
 	if index := strings.Index(text, "<head>"); index >= 0 {
 		insert := index + len("<head>")

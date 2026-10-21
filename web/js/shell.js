@@ -277,11 +277,7 @@ function createShell(options = {}) {
       const rule = document.createElement("hr");
       newChatMenu.append(label, plan, rule);
     }
-    const helpRule = document.createElement("hr");
-    const helpLabel = node("span", "chat-list-menu-label"); helpLabel.textContent = "Help";
-    const reference = document.createElement("a"); reference.className = "chat-list-menu-action"; reference.href = "/help/reference"; reference.target = "_blank"; reference.textContent = "Reference";
-    const rules = document.createElement("a"); rules.className = "chat-list-menu-action"; rules.href = "/help/rules"; rules.target = "_blank"; rules.textContent = "Rules";
-    newChatMenu.append(openSettings, helpRule, helpLabel, reference, rules);
+    newChatMenu.append(openSettings);
     revealMenu(newChatMenu, listMenuButton);
   }
 

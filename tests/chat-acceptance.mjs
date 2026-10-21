@@ -3030,7 +3030,7 @@ if (realModel) {
     await page.locator(".chat-list-menu-button").click();
     await sleep(40);
   }
-  assert.deepEqual(roleLabels, ["agent_d · agent_b — plan", "Settings", "Reference", "Rules"]);
+  assert.deepEqual(roleLabels, ["agent_d · agent_b — plan", "Settings"]);
   await page.screenshot({ path: join(evidenceRun, "d-role-menu.png") });
   const beforeDIDs = new Set(Object.keys((await state()).sessions));
   await roleChoices.filter({ hasText: "agent_d · agent_b — plan" }).click();

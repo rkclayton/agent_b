@@ -56,12 +56,18 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	if strings.Contains(text, "visibleStaticSurfaces") || strings.Contains(text, `node("nav", "shell-pages")`) {
 		t.Fatalf("the strip must be chats only, and the one-entry pages nav must be gone")
 	}
+	if strings.Contains(text, `helpLabel.textContent = "Help"`) || strings.Contains(text, `href = "/help/`) || strings.Contains(text, `textContent = "Reference"`) || strings.Contains(text, `textContent = "Rules"`) {
+		t.Fatalf("the chat dropdown must contain no Help, Reference, or Rules surface")
+	}
 	settingsSource, err := os.ReadFile(filepath.Join(webDir, "js", "settings.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(settingsSource), `["plan", "Plan"]`) {
 		t.Fatalf("the Plan must be an entry in the Settings nav")
+	}
+	if strings.Contains(string(settingsSource), `["rules", "Rules"]`) {
+		t.Fatalf("Rules must remain a document, not a Settings entry")
 	}
 }
 

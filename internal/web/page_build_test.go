@@ -69,7 +69,7 @@ func TestStampDocumentLeavesOtherReferencesAlone(t *testing.T) {
 	}
 }
 
-func TestHelpDocumentsComeFromTheInstalledDocs2vg(t *testing.T) {
+func TestHelpRoutesAreAbsent2vz(t *testing.T) {
 	root := t.TempDir()
 	webDir, docsDir := filepath.Join(root, "web"), filepath.Join(root, "docs")
 	if err := os.MkdirAll(webDir, 0o700); err != nil {
@@ -83,9 +83,11 @@ func TestHelpDocumentsComeFromTheInstalledDocs2vg(t *testing.T) {
 	}
 	cfg := config.Defaults(t.TempDir())
 	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: root}, events.NewBus())
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/help/rules", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "fixture rule") || !strings.Contains(response.Header().Get("Content-Type"), "text/html") {
-		t.Fatalf("status=%d content-type=%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	for _, path := range []string{"/help/reference", "/help/rules"} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("GET %s status=%d, want 404", path, response.Code)
+		}
 	}
 }

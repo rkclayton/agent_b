@@ -142,13 +142,18 @@ async function json(url, options = {}) {
   return text ? JSON.parse(text) : {};
 }
 
+export function uniqueEvents(events) {
+  const seen = new Set();
+  return events.filter((event) => { const key = `${event.session_id || ""}\0${event.seq}\0${event.type}`; if (seen.has(key)) return false; seen.add(key); return true; });
+}
+
 async function eventsIn(data, sessionID) {
   const files = (await filesBelow(data)).filter((file) => file.endsWith(".jsonl"));
   const values = [];
   for (const file of files) for (const line of (await readFile(file, "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error))).split(/\r?\n/).filter(Boolean)) {
     const event = JSON.parse(line); if (event.session_id === sessionID) values.push(event);
   }
-  return values.sort((a, b) => a.seq - b.seq);
+  return uniqueEvents(values.sort((a, b) => a.seq - b.seq));
 }
 
 async function waitFor(check, label, timeout) {

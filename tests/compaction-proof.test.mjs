@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, measuredAllowance, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, measuredAllowance, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -56,6 +56,11 @@ test("scored-run journals are retained with connection redactions 2w3", async ()
     await retainJournals(join(root, "data"), evidence, "fresh", ["private-host"]);
     assert.equal(await readFile(join(evidence, "fresh", "logs", "run.jsonl"), "utf8"), '{"address":"<connection>"}\n');
   } finally { removeTreeWithinAllowedRoots(root, [tmpdir()], "compaction journal test cleanup"); }
+});
+
+test("the same event retained in two journals is one proof event 2w3", () => {
+  const event = { session_id: "proof", run_id: "run", seq: 7, type: "compaction" };
+  assert.deepEqual(uniqueEvents([event, structuredClone(event)]), [event]);
 });
 
 test("the proof uses the measured start allowance and the active agent model 2ur", () => {

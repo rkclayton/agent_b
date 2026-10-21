@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -28,6 +27,8 @@ const (
 	wmQueryEndSession              = 0x0011
 	wmEndSession                   = 0x0016
 	wmClose                        = 0x0010
+	wmQuit                         = 0x0012
+	pmRemove                       = 0x0001
 	endSessionCloseApp             = 0x00000001
 	endSessionCritical             = 0x40000000
 	endSessionLogoff               = 0x80000000
@@ -53,6 +54,7 @@ var (
 	procDefWindowProc             = user32.NewProc("DefWindowProcW")
 	procGetMessage                = user32.NewProc("GetMessageW")
 	procDispatchMessage           = user32.NewProc("DispatchMessageW")
+	procPeekMessage               = user32.NewProc("PeekMessageW")
 	procGetModuleHandle           = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
 	procCreateEvent               = syscall.NewLazyDLL("kernel32.dll").NewProc("CreateEventW")
 	procOpenEvent                 = syscall.NewLazyDLL("kernel32.dll").NewProc("OpenEventW")
@@ -66,10 +68,9 @@ var (
 )
 
 type sessionEndHandler struct {
-	record     func(string)
-	root       string
-	dispatches atomic.Uint32
-	queried    bool
+	record  func(string)
+	root    string
+	queried bool
 }
 
 func dispatchSessionEndMessage(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) uintptr {
@@ -79,7 +80,6 @@ func dispatchSessionEndMessage(hwnd syscall.Handle, message uint32, wParam, lPar
 		return result
 	}
 	handler := value.(*sessionEndHandler)
-	handler.dispatches.Add(1)
 	switch message {
 	case wmQueryEndSession:
 		handler.queried = sentMessage()
@@ -273,7 +273,7 @@ func processRunning(pid int, created int64) bool {
 // The launcher no longer gives a background server a console window at all,
 // which removes the door; this closes the gap behind it, so that "the listener
 // is up" implies "the guard is up" rather than merely "the guard is coming".
-func watchSessionEnd(applicationRoot string, record func(string), closeRequested func()) {
+func watchSessionEnd(applicationRoot string, record func(string), closeRequested func(), threadSetup ...func()) {
 	watchStopEvent(applicationRoot, closeRequested)
 	ready := make(chan struct{})
 	go func() {
@@ -282,6 +282,10 @@ func watchSessionEnd(applicationRoot string, record func(string), closeRequested
 		readyOnce := sync.OnceFunc(func() { close(ready) })
 		defer readyOnce()
 		runtime.LockOSThread()
+		if len(threadSetup) != 0 {
+			threadSetup[0]()
+		}
+		discardThreadQuitMessages()
 		className, _ := syscall.UTF16PtrFromString(sessionEndClassName)
 		instance, _, _ := procGetModuleHandle.Call(0)
 		class := wndClassEx{wndProc: sessionEndWindowProc, instance: syscall.Handle(instance), className: className}
@@ -294,6 +298,7 @@ func watchSessionEnd(applicationRoot string, record func(string), closeRequested
 			return
 		}
 		sessionEndHandlers.Store(syscall.Handle(hwnd), &sessionEndHandler{record: record, root: applicationRoot})
+		defer sessionEndHandlers.Delete(syscall.Handle(hwnd))
 		// The window is addressable from here, so the caller may proceed.
 		readyOnce()
 		var message windowMessage
@@ -310,6 +315,16 @@ func watchSessionEnd(applicationRoot string, record func(string), closeRequested
 	select {
 	case <-ready:
 	case <-time.After(5 * time.Second):
+	}
+}
+
+func discardThreadQuitMessages() {
+	var message windowMessage
+	for {
+		found, _, _ := procPeekMessage.Call(uintptr(unsafe.Pointer(&message)), 0, wmQuit, wmQuit, pmRemove)
+		if found == 0 {
+			return
+		}
 	}
 }
 

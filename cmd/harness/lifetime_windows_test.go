@@ -134,9 +134,8 @@ func sessionEndWindowDiagnostics(hwnd uintptr, root string, readyAt time.Time) s
 		thisWatcher = handler.root == root
 	}
 	table := make([]string, 0)
-	sessionEndHandlers.Range(func(key, value any) bool {
-		handler := value.(*sessionEndHandler)
-		table = append(table, fmt.Sprintf("0x%X/dispatches=%d", uintptr(key.(syscall.Handle)), handler.dispatches.Load()))
+	sessionEndHandlers.Range(func(key, _ any) bool {
+		table = append(table, fmt.Sprintf("0x%X", uintptr(key.(syscall.Handle))))
 		return true
 	})
 	processIDToSessionID := syscall.NewLazyDLL("kernel32.dll").NewProc("ProcessIdToSessionId")
@@ -234,5 +233,21 @@ func TestTheSessionEndWindowExistsAsSoonAsTheWatchReturns(t *testing.T) {
 	hwnd, _, _ := user32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(className)), 0)
 	if hwnd == 0 {
 		t.Fatal("watchSessionEnd returned before the guard window existed; a WM_CLOSE arriving now would reach the console window instead and stop the server")
+	}
+}
+
+func TestSessionEndWatcherDiscardsAnInheritedQuitMessage2vw(t *testing.T) {
+	root := t.TempDir()
+	existingWindows := sessionEndWindowSet()
+	watchSessionEnd(root, func(string) {}, func() {}, func() {
+		var message windowMessage
+		user32.NewProc("PeekMessageW").Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0, 0)
+		threadID, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GetCurrentThreadId").Call()
+		user32.NewProc("PostThreadMessageW").Call(threadID, wmQuit, 0, 0)
+	})
+	time.Sleep(50 * time.Millisecond)
+	hwnd := newSessionEndWindow(existingWindows)
+	if facts := sessionEndWindowDiagnostics(hwnd, root, time.Now()); strings.Contains(facts, `class=""`) {
+		t.Fatalf("watcher exited on an inherited WM_QUIT: handle=0x%X", hwnd)
 	}
 }

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, measuredAllowance, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, drivenStepPlan, measuredAllowance, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -39,6 +39,24 @@ test("assembly accounting names a zero-percent cut 2w3", () => {
 test("assembly accounting names a missing task and its event sequence 2w3", () => {
   const checked = assessRun("missing", [budget(1, 950), { seq: 2, type: "compaction" }, request(3, "continue"), response(4, 400), stopped(5)], task, "0001\n", 1, 1);
   assert.equal(checked.conditions[4].message, "turn 1 task missing from model.request seq 3 after compaction seq 2");
+});
+
+test("a driven case crosses twice and compacts twice 2w4", () => {
+  const answered = (seq) => ({ ...response(seq, 400), data: { ...response(seq, 400).data, content: "answered" } });
+  const twice = [budget(1, 950), { seq: 2, type: "compaction" }, request(3), answered(4), budget(5, 400), budget(6, 950), { seq: 7, type: "compaction" }, request(8), answered(9), budget(10, 400), stopped(11)];
+  assert.equal(verifyRun("fresh", twice, task, "", 0, 2, true).compactions.length, 2);
+  assert.deepEqual(drivenStepPlan(24576, 2666, 3), { tokens: 2050, firstCrossing: 10, maximum: 30 });
+});
+
+test("a driven empty post-compaction reply fails condition 4 2w4", () => {
+  const checked = assessRun("fresh", good, task, "", 0, 1, false, "", true);
+  assert.equal(checked.conditions[3].pass, false);
+  assert.match(checked.conditions[3].message, /model.response seq 4 was empty/);
+});
+
+test("a driven missing task still names the request sequence 2w4", () => {
+  const events = good.map((one) => one.type === "model.request" ? request(one.seq, "filler only") : one.type === "model.response" ? { ...one, data: { ...one.data, content: "answered" } } : one);
+  assert.equal(assessRun("fresh", events, task, "", 0, 1, false, "", true).conditions[4].message, "turn 1 task missing from model.request seq 3 after compaction seq 2");
 });
 
 test("the two negative controls fail on no compaction and missing notes", () => {

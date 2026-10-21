@@ -36,6 +36,12 @@ test("assembly accounting names a zero-percent cut 2w3", () => {
   assert.equal(checked.conditions[1].message, "turn 1 compaction changed changeable prompt by 0.0% (850 to 850)");
 });
 
+test("assembly accounting reads the response after the post-compaction budget 2w4", () => {
+  const checked = assessRun("delayed", [budget(1, 950), { seq: 2, type: "compaction" }, budget(3, 400), request(4), response(5, 400), stopped(6)], task, "0001\n", 1, 1);
+  assert.equal(checked.conditions[1].pass, true);
+  assert.equal(checked.result.compactions[0].after, 400);
+});
+
 test("assembly accounting names a missing task and its event sequence 2w3", () => {
   const checked = assessRun("missing", [budget(1, 950), { seq: 2, type: "compaction" }, request(3, "continue"), response(4, 400), stopped(5)], task, "0001\n", 1, 1);
   assert.equal(checked.conditions[4].message, "turn 1 task missing from model.request seq 3 after compaction seq 2");

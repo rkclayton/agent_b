@@ -102,7 +102,7 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   const budgets = events.filter((event) => event.type === "budget" && event.data?.used_est > 0);
   const rows = budgets.map((before, index) => {
     const end = budgets[index + 1]?.seq ?? Infinity, ran = compactions.filter((one) => one.seq > before.seq && one.seq < end);
-    const response = ran.length ? events.find((one) => one.seq > ran.at(-1).seq && one.seq < end && one.type === "model.response" && Number(one.data?.usage?.prompt_tokens) > 0) : undefined;
+    const response = ran.length ? events.find((one) => one.seq > ran.at(-1).seq && one.type === "model.response" && Number(one.data?.usage?.prompt_tokens) > 0) : undefined;
     const after = response ? budgets.find((one) => one.seq > response.seq) : undefined;
     const prompt = Number(before.data.used_est), line = Math.ceil(fixed(before.data) + proofSummaryPct * (Number(before.data.ceiling) - fixed(before.data)));
     const beforeUsed = Number(before.data.used_measured), afterUsed = Number(response?.data?.usage?.prompt_tokens);
@@ -265,10 +265,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
               marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || stopAt; await send(spec.continueText);
             }
           }
-          const initialDone = spec.queue
-            ? (events) => events.filter((one) => one.seq > marker && one.type === "run.stopped").length >= 2 && events.some((one) => one.seq > marker && one.type === "model.response")
-            : completedAfter(marker);
-          await waitForActivity(() => eventsIn(prepared.data, id), initialDone, `${spec.name} completion`, activityBase, spec.files);
+          await waitForActivity(() => eventsIn(prepared.data, id), completedAfter(marker), `${spec.name} completion`, activityBase, spec.files);
           let events = await eventsIn(prepared.data, id), first = events.find((one) => one.type === "budget" && one.data?.used_est > 0);
           const plan = drivenStepPlan(Number(first?.data?.ceiling || window), fixed(first?.data), spec.minimum);
           process.stdout.write(`COMPACTION PROOF STEPS: ${spec.name} fixed=${fixed(first?.data)} line=${Math.ceil(fixed(first?.data) + proofSummaryPct * (Number(first?.data?.ceiling || window) - fixed(first?.data)))} tokens=${plan.tokens} first=${plan.firstCrossing} maximum=${plan.maximum}\n`);

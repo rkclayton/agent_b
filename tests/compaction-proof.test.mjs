@@ -4,21 +4,58 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { measuredAllowance, proofPlan, proofSelection, runEnding, sourceHash, startupFailure, startupWaitMs, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, measuredAllowance, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
-const budget = (seq, used) => ({ seq, type: "budget", data: { used_measured: used, ceiling: 1000, categories: { system: 100 } } });
-const good = [budget(1, 950), { seq: 2, type: "compaction" }, budget(3, 400), { seq: 4, type: "model.request", body: { messages: [{ content: task }] } }, { seq: 5, type: "run.stopped", data: { reason: "done" } }];
+const budget = (seq, usedEst, usedMeasured = usedEst) => ({ seq, type: "budget", data: { used_est: usedEst, used_measured: usedMeasured, ceiling: 1000, categories: { system: 100 } } });
+const response = (seq, promptTokens) => ({ seq, type: "model.response", data: { usage: { prompt_tokens: promptTokens } } });
+const request = (seq, content = task) => ({ seq, type: "model.request", body: { messages: [{ role: "user", content }] } });
+const stopped = (seq) => ({ seq, type: "run.stopped", data: { reason: "done" } });
+const good = [budget(1, 950), { seq: 2, type: "compaction" }, request(3), response(4, 400), budget(5, 400), stopped(6)];
 
 test("the proof accepts a more-than-half real-count drop with the task retained", () => {
   assert.equal(verifyRun("fixture", good, task, "0001\n", 1, 1).compactions.length, 1);
 });
 
+test("assembly accounting names a crossing with no compaction 2w3", () => {
+  const checked = assessRun("crossing", [budget(1, 950), request(2), response(3, 950), stopped(4)], task, "0001\n", 1, 1);
+  assert.deepEqual(checked.rows.map(({ turn, prompt, line, crossed, ran }) => ({ turn, prompt, line, crossed, compactions: ran.length })), [
+    { turn: 1, prompt: 950, line: 910, crossed: true, compactions: 0 }
+  ]);
+  assert.equal(checked.conditions[0].message, "turn 1 crossed line 910 with prompt 950 but saw 0 compactions");
+});
+
+test("assembly accounting names a compaction below the line 2w3", () => {
+  const checked = assessRun("below", [budget(1, 800), { seq: 2, type: "compaction" }, request(3), response(4, 300), stopped(5)], task, "0001\n", 1, 1);
+  assert.equal(checked.conditions[0].message, "turn 1 compacted below line 910 with prompt 800");
+});
+
+test("assembly accounting names a zero-percent cut 2w3", () => {
+  const checked = assessRun("zero", [budget(1, 950), { seq: 2, type: "compaction" }, request(3), response(4, 950), stopped(5)], task, "0001\n", 1, 1);
+  assert.equal(checked.conditions[1].message, "turn 1 compaction changed changeable prompt by 0.0% (850 to 850)");
+});
+
+test("assembly accounting names a missing task and its event sequence 2w3", () => {
+  const checked = assessRun("missing", [budget(1, 950), { seq: 2, type: "compaction" }, request(3, "continue"), response(4, 400), stopped(5)], task, "0001\n", 1, 1);
+  assert.equal(checked.conditions[4].message, "turn 1 task missing from model.request seq 3 after compaction seq 2");
+});
+
 test("the two negative controls fail on no compaction and missing notes", () => {
-  assert.throws(() => verifyRun("off", good.filter((one) => one.type !== "compaction"), task, "0001\n", 1, 1), /compacted every time/);
+  assert.throws(() => verifyRun("off", good.filter((one) => one.type !== "compaction"), task, "0001\n", 1, 1), /crossed line 910.*0 compactions/);
   assert.throws(() => verifyRun("empty hand-off", good, task, "", 1, 1), /notes\.md/);
   assert.throws(() => verifyRun("unreachable", good.map((one) => one.type === "run.stopped" ? { ...one, data: { reason: "model_unreachable" } } : one), task, "0001\n", 1, 1), /run ended model_unreachable/);
+});
+
+test("scored-run journals are retained with connection redactions 2w3", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agentb-compaction-journal-")), evidence = join(root, "evidence");
+  try {
+    await mkdir(join(root, "data", "logs"), { recursive: true });
+    await writeFile(join(root, "data", "logs", "run.jsonl"), '{"address":"private-host"}\n');
+    await writeFile(join(root, "data", "logs", "ignored.txt"), "private-host\n");
+    await retainJournals(join(root, "data"), evidence, "fresh", ["private-host"]);
+    assert.equal(await readFile(join(evidence, "fresh", "logs", "run.jsonl"), "utf8"), '{"address":"<connection>"}\n');
+  } finally { removeTreeWithinAllowedRoots(root, [tmpdir()], "compaction journal test cleanup"); }
 });
 
 test("the proof uses the measured start allowance and the active agent model 2ur", () => {

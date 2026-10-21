@@ -12,6 +12,7 @@ import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 const here = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const fixedKeys = new Set(["system", "project", "skills", "workspace_memory", "agent_memory", "tools"]);
+const proofSummaryPct = .9;
 export const startupWaitMs = Math.ceil(5357 * 1.5);
 export const measuredAllowance = (startupMs, gaps = [], work = 1) => Math.ceil(Math.max(startupMs * Math.max(60, work * 12), ...gaps.map((gap) => gap * 12)));
 
@@ -49,6 +50,15 @@ async function filesBelow(directory) {
   return result;
 }
 
+export async function retainJournals(sourceRoot, evidenceRoot, run, redactions = []) {
+  const destination = join(evidenceRoot, run); await mkdir(destination, { recursive: true });
+  for (const file of (await filesBelow(sourceRoot)).filter((one) => one.endsWith(".jsonl"))) {
+    const target = join(destination, relative(sourceRoot, file)); await mkdir(dirname(target), { recursive: true });
+    let content = await readFile(file, "utf8"); for (const value of redactions.filter(Boolean)) content = content.replaceAll(value, "<connection>");
+    await writeFile(target, content);
+  }
+}
+
 async function lastCandidateLog(data, fallback = "") {
   let last = fallback;
   for (const file of await filesBelow(join(data, "logs")).catch(() => [])) {
@@ -80,33 +90,38 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
   const compactions = events.filter((event) => event.type === "compaction");
   const lines = notes.trimEnd().split(/\r?\n/);
-  const budgets = events.filter((event) => event.type === "budget" && event.data?.used_measured > 0);
+  const budgets = events.filter((event) => event.type === "budget" && event.data?.used_est > 0);
   const rows = budgets.map((before, index) => {
     const end = budgets[index + 1]?.seq ?? Infinity, ran = compactions.filter((one) => one.seq > before.seq && one.seq < end);
-    const after = ran.length ? budgets.find((one) => one.seq > ran.at(-1).seq) : undefined;
-    const beforeChangeable = before.data.used_measured - fixed(before.data), afterChangeable = after ? after.data.used_measured - fixed(after.data) : NaN;
-    return { turn: index + 1, before, after, ran, crossed: before.data.used_measured >= before.data.ceiling * .9, cut: after ? (beforeChangeable - afterChangeable) / beforeChangeable : NaN };
+    const response = ran.length ? events.find((one) => one.seq > ran.at(-1).seq && one.seq < end && one.type === "model.response" && Number(one.data?.usage?.prompt_tokens) > 0) : undefined;
+    const after = response ? budgets.find((one) => one.seq > response.seq) : undefined;
+    const prompt = Number(before.data.used_est), line = Math.ceil(fixed(before.data) + proofSummaryPct * (Number(before.data.ceiling) - fixed(before.data)));
+    const beforeUsed = Number(before.data.used_measured), afterUsed = Number(response?.data?.usage?.prompt_tokens);
+    const beforeChangeable = beforeUsed - fixed(before.data), afterChangeable = afterUsed - fixed(after?.data || before.data);
+    return { turn: index + 1, before, after, response, ran, prompt, line, crossed: prompt >= line, beforeChangeable, afterChangeable, cut: response ? (beforeChangeable - afterChangeable) / beforeChangeable : NaN };
   });
-  const around = (compact) => ({ before: budgets.filter((one) => one.seq < compact.seq).at(-1), after: budgets.find((one) => one.seq > compact.seq), turn: rows.find((one) => one.ran.includes(compact))?.turn || 0 });
+  const around = (compact) => rows.find((one) => one.ran.includes(compact));
   const misplaced = rows.find((one) => one.crossed !== Boolean(one.ran.length));
-  const weak = compactions.map(around).find((one) => !one.before || !one.after || (one.after.data.used_measured - fixed(one.after.data)) * 2 >= one.before.data.used_measured - fixed(one.before.data));
+  const weak = rows.filter((one) => one.ran.length).find((one) => !one.response || !Number.isFinite(one.cut) || one.afterChangeable * 2 >= one.beforeChangeable);
   const expected = Array.from({ length: fileCount }, (_, index) => String(index + 1).padStart(4, "0"));
-  const missingTask = compactions.map((compact) => ({ compact, turn: around(compact).turn, request: events.find((event) => event.seq > compact.seq && event.type === "model.request") })).find((one) => !JSON.stringify(one.request?.body?.messages || []).includes(task));
+  const missingTask = compactions.map((compact) => ({ compact, turn: around(compact)?.turn || 0, request: events.find((event) => event.seq > compact.seq && event.type === "model.request") })).find((one) => !JSON.stringify(one.request?.body?.messages || []).includes(task));
+  const noteIndex = expected.findIndex((line, index) => lines[index] !== line), noteTurn = Math.max(1, noteIndex + 1);
+  const condition1Pass = compactions.length >= minimumCompactions && !misplaced;
   const conditions = [
-    { condition: 1, pass: compactions.length >= minimumCompactions && !misplaced, turn: misplaced?.turn || rows.at(-1)?.turn || 0, message: "it compacted every time it reached the line" },
-    { condition: 2, pass: !weak, turn: weak?.turn || 0, message: weak && (!weak.before || !weak.after) ? "server count missing around compaction" : "compaction did not remove more than half" },
-    { condition: 3, pass: stopped?.data?.reason === "done", turn: rows.at(-1)?.turn || 0, message: `run ended ${stopped?.data?.reason || "without a stop"}` },
-    { condition: 4, pass: JSON.stringify(lines) === JSON.stringify(expected), turn: Math.max(1, expected.findIndex((line, index) => lines[index] !== line) + 1), message: "notes.md" },
-    { condition: 5, pass: !missingTask, turn: missingTask?.turn || 0, message: "task missing after compaction" }
+    { condition: 1, pass: condition1Pass, turn: misplaced?.turn || rows.at(-1)?.turn || 0, message: misplaced ? `turn ${misplaced.turn} ${misplaced.crossed ? `crossed line ${misplaced.line} with prompt ${misplaced.prompt} but saw 0 compactions` : `compacted below line ${misplaced.line} with prompt ${misplaced.prompt}`}` : `turn ${rows.at(-1)?.turn || 0} saw ${compactions.length} compactions; required at least ${minimumCompactions}` },
+    { condition: 2, pass: !weak, turn: weak?.turn || 0, message: weak ? (weak.response ? `turn ${weak.turn} compaction changed changeable prompt by ${(weak.cut * 100).toFixed(1)}% (${weak.beforeChangeable} to ${weak.afterChangeable})` : `turn ${weak.turn} compaction seq ${weak.ran.at(-1)?.seq} saw no following model.response prompt count`) : "all compactions removed more than half" },
+    { condition: 3, pass: stopped?.data?.reason === "done", turn: rows.at(-1)?.turn || 0, message: `turn ${rows.at(-1)?.turn || 0} run ended ${stopped?.data?.reason || "without a stop"}` },
+    { condition: 4, pass: JSON.stringify(lines) === JSON.stringify(expected), turn: noteTurn, message: `turn ${noteTurn} notes.md saw ${JSON.stringify(lines[noteIndex] ?? "<missing>")}; expected ${JSON.stringify(expected[noteIndex] ?? "<end>")}` },
+    { condition: 5, pass: !missingTask, turn: missingTask?.turn || 0, message: missingTask ? `turn ${missingTask.turn} task missing from model.request seq ${missingTask.request?.seq ?? "none"} after compaction seq ${missingTask.compact.seq}` : "task retained after every compaction" }
   ];
   if (output) {
-    process.stdout.write(`\nCOMPACTION TRACE: ${name}\n| turn | server prompt | line | crossed | compaction | count after | fixed prompt | share cut |\n| ---: | ---: | ---: | :---: | :---: | ---: | ---: | ---: |\n`);
-    for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.before.data.used_measured} | ${Math.ceil(row.before.data.ceiling * .9)} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.length})` : "no"} | ${row.after?.data?.used_measured ?? "—"} | ${fixed(row.before.data)} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} |\n`);
+    process.stdout.write(`\nCOMPACTION TRACE: ${name}\n| turn | assembly prompt | line | crossed | compaction | count after | fixed before | fixed after | share cut |\n| ---: | ---: | ---: | :---: | :---: | ---: | ---: | ---: | ---: |\n`);
+    for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.prompt} | ${row.line} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.length})` : "no"} | ${row.response?.data?.usage?.prompt_tokens ?? "—"} | ${fixed(row.before.data)} | ${row.response ? fixed(row.after?.data || row.before.data) : "—"} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} |\n`);
     if (ending) process.stdout.write(`\nPROOF END: ${ending}\n`);
-    process.stdout.write(`\n| condition | pass | deciding turn |\n| ---: | :---: | ---: |\n${conditions.map((one) => `| ${one.condition} | ${one.pass ? "yes" : "no"} | ${one.turn} |`).join("\n")}\n`);
+    process.stdout.write(`\n| condition | pass | deciding turn | message |\n| ---: | :---: | ---: | --- |\n${conditions.map((one) => `| ${one.condition} | ${one.pass ? "yes" : "no"} | ${one.turn} | ${one.pass ? "—" : one.message} |`).join("\n")}\n`);
   }
-  const measurements = compactions.map((compact) => { const { before, after } = around(compact); return { before: before?.data?.used_measured, fixed_prompt_before: before && fixed(before.data), after: after?.data?.used_measured, fixed_prompt_after: after && fixed(after.data) }; });
-  return { result: { run: name, compactions: measurements, ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions };
+  const measurements = compactions.map((compact) => { const row = around(compact); return { before: row?.before?.data?.used_measured, fixed_prompt_before: row && fixed(row.before.data), after: row?.response?.data?.usage?.prompt_tokens, fixed_prompt_after: row?.response && fixed(row.after?.data || row.before.data) }; });
+  return { result: { run: name, compactions: measurements, ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows };
 }
 export function verifyRun(name, events, task, notes, fileCount, minimumCompactions) {
   const checked = assessRun(name, events, task, notes, fileCount, minimumCompactions), failure = checked.conditions.find((one) => !one.pass);
@@ -177,7 +192,7 @@ async function prepare(sourceData, root, window, fileCount) {
   return { active, port: Number(machine.listen.split(":").at(-1)), task, workspace: machine.workspace, data: join(root, "data"), record: { ...selected.record, window: declaredWindow }, redactions: [connection.id, connection.label, connection.base_url, connection.credential].filter(Boolean) };
 }
 
-async function runGroup(app, sourceData, window, specs, startOnly = false, timing = {}) {
+async function runGroup(app, sourceData, window, specs, startOnly = false, timing = {}, evidenceRoot = "") {
   const root = await mkdtemp(join(tmpdir(), "agentb-compaction-proof-"));
   let child;
   try {
@@ -214,6 +229,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
       const events = await eventsIn(prepared.data, id);
       const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError));
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
+      if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
       await writeFile(join(prepared.workspace, "notes.md"), "");
       if (runError) throw runError;
     }
@@ -228,15 +244,15 @@ export async function dryStart({ app, sourceData, window }) {
   return runGroup(app, sourceData, window, [{ name: "start", files: 1 }], true);
 }
 
-export async function prove({ app, sourceData, root = here, record, only = "" }) {
+export async function prove({ app, sourceData, root = here, record, only = "", evidence = "" }) {
   const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active;
   const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), plan = proofPlan(machine, profile);
   const wanted = new Set(only ? only.split(",") : plan.runs.map((run) => run.name));
   const sample = await dryStart({ app, sourceData, window: plan.window }), timing = { startupMs: sample.startupMs, startupAllowanceMs: Math.ceil(sample.startupMs * 1.5) };
   process.stdout.write(`COMPACTION PROOF CALIBRATION: startup ${(sample.startupMs / 1000).toFixed(3)} seconds; scored-start allowance ${(timing.startupAllowanceMs / 1000).toFixed(3)} seconds\n`);
   const selectedShort = plan.runs.filter((run) => run.name !== "full" && wanted.has(run.name)), full = plan.runs.find((run) => run.name === "full"), checked = [
-    ...(selectedShort.length ? await runGroup(app, sourceData, plan.window, selectedShort, false, timing) : []),
-    ...(wanted.has("full") ? await runGroup(app, sourceData, plan.window, [full], false, timing) : [])
+    ...(selectedShort.length ? await runGroup(app, sourceData, plan.window, selectedShort, false, timing, evidence) : []),
+    ...(wanted.has("full") ? await runGroup(app, sourceData, plan.window, [full], false, timing, evidence) : [])
   ];
   const failure = checked.flatMap((run) => run.conditions.filter((one) => !one.pass).map((one) => ({ ...one, run: run.run }))).at(0);
   if (failure) throw new Error(`condition ${failure.condition} at turn ${failure.turn} of ${failure.run}: ${failure.message}`);
@@ -257,7 +273,7 @@ async function main() {
   try {
     if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
     if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
-    try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only }); process.stdout.write("COMPACTION PROOF: passed\n"); }
+    try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only, evidence: args.evidence ? resolve(args.evidence) : "" }); process.stdout.write("COMPACTION PROOF: passed\n"); }
     catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
   } finally { if (raw) await new Promise((done) => raw.end(done)); }
 }

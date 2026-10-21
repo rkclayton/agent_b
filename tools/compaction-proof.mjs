@@ -250,10 +250,8 @@ export async function prove({ app, sourceData, root = here, record, only = "", e
   const wanted = new Set(only ? only.split(",") : plan.runs.map((run) => run.name));
   const sample = await dryStart({ app, sourceData, window: plan.window }), timing = { startupMs: sample.startupMs, startupAllowanceMs: Math.ceil(sample.startupMs * 1.5) };
   process.stdout.write(`COMPACTION PROOF CALIBRATION: startup ${(sample.startupMs / 1000).toFixed(3)} seconds; scored-start allowance ${(timing.startupAllowanceMs / 1000).toFixed(3)} seconds\n`);
-  const selectedShort = plan.runs.filter((run) => run.name !== "full" && wanted.has(run.name)), full = plan.runs.find((run) => run.name === "full"), checked = [
-    ...(selectedShort.length ? await runGroup(app, sourceData, plan.window, selectedShort, false, timing, evidence) : []),
-    ...(wanted.has("full") ? await runGroup(app, sourceData, plan.window, [full], false, timing, evidence) : [])
-  ];
+  const selected = plan.runs.filter((run) => wanted.has(run.name)), checked = [];
+  for (const run of selected) checked.push(...await runGroup(app, sourceData, plan.window, [run], false, timing, evidence));
   const failure = checked.flatMap((run) => run.conditions.filter((one) => !one.pass).map((one) => ({ ...one, run: run.run }))).at(0);
   if (failure) throw new Error(`condition ${failure.condition} at turn ${failure.turn} of ${failure.run}: ${failure.message}`);
   const runs = checked.map(({ conditions, ...run }) => run);

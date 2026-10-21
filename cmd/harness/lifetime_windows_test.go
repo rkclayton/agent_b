@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +36,7 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	closes := make(chan struct{}, 1)
 	existingWindows := sessionEndWindowSet()
 	watchSessionEnd(root, life.stopped, func() { closes <- struct{}{} })
+	readyAt := time.Now()
 
 	sendMessage := user32.NewProc("SendMessageW")
 	hwnd := newSessionEndWindow(existingWindows)
@@ -94,7 +96,10 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the stop event was not delivered as a close request")
 	}
-	if answer, _, _ := sendMessage.Call(hwnd, wmQueryEndSession, 0, endSessionLogoff); answer != 1 {
+	before := sessionEndWindowDiagnostics(hwnd, root, readyAt)
+	answer, _, _ := sendMessage.Call(hwnd, wmQueryEndSession, 0, endSessionLogoff)
+	t.Logf("session-end: before={%s} answer=%d", before, answer)
+	if answer != 1 {
 		t.Fatalf("WM_QUERYENDSESSION answered %d", answer)
 	}
 	sendMessage.Call(hwnd, wmEndSession, 1, endSessionLogoff)
@@ -112,6 +117,52 @@ func TestSessionEndIsRecordedBeforeWindowsEndsTheProcess(t *testing.T) {
 	if body, err := os.ReadFile(life.markerPath); err != nil || json.Unmarshal(body, &stopped) != nil || stopped.ExitCause != "session_end" {
 		t.Fatalf("stopped marker = %+v, err=%v", stopped, err)
 	}
+}
+
+func sessionEndWindowDiagnostics(hwnd uintptr, root string, readyAt time.Time) string {
+	getClassName := user32.NewProc("GetClassNameW")
+	className := make([]uint16, 256)
+	classLength, _, _ := getClassName.Call(hwnd, uintptr(unsafe.Pointer(&className[0])), uintptr(len(className)))
+	getOwner := user32.NewProc("GetWindowThreadProcessId")
+	var ownerProcess uint32
+	ownerThread, _, _ := getOwner.Call(hwnd, uintptr(unsafe.Pointer(&ownerProcess)))
+	handle := syscall.Handle(hwnd)
+	value, registered := sessionEndHandlers.Load(handle)
+	thisWatcher := false
+	if registered {
+		handler := value.(*sessionEndHandler)
+		thisWatcher = handler.root == root
+	}
+	table := make([]string, 0)
+	sessionEndHandlers.Range(func(key, value any) bool {
+		handler := value.(*sessionEndHandler)
+		table = append(table, fmt.Sprintf("0x%X/dispatches=%d", uintptr(key.(syscall.Handle)), handler.dispatches.Load()))
+		return true
+	})
+	processIDToSessionID := syscall.NewLazyDLL("kernel32.dll").NewProc("ProcessIdToSessionId")
+	var sessionID uint32
+	processIDToSessionID.Call(uintptr(os.Getpid()), uintptr(unsafe.Pointer(&sessionID)))
+	windowStation, _, _ := user32.NewProc("GetProcessWindowStation").Call()
+	desktop, _, _ := user32.NewProc("GetThreadDesktop").Call(ownerThread)
+	return fmt.Sprintf("handle=0x%X class=%q owner_thread=%d owner_process=%d registered=%t this_watcher=%t table=%s ready_to_message_ms=%d session=%d window_station=%q desktop=%q",
+		hwnd, syscall.UTF16ToString(className[:classLength]), ownerThread, ownerProcess, registered, thisWatcher, strings.Join(table, ","), time.Since(readyAt).Milliseconds(), sessionID, userObjectName(windowStation), userObjectName(desktop))
+}
+
+func userObjectName(handle uintptr) string {
+	if handle == 0 {
+		return "unavailable"
+	}
+	getName := user32.NewProc("GetUserObjectInformationW")
+	var needed uint32
+	getName.Call(handle, 2, 0, 0, uintptr(unsafe.Pointer(&needed)))
+	if needed == 0 {
+		return "unavailable"
+	}
+	name := make([]uint16, (needed+1)/2)
+	if ok, _, _ := getName.Call(handle, 2, uintptr(unsafe.Pointer(&name[0])), uintptr(needed), uintptr(unsafe.Pointer(&needed))); ok == 0 {
+		return "unavailable"
+	}
+	return syscall.UTF16ToString(name)
 }
 
 func sessionEndWindowSet() map[syscall.Handle]bool {

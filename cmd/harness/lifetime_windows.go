@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -65,8 +66,10 @@ var (
 )
 
 type sessionEndHandler struct {
-	record  func(string)
-	queried bool
+	record     func(string)
+	root       string
+	dispatches atomic.Uint32
+	queried    bool
 }
 
 func dispatchSessionEndMessage(hwnd syscall.Handle, message uint32, wParam, lParam uintptr) uintptr {
@@ -76,6 +79,7 @@ func dispatchSessionEndMessage(hwnd syscall.Handle, message uint32, wParam, lPar
 		return result
 	}
 	handler := value.(*sessionEndHandler)
+	handler.dispatches.Add(1)
 	switch message {
 	case wmQueryEndSession:
 		handler.queried = sentMessage()
@@ -289,7 +293,7 @@ func watchSessionEnd(applicationRoot string, record func(string), closeRequested
 		if hwnd == 0 {
 			return
 		}
-		sessionEndHandlers.Store(syscall.Handle(hwnd), &sessionEndHandler{record: record})
+		sessionEndHandlers.Store(syscall.Handle(hwnd), &sessionEndHandler{record: record, root: applicationRoot})
 		// The window is addressable from here, so the caller may proceed.
 		readyOnce()
 		var message windowMessage

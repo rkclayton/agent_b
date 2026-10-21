@@ -31,6 +31,11 @@ jobs:
           $testExit = $LASTEXITCODE
           node tests/gate-result.mjs --go-json $result
           if ($testExit -ne 0) { exit $testExit }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-go-test
+          path: ${{ runner.temp }}/go-test.json
       - run: go test -race ./internal/events ./internal/projection ./internal/broker
       - run: go test -race ./internal/agent -run '^TestReadGroupsRunFourAtOnceAndChangesStayOrdered2rs$' -count=1
       - name: Race delete-running-chat fifty times

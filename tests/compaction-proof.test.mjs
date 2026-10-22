@@ -44,7 +44,7 @@ test("assembly accounting reads the response after the post-compaction budget 2w
 
 test("assembly accounting names a missing task and its event sequence 2w3", () => {
   const checked = assessRun("missing", [budget(1, 950), { seq: 2, type: "compaction" }, request(3, "continue"), response(4, 400), stopped(5)], task, "0001\n", 1, 1);
-  assert.equal(checked.conditions[4].message, "turn 1 task missing from model.request seq 3 after compaction seq 2");
+  assert.equal(checked.conditions[4].message, "task absent after compaction seq 2; ids=");
 });
 
 test("a driven case crosses twice and compacts twice 2w4", () => {
@@ -54,15 +54,40 @@ test("a driven case crosses twice and compacts twice 2w4", () => {
   assert.deepEqual(drivenStepPlan(24576, 2666, 3), { tokens: 2050, firstCrossing: 10, maximum: 30 });
 });
 
-test("a driven empty post-compaction reply fails condition 4 2w4", () => {
+test("a driven empty post-compaction reply is attributed to the model 2w5", () => {
   const checked = assessRun("fresh", good, task, "", 0, 1, false, "", true);
-  assert.equal(checked.conditions[3].pass, false);
-  assert.match(checked.conditions[3].message, /model.response seq 4 was empty/);
+  assert.equal(checked.conditions[3].pass, true);
+  assert.equal(checked.replies[0].reading, "MODEL");
 });
 
 test("a driven missing task still names the request sequence 2w4", () => {
   const events = good.map((one) => one.type === "model.request" ? request(one.seq, "filler only") : one.type === "model.response" ? { ...one, data: { ...one.data, content: "answered" } } : one);
-  assert.equal(assessRun("fresh", events, task, "", 0, 1, false, "", true).conditions[4].message, "turn 1 task missing from model.request seq 3 after compaction seq 2");
+  assert.equal(assessRun("fresh", events, task, "", 0, 1, false, "", true).conditions[4].message, "task absent after compaction seq 2; ids=");
+});
+
+test("session messages decide task retention after compaction 2w5", () => {
+  const compact = { seq: 2, type: "compaction", data: { affected_ids: ["old"], summary_message_id: "handoff" } };
+  const events = [budget(1, 950), compact, response(4, 400), budget(5, 400), stopped(6)];
+  const handoff = { id: "handoff", role: "user", content: task, tokens: 40 };
+  const kept = { id: "kept", role: "assistant", content: "working" };
+  const present = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [handoff, kept]]]));
+  assert.equal(present.conditions[4].pass, true);
+  assert.deepEqual(present.taskLocations[0], { compact: 2, role: "user", id: "handoff", position: 1, affected: false, ids: ["handoff", "kept"] });
+  const absent = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [kept]]]));
+  assert.equal(absent.conditions[4].pass, false);
+  assert.match(absent.conditions[4].message, /absent.*kept/);
+});
+
+test("post-compaction empty replies distinguish model from malformed request 2w5", () => {
+  const compact = { seq: 2, type: "compaction", data: { summary_message_id: "handoff" } };
+  const reasoning = { ...response(4, 400), data: { ...response(4, 400).data, content: "", finish_reason: "stop", reasoning_tokens: 7, usage: { prompt_tokens: 400, completion_tokens: 9 } } };
+  const events = [budget(1, 950), compact, reasoning, budget(5, 400), stopped(6)];
+  const model = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]));
+  assert.equal(model.replies[0].reading, "MODEL");
+  assert.equal(model.conditions[3].pass, true);
+  const malformed = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "orphan", role: "tool", content: "result", tool_call_id: "missing" }]]]));
+  assert.equal(malformed.replies[0].reading, "HARNESS");
+  assert.equal(malformed.conditions[3].pass, false);
 });
 
 test("the two negative controls fail on no compaction and missing notes", () => {

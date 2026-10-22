@@ -95,7 +95,7 @@ export function runEnding(events, error) {
   return stopped ? `terminal event: run.stopped ${stopped.data?.reason || "without a reason"}` : `last event: ${events.at(-1)?.type || "none"}`;
 }
 
-export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "", driven = false) {
+export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "", driven = false, sessionMessages = new Map()) {
   const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
   const compactions = events.filter((event) => event.type === "compaction");
   const lines = notes.trimEnd().split(/\r?\n/);
@@ -114,12 +114,18 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   const weak = rows.filter((one) => one.ran.length).find((one) => !one.response || !Number.isFinite(one.cut) || one.afterChangeable * 2 >= one.beforeChangeable);
   const expected = Array.from({ length: fileCount }, (_, index) => String(index + 1).padStart(4, "0"));
   const taskLocations = compactions.map((compact) => {
-    const request = events.find((event) => event.seq > compact.seq && event.type === "model.request"), messages = request?.body?.messages || [];
-    const position = messages.findIndex((message) => String(message.content || "").includes(task));
-    return { compact, turn: around(compact)?.turn || 0, request, message: messages[position], position };
+    const messages = sessionMessages.has(compact.seq) ? sessionMessages.get(compact.seq) : events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages || [], position = messages.findIndex((message) => String(message.content || "").includes(task)), message = messages[position];
+    return { compact: compact.seq, role: message?.role, id: message?.id, position: position + 1, affected: Boolean(message && compact.data?.affected_ids?.includes(message.id)), ids: messages.map((one) => one.id) };
   });
-  const missingTask = taskLocations.find((one) => one.position < 0);
-  const emptyReply = compactions.map((compact) => ({ compact, turn: around(compact)?.turn || 0, response: events.find((event) => event.seq > compact.seq && event.type === "model.response") })).find((one) => !String(one.response?.data?.content || "").trim());
+  const missingTask = taskLocations.find((one) => one.position < 1 || one.affected);
+  const replies = compactions.map((compact) => {
+    const messages = sessionMessages.has(compact.seq) ? sessionMessages.get(compact.seq) : events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages || [], response = events.find((event) => event.seq > compact.seq && event.type === "model.response"), handoff = messages.find((one) => one.id === compact.data?.summary_message_id);
+    const calls = new Set(messages.flatMap((one) => one.tool_calls || []).map((one) => one.id));
+    const malformed = !messages.length || messages.some((one) => one.role === "tool" && !calls.has(one.tool_call_id)) || messages.some((one) => !String(one.content || "").trim() && !String(one.reasoning || "").trim() && !(one.tool_calls || []).length);
+    const empty = !String(response?.data?.content || "").trim(), reasoning = Number(response?.data?.reasoning_tokens || 0) > 0;
+    return { compact: compact.seq, turn: around(compact)?.turn || 0, response: response?.seq, finish_reason: response?.data?.finish_reason || "", reasoning_tokens: Number(response?.data?.reasoning_tokens || 0), completion_tokens: Number(response?.data?.usage?.completion_tokens || 0), empty, reasoning, message_count: messages.length, handoff_tokens: Number(handoff?.tokens || 0), handoff_first_80: String(handoff?.content || "").slice(0, 80), reading: malformed ? "HARNESS" : "MODEL" };
+  });
+  const badReply = replies.find((one) => one.reading === "HARNESS");
   const noteIndex = expected.findIndex((line, index) => lines[index] !== line), noteTurn = Math.max(1, noteIndex + 1);
   const condition1Pass = compactions.length >= minimumCompactions && !misplaced;
   const conditions = [
@@ -127,20 +133,20 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
     { condition: 2, pass: !weak, turn: weak?.turn || 0, message: weak ? (weak.response ? `turn ${weak.turn} compaction changed changeable prompt by ${(weak.cut * 100).toFixed(1)}% (${weak.beforeChangeable} to ${weak.afterChangeable})` : `turn ${weak.turn} compaction seq ${weak.ran.at(-1)?.seq} saw no following model.response prompt count`) : "all compactions removed more than half" },
     { condition: 3, pass: stopped?.data?.reason === "done", turn: rows.at(-1)?.turn || 0, message: `turn ${rows.at(-1)?.turn || 0} run ended ${stopped?.data?.reason || "without a stop"}` },
     driven
-      ? { condition: 4, pass: !emptyReply, turn: emptyReply?.turn || 0, message: emptyReply ? `turn ${emptyReply.turn} model.response seq ${emptyReply.response?.seq ?? "none"} was empty after compaction seq ${emptyReply.compact.seq}` : "every post-compaction model reply was non-empty" }
+      ? { condition: 4, pass: !badReply, turn: badReply?.turn || 0, message: badReply ? `turn ${badReply.turn} malformed request after compaction seq ${badReply.compact}` : "every post-compaction response is explained as MODEL" }
       : { condition: 4, pass: JSON.stringify(lines) === JSON.stringify(expected), turn: noteTurn, message: `turn ${noteTurn} notes.md saw ${JSON.stringify(lines[noteIndex] ?? "<missing>")}; expected ${JSON.stringify(expected[noteIndex] ?? "<end>")}` },
-    { condition: 5, pass: !missingTask, turn: missingTask?.turn || 0, message: missingTask ? `turn ${missingTask.turn} task missing from model.request seq ${missingTask.request?.seq ?? "none"} after compaction seq ${missingTask.compact.seq}` : "task retained after every compaction" }
+    { condition: 5, pass: !missingTask, turn: missingTask ? around(compactions.find((one) => one.seq === missingTask.compact))?.turn || 0 : 0, message: missingTask ? `task ${missingTask.id ? "affected" : "absent"} after compaction seq ${missingTask.compact}; ids=${missingTask.ids.join(",")}` : "task retained after every compaction" }
   ];
   if (output) {
     process.stdout.write(`\nCOMPACTION TRACE: ${name}\n| turn | assembly prompt | line | crossed | compaction | count after | fixed before | fixed after | share cut |\n| ---: | ---: | ---: | :---: | :---: | ---: | ---: | ---: | ---: |\n`);
     for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.prompt} | ${row.line} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.length})` : "no"} | ${row.response?.data?.usage?.prompt_tokens ?? "—"} | ${fixed(row.before.data)} | ${row.response ? fixed(row.after?.data || row.before.data) : "—"} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} |\n`);
     if (ending) process.stdout.write(`\nPROOF END: ${ending}\n`);
-    const first = taskLocations[0];
-    if (first) process.stdout.write(`\nTASK RETENTION: first compaction seq ${first.compact.seq}; model.request seq ${first.request?.seq ?? "none"}; ${first.message ? `message ${first.position + 1} role=${first.message.role} quote=${JSON.stringify(task)}` : "task sentence absent"}\n`);
+    for (const location of taskLocations) process.stdout.write(`\nTASK RETENTION: compaction seq ${location.compact}; ${location.id ? `message ${location.position} role=${location.role} id=${location.id} affected=${location.affected} quote=${JSON.stringify(task)}` : `absent ids=${location.ids.join(",")}`}\n`);
+    for (const reply of replies) process.stdout.write(`EMPTY REPLY READING: compaction seq ${reply.compact}; response=${reply.response ?? "none"}; finish=${reply.finish_reason}; reasoning_tokens=${reply.reasoning_tokens}; completion_tokens=${reply.completion_tokens}; empty=${reply.empty}; reasoning=${reply.reasoning}; messages=${reply.message_count}; handoff_tokens=${reply.handoff_tokens}; handoff_first_80=${JSON.stringify(reply.handoff_first_80)}; ${reply.reading}\n`);
     process.stdout.write(`\n| condition | pass | deciding turn | message |\n| ---: | :---: | ---: | --- |\n${conditions.map((one) => `| ${one.condition} | ${one.pass ? "yes" : "no"} | ${one.turn} | ${one.pass ? "—" : one.message} |`).join("\n")}\n`);
   }
   const measurements = compactions.map((compact) => { const row = around(compact); return { before: row?.before?.data?.used_measured, fixed_prompt_before: row && fixed(row.before.data), after: row?.response?.data?.usage?.prompt_tokens, fixed_prompt_after: row?.response && fixed(row.after?.data || row.before.data) }; });
-  return { result: { run: name, compactions: measurements, ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows };
+  return { result: { run: name, compactions: measurements, ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows, taskLocations, replies };
 }
 export function verifyRun(name, events, task, notes, fileCount, minimumCompactions, driven = false) {
   const checked = assessRun(name, events, task, notes, fileCount, minimumCompactions, false, "", driven), failure = checked.conditions.find((one) => !one.pass);
@@ -204,7 +210,7 @@ async function prepare(sourceData, root, window, fileCount) {
   machine.workspace = join(root, "workspace"); machine.log_dir = join(root, "data", "logs");
   machine.profiles = { active, names: [active] }; machine.context.summary_pct = .9;
   machine.run.max_turns = Math.max(machine.run.max_turns || 0, 600); machine.run.max_tool_calls = Math.max(machine.run.max_tool_calls || 0, 600);
-  machine.approval.mode = "off"; machine.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file"] }];
+  machine.approval.mode = "boundary-only"; machine.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file"] }];
   profile.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file"] }];
   await mkdir(join(root, "data", "profiles", active), { recursive: true }); await mkdir(machine.workspace, { recursive: true });
   await writeFile(join(root, "data", "harness.json"), JSON.stringify(machine));
@@ -240,43 +246,44 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     process.stdout.write(`COMPACTION PROOF: candidate page answered in ${(startupMs / 1000).toFixed(3)} seconds within ${(startAllowance / 1000).toFixed(3)}-second allowance\n`);
     const html = await document.text(), token = html.match(/agentb-mutation-token" content="([^"]+)/)?.[1], cookie = document.headers.get("set-cookie")?.split(";")[0] || "";
     assert.ok(token, "model unreachable"); const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token, Cookie: cookie };
-    if (startOnly) return { record: prepared.record, startupMs };
+    if (startOnly) { const state = await json(`${base}/api/state?session=proof-example`, { headers }); return { record: prepared.record, startupMs, stateExample: { sessions: Object.keys(state.sessions || {}).length } }; }
     const activityBase = Math.max(timing.startupMs || 0, startupMs);
     const rows = [];
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
-      let runError;
+      let runError; const sessionMessages = new Map();
+      const read = async () => { const events = await eventsIn(prepared.data, id); for (const compact of events.filter((one) => one.type === "compaction" && !sessionMessages.has(one.seq))) { const state = await json(`${base}/api/state?session=${encodeURIComponent(id)}`, { headers }); sessionMessages.set(compact.seq, state.sessions?.[id]?.messages || []); } return events; };
       try {
         if (spec.name === "full") {
           await send(prepared.task);
-          await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, activityBase, spec.files);
+          await waitForActivity(read, (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, activityBase, spec.files);
         } else {
           let steps = 1, marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
           await send(prepared.step);
           const completedAfter = (after) => (events) => { const reply = events.find((one) => one.seq > after && one.type === "model.response"); return reply && events.some((one) => one.seq > reply.seq && one.type === "run.stopped"); };
           if (spec.interrupt || spec.queue) {
-            await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.filter((one) => one.seq > marker && one.type === "tool.result").length >= 3, `${spec.name} middle`, activityBase, spec.files);
+            await waitForActivity(read, (events) => events.filter((one) => one.seq > marker && one.type === "tool.result").length >= 3, `${spec.name} middle`, activityBase, spec.files);
             if (spec.queue) { marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || marker; await send(prepared.step); steps++; }
             else {
               const stopAt = (await eventsIn(prepared.data, id)).at(-1)?.seq || marker;
               await json(`${base}/api/stop`, { method: "POST", headers, body: JSON.stringify({ session_id: id }) });
-              await waitForActivity(() => eventsIn(prepared.data, id), (events) => events.some((one) => one.seq > stopAt && one.type === "run.stopped"), `${spec.name} stop`, activityBase, spec.files);
+              await waitForActivity(read, (events) => events.some((one) => one.seq > stopAt && one.type === "run.stopped"), `${spec.name} stop`, activityBase, spec.files);
               marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || stopAt; await send(spec.continueText);
             }
           }
-          await waitForActivity(() => eventsIn(prepared.data, id), completedAfter(marker), `${spec.name} completion`, activityBase, spec.files);
+          await waitForActivity(read, completedAfter(marker), `${spec.name} completion`, activityBase, spec.files);
           let events = await eventsIn(prepared.data, id), first = events.find((one) => one.type === "budget" && one.data?.used_est > 0);
           const plan = drivenStepPlan(Number(first?.data?.ceiling || window), fixed(first?.data), spec.minimum);
           process.stdout.write(`COMPACTION PROOF STEPS: ${spec.name} fixed=${fixed(first?.data)} line=${Math.ceil(fixed(first?.data) + proofSummaryPct * (Number(first?.data?.ceiling || window) - fixed(first?.data)))} tokens=${plan.tokens} first=${plan.firstCrossing} maximum=${plan.maximum}\n`);
           while (events.filter((one) => one.type === "compaction").length < spec.minimum && steps < plan.maximum) {
             marker = events.at(-1)?.seq || 0; await send(prepared.step); steps++;
-            events = await waitForActivity(() => eventsIn(prepared.data, id), completedAfter(marker), `${spec.name} step ${steps}`, activityBase, spec.files);
+            events = await waitForActivity(read, completedAfter(marker), `${spec.name} step ${steps}`, activityBase, spec.files);
           }
         }
       } catch (error) { runError = error; }
       const events = await eventsIn(prepared.data, id);
-      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full");
+      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", sessionMessages);
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
       if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
       await writeFile(join(prepared.workspace, "notes.md"), "");
@@ -319,7 +326,7 @@ async function main() {
   const root = resolve(args.source || here), record = resolve(args.record || join(root, "tests", "compaction-proof.json"));
   try {
     if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
-    if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
+    if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window} state_sessions=${result.stateExample.sessions}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
     try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only, evidence: args.evidence ? resolve(args.evidence) : "" }); process.stdout.write("COMPACTION PROOF: passed\n"); }
     catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
   } finally { if (raw) await new Promise((done) => raw.end(done)); }

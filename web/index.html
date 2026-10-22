@@ -132,36 +132,28 @@
        Settings already adopts, and Settings moves the nodes into its Plan section the
        same way. The nodes are MOVED, never rebuilt, so every listener plan.js owns
        keeps working. -->
-<div id="plan-panel" class="plan-workspace" aria-label="Plan">
-    <nav class="plan-flyout" aria-label="Plans">
+<div id="plan-panel" class="plan-workspace" aria-label="Repositories">
+    <nav class="plan-flyout" aria-label="Repositories">
       <div class="plan-flyout-head">
-        <input id="plan-search" type="search" aria-label="Search plans" placeholder="search" autocomplete="off" spellcheck="false">
-        <button id="plan-add" class="plan-add" type="button" aria-label="Add a plan" title="Add a plan for a folder">+</button>
+        <input id="plan-search" type="search" aria-label="Search repositories" placeholder="search" autocomplete="off" spellcheck="false">
+        <button id="plan-add" class="plan-add" type="button">Add repo</button>
       </div>
       <form id="plan-add-form" class="plan-add-form" hidden>
         <input id="plan-add-path" type="hidden">
         <div id="plan-add-preview" class="plan-add-preview" hidden>
           <div><span>Folder</span><strong id="plan-preview-folder"></strong></div>
           <div><span>Repository</span><strong id="plan-preview-repository"></strong></div>
-          <div><span>Plan</span><strong id="plan-preview-plan"></strong></div>
+          <div><span>Planning</span><strong id="plan-preview-plan"></strong></div>
           <div><span>AGENTS.md</span><strong id="plan-preview-agents"></strong></div>
           <button id="plan-add-confirm" type="submit">Add</button>
         </div>
         <p id="plan-add-error" class="plan-add-error" hidden></p>
       </form>
-      <div id="plan-build" class="plan-build" role="group" aria-label="Build plan now?" hidden>
-        <span>Build plan now?</span><button id="plan-build-yes" type="button">Yes</button><button id="plan-build-no" type="button">No</button>
-      </div>
-      <form id="plan-wizard" class="plan-wizard" hidden>
-        <label id="plan-wizard-label" for="plan-wizard-value"></label>
-        <textarea id="plan-wizard-value" rows="5" maxlength="4000"></textarea>
-        <div><button id="plan-wizard-next" type="submit">Next</button><button id="plan-wizard-skip" type="button">Skip</button></div>
-      </form>
-      <ul id="plan-list" class="plan-list"></ul>
-      <p id="plan-list-empty" class="plan-list-empty" hidden>No plans yet. + adds one for a folder.</p>
+      <table class="plan-repo-table"><thead><tr><th>Path</th><th>Planning</th><th>Open chats</th><th>Last Go</th><th></th></tr></thead><tbody id="plan-list"></tbody></table>
+      <p id="plan-list-empty" class="plan-list-empty" hidden>No repositories yet.</p>
     </nav>
-    <section class="plan-view" aria-label="Plan document">
-      <header class="plan-panel-head"><span id="plan-name">Plan</span><span class="plan-run-controls"><button type="button" id="plan-go" class="plan-go" disabled>Go</button></span></header>
+    <section class="plan-view" aria-label="Repository planning">
+      <header class="plan-panel-head"><span id="plan-name">Repository</span><span class="plan-run-controls"><button type="button" id="plan-enable" hidden><span>Add to planning</span></button><button type="button" id="plan-go" class="plan-go" disabled>Go</button></span></header>
       <div id="plan-lint" class="plan-lint" role="status" hidden></div>
       <p id="plan-refusal" class="plan-refusal" hidden></p>
       <div id="plan-done" class="plan-done" hidden></div>

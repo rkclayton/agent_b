@@ -33,3 +33,15 @@ func TestPlanAwarenessDoesNotChurnSessionPrompt(t *testing.T) {
 		t.Fatalf("prompt changed after plan creation:\nbefore %q\nafter  %q", before, after)
 	}
 }
+
+func TestRegisteredPlainRepoPromptAndToolsMatchNoRepo(t *testing.T) {
+	renderer := &PromptRenderer{text: "workspace={{workspace}} plans={{plans}} tools={{tools}}"}
+	connection := &config.Connection{}
+	workspace := t.TempDir()
+	plain := &session.Session{Role: "b", Workspace: workspace, PlansRoot: filepath.Join(t.TempDir(), "plans"), PlanRepos: func() []string { return []string{workspace} }}
+	none := &session.Session{Role: "b", Workspace: workspace}
+	tools := []string{"read_file", "list_dir", "write_file"}
+	if got, want := renderer.Render(connection, plain, tools, ""), renderer.Render(connection, none, tools, ""); got != want {
+		t.Fatalf("plain repo gained planning prompt/tools:\nplain %q\nnone  %q", got, want)
+	}
+}

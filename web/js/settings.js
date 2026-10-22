@@ -98,7 +98,7 @@ const connectionList = () => Array.isArray(store.connections) ? store.connection
 // where a document he writes in belongs.
 const sectionLabels = [
   ["activity", "Activity"],
-  ["plan", "Plan"],
+  ["plan", "Repos"],
   ["connections", "Connections"],
   ["profiles", "Profiles"],
   ["skills", "Skills"],
@@ -373,7 +373,7 @@ function render() {
     </header>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">
-        ${navSections().map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${sectionChip(id)}${name}</button>`).join("")}
+        ${navSections().map(([id, name]) => `<button type="button" class="${id === activeSection ? "selected" : ""}" data-action="settings-section" data-id="${id}" aria-current="${id === activeSection ? "page" : "false"}">${name}</button>`).join("")}
       </nav>
       <div class="settings-content" tabindex="-1">${group(label, content[activeSection](), activeSection)}${confirmPopover()}${errorPanelMarkup()}</div>
     </div>`;
@@ -504,6 +504,7 @@ function adoptPanels() {
   for (const slot of sheet.querySelectorAll("[data-adopt]")) {
     const panel = document.getElementById(slot.dataset.adopt);
     if (!panel) continue;
+    panel.inert = false;
     slot.append(panel);
     adopted = true;
   }
@@ -586,37 +587,8 @@ function probePhaseLine(data) {
   return `connecting to ${address}`;
 }
 
-function planAvailable() {
-  const session = store.sessions?.[store.selection?.session_id || ""];
-  if (!session) return false;
-  const configured = (store.config.agents || []).find((agent) => agentKey(agent) === session.agent_id) || store.config.agents?.[0];
-  return session.role === "d" || !String(configured?.d || "").trim();
-}
-
-// kept by 2ni: THE OPERATOR'S OWN PREPARED ARTWORK STAYS, and it
-// moves with the Plan. "i want this to be the new plan icon … maintain the color of
-// the icon itself" — the same three files at the same drawn 12px, beside the nav
-// entry now that the tab it sat in is gone. The size set is not optional: his own
-// display renders that box at 1.75x, so the browser picks.
-function sectionChip(id) {
-  if (id !== "plan") return "";
-  return '<img class="shell-page-chip" src="/static/assets/plan-mark-nav.png" srcset="/static/assets/plan-mark-nav.png 1x, /static/assets/plan-mark-nav@2x.png 2x, /static/assets/plan-mark-nav@3x.png 3x" width="12" height="12" alt="" decoding="async">';
-}
-
 function planSection() {
-  // the Plan is DRAWN HERE, in the pane, exactly as Agents and
-  // Activity are — the same adoption, the same container, the same nav selection. It
-  // used to navigate to a document of its own, which is the transition he watched
-  // glitch.
-  // the entry exists either way; this is the one line that says why the document
-  // is not here, in the words of the thing to do about it.
-  // The address asking for the Plan is the operator asking for it. Before
-  // the rule gated the nav ENTRY's content and never the document: /plan rendered the
-  // Plan whatever chat was selected. That stays true — what the rule still decides is
-  // what the entry shows when he arrives at it from the nav on a chat that cannot
-  // plan, kept by 2no (e)).
-  if (planAvailable() || planRequestedByAddress) return '<div data-adopt="plan-panel"></div>';
-  return `<p class="settings-plan-note">Assign a planner in Profiles to write a plan. The Plan opens on a planner chat, or on any chat when one connection serves every role.</p>`;
+  return '<div data-adopt="plan-panel"></div>';
 }
 
 // hiding the Plan hides its ENTRY, which is the user's own choice

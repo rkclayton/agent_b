@@ -336,6 +336,9 @@ func TestProducedFileMetadataTracksOnlyJailedFileTools(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(planDir, "reports", "done.txt"), []byte("plan"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	d := &session.Session{Role: "d", Workspace: workspace, PlansRoot: planRoot, PlanID: "stable", PlanDir: planDir}
 	dMetadata := producedFileMetadata(d, "write_file", map[string]any{"path": "reports/done.txt"})
 	dFile, _ := dMetadata["file"].(map[string]any)

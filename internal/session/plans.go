@@ -5,42 +5,170 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	workspaceinfo "harness/internal/workspace"
 )
 
-const planManifestName = "plan.json"
+const (
+	planManifestName = "plan.json"
+	repoIndexName    = "repos.json"
+	maxRepositories  = 256
+)
 
 type Plan struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Repo string `json:"repo,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Repo       string `json:"repo,omitempty"`
+	Planning   bool   `json:"planning"`
+	Missing    bool   `json:"missing,omitempty"`
+	LegacyPath string `json:"legacy_path,omitempty"`
+	OpenChats  int    `json:"open_chats,omitempty"`
+	LastGo     string `json:"last_go,omitempty"`
 }
 
 type planManifest struct {
 	Repo string `json:"repo,omitempty"`
 }
 
+type repoIndex struct {
+	Version  int    `json:"version"`
+	Migrated bool   `json:"migrated"`
+	Repos    []Plan `json:"repos"`
+}
+
 func ListPlans(root string) ([]Plan, error) {
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		return []Plan{}, nil
-	}
+	index, err := readRepoIndex(root)
 	if err != nil {
 		return nil, err
 	}
-	values := make([]Plan, 0, len(entries))
+	values := append([]Plan(nil), index.Repos...)
+	for i := range values {
+		info, statErr := os.Stat(values[i].Repo)
+		values[i].Missing = statErr != nil || !info.IsDir()
+		values[i].Planning = !values[i].Missing && regularFile(filepath.Join(values[i].Repo, "plan.md"))
+		if !values[i].Missing {
+			values[i].Name = filepath.Base(values[i].Repo)
+			if values[i].Planning {
+				values[i].Name = planDisplayName(values[i].Repo)
+			}
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return strings.ToLower(values[i].Name) < strings.ToLower(values[j].Name) })
+	return values, nil
+}
+
+func readRepoIndex(root string) (repoIndex, error) {
+	path := filepath.Join(root, repoIndexName)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		var index repoIndex
+		if err := json.Unmarshal(data, &index); err != nil {
+			return repoIndex{}, err
+		}
+		if index.Repos == nil {
+			index.Repos = []Plan{}
+		}
+		return index, nil
+	}
+	if !os.IsNotExist(err) {
+		return repoIndex{}, err
+	}
+	entries, readErr := os.ReadDir(root)
+	if os.IsNotExist(readErr) {
+		return repoIndex{Version: 1, Migrated: true, Repos: []Plan{}}, nil
+	}
+	if readErr != nil {
+		return repoIndex{}, readErr
+	}
+	index := repoIndex{Version: 1, Migrated: true, Repos: []Plan{}}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || len(index.Repos) >= maxRepositories {
 			continue
 		}
-		dir := filepath.Join(root, entry.Name())
-		values = append(values, Plan{ID: entry.Name(), Name: planDisplayName(dir), Repo: planRepo(dir)})
+		legacyDir := filepath.Join(root, entry.Name())
+		repo := planRepo(legacyDir)
+		if repo == "" {
+			continue
+		}
+		item := Plan{ID: entry.Name(), Name: planDisplayName(legacyDir), Repo: filepath.Clean(repo), LegacyPath: legacyDir}
+		if info, statErr := os.Stat(item.Repo); statErr != nil || !info.IsDir() {
+			item.Missing = true
+		} else if err := copyLegacyPlan(filepath.Join(legacyDir, "plan.md"), filepath.Join(item.Repo, "plan.md")); err != nil {
+			return repoIndex{}, err
+		}
+		index.Repos = append(index.Repos, item)
 	}
-	return values, nil
+	if err := writeRepoIndex(root, index); err != nil {
+		return repoIndex{}, err
+	}
+	return index, nil
+}
+
+func copyLegacyPlan(source, target string) error {
+	if _, err := os.Lstat(target); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	in, err := os.Open(source)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
+}
+
+func writeRepoIndex(root string, index repoIndex) error {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(root, ".repos-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, filepath.Join(root, repoIndexName))
+}
+
+func regularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func planRepo(dir string) string {
@@ -80,6 +208,54 @@ func (r *Registry) EnsurePlan(repo string) (Plan, bool, error) {
 	return r.ensurePlanLocked(repo)
 }
 
+// EnablePlanning creates the one opt-in marker, the repository-root plan.md.
+// It is called only by the Repos page after the operator presses Add to planning.
+func (r *Registry) EnablePlanning(id string) (Plan, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	values, err := ListPlans(r.plansRoot)
+	if err != nil {
+		return Plan{}, err
+	}
+	for _, item := range values {
+		if item.ID != id {
+			continue
+		}
+		if item.Missing {
+			return Plan{}, fmt.Errorf("repository is missing")
+		}
+		if err := os.MkdirAll(filepath.Join(item.Repo, "plan", "items"), 0o700); err != nil {
+			return Plan{}, err
+		}
+		path := filepath.Join(item.Repo, "plan.md")
+		if err := UpdatePlanFile(path, func(current string, exists bool) (string, error) {
+			if exists {
+				return current, nil
+			}
+			return PlanTemplate(filepath.Base(item.Repo), item.Repo), nil
+		}); err != nil {
+			return Plan{}, err
+		}
+		item.Planning = true
+		notifyPlan("plan.updated", item.Repo)
+		return item, nil
+	}
+	return Plan{}, fmt.Errorf("repository not found")
+}
+
+func (r *Registry) planningRepoLocked(id string) (Plan, bool) {
+	values, err := ListPlans(r.plansRoot)
+	if err != nil {
+		return Plan{}, false
+	}
+	for _, item := range values {
+		if item.ID == id && item.Planning && !item.Missing {
+			return item, true
+		}
+	}
+	return Plan{}, false
+}
+
 func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 	canonical, err := canonicalRepo(repo)
 	if err != nil {
@@ -112,25 +288,25 @@ func (r *Registry) ensurePlanLocked(repo string) (Plan, bool, error) {
 			return Plan{}, false, err
 		}
 	}
-	planID, planDir, err := allocatePlanDir(r.plansRoot)
+	index, err := readRepoIndex(r.plansRoot)
 	if err != nil {
 		return Plan{}, false, err
 	}
-	if err := os.MkdirAll(filepath.Join(planDir, "plan", "items"), 0o700); err != nil {
+	if len(index.Repos) >= maxRepositories {
+		return Plan{}, false, fmt.Errorf("repository limit reached")
+	}
+	planID, err := allocatePlanID(index.Repos)
+	if err != nil {
 		return Plan{}, false, err
 	}
 	name := filepath.Base(typed)
-	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return PlanTemplate(name, canonical), nil }); err != nil {
+	created := Plan{ID: planID, Name: name, Repo: canonical}
+	index.Repos = append(index.Repos, created)
+	if err := writeRepoIndex(r.plansRoot, index); err != nil {
 		return Plan{}, false, err
 	}
-	if err := os.WriteFile(filepath.Join(planDir, "NOTES.md"), nil, 0o600); err != nil {
-		return Plan{}, false, err
-	}
-	if err := writePlanRepo(planDir, canonical); err != nil {
-		return Plan{}, false, err
-	}
-	notifyPlan("plan.created", planDir)
-	return Plan{ID: planID, Name: name, Repo: canonical}, true, nil
+	notifyPlan("plan.created", canonical)
+	return created, true, nil
 }
 
 func (r *Registry) planListLocked() []Plan {
@@ -170,6 +346,24 @@ func allocatePlanDir(root string) (string, string, error) {
 		}
 	}
 	return "", "", fmt.Errorf("could not allocate a unique plan id")
+}
+
+func allocatePlanID(plans []Plan) (string, error) {
+	used := make(map[string]bool, len(plans))
+	for _, item := range plans {
+		used[item.ID] = true
+	}
+	for attempt := 0; attempt < 8; attempt++ {
+		random := make([]byte, 8)
+		if _, err := rand.Read(random); err != nil {
+			return "", err
+		}
+		id := hex.EncodeToString(random)
+		if !used[id] {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("could not allocate a unique repository id")
 }
 
 func samePath(left, right string) bool {

@@ -71,6 +71,9 @@ func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
+		t.Fatal(err)
+	}
 	worker, err := registry.CreateRole("worker", config.AgentID("Worker"), "", "c", plan.ID)
 	if err != nil {
 		t.Fatal(err)

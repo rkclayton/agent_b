@@ -35,13 +35,14 @@ test("view modules preserve state while unmounted and the bus owns one stream", 
   assert.match(bus, /const listeners = new Set\(\)/);
 });
 
-// The panels are mounted by the sheet that adopts them, not by a route, and
-// they are moved rather than rebuilt so their controls survive a re-render.
-test("Settings mounts the two adopted panels and moves them home again", () => {
+// The panels are mounted by the sheet that adopts them, not by a route. Moving
+// one out of the inert background also makes its controls interactive again.
+test("Settings mounts adopted panels, clears inert, and moves them home again", () => {
   assert.match(settings, /\["profiles", "Profiles"\]/);
   assert.match(settings, /\["activity", "Activity"\]/);
   assert.match(settings, /mountPanels\(\)/);
   assert.match(settings, /unmountPanels\(\)/);
   assert.match(settings, /function returnAdoptedPanels/);
+  assert.match(settings, /panel\.inert = false;\s*slot\.append\(panel\)/);
   assert.match(workspace, /mountChat\(shell\)/);
 });

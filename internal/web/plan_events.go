@@ -2,6 +2,7 @@ package web
 
 import (
 	"path/filepath"
+	"time"
 
 	"harness/internal/events"
 	"harness/internal/session"
@@ -15,15 +16,17 @@ import (
 func (s *Server) PublishPlanChanges() {
 	root := filepath.Join(s.profileRoot(), "plans")
 	session.PlanChanged = func(kind, planDir string) {
-		id := filepath.Base(planDir)
-		data := map[string]any{"plan_id": id}
+		id := ""
+		data := map[string]any{}
 		if plans, err := session.ListPlans(root); err == nil {
 			for _, plan := range plans {
-				if plan.ID == id {
+				if session.SamePath(plan.Repo, planDir) {
+					id = plan.ID
 					data["plan"] = plan
 				}
 			}
 		}
+		data["plan_id"] = id
 		s.bus.Publish(events.New(kind, "", "", data))
 	}
 }
@@ -32,6 +35,17 @@ func (s *Server) planList() []session.Plan {
 	plans, err := session.ListPlans(filepath.Join(s.profileRoot(), "plans"))
 	if err != nil {
 		return []session.Plan{}
+	}
+	for i := range plans {
+		for _, chat := range s.registry.List() {
+			snapshot := chat.Snapshot()
+			if !snapshot.Closed && (snapshot.PlanID == plans[i].ID || session.SamePath(snapshot.Workspace, plans[i].Repo)) {
+				plans[i].OpenChats++
+			}
+		}
+		if state, ok := s.workerStates[plans[i].ID]; ok && !state.startedAt.IsZero() {
+			plans[i].LastGo = state.startedAt.Format(time.RFC3339Nano)
+		}
 	}
 	return plans
 }

@@ -89,6 +89,13 @@ func TestPlanRepoSelectionAndCanonicalDetection(t *testing.T) {
 	if first.Scratch {
 		t.Fatal("folder chat marked scratch")
 	}
+	registered, _, err := registry.EnsurePlan(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.EnablePlanning(registered.ID); err != nil {
+		t.Fatal(err)
+	}
 	plans := registry.planListLocked()
 	if len(plans) != 1 || !samePath(plans[0].Repo, repo) || plans[0].Name != "repo" {
 		t.Fatalf("plans=%+v", plans)
@@ -217,27 +224,128 @@ func TestEnsurePlanImmediatelyAddsRepoToBSessionUnion(t *testing.T) {
 	}
 }
 
-func TestPlansTreeReadEverywhereWriteOnlyBoundPlan(t *testing.T) {
+func TestRootPlanWriteOnlyByItsBoundPlanner(t *testing.T) {
 	root := t.TempDir()
 	plans := filepath.Join(root, "plans")
-	own := filepath.Join(plans, "own")
-	other := filepath.Join(plans, "other")
+	own := filepath.Join(root, "own")
+	other := filepath.Join(root, "other")
 	for _, dir := range []string{own, other} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-	}
-	b := &Session{Role: "b", Workspace: filepath.Join(root, "repo"), PlansRoot: plans}
-	d := &Session{Role: "d", Workspace: filepath.Join(root, "repo"), PlansRoot: plans, PlanDir: own}
-	for name, item := range map[string]*Session{"b": b, "d": d} {
-		if got, err := item.ReadRoot(filepath.Join(other, "plan.md")); err != nil || got != plans {
-			t.Fatalf("%s read root=%q err=%v", name, got, err)
-		}
-		if _, err := item.WriteRoot(filepath.Join(other, "plan.md")); err == nil {
-			t.Fatalf("%s wrote sibling plan", name)
+		if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# Plan\n"), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
+	d := &Session{Role: "d", Workspace: own, PlansRoot: plans, PlanDir: own, PlanRepo: own}
 	if got, err := d.WriteRoot(filepath.Join(own, "plan.md")); err != nil || got != own {
 		t.Fatalf("bound write root=%q err=%v", got, err)
+	}
+	if got, err := d.WriteRoot(filepath.Join(other, "plan.md")); err != nil || got != own {
+		t.Fatalf("sibling resolves to workspace, got=%q err=%v", got, err)
+	}
+}
+
+func TestRepositoryRegistrationDoesNotCreateAPlan(t *testing.T) {
+	registry, _, _ := testPlanRegistry(t)
+	repo := t.TempDir()
+	registered, created, err := registry.EnsurePlan(repo)
+	if err != nil || !created {
+		t.Fatalf("register = %+v created=%v err=%v", registered, created, err)
+	}
+	if registered.Planning {
+		t.Fatalf("plain repository is planning: %+v", registered)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "plan.md")); !os.IsNotExist(err) {
+		t.Fatalf("registration created plan.md: %v", err)
+	}
+	if entries, err := os.ReadDir(registry.plansRoot); err != nil || len(entries) != 1 || entries[0].Name() != "repos.json" {
+		t.Fatalf("profile plan storage = %+v, %v", entries, err)
+	}
+}
+
+func TestPlanningIsOnlyARegularRootPlanFile(t *testing.T) {
+	registry, _, _ := testPlanRegistry(t)
+	repo := t.TempDir()
+	registered, _, err := registry.EnsurePlan(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "plan.md"), []byte("# Root plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values, err := ListPlans(registry.plansRoot)
+	if err != nil || len(values) != 1 || values[0].ID != registered.ID || !values[0].Planning {
+		t.Fatalf("repositories = %+v, %v", values, err)
+	}
+	if err := os.Remove(filepath.Join(repo, "plan.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, "plan.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	values, err = ListPlans(registry.plansRoot)
+	if err != nil || values[0].Planning {
+		t.Fatalf("directory named plan.md enabled planning: %+v, %v", values, err)
+	}
+}
+
+func TestLegacyPlansMigrateCopyOnlyAndAreNeverReadAgain(t *testing.T) {
+	root := t.TempDir()
+	plans := filepath.Join(root, "plans")
+	repoCopied := filepath.Join(root, "copied")
+	repoKept := filepath.Join(root, "kept")
+	missing := filepath.Join(root, "missing")
+	for _, dir := range []string{repoCopied, repoKept} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repoKept, "plan.md"), []byte("# Keep root\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []struct{ id, repo, text string }{
+		{"copy-id", repoCopied, "# Copy legacy\n"},
+		{"keep-id", repoKept, "# Never overwrite\n"},
+		{"missing-id", missing, "# Missing legacy\n"},
+	}
+	for _, item := range legacy {
+		dir := filepath.Join(plans, item.id)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writePlanRepo(dir, item.repo); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte(item.text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	values, err := ListPlans(plans)
+	if err != nil || len(values) != 3 {
+		t.Fatalf("migration = %+v, %v", values, err)
+	}
+	assertText := func(path, want string) {
+		t.Helper()
+		got, readErr := os.ReadFile(path)
+		if readErr != nil || string(got) != want {
+			t.Fatalf("%s = %q, %v; want %q", path, got, readErr, want)
+		}
+	}
+	assertText(filepath.Join(repoCopied, "plan.md"), "# Copy legacy\n")
+	assertText(filepath.Join(repoKept, "plan.md"), "# Keep root\n")
+	assertText(filepath.Join(plans, "copy-id", "plan.md"), "# Copy legacy\n")
+	if err := os.WriteFile(filepath.Join(plans, "copy-id", "plan.md"), []byte("# Changed old copy\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values, err = ListPlans(plans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertText(filepath.Join(repoCopied, "plan.md"), "# Copy legacy\n")
+	for _, item := range values {
+		if item.ID == "missing-id" && (!item.Missing || item.Planning || item.Repo != missing) {
+			t.Fatalf("missing repository = %+v", item)
+		}
 	}
 }

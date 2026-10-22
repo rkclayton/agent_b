@@ -79,9 +79,9 @@ func UpdatePlanFile(path string, change func(current string, exists bool) (strin
 // the only root a d session writes.
 func (s *Session) PlanFileFor(path string) (string, bool) {
 	s.mu.Lock()
-	planDir, plansRoot := s.PlanDir, s.PlansRoot
+	planDir := s.PlanDir
 	s.mu.Unlock()
-	if plansRoot == "" || path == "" {
+	if planDir == "" || path == "" {
 		return "", false
 	}
 	candidate := filepath.FromSlash(path)
@@ -92,7 +92,7 @@ func (s *Session) PlanFileFor(path string) (string, bool) {
 		candidate = filepath.Join(planDir, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	if !strings.EqualFold(filepath.Base(candidate), "plan.md") || !samePath(filepath.Dir(filepath.Dir(candidate)), plansRoot) {
+	if !strings.EqualFold(filepath.Base(candidate), "plan.md") || !samePath(filepath.Dir(candidate), planDir) {
 		return "", false
 	}
 	return candidate, true

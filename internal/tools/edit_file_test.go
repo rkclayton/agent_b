@@ -36,26 +36,20 @@ func TestDSessionFileBoundarySeparatesPlanWritesFromRepositoryReads(t *testing.T
 	}
 	edit, write, read, _ := testTools(repo)
 	item := testSession(repo, "d1", "Planner")
-	item.Role, item.PlansRoot = "d", plans
+	item.Role, item.PlansRoot, item.PlanID, item.PlanDir, item.PlanRepo = "d", plans, "repo", repo, repo
+	if err := os.MkdirAll(filepath.Join(repo, "plan", "items"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "plan.md"), []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, path := range []string{"../escape.md", ".agentb/policy.json"} {
 		if _, err := write.Call(context.Background(), item, map[string]any{"path": path, "content": "no"}); err == nil {
-			t.Fatalf("unbound d accepted %s", path)
-		}
-		if item.PlanID != "" || item.PlanDir != "" {
-			t.Fatalf("refused write bound a plan: %+v", item.Snapshot())
+			t.Fatalf("planner accepted %s", path)
 		}
 	}
 	if _, err := write.Call(context.Background(), item, map[string]any{"path": "draft.md", "content": "plan A"}); err != nil {
 		t.Fatal(err)
-	}
-	planA := item.PlanDir
-	if item.PlanID == "" || planA == "" {
-		t.Fatalf("plan was not bound: %+v", item.Snapshot())
-	}
-	for _, path := range []string{"plan.md", "NOTES.md", filepath.Join("plan", "items")} {
-		if _, err := os.Stat(filepath.Join(planA, path)); err != nil {
-			t.Fatalf("layout %s: %v", path, err)
-		}
 	}
 	if got, err := read.Call(context.Background(), item, map[string]any{"path": filepath.Join(repo, "source.txt")}); err != nil || !strings.Contains(got, "repository") {
 		t.Fatalf("repo read=%q err=%v", got, err)
@@ -69,7 +63,7 @@ func TestDSessionFileBoundarySeparatesPlanWritesFromRepositoryReads(t *testing.T
 	if _, err := write.Call(withOSPathPolicy(context.Background()), item, map[string]any{"path": filepath.Join(repo, "operator-reachable.txt"), "content": "yes"}); err != nil {
 		t.Fatalf("d operator-context repository write: %v", err)
 	}
-	planB := filepath.Join(plans, "other")
+	planB := filepath.Join(root, "other")
 	if err := os.MkdirAll(planB, 0o755); err != nil {
 		t.Fatal(err)
 	}

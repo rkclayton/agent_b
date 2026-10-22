@@ -99,10 +99,9 @@ test("the menu keeps the plan choice for d while plus always creates an ordinary
 // Item 2ni: it moved again, and for the last time — into the Settings nav as its own
 // top-level entry. Same three files, same 12px, same class; the strip no longer
 // draws it at all, and the entry's name is the accessible name.
-test("Plan is a compact accessible chip icon, in the Settings nav", () => {
-  assert.match(settings, /class="shell-page-chip"/);
-  assert.match(settings, /plan-mark-nav\.png 1x, [^"]*@2x\.png 2x, [^"]*@3x\.png 3x/);
-  assert.match(settings, /\["plan", "Plan"\]/);
+test("Repos is a plain Settings entry with no graphic head", () => {
+  assert.doesNotMatch(settings, /class="shell-page-chip"|plan-mark-nav/);
+  assert.match(settings, /\["plan", "Repos"\]/);
   assert.doesNotMatch(shell, /shell-page-chip/);
   assert.doesNotMatch(shell, /node\("nav", "shell-pages"\)/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
@@ -174,22 +173,18 @@ test("the whole-app robot is a non-control in the drag strip and shares the comp
 // Item 2ge (v1.1.2/W6), glyph replaced by 2he (v1.3.0/W2): the Plan toggle is
 // the processor chip in the operator's accent, and that accent has exactly one
 // use in the product.
-test("the Plan toggle is the chip in the accent, and the accent is used once", async () => {
-  assert.match(settings, /class="shell-page-chip"/);
+test("Repos has no chip or accent graphic", async () => {
+  assert.doesNotMatch(settings, /class="shell-page-chip"/);
   assert.doesNotMatch(shell, /M9 4\.5A3\.5 3\.5 0 0 0 5\.5 8/); // the mark he did not recognise
   assert.doesNotMatch(shell, /shell-page-brain/); // 2he: the traced brain is gone
   assert.match(tokens, /--accent-plan:#5AC8FA;/);
   // Item 2le: the chip is the operator's own artwork now, so it carries its own
   // colour and needs no stroke. The accent keeps exactly one use, on the Plan
   // header the full-quality version of that same artwork heads.
-  assert.match(tokens, /\.shell-page-chip\{display:block;width:12px;height:12px;opacity:\.6\}/);
   // rel-1.25.0 card 7: the chip's hover and selected rules hang off the entry that
   // carries it, because .shell-page renders nothing. The chip itself, its size and
   // its opacity ramp are unchanged through both moves.
   // Item 2ni: the ramp follows the entry into the Settings nav. Same opacities.
-  assert.match(tokens, /\.settings-nav button:hover \.shell-page-chip\{opacity:\.8\}/);
-  assert.match(tokens, /\.settings-nav button\.selected \.shell-page-chip\{opacity:1\}/);
-  assert.doesNotMatch(tokens, /\.shell-page[,.:{]/);
   // One element, and one only: every var(--accent-plan) in every stylesheet
   // must be a .shell-page-chip rule.
   const styles = await Promise.all(["tokens.css", "app.css", "chat.css", "plan.css", "setup.css"]
@@ -198,8 +193,7 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
   for (const [name, css] of styles) {
     for (const rule of css.split("}")) if (rule.includes("var(--accent-plan)")) uses.push(`${name}: ${rule.split("*/").pop().trim()}`);
   }
-  assert.equal(uses.length, 1, uses.join(" | "));
-  assert.match(uses[0], /plan-intro/);
+  assert.equal(uses.length, 0, uses.join(" | "));
   // The palette rule records it as the operator's exception, not as a seventh
   // colour quietly added to the list.
   const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
@@ -215,11 +209,10 @@ test("the Plan toggle is the chip in the accent, and the accent is used once", a
 // Item 2le (v1.14.0): the operator supplied his own artwork — "i want this to be
 // the new plan icon … maintain the color of the icon itself" — so the chip is that
 // prepared asset, and the drawn 24-grid SVG it replaces is gone from shell.js.
-test("the Plan chip is the operator's prepared artwork, not a drawing", async () => {
+test("the retired Plan navigation artwork remains intact but unused", async () => {
   // Item 2ni: read from settings.js, which is where the entry the chip belongs to
   // now lives. The asset, the size set and the class are unchanged.
-  assert.match(settings, /src="\/static\/assets\/plan-mark-nav\.png"/);
-  assert.match(settings, /class="shell-page-chip"/);
+  assert.doesNotMatch(settings, /plan-mark-nav|shell-page-chip/);
   // The drawing it replaces is not left behind beside it.
   assert.doesNotMatch(settings, /<rect x="7" y="7" width="10" height="10" rx="2"\/>/);
   assert.doesNotMatch(shell, /stroke-width="2"/);
@@ -228,7 +221,6 @@ test("the Plan chip is the operator's prepared artwork, not a drawing", async ()
   // measured the operator's own display at 1.75x, where that box is 21 physical
   // pixels while every screenshot captures it at 12. One asset cannot be sharp at
   // all of them, so the browser picks.
-  assert.match(settings, /srcset="[^"]*plan-mark-nav\.png 1x[^"]*plan-mark-nav@2x\.png 2x[^"]*plan-mark-nav@3x\.png 3x"/);
   // Every size ships, and each is a real PNG with an alpha channel: the background
   // is removed, not repainted, so the mark sits on whatever is behind it.
   for (const [name, expected] of [["plan-mark-nav.png", 12], ["plan-mark-nav@2x.png", 24], ["plan-mark-nav@3x.png", 36], ["plan-mark.png", 128]]) {

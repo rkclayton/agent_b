@@ -41,7 +41,7 @@ test("every page request body stays inside its route contract", () => {
     "shell-credential|action,password|action,password|settings|server_connections.go", "sessions/:id|label,agent_id,connection_id|label,agent_id,connection_id|shell,settings|server_sessions.go", "connections/:id/duplicate|id,label|id,label|settings|server_connections.go",
     "sessions|label,connection_id,agent_id,role,plan_id|label,connection_id,agent_id,source_session_id,role,plan_id|shell,settings|server_sessions.go", "sessions/:id/reopen|||shell,chat|server_sessions.go", "sessions/:id/reset|||settings|server_sessions.go",
     "host-window|action,title|action,title|shell|server_actions.go", "chats/tree|action,parent,name,path,id,folder,pinned|action,parent,name,path,id,folder,pinned|shell|chats.go", "header-state|state,reason_code|state,reason_code|shell|telemetry.go",
-    "plan/go|plan_id,stop|session_id,plan_id,stop|plan|worker.go", "plans|repo|repo|plan|plan_page.go", "plans/build|plan_id,agent_id,brief|plan_id,agent_id,brief|plan|plan_page.go",
+    "plan/go|plan_id,stop|session_id,plan_id,stop|plan|worker.go", "plans|action,id,repo|action,id,repo|plan|plan_page.go",
   ].map((row) => row.split("|"));
   for (const [route, sentCSV, acceptedCSV, pagesCSV, serverFile] of rows) {
     const sent = sentCSV ? sentCSV.split(",") : [], accepted = new Set(acceptedCSV ? acceptedCSV.split(",") : []);
@@ -254,8 +254,7 @@ test("Chat navigation owns Plan Escape and the Settings save-or-discard guard", 
 test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
   assert.match(chat, /No agent connected — add one in/);
   assert.doesNotMatch(chat, /operator-off-48\.png/);
-  // Item 2fc: the Plan page lists plans; with none it says how to add one.
-  assert.match(plan, />No plans yet\. \+ adds one for a folder\.<\/p>/);
+  assert.match(plan, />No repositories yet\.<\/p>/);
   // Item 2iq (b): the tools link became the summary of the fold that now holds
   // the toggles, because they have no other home and stay on Agents behind it.
   assert.match(consoleHTML, /id="panel-tools-count"[^>]*>0 tools active<\/span>/);

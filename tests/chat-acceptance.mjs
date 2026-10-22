@@ -745,9 +745,33 @@ if (args.journey && !["scheduled-work", "skills", "chat-management"].includes(ar
     await page.reload();
     await browser.wait(`document.querySelector('.chat-list-row.selected')`, name);
     assert.equal((await state()).build.commit, args["expected-commit"]);
-  } else if (name === "settings-pages" || name === "connections" || name === "worker-plans") {
+  } else if (name === "worker-plans") {
+    const repo = join(args.data, "..", "worker-plans-repo");
+    await mkdir(repo, { recursive: true });
     await openSettings();
-    const section = name === "connections" ? "connections" : name === "worker-plans" ? "plan" : "about";
+    await page.locator('.settings-nav [data-id="plan"]').click();
+    await page.route("**/api/folder-picker", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: repo }) }));
+    await page.locator("#plan-add").click();
+    await page.locator("#plan-add-preview").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#plan-preview-plan").innerText(), "—");
+    await page.locator("#plan-add-confirm").click();
+    await page.locator("#plan-enable").waitFor({ state: "visible" });
+    await assert.rejects(stat(join(repo, "plan.md")));
+    record("worker-plans-repo-add-is-plain");
+    await page.locator("#plan-enable").click();
+    await page.locator("#plan-go").waitFor({ state: "visible" });
+    const planPath = join(repo, "plan.md");
+    assert.match(await readFile(planPath, "utf8"), /## Current work order/);
+    await mkdir(join(repo, "plan", "items"), { recursive: true });
+    await writeFile(planPath, "# Worker plans journey\n\n- [ ] [[2w6]] worker uses the repository plan\n");
+    await writeFile(join(repo, "plan", "items", "2w6.md"), "state: live\nverify: echo verified\n\n# 2w6\n");
+    await page.reload();
+    await page.locator("#plan-go:not(:disabled)").waitFor({ state: "visible" });
+    assert.match(await page.locator("#plan-facts").innerText(), new RegExp(repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+    record("worker-plans-root-plan-and-go");
+  } else if (name === "settings-pages" || name === "connections") {
+    await openSettings();
+    const section = name === "connections" ? "connections" : "about";
     await page.locator(`.settings-nav [data-id="${section}"]`).click();
     await page.locator("#settings-page").waitFor({ state: "visible" });
   } else if (name === "run-lifecycle") {

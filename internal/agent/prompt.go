@@ -126,7 +126,7 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 		}
 	}
 	value = strings.ReplaceAll(value, "{{folders}}", folderText)
-	value = strings.ReplaceAll(value, "{{plans}}", s.PlansRoot)
+	value = strings.ReplaceAll(value, "{{plans}}", "")
 	value = strings.ReplaceAll(value, "{{network_boundary}}", s.NetworkBoundary)
 	value = strings.ReplaceAll(value, "{{media_capabilities}}", s.MediaCapabilities)
 	value = strings.ReplaceAll(value, "{{tools}}", strings.Join(toolNames, ", "))

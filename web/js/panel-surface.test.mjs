@@ -21,7 +21,7 @@ test("Console uses the shared shell without retaining a task composer", () => {
   // names no static surface at all and the strip is chats only.
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   assert.doesNotMatch(shell, /visibleStaticSurfaces/);
-  assert.match(settings, /\["plan", "Plan"\]/);
+  assert.match(settings, /\["plan", "Repos"\]/);
   // The flip is deliberate now: it comes from the tab menu, not a second click.
   assert.match(shell, /options\.switchView\(next, navigation\)/);
   assert.doesNotMatch(shell, /tab\.onclick[\s\S]{0,200}switchView/);

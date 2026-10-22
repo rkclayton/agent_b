@@ -60,7 +60,7 @@ func TestPlanPreviewReadsFourStepsWithoutWriting2u0(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["folder"] != repo || got["plan"] != "will be made" || got["agents"] != filepath.Join(repo, "AGENTS.md") {
+	if got["folder"] != repo || got["plan"] != "—" || got["agents"] != filepath.Join(repo, "AGENTS.md") {
 		t.Fatalf("preview=%+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(profile, "plans")); !os.IsNotExist(err) {
@@ -105,6 +105,9 @@ func TestPlanDogfoodFakeServerProposesThenAcceptsExactPlanDiff(t *testing.T) {
 	server.SetRegistry(registry)
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
 		t.Fatal(err)
 	}
 	item, err := registry.CreateRole("design", "dogfood", "", "d", plan.ID)

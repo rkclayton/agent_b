@@ -125,7 +125,7 @@ async function capture(exe, evidence) {
   await mkdir(root, { recursive: true });
   const harness = await start({ exe: resolve(exe), appRoot: resolve("."), data: join(temp, "data"), modelIDs: ["model-alpha", "model-beta", "model-gamma"], agents: ["Private fixture"] });
   const report = { schema: 1, results: [], reviews: [], other_page_failures: [] };
-  const captureState = async (page, pageName, state, size, blocking = ["Connections", "Profiles", "Chats", "Approval"].includes(pageName), rootSelector = ".settings-content") => {
+  const captureState = async (page, pageName, state, size, blocking = ["Connections", "Repos", "Profiles", "Chats", "Approval"].includes(pageName), rootSelector = ".settings-content") => {
     const file = join(root, `${safe(pageName)}-${safe(state)}-${size.name}.png`);
     await page.screenshot({ path: file, animations: "disabled" });
     const snapshot = await page.evaluate(collectLayoutSnapshot, rootSelector);
@@ -138,9 +138,22 @@ async function capture(exe, evidence) {
       const page = await harness.context.newPage();
       await page.setViewportSize(size);
       await openSettings(page, harness.base);
-      for (const pageName of ["Activity", "Plan", "Profiles", "Chats", "Notifications", "Security", "About"]) {
+      for (const pageName of ["Activity", "Repos", "Profiles", "Chats", "Notifications", "Security", "About"]) {
         await page.locator(".settings-nav button", { hasText: pageName, exact: true }).click();
-        if (pageName === "Profiles") {
+        if (pageName === "Repos") {
+          const repoFixture = join(temp, `repo-${size.name}`);
+          await mkdir(repoFixture, { recursive: true });
+          await page.route("**/api/folder-picker", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: repoFixture }) }));
+          await page.waitForTimeout(100);
+          await page.getByRole("button", { name: "Add repo", exact: true }).click();
+          await page.locator("#plan-add-preview").waitFor({ state: "visible" });
+          await page.getByRole("button", { name: "Add", exact: true }).click();
+          await page.locator("#plan-enable:not([hidden])").waitFor();
+          await captureState(page, pageName, "repository", size);
+          await page.locator("#plan-enable").click();
+          await page.locator("#plan-go:not([hidden])").waitFor();
+          await captureState(page, pageName, "planning", size);
+        } else if (pageName === "Profiles") {
           await captureState(page, pageName, "rest", size);
           await page.locator("#panel-agent").selectOption({ label: "Private fixture" });
           await page.locator('.settings-content [data-field="private"]').waitFor();

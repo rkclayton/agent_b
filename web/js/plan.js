@@ -21,9 +21,8 @@ const byID = (id) => document.getElementById(id);
 const roots = {
   search: byID("plan-search"), add: byID("plan-add"), form: byID("plan-add-form"), path: byID("plan-add-path"), addError: byID("plan-add-error"), addPreview: byID("plan-add-preview"),
   previewFolder: byID("plan-preview-folder"), previewRepository: byID("plan-preview-repository"), previewPlan: byID("plan-preview-plan"), previewAgents: byID("plan-preview-agents"),
-  build: byID("plan-build"), buildYes: byID("plan-build-yes"), buildNo: byID("plan-build-no"), list: byID("plan-list"), listEmpty: byID("plan-list-empty"),
-  wizard: byID("plan-wizard"), wizardLabel: byID("plan-wizard-label"), wizardValue: byID("plan-wizard-value"), wizardNext: byID("plan-wizard-next"), wizardSkip: byID("plan-wizard-skip"),
-  name: byID("plan-name"), go: byID("plan-go"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"), facts: byID("plan-facts"), chats: byID("plan-chats"), changes: byID("plan-changes"),
+  list: byID("plan-list"), listEmpty: byID("plan-list-empty"),
+  name: byID("plan-name"), enable: byID("plan-enable"), go: byID("plan-go"), lint: byID("plan-lint"), refusal: byID("plan-refusal"), done: byID("plan-done"), raw: byID("plan-raw"), stats: byID("plan-stats"), facts: byID("plan-facts"), chats: byID("plan-chats"), changes: byID("plan-changes"),
 };
 // The address is read ONCE, at import, before the workspace rewrites it to the chat's
 // own path: a deep link of /plan?plan=<id> or ?session=<id> is honoured, and nothing
@@ -36,9 +35,6 @@ let loaded = null;
 let loadedFor = "";
 let previousText = null;
 let changes = new Map();
-let buildFor = "";
-let wizardStep = 0;
-let planningBrief = { purpose: "", done: "", do_not_touch: "" };
 let goState = { enabled: false, running: false };
 let goTimer = 0;
 let plansLoaded = false;
@@ -149,39 +145,44 @@ function renderList() {
   const shown = filterPlans(plans, roots.search.value);
   roots.listEmpty.hidden = plans.length > 0;
   roots.list.replaceChildren(...shown.map((plan) => {
-    const entry = document.createElement("li");
+    const entry = document.createElement("tr");
     entry.className = `plan-entry${plan.id === selected ? " selected" : ""}`;
     const name = document.createElement("button");
     name.type = "button";
     name.className = "plan-entry-name";
-    name.textContent = plan.name || plan.id;
+    const nameText = document.createElement("span");
+    nameText.textContent = plan.missing ? `repo missing · ${plan.legacy_path || plan.repo || plan.id}` : plan.repo || plan.name || plan.id;
+    name.append(nameText);
     name.title = plan.repo || plan.id;
     name.onclick = () => select(plan.id);
-    entry.append(name);
-    if (plan.id === selected && loaded?.stats && loadedFor === plan.id) {
-      const facts = document.createElement("div");
-      facts.className = "plan-entry-facts";
-      facts.append(line(loaded.repo || "no repository"), line(markerSummary(loaded.stats.markers)));
-      if (loaded.stats.last_go) facts.append(line(`last Go ${clock(loaded.stats.last_go)}`));
-      if (loaded.stats.related?.length) facts.append(line(`${loaded.stats.related.length} related`));
-      entry.append(facts);
-    }
+    const path = document.createElement("td"); path.append(name);
+    const planning = document.createElement("td"); planning.textContent = plan.planning ? "on" : "—";
+    const open = document.createElement("td"); open.textContent = String(plan.id === selected ? loaded?.stats?.chats?.length || 0 : plan.open_chats || 0);
+    const last = document.createElement("td"); last.textContent = plan.id === selected && loaded?.stats?.last_go ? clock(loaded.stats.last_go) : plan.last_go ? clock(plan.last_go) : "—";
+    const action = document.createElement("td");
+    if (!plan.planning && !plan.missing) { const add = document.createElement("button"); add.type = "button"; const text = document.createElement("span"); text.textContent = "Add to planning"; add.append(text); add.onclick = () => enablePlanning(plan.id); action.append(add); }
+    entry.append(path, planning, open, last, action);
     return entry;
   }));
 }
 
 function renderEmpty() {
-  roots.name.textContent = "Plan";
+  roots.name.textContent = "Repository";
   roots.raw.textContent = "";
   roots.stats.replaceChildren();
   roots.facts.replaceChildren();
   roots.chats.replaceChildren();
   roots.changes.replaceChildren();
   roots.go.disabled = true;
+  roots.go.hidden = true;
+  roots.enable.hidden = true;
+  roots.raw.closest("details").hidden = true;
 }
 
 function renderPlan() {
-  roots.name.textContent = loaded?.name || selected || "Plan";
+  roots.name.textContent = loaded?.missing ? `repo missing · ${loaded.legacy_path || loaded.repo || selected}` : loaded?.repo || loaded?.name || selected || "Repository";
+  roots.enable.hidden = !loaded || loaded.planning || loaded.missing;
+  roots.go.hidden = !loaded?.planning;
   roots.refusal.hidden = !loaded?.refusal;
   roots.refusal.textContent = loaded?.refusal || "";
   renderRaw();
@@ -190,6 +191,7 @@ function renderPlan() {
 
 function renderRaw() {
   if (!loaded) return;
+  roots.raw.closest("details").hidden = !loaded.planning;
   if (loaded.error) { roots.raw.textContent = loaded.error; return; }
   const now = Date.now();
   roots.raw.replaceChildren(...(loaded.plan || "").replaceAll("\r", "").split("\n").map((text) => {
@@ -209,7 +211,7 @@ function renderStats() {
   const rows = [
     ["Folder", facts.folder || loaded?.repo || "none", facts.folder],
     ["Repository", [repo.root, repo.branch, repo.subject, repo.day].filter(Boolean).join(" · ") || "not a repository", repo.root],
-    ["Plan", `${facts.plan_path || "plan.md"} · ${markerSummary(stats.markers)}`, facts.plan_path],
+    ["Planning", loaded?.planning ? `${facts.plan_path} · ${markerSummary(stats.markers)}` : "—", facts.plan_path],
     ["AGENTS.md", facts.agents_path ? `${facts.agents_path} · ${facts.agents_size} bytes` : "not found", facts.agents_path],
     ["Notes", `${facts.notes_count || 0}`, facts.notes_path],
   ];
@@ -231,7 +233,7 @@ function scheduleGo() {
 }
 
 async function renderGo() {
-  if (!selected) return;
+  if (!selected || !loaded?.planning) { roots.go.disabled = true; renderLint([]); roots.done.hidden = true; return; }
   try { goState = await api(`/api/plan/go?plan_id=${encodeURIComponent(selected)}`, undefined, "GET"); }
   catch { goState = { enabled: false, running: false }; }
   roots.go.textContent = goState.running ? "Stop" : "Go";
@@ -299,7 +301,7 @@ roots.add.addEventListener("click", async () => {
     roots.path.value = addPreview.folder;
     roots.previewFolder.textContent = addPreview.folder;
     roots.previewRepository.textContent = [addPreview.repository?.root, addPreview.repository?.branch].filter(Boolean).join(" · ") || "not found";
-    roots.previewPlan.textContent = addPreview.plan || "will be made";
+    roots.previewPlan.textContent = addPreview.plan || "—";
     roots.previewAgents.textContent = addPreview.agents || "not found";
     roots.form.hidden = false; roots.addPreview.hidden = false;
   } catch (error) { roots.addError.textContent = error.message; roots.addError.hidden = false; roots.form.hidden = false; }
@@ -314,62 +316,23 @@ roots.form.addEventListener("submit", async (event) => {
     roots.path.value = "";
     await loadPlans();
     select(result.plan.id);
-    // a repository with a planner's queue skips the brief; its chat opens idle.
-    if (result.planner_queue) { buildFor = result.plan.id; planningBrief = { purpose: "", done: "", do_not_touch: "" }; return void startPlanning(); }
-    buildFor = "";
-    roots.build.hidden = true;
   } catch (error) {
     roots.addError.textContent = error.message;
     roots.addError.hidden = false;
   }
 });
-roots.buildNo.addEventListener("click", () => { roots.build.hidden = true; buildFor = ""; });
-roots.buildYes.addEventListener("click", () => {
-  if (!buildFor) return;
-  roots.build.hidden = true;
-  wizardStep = 0;
-  planningBrief = { purpose: "", done: "", do_not_touch: "" };
-  renderWizard();
-});
-roots.wizard.addEventListener("submit", (event) => { event.preventDefault(); advanceWizard(false); });
-roots.wizardSkip.addEventListener("click", () => advanceWizard(true));
+roots.enable.addEventListener("click", () => enablePlanning(selected));
 
-function renderWizard() {
-  const fields = [
-    ["purpose", "What is this project for?"],
-    ["done", "What does done look like? Three lines are enough."],
-    ["do_not_touch", "Anything the planner must not touch?"],
-  ];
-  const [field, label] = fields[wizardStep];
-  roots.wizard.hidden = false;
-  roots.wizard.dataset.field = field;
-  roots.wizardLabel.textContent = label;
-  roots.wizardValue.value = planningBrief[field];
-  roots.wizardNext.textContent = wizardStep === fields.length - 1 ? "Start planning" : "Next";
-  roots.wizardValue.focus();
-}
-
-function advanceWizard(skip) {
-  planningBrief[roots.wizard.dataset.field] = skip ? "" : roots.wizardValue.value.trim();
-  if (++wizardStep < 3) return renderWizard();
-  roots.wizard.hidden = true;
-  void startPlanning();
-}
-
-async function startPlanning() {
-  roots.buildYes.disabled = true;
+async function enablePlanning(id) {
+  if (!id) return;
   try {
-    const agentID = store.sessions[store.selection.session_id]?.agent_id || "";
-    const result = await api("/api/plans/build", { plan_id: buildFor, agent_id: agentID, brief: planningBrief });
-    // overrule: Yes is the consent, so the server sends the fixed
-    // opening request to a new planning chat. A chat already under way is only
-    // opened, with the request left in its composer.
-    if (!result.sent && result.draft) { try { sessionStorage.setItem(`agentb.draft.${result.session_id}`, result.draft); } catch { /* the chat opens empty */ } }
-    location.href = `/chat?session=${encodeURIComponent(result.session_id)}`;
+    await api("/api/plans", { action: "planning", id });
+	loadedFor = "";
+    await loadPlans();
+    select(id);
   } catch (error) {
     roots.addError.textContent = error.message;
     roots.addError.hidden = false;
-    roots.buildYes.disabled = false;
   }
 }
 

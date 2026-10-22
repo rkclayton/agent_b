@@ -98,7 +98,7 @@ export function fadeFor(changedAt, now = Date.now()) {
 
 export function filterPlans(plans = [], query = "") {
   const needle = String(query).trim().toLowerCase();
-  return needle ? plans.filter((plan) => `${plan.name || ""} ${plan.id}`.toLowerCase().includes(needle)) : plans;
+  return needle ? plans.filter((plan) => `${plan.name || ""} ${plan.repo || ""} ${plan.id}`.toLowerCase().includes(needle)) : plans;
 }
 
 export function markerSummary(markers = {}) {

@@ -43,6 +43,9 @@ func TestGoStateCarriesThePlanLintAndRefusesAMalformedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
+		t.Fatal(err)
+	}
 	design, err := registry.CreateRole("design", "lint", "", "d", plan.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -103,8 +106,11 @@ func TestPlanRewritesReachTheEventStreamWithinASecond(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
+		t.Fatal(err)
+	}
 	started := time.Now()
-	if err := session.UpdatePlanFile(filepath.Join(server.roots.Data, "plans", plan.ID, "plan.md"), func(current string, _ bool) (string, error) { return current + "- [x] [[1]] done\n", nil }); err != nil {
+	if err := session.UpdatePlanFile(filepath.Join(repo, "plan.md"), func(current string, _ bool) (string, error) { return current + "- [x] [[1]] done\n", nil }); err != nil {
 		t.Fatal(err)
 	}
 	seen := map[string]bool{}
@@ -136,6 +142,9 @@ func TestBuildPlanOpensTheBoundPlannerOrTheBFallback(t *testing.T) {
 	server, registry, _, repo := planLintServer(t)
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
 		t.Fatal(err)
 	}
 	build := func() map[string]any {

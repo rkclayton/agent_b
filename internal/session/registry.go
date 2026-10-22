@@ -197,8 +197,12 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		if err != nil {
 			return nil, fmt.Errorf("restore session %s: %w", saved.ID, err)
 		}
-		planDir = filepath.Join(r.plansRoot, planID)
-		planRepo = planRepoForRestore(planDir, saved.PlanRepo)
+		plan, found := r.planningRepoLocked(planID)
+		if !found {
+			role, planID = "b", ""
+		} else {
+			planDir, planRepo = plan.Repo, plan.Repo
+		}
 	}
 	workspace := firstNonempty(saved.WorkspaceDir, saved.Workspace)
 	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, connectionRunnable, connectionReason
@@ -241,7 +245,7 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	}
 	s := &Session{
 		ID: saved.ID, Label: saved.Label, AgentID: config.AgentID(agent.Name), ConnectionID: connectionID,
-		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
+		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, PromptAddendum: agent.Prompt, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...), ProjectRoots: append([]string(nil), saved.ProjectRoots...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
@@ -264,7 +268,6 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	if r.workspaces != nil && !s.WorkspaceMissing {
 		r.configureProjects(s)
 	}
-	s.EnsurePlan = r.ensurePlanHook(s)
 	r.sessions[s.ID] = s
 	r.reserved[s.ID] = true
 	if strings.HasPrefix(s.ID, "s") {
@@ -365,12 +368,11 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			return nil, normalizeErr
 		}
 		planID = normalized
-		planDir = filepath.Join(r.plansRoot, planID)
-		if info, statErr := os.Lstat(planDir); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		plan, found := r.planningRepoLocked(planID)
+		if !found {
 			return nil, fmt.Errorf("plan_id: plan not found")
 		}
-		planName = planDisplayName(planDir)
-		selectedRepo = planRepo(planDir)
+		planDir, planName, selectedRepo = plan.Repo, plan.Name, plan.Repo
 		if workspace == "" {
 			workspace = selectedRepo
 		}
@@ -397,11 +399,6 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			return nil, err
 		}
 		abs = setup.Dir
-	}
-	if !scratch && r.plansRoot != "" && hasAgentFile(abs) {
-		if _, _, err := r.ensurePlanLocked(abs); err != nil {
-			return nil, err
-		}
 	}
 	logPath, err := r.writers.OpenSession(id)
 	if err != nil {
@@ -473,11 +470,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, RegisterPlan: r.EnsurePlan, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle"}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, PlanRepos: r.planRepos, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle"}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		r.configureProjects(session)
 	}
-	session.EnsurePlan = r.ensurePlanHook(session)
 	session.Messages = []events.Message{}
 	session.Budget = initialBudget(connection)
 	r.sessions[id] = session
@@ -521,24 +517,6 @@ func MediaCapabilities(settings config.Config, connection *config.Connection, en
 		makePictures = "You can make and change pictures with the image tool."
 	}
 	return "Image capabilities: " + render + " " + read + " " + makePictures + " Do not prefer SVG or any other format by default."
-}
-
-func hasAgentFile(dir string) bool {
-	for _, name := range []string{"AGENT_B.md", "AGENTS.md", "CLAUDE.md"} {
-		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && info.Mode().IsRegular() {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *Registry) ensurePlanHook(item *Session) func(string) {
-	return func(dir string) {
-		if item.Scratch || !hasAgentFile(dir) {
-			return
-		}
-		_, _, _ = r.EnsurePlan(dir)
-	}
 }
 
 func (r *Registry) ApplyRepoPolicySession(sessionID string, state workspaceinfo.PolicyState) error {

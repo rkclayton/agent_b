@@ -76,11 +76,14 @@ func inspectRepository(folder string) repositoryFacts {
 // take a session id; both resolve to the same planTarget.
 
 type planTarget struct {
-	ID      string
-	Dir     string
-	Name    string
-	Repo    string
-	AgentID string
+	ID         string
+	Dir        string
+	Name       string
+	Repo       string
+	AgentID    string
+	Planning   bool
+	Missing    bool
+	LegacyPath string
 }
 
 var errPlanNotFound = errors.New("plan not found")
@@ -96,7 +99,7 @@ func (s *Server) planByID(id string) (planTarget, error) {
 	}
 	for _, plan := range plans {
 		if plan.ID == id {
-			return planTarget{ID: plan.ID, Dir: filepath.Join(s.plansRoot(), plan.ID), Name: plan.Name, Repo: plan.Repo, AgentID: s.planAgent(plan.ID)}, nil
+			return planTarget{ID: plan.ID, Dir: plan.Repo, Name: plan.Name, Repo: plan.Repo, AgentID: s.planAgent(plan.ID), Planning: plan.Planning, Missing: plan.Missing, LegacyPath: plan.LegacyPath}, nil
 		}
 	}
 	return planTarget{}, errPlanNotFound
@@ -151,14 +154,22 @@ func (s *Server) planPage(w http.ResponseWriter, planID string) {
 		return
 	}
 	path := filepath.Join(target.Dir, "plan.md")
+	if target.Missing {
+		writeJSON(w, http.StatusOK, map[string]any{"plan_id": target.ID, "name": target.Name, "repo": target.Repo, "missing": true, "legacy_path": target.LegacyPath, "planning": false})
+		return
+	}
+	if !target.Planning {
+		writeJSON(w, http.StatusOK, map[string]any{"plan_id": target.ID, "name": target.Name, "repo": target.Repo, "planning": false, "facts": s.planFacts(target, "")})
+		return
+	}
 	text, err := os.ReadFile(path)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "plan.md was not found", "plan")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"plan_id": target.ID, "name": target.Name, "repo": target.Repo, "plan": string(text),
-		"refusal": planRefusal(target.Dir), "facts": s.planFacts(target, path), "stats": s.planStats(target, string(text), path),
+		"plan_id": target.ID, "name": target.Name, "repo": target.Repo, "plan": string(text), "planning": true,
+		"refusal": session.RepoInsidePlans(s.plansRoot(), target.Repo), "facts": s.planFacts(target, path), "stats": s.planStats(target, string(text), path),
 	})
 }
 
@@ -265,6 +276,7 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Action string `json:"action"`
 		Repo   string `json:"repo"`
+		ID     string `json:"id"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -272,6 +284,15 @@ func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
 	repo := strings.Trim(strings.TrimSpace(body.Repo), `"`)
 	if body.Action == "preview" {
 		s.previewPlan(w, repo)
+		return
+	}
+	if body.Action == "planning" {
+		plan, err := s.registry.EnablePlanning(body.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "id")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"plan": plan})
 		return
 	}
 	if repo == "" || !filepath.IsAbs(repo) {
@@ -293,12 +314,14 @@ func (s *Server) previewPlan(w http.ResponseWriter, folder string) {
 		return
 	}
 	repository := inspectRepository(folder)
-	planValue, planPath := "will be made", ""
+	planValue, planPath := "—", ""
 	if values, _ := session.ListPlans(s.plansRoot()); len(values) > 0 {
 		for _, item := range values {
 			if session.SamePath(item.Repo, repository.Root) {
-				planPath = filepath.Join(s.plansRoot(), item.ID, "plan.md")
-				planValue = planPath
+				planPath = filepath.Join(item.Repo, "plan.md")
+				if item.Planning {
+					planValue = "on"
+				}
 				break
 			}
 		}

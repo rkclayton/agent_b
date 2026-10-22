@@ -114,9 +114,7 @@ type Session struct {
 	PendingRepoPolicy      *workspaceinfo.PolicyState
 	RepoPolicy             *workspaceinfo.PolicyState
 	PlanRepos              func() []string
-	RegisterPlan           func(string) (Plan, bool, error)
 	ProjectTouch           func(string)
-	EnsurePlan             func(string)
 	AgentName, BConnection string
 	Closed                 bool
 	NamePinned             bool
@@ -309,9 +307,15 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	if filepath.IsAbs(candidate) && s.PlansRoot != "" && pathWithin(s.PlansRoot, candidate) && (s.Role != "d" || s.PlanDir == "" || !pathWithin(s.PlanDir, candidate)) {
 		return "", fmt.Errorf("path is outside the folder")
 	}
+	if s.Role == "c" && s.PlanDir != "" && filepath.IsAbs(candidate) && samePath(candidate, filepath.Join(s.PlanDir, "plan.md")) {
+		return "", fmt.Errorf("the worker cannot write plan.md")
+	}
 	if s.Role != "d" {
 		if filepath.IsAbs(candidate) {
 			if root := s.planRepoRootLocked(candidate); root != "" {
+				if samePath(candidate, filepath.Join(root, "plan.md")) {
+					return "", fmt.Errorf("only the bound planner can write plan.md")
+				}
 				s.touchPlanRepoLocked(root)
 				return root, nil
 			}
@@ -321,6 +325,12 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	if s.PlanDir != "" {
 		if err := s.validatePlanDirLocked(); err != nil {
 			return "", err
+		}
+		if !filepath.IsAbs(candidate) {
+			cleaned := filepath.Clean(candidate)
+			if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+				return "", fmt.Errorf("path is outside the folder")
+			}
 		}
 		if filepath.IsAbs(candidate) {
 			if pathWithin(s.PlanDir, candidate) {
@@ -341,28 +351,7 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path is outside the folder")
 	}
-	if s.PlansRoot == "" {
-		return "", fmt.Errorf("plan storage is unavailable")
-	}
-	if err := os.MkdirAll(s.PlansRoot, 0o700); err != nil {
-		return "", err
-	}
-	planID, planDir, err := allocatePlanDir(s.PlansRoot)
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Join(planDir, "plan", "items"), 0o700); err != nil {
-		return "", err
-	}
-	if err := UpdatePlanFile(filepath.Join(planDir, "plan.md"), func(string, bool) (string, error) { return PlanTemplate("Untitled plan", ""), nil }); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(filepath.Join(planDir, "NOTES.md"), nil, 0o600); err != nil {
-		return "", err
-	}
-	s.PlanID, s.PlanName, s.PlanDir = planID, "Untitled plan", planDir
-	notifyPlan("plan.created", planDir)
-	return s.PlanDir, nil
+	return s.Workspace, nil
 }
 
 func (s *Session) planRepoRootLocked(candidate string) string {
@@ -484,7 +473,7 @@ func (s *Session) SandboxMounts() []string {
 }
 
 func (s *Session) validatePlanDirLocked() error {
-	if s.PlansRoot == "" || !pathWithin(s.PlansRoot, s.PlanDir) {
+	if s.PlanDir == "" {
 		return fmt.Errorf("plan storage is unavailable")
 	}
 	info, err := os.Lstat(s.PlanDir)
@@ -493,6 +482,9 @@ func (s *Session) validatePlanDirLocked() error {
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("plan folder is not a directory")
+	}
+	if !regularFile(filepath.Join(s.PlanDir, "plan.md")) {
+		return fmt.Errorf("plan.md is unavailable")
 	}
 	return nil
 }

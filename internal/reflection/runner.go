@@ -323,15 +323,7 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	}
 	result.Summaries = len(summaries)
 
-	// Plan proposals first: each overview names the ones in its own folder.
-	registered := func(string) bool { return false }
-	if r.Registrar != nil {
-		registered = r.Registrar.PlanRegistered
-	}
-	result.PlansProposed = PlanCandidates(summaries, registered)
-	if err := r.RecordProposals(result.PlansProposed); err != nil {
-		result.Skipped = append(result.Skipped, "record proposals: "+err.Error())
-	}
+	result.PlansProposed = []PlanCandidate{}
 
 	// One overview per workspace the summaries name, so a plan's own text is
 	// about that plan's work.

@@ -59,22 +59,7 @@ func (s *Server) planSurface(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "notes")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"plan": string(plan), "notes": string(notes), "plan_id": filepath.Base(planDir), "fallback": item.Role != "d", "refusal": planRefusal(planDir)})
-}
-
-// planRefusal is why a plan cannot be worked, shown on its panel instead of a
-// worker that could only be refused: today, a repository inside the plans folder.
-func planRefusal(planDir string) string {
-	plans, err := session.ListPlans(filepath.Dir(planDir))
-	if err != nil {
-		return ""
-	}
-	for _, plan := range plans {
-		if plan.ID == filepath.Base(planDir) {
-			return session.RepoInsidePlans(filepath.Dir(planDir), plan.Repo)
-		}
-	}
-	return ""
+	writeJSON(w, http.StatusOK, map[string]any{"plan": string(plan), "notes": string(notes), "plan_id": item.Snapshot().PlanID, "fallback": item.Role != "d", "refusal": session.RepoInsidePlans(s.plansRoot(), planDir)})
 }
 
 func (s *Server) planAccept(w http.ResponseWriter, r *http.Request) {
@@ -244,8 +229,8 @@ func (s *Server) acceptPlanProposal(r *http.Request, item *session.Session, prop
 	writer := item
 	if item.Role != "d" || filepath.Clean(item.PlanDir) != filepath.Clean(planDir) {
 		writer = &session.Session{
-			ID: item.ID, Role: "d", Workspace: item.Workspace, PlanID: filepath.Base(planDir),
-			PlanDir: planDir, PlanRepo: item.Workspace, PlansRoot: filepath.Dir(planDir),
+			ID: item.ID, Role: "d", Workspace: item.Workspace, PlanID: item.Snapshot().PlanID,
+			PlanDir: planDir, PlanRepo: item.Workspace, PlansRoot: s.plansRoot(),
 			ToolsEnabled: map[string]bool{"edit_file": true}, LastSeen: map[string]time.Time{},
 		}
 	}
@@ -277,8 +262,8 @@ func (s *Server) planDirFor(item *session.Session) (string, error) {
 		return "", err
 	}
 	for _, plan := range plans {
-		if plan.Repo != "" && session.SamePath(plan.Repo, item.Workspace) {
-			return filepath.Join(s.profileRoot(), "plans", plan.ID), nil
+		if plan.Planning && plan.Repo != "" && session.SamePath(plan.Repo, item.Workspace) {
+			return plan.Repo, nil
 		}
 	}
 	return "", errNoPlan

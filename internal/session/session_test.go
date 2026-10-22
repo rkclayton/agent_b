@@ -353,11 +353,12 @@ func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
 	if restored, err := registry.Restore(legacySaved); err != nil || restored.Snapshot().Role != "b" || restored.Snapshot().PlanID != "" {
 		t.Fatalf("legacy restore=%+v err=%v", restored, err)
 	}
-	planID := "stable-plan"
-	planDir := filepath.Join(plans, planID)
-	if err := os.MkdirAll(planDir, 0o755); err != nil {
+	planDir := t.TempDir()
+	registered, _, err := registry.EnsurePlan(planDir)
+	if err != nil {
 		t.Fatal(err)
 	}
+	planID := registered.ID
 	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Stable name\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

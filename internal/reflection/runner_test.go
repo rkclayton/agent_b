@@ -236,18 +236,8 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if len(registrar.registered) != 0 {
 		t.Fatalf("reflection registered a plan itself: %+v", registrar.registered)
 	}
-	proposed := map[string]bool{}
-	for _, candidate := range result.PlansProposed {
-		proposed[candidate.Root] = true
-	}
-	if !proposed[filepath.Clean(repo)] {
-		t.Fatalf("the repo with agent files and no plan was not proposed: %+v", result.PlansProposed)
-	}
-	if proposed[filepath.Clean(plain)] {
-		t.Fatal("a repo with no agent files must not be proposed")
-	}
-	if len(result.Overviews) > 0 && !strings.Contains(result.Overviews[0].Text+result.Overviews[1].Text, "the user registers a plan") {
-		t.Fatal("the overview does not carry the proposal")
+	if len(result.PlansProposed) != 0 {
+		t.Fatalf("reflection proposed planning: %+v", result.PlansProposed)
 	}
 	if len(result.Overviews) != 2 {
 		t.Fatalf("overviews = %d", len(result.Overviews))
@@ -262,8 +252,8 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if len(noter.notes[repo]) != 2 {
 		t.Fatalf("the note was written twice: %v", noter.notes[repo])
 	}
-	if len(second.PlansProposed) != 1 {
-		t.Fatalf("the proposal changed on a second pass: %+v", second.PlansProposed)
+	if len(second.PlansProposed) != 0 {
+		t.Fatalf("reflection proposed planning on a second pass: %+v", second.PlansProposed)
 	}
 	for _, note := range second.Notes {
 		if note.Written {

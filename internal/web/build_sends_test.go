@@ -66,6 +66,9 @@ func buildPlanFixture(t *testing.T, prepare func(repo string)) (*Server, *sessio
 	if err != nil {
 		t.Fatal(err)
 	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
+		t.Fatal(err)
+	}
 	return server, registry, scheduler, plan, requests
 }
 

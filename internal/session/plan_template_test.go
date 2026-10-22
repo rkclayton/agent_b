@@ -36,7 +36,10 @@ func TestNewPlansTakeTheFiveSectionShapeAndAreAnnounced(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("EnsurePlan: %v created=%t", err, created)
 	}
-	text, err := os.ReadFile(filepath.Join(registry.plansRoot, plan.ID, "plan.md"))
+	if _, err := registry.EnablePlanning(plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(filepath.Join(repo, "plan.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,13 +54,13 @@ func TestNewPlansTakeTheFiveSectionShapeAndAreAnnounced(t *testing.T) {
 			t.Fatalf("the template must carry no marker line: %q", line)
 		}
 	}
-	if len(heard) != 1 || heard[0] != "plan.created "+plan.ID {
+	if len(heard) != 2 || heard[0] != "plan.created "+filepath.Base(repo) || heard[1] != "plan.updated "+filepath.Base(repo) {
 		t.Fatalf("heard %v", heard)
 	}
-	if err := UpdatePlanFile(filepath.Join(registry.plansRoot, plan.ID, "plan.md"), func(current string, _ bool) (string, error) { return current + "- [ ] 1 a new item\n", nil }); err != nil {
+	if err := UpdatePlanFile(filepath.Join(repo, "plan.md"), func(current string, _ bool) (string, error) { return current + "- [ ] 1 a new item\n", nil }); err != nil {
 		t.Fatal(err)
 	}
-	if len(heard) != 2 || heard[1] != "plan.updated "+plan.ID {
+	if len(heard) != 3 || heard[2] != "plan.updated "+filepath.Base(repo) {
 		t.Fatalf("a rewrite was not announced: %v", heard)
 	}
 }
@@ -68,9 +71,7 @@ func TestRepoMapNamesAnUnboundPlanHonestly(t *testing.T) {
 	}
 }
 
-// The fourth route: a d-session's first write creates its plan from the same
-// template, announced once the folder is complete.
-func TestADSessionsFirstWriteCreatesATemplatedPlan(t *testing.T) {
+func TestUnboundPlannerWriteDoesNotCreateAPlan(t *testing.T) {
 	heard := []string{}
 	PlanChanged = func(kind, planDir string) { heard = append(heard, kind) }
 	defer func() { PlanChanged = nil }()
@@ -79,14 +80,13 @@ func TestADSessionsFirstWriteCreatesATemplatedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, err := os.ReadFile(filepath.Join(dir, "plan.md"))
-	if err != nil {
-		t.Fatal(err)
+	if dir != "" {
+		t.Fatalf("write root = %q", dir)
 	}
-	if !strings.HasPrefix(string(text), "# Untitled plan\n\n## Product and end goals") || !strings.Contains(string(text), "no repository is bound") {
-		t.Fatalf("plan.md:\n%s", text)
+	if _, err := os.Stat(filepath.Join(s.PlansRoot, "plan.md")); !os.IsNotExist(err) {
+		t.Fatalf("plan created: %v", err)
 	}
-	if len(heard) != 1 || heard[0] != "plan.created" {
+	if len(heard) != 0 {
 		t.Fatalf("heard %v", heard)
 	}
 }

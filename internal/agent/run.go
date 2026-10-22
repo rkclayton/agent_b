@@ -414,13 +414,7 @@ func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, t
 	}
 	attachments = prepareNativeAttachmentsWithBudget(connection, s.Workspace, attachments, remainingNativeAttachmentBudget(connection, s.Workspace, s.MessagesCopy()))
 	message := events.Message{ID: r.id("m"), Role: "user", Content: text, Category: "history", Attachments: append([]events.Attachment(nil), attachments...)}
-	var tokens int
-	var estimated bool
-	if _, requested := requestedPlanPath(text); requested {
-		tokens, estimated = estimatedTokenCount(renderedUserText(connection, s, message)), true
-	} else {
-		tokens, estimated = r.count(ctx, connection, renderedUserText(connection, s, message))
-	}
+	tokens, estimated := r.count(ctx, connection, renderedUserText(connection, s, message))
 	for _, attachment := range attachments {
 		kind := attachmentKind(attachment)
 		if attachment.Outcome == "" && nativeAttachment(connection, kind) && kind == attachmentfile.Image {

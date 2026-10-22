@@ -50,7 +50,7 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	if !strings.Contains(text, "right.append(sessionLamp, sessionHeading, connectionMenu, windowControls)") || strings.Contains(text, "folderMenu") || strings.Contains(text, "right.append(stop") || strings.Contains(text, "shell-operator-status") || strings.Contains(text, "shell-settings") {
 		t.Fatalf("shared shell right slot must contain the role/connection heading and native-frame glyphs, with no Settings gear")
 	}
-	// Item 2ni: the Plan is a top-level SETTINGS SECTION now, so the strip draws no
+	// Item 2w6: Repos is a top-level SETTINGS SECTION, so the strip draws no
 	// static surface at all and the one-entry pages nav stays gone. The entry and its
 	// chip are asserted where they live, in settings.js.
 	if strings.Contains(text, "visibleStaticSurfaces") || strings.Contains(text, `node("nav", "shell-pages")`) {
@@ -63,8 +63,8 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(settingsSource), `["plan", "Plan"]`) {
-		t.Fatalf("the Plan must be an entry in the Settings nav")
+	if !strings.Contains(string(settingsSource), `["plan", "Repos"]`) {
+		t.Fatalf("Repos must be an entry in the Settings nav")
 	}
 	if strings.Contains(string(settingsSource), `["rules", "Rules"]`) {
 		t.Fatalf("Rules must remain a document, not a Settings entry")

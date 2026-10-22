@@ -90,7 +90,6 @@ type Server struct {
 	workspaceState     *workspaceinfo.Manager
 	memoryState        *memory.Manager
 	reflection         *reflectionState
-	proposals          *proposalOffers
 	speech             speechProbe
 	speechCommand      func(context.Context, string, ...string) *exec.Cmd
 	modelInstaller     *modelinstall.Manager
@@ -134,7 +133,6 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		operatorState:      newOperatorState(),
 		openFolder:         openContainingFolder,
 		openFile:           openWithDefaultApplication,
-		proposals:          newProposalOffers(),
 		connectionChecks:   newConnectionCheckState(),
 		pageMeasurements:   newPageMeasurementState(),
 		pendingConnections: newPendingAgentConnectionState(),

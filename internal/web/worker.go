@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"harness/internal/agent"
+	"harness/internal/session"
 	"harness/internal/worker"
 )
 
@@ -49,7 +50,7 @@ func (s *Server) planGoState(w http.ResponseWriter, r *http.Request) {
 	}
 	running := s.worker != nil && s.worker.Running(target.ID)
 	items := worker.Parse(text)
-	refusal := planRefusal(planDir)
+	refusal := session.RepoInsidePlans(s.plansRoot(), target.Repo)
 	// the plan lint runs before Go; an error refuses it and every
 	// finding is drawn on the panel.
 	diagnostics := worker.Lint(planDir)
@@ -122,7 +123,7 @@ func (s *Server) planGoStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "a worker is already running on this plan", "worker")
 		return
 	}
-	if refusal := planRefusal(planDir); refusal != "" {
+	if refusal := session.RepoInsidePlans(s.plansRoot(), target.Repo); refusal != "" {
 		writeError(w, http.StatusConflict, refusal, "plan")
 		return
 	}

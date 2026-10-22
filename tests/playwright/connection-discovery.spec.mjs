@@ -436,7 +436,7 @@ test("a refused saved value marks that field only 2po", async () => {
 // under settings, as its own top level item please implement." Everything here is
 // read from the running app, because the point of the item is where the entry sits
 // and what the strip looks like without it.
-test("the Plan is a top-level Settings section, not a tab, and is always present", async () => {
+test("Repos is a top-level Settings section, not a tab, and is always present", async () => {
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
 	await expect(page.locator("#chat-log")).toBeVisible();
@@ -448,13 +448,12 @@ test("the Plan is a top-level Settings section, not a tab, and is always present
 	await expect(page.locator(".chat-list-row[data-session]").first()).toHaveCount(1);
 	await expect(page.locator(".agent-tabs, .agent-tab-wrap")).toHaveCount(0);
 
-	// (a): one top-level entry, second, after Activity,
-	// carrying the operator's own prepared mark.
+	// One plain top-level entry, second, after Activity.
 	await openSettings(page);
 	const nav = page.locator(".settings-nav button");
 	await expect(nav.nth(1)).toHaveAttribute("data-id", "plan");
-	await expect(nav.nth(1)).toHaveText(/Plan/);
-	await expect(page.locator('.settings-nav [data-id="plan"] img.shell-page-chip')).toHaveCount(1);
+	await expect(nav.nth(1)).toHaveText(/Repos/);
+	await expect(page.locator('.settings-nav [data-id="plan"] img.shell-page-chip')).toHaveCount(0);
 
 	// The entry exists whatever the planner situation is; what changes is what it
 	// shows. On this chat there is no separate planner, so it opens the page.
@@ -467,6 +466,28 @@ test("the Plan is a top-level Settings section, not a tab, and is always present
 	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
 	const direct = await page.request.get(`${harness.base}/plan`);
 	expect(direct.status(), "the Plan's own address stopped answering").toBe(200);
+	await page.close();
+});
+
+test("a repository stays plain until Add to planning is pressed 2w6", async () => {
+	const folder = join(root, "plain-repository");
+	await mkdir(folder, { recursive: true });
+	const page = await harness.context.newPage({ viewport: { width: 304, height: 254 } });
+	await page.route("**/api/folder-picker", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: folder }) }));
+	await page.goto(`${harness.base}/chat`);
+	await openSettings(page);
+	await page.locator('.settings-nav [data-id="plan"]').click();
+	await page.getByRole("button", { name: "Add repo", exact: true }).click();
+	await expect(page.locator("#plan-add-preview")).toBeVisible();
+	await expect(page.locator("#plan-preview-plan")).toHaveText("—");
+	await page.getByRole("button", { name: "Add", exact: true }).click();
+	await expect(page.locator("#plan-list")).toContainText(folder);
+	await expect(page.locator("#plan-enable")).toBeVisible();
+	await expect(readFile(join(folder, "plan.md"), "utf8")).rejects.toThrow();
+	await page.locator("#plan-enable").click();
+	await expect(page.locator("#plan-enable")).toBeHidden();
+	await expect(page.locator("#plan-go")).toBeVisible();
+	expect(await readFile(join(folder, "plan.md"), "utf8")).toContain("## Current work order");
 	await page.close();
 });
 
@@ -598,13 +619,13 @@ test("the Plan section fits the pane at the narrowest window the frame allows", 
       columns: getComputedStyle(panel).gridTemplateColumns.split(" ").length,
       offRight: Math.round(box.right) > window.innerWidth + 1,
       sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-      inner: [...panel.querySelectorAll("*")].some((node) => node.scrollWidth > node.clientWidth + 1),
+      inner: [...panel.querySelectorAll("*")].filter((node) => node.scrollWidth > node.clientWidth + 1).map((node) => ({ tag: node.tagName, id: node.id, className: node.className, text: node.textContent?.trim().slice(0, 60), client: node.clientWidth, scroll: node.scrollWidth })),
     };
   });
   expect(seen.columns, "the flyout and the document are still side by side").toBe(1);
   expect(seen.offRight, "the Plan runs off the right edge").toBe(false);
   expect(seen.sideways, "the page scrolls sideways").toBe(false);
-  expect(seen.inner, "something inside the Plan scrolls sideways").toBe(false);
+  expect(seen.inner, "something inside the Plan scrolls sideways").toEqual([]);
   await small.close();
 });
 
@@ -701,7 +722,7 @@ test("Duplicate is a ready keyed row with a refreshed model list 2r9", async () 
 // 4. The availability rule (item 2ni (b), kept by 2no (e)): with a planner assigned to
 // another connection and this chat not the planner's, the entry is still there and the
 // pane carries the one line saying what to do about it.
-test("an unassigned planner leaves the entry and shows the one line in the pane", async () => {
+test("Repos remains available regardless of the chat's planner role", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -719,15 +740,9 @@ test("an unassigned planner leaves the entry and shows the one line in the pane"
   }
   await page.locator('.settings-nav [data-id="plan"]').click();
   await expect(page.locator('.settings-nav [data-id="plan"]'), "the entry went away").toBeVisible();
-  const note = page.locator(".settings-plan-note");
   const panel = page.locator("#settings-page #plan-panel");
-  // Either the document is there because this chat can plan, or the one line is —
-  // never neither, and never a blank pane.
-  expect(await note.count() + await panel.count(), "the Plan section is empty").toBeGreaterThan(0);
-  if (await note.count()) {
-    await expect(note).toContainText("Assign a planner in Profiles");
-    await expect(panel).toHaveCount(0);
-  }
+	await expect(panel).toBeVisible();
+	await expect(page.locator(".settings-plan-note")).toHaveCount(0);
   await page.close();
 });
 

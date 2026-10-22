@@ -2,10 +2,7 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +49,9 @@ func newPlanWriterFixture(t *testing.T) planWriterFixture {
 	server.SetRegistry(registry)
 	plan, _, err := registry.EnsurePlan(repo)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if plan, err = registry.EnablePlanning(plan.ID); err != nil {
 		t.Fatal(err)
 	}
 	design, err := registry.CreateRole("design", "writer", "", "d", plan.ID)
@@ -141,7 +141,7 @@ func TestMarkerAndTrayAcceptOnTheSamePlanBothLand(t *testing.T) {
 // Go refuses rather than starting a worker that could only be refused.
 func TestRepoInsidePlansIsRefusedAndAnExistingOneShowsWhy(t *testing.T) {
 	fixture := newPlanWriterFixture(t)
-	plansRoot := filepath.Dir(fixture.planDir)
+	plansRoot := fixture.server.plansRoot()
 	inside := filepath.Join(plansRoot, "nested-repo")
 	if err := os.MkdirAll(inside, 0o755); err != nil {
 		t.Fatal(err)
@@ -150,23 +150,6 @@ func TestRepoInsidePlansIsRefusedAndAnExistingOneShowsWhy(t *testing.T) {
 		t.Fatalf("registration of a repo inside the plans root: err=%v", err)
 	}
 
-	// An existing plan whose manifest already names such a repository.
-	manifest, _ := json.Marshal(map[string]string{"repo": inside})
-	if err := os.WriteFile(filepath.Join(fixture.planDir, "plan.json"), manifest, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodGet, "/api/plan?session_id="+fixture.design.ID, nil)
-	recorder := httptest.NewRecorder()
-	fixture.server.planSurface(recorder, request)
-	var surface struct {
-		Refusal string `json:"refusal"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &surface); err != nil {
-		t.Fatalf("%v: %s", err, recorder.Body.String())
-	}
-	if !strings.Contains(surface.Refusal, "inside the plans folder") {
-		t.Fatalf("panel refusal = %q", surface.Refusal)
-	}
 	if reason := session.RepoInsidePlans(plansRoot, filepath.Dir(plansRoot)); reason != "" {
 		t.Fatalf("a repository that merely contains the plans folder was refused: %s", reason)
 	}

@@ -271,9 +271,6 @@ func (x *runState) start() runOutcome {
 	if !snapshot.Runnable {
 		return x.stop("connection_not_runnable", snapshot.NotRunnableReason, 0)
 	}
-	if handled, registrationDetail := r.handlePlanRegistration(x.ctx, x.s, x.runID); handled {
-		return x.stop("done", registrationDetail, 0)
-	}
 	x.budgetReady = true
 	x.turn = 0
 	x.lengthSeen = false
@@ -840,9 +837,6 @@ func (x *runState) readAnswer() runOutcome {
 			x.s.Append(message)
 			r.bus.Publish(events.New(events.MessageAppended, x.s.ID, x.runID, map[string]any{"message": message}))
 		})
-		// a final message that is exactly the registration sentence
-		// raises the user's card; the line stays in the transcript above it.
-		finalText, _ := parsePlanProposals(finalContent)
 		if continueAnnouncedAction {
 			x.announcedActionContinued, x.autoContinue = true, true
 			r.bus.Publish(events.New(events.ModelRetry, x.s.ID, x.runID, map[string]any{"turn": x.turn, "next_turn": x.turn + 1, "reason": "announced_action", "attempt": 1, "max_attempts": 1}))
@@ -850,9 +844,6 @@ func (x *runState) readAnswer() runOutcome {
 		}
 		if stopReason != "done" {
 			return x.stop(stopReason, stopDetail, x.turn)
-		}
-		if handled, detail := r.handleModelPlanProposal(x.ctx, x.s, x.runID, finalText); handled {
-			return x.stop("done", detail, x.turn)
 		}
 		if r.skills != nil {
 			if detail, err := r.skills.Proposal(x.ctx, x.s, x.runID); err != nil {

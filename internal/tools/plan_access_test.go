@@ -28,6 +28,9 @@ func TestFileToolsReachAbsolutePathsAndKeepPlanFilesBound(t *testing.T) {
 		}
 	}
 	otherFile := filepath.Join(other, "plan.md")
+	if err := os.WriteFile(filepath.Join(own, "plan.md"), []byte("# Mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(otherFile, []byte("# Other\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -79,16 +82,15 @@ func TestFileToolsReachAbsolutePathsAndKeepPlanFilesBound(t *testing.T) {
 	}
 }
 
-func TestWritingRootAgentFileTriggersPlanDetection(t *testing.T) {
+func TestWritingRootAgentFileDoesNotTriggerPlanning(t *testing.T) {
 	root := t.TempDir()
-	called := ""
-	item := &session.Session{ID: "b", Role: "b", Workspace: root, LastSeen: map[string]time.Time{}, EnsurePlan: func(dir string) { called = dir }}
+	item := &session.Session{ID: "b", Role: "b", Workspace: root, LastSeen: map[string]time.Time{}, ToolsEnabled: map[string]bool{"write_file": true}}
 	coordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(id string) string { return id }, events.NewBus())
 	if _, err := NewWriteFile(coordinator).Call(context.Background(), item, map[string]any{"path": "AGENT_B.md", "content": "instructions\n"}); err != nil {
 		t.Fatal(err)
 	}
-	if called != root {
-		t.Fatalf("detected folder=%q want %q", called, root)
+	if _, err := os.Stat(filepath.Join(root, "plan.md")); !os.IsNotExist(err) {
+		t.Fatalf("plan created: %v", err)
 	}
 }
 
@@ -104,6 +106,9 @@ func TestDReadsAbsoluteTargetsButPlanWritesStayBound(t *testing.T) {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(own, "plan.md"), []byte("# Mine\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, parent := range []string{repo, own} {

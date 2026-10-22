@@ -376,7 +376,9 @@ func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := restored.Snapshot()
-	if got.Role != "d" || got.PlanID != planID || got.PlanName != "Stable name" || got.PlanDir != planDir {
+	gotPlanDir, gotPathErr := finalPath(got.PlanDir)
+	wantPlanDir, wantPathErr := finalPath(planDir)
+	if got.Role != "d" || got.PlanID != planID || got.PlanName != "Stable name" || gotPathErr != nil || wantPathErr != nil || gotPlanDir != wantPlanDir {
 		t.Fatalf("d restore=%+v", got)
 	}
 	if restored.ToggleTool("shell", true) || restored.ToolEnabled("shell") {

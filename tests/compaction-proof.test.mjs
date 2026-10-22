@@ -51,12 +51,12 @@ test("a driven case crosses twice and compacts twice 2w4", () => {
   const answered = (seq) => ({ ...response(seq, 400), data: { ...response(seq, 400).data, content: "answered" } });
   const twice = [budget(1, 950), { seq: 2, type: "compaction" }, request(3), answered(4), budget(5, 400), budget(6, 950), { seq: 7, type: "compaction" }, request(8), answered(9), budget(10, 400), stopped(11)];
   assert.equal(verifyRun("fresh", twice, task, "", 0, 2, true).compactions.length, 2);
-  assert.deepEqual(drivenStepPlan(24576, 2666, 3), { tokens: 2050, firstCrossing: 10, maximum: 30 });
+  assert.deepEqual(drivenStepPlan(24576, 2666, 3), { tokens: 2050, firstCrossing: 10, maximum: 32 });
 });
 
-test("a driven empty post-compaction reply is attributed to the model 2w5", () => {
+test("a driven empty post-compaction reply is attributed to the model but is not an answer 2w8", () => {
   const checked = assessRun("fresh", good, task, "", 0, 1, false, "", true);
-  assert.equal(checked.conditions[3].pass, true);
+  assert.equal(checked.conditions[3].pass, false);
   assert.equal(checked.replies[0].reading, "MODEL");
 });
 
@@ -84,10 +84,29 @@ test("post-compaction empty replies distinguish model from malformed request 2w5
   const events = [budget(1, 950), compact, reasoning, budget(5, 400), stopped(6)];
   const model = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]));
   assert.equal(model.replies[0].reading, "MODEL");
-  assert.equal(model.conditions[3].pass, true);
-  const malformed = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "orphan", role: "tool", content: "result", tool_call_id: "missing" }]]]));
+  assert.equal(model.conditions[3].pass, false);
+  const answered = events.map((one) => one.type === "model.response" ? { ...one, data: { ...one.data, content: "answered" } } : one);
+  const malformed = assessRun("fresh", answered, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "orphan", role: "tool", content: "result", tool_call_id: "missing" }]]]));
   assert.equal(malformed.replies[0].reading, "HARNESS");
-  assert.equal(malformed.conditions[3].pass, false);
+  assert.equal(malformed.conditions[3].pass, true);
+});
+
+test("a post-compaction tool call is an answer and an actually empty response is not 2w8", () => {
+  const compact = { seq: 2, type: "compaction", data: { summary_message_id: "handoff" } };
+  const messages = new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]);
+  const toolCall = { ...response(4, 400), data: { ...response(4, 400).data, content: "", finish_reason: "tool_calls", tool_calls: [{ id: "call", name: "read_file", arguments: "{}" }] } };
+  const answered = assessRun("fresh", [budget(1, 950), compact, toolCall, budget(5, 400), stopped(6)], task, "", 0, 1, false, "", true, messages);
+  assert.equal(answered.conditions[3].pass, true);
+  const empty = assessRun("fresh", [budget(1, 950), compact, response(4, 400), budget(5, 400), stopped(6)], task, "", 0, 1, false, "", true, messages);
+  assert.equal(empty.conditions[3].pass, false);
+});
+
+test("reply-empty terminal reasons fail the post-compaction answer condition 2w8", () => {
+  const compact = { seq: 2, type: "compaction", data: { summary_message_id: "handoff" } };
+  const answered = { ...response(4, 400), data: { ...response(4, 400).data, content: "answered" } };
+  const ended = { seq: 6, type: "run.stopped", data: { reason: "reply_empty_reasoning_shown" } };
+  const messages = new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]);
+  assert.equal(assessRun("fresh", [budget(1, 950), compact, answered, budget(5, 400), ended], task, "", 0, 1, false, "", true, messages).conditions[3].pass, false);
 });
 
 test("the two negative controls fail on no compaction and missing notes", () => {

@@ -22,7 +22,7 @@ export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
   const tokens = Math.ceil([...proofStep].length * 10 / 36);
   const line = Math.ceil(fixedPrompt + proofSummaryPct * (ceiling - fixedPrompt));
   const firstCrossing = Math.ceil((line - fixedPrompt) / tokens);
-  return { tokens, firstCrossing, maximum: firstCrossing * minimum };
+  return { tokens, firstCrossing, maximum: firstCrossing * minimum + 2 };
 }
 
 export function startupFailure(wait, last) { return `candidate page did not answer after ${(wait / 1000).toFixed(3)} seconds; last log: ${last || "none"}`; }
@@ -122,10 +122,11 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
     const messages = sessionMessages.has(compact.seq) ? sessionMessages.get(compact.seq) : events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages || [], response = events.find((event) => event.seq > compact.seq && event.type === "model.response"), handoff = messages.find((one) => one.id === compact.data?.summary_message_id);
     const calls = new Set(messages.flatMap((one) => one.tool_calls || []).map((one) => one.id));
     const malformed = !messages.length || messages.some((one) => one.role === "tool" && !calls.has(one.tool_call_id)) || messages.some((one) => !String(one.content || "").trim() && !String(one.reasoning || "").trim() && !(one.tool_calls || []).length);
-    const empty = !String(response?.data?.content || "").trim(), reasoning = Number(response?.data?.reasoning_tokens || 0) > 0;
-    return { compact: compact.seq, turn: around(compact)?.turn || 0, response: response?.seq, finish_reason: response?.data?.finish_reason || "", reasoning_tokens: Number(response?.data?.reasoning_tokens || 0), completion_tokens: Number(response?.data?.usage?.completion_tokens || 0), empty, reasoning, message_count: messages.length, handoff_tokens: Number(handoff?.tokens || 0), handoff_first_80: String(handoff?.content || "").slice(0, 80), reading: malformed ? "HARNESS" : "MODEL" };
+    const empty = !String(response?.data?.content || "").trim(), tool_calls = (response?.data?.tool_calls || []).length, reasoning = Number(response?.data?.reasoning_tokens || 0) > 0;
+    return { compact: compact.seq, turn: around(compact)?.turn || 0, response: response?.seq, finish_reason: response?.data?.finish_reason || "", reasoning_tokens: Number(response?.data?.reasoning_tokens || 0), completion_tokens: Number(response?.data?.usage?.completion_tokens || 0), empty, tool_calls, answered: !empty || tool_calls > 0, reasoning, message_count: messages.length, handoff_tokens: Number(handoff?.tokens || 0), handoff_first_80: String(handoff?.content || "").slice(0, 80), reading: malformed ? "HARNESS" : "MODEL" };
   });
-  const badReply = replies.find((one) => one.reading === "HARNESS");
+  const emptyStop = ["reply_empty", "reply_empty_reasoning_shown"].includes(stopped?.data?.reason);
+  const badReply = replies.find((one) => !one.answered);
   const noteIndex = expected.findIndex((line, index) => lines[index] !== line), noteTurn = Math.max(1, noteIndex + 1);
   const condition1Pass = compactions.length >= minimumCompactions && !misplaced;
   const conditions = [
@@ -133,7 +134,7 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
     { condition: 2, pass: !weak, turn: weak?.turn || 0, message: weak ? (weak.response ? `turn ${weak.turn} compaction changed changeable prompt by ${(weak.cut * 100).toFixed(1)}% (${weak.beforeChangeable} to ${weak.afterChangeable})` : `turn ${weak.turn} compaction seq ${weak.ran.at(-1)?.seq} saw no following model.response prompt count`) : "all compactions removed more than half" },
     { condition: 3, pass: stopped?.data?.reason === "done", turn: rows.at(-1)?.turn || 0, message: `turn ${rows.at(-1)?.turn || 0} run ended ${stopped?.data?.reason || "without a stop"}` },
     driven
-      ? { condition: 4, pass: !badReply, turn: badReply?.turn || 0, message: badReply ? `turn ${badReply.turn} malformed request after compaction seq ${badReply.compact}` : "every post-compaction response is explained as MODEL" }
+      ? { condition: 4, pass: !badReply && !emptyStop, turn: badReply?.turn || rows.at(-1)?.turn || 0, message: badReply ? `turn ${badReply.turn} post-compaction response ${badReply.response ?? "missing"} had neither prose nor a tool call` : emptyStop ? `run ended ${stopped.data.reason}` : "every post-compaction response answered with prose or a tool call" }
       : { condition: 4, pass: JSON.stringify(lines) === JSON.stringify(expected), turn: noteTurn, message: `turn ${noteTurn} notes.md saw ${JSON.stringify(lines[noteIndex] ?? "<missing>")}; expected ${JSON.stringify(expected[noteIndex] ?? "<end>")}` },
     { condition: 5, pass: !missingTask, turn: missingTask ? around(compactions.find((one) => one.seq === missingTask.compact))?.turn || 0 : 0, message: missingTask ? `task ${missingTask.id ? "affected" : "absent"} after compaction seq ${missingTask.compact}; ids=${missingTask.ids.join(",")}` : "task retained after every compaction" }
   ];
@@ -142,7 +143,7 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
     for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.prompt} | ${row.line} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.length})` : "no"} | ${row.response?.data?.usage?.prompt_tokens ?? "—"} | ${fixed(row.before.data)} | ${row.response ? fixed(row.after?.data || row.before.data) : "—"} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} |\n`);
     if (ending) process.stdout.write(`\nPROOF END: ${ending}\n`);
     for (const location of taskLocations) process.stdout.write(`\nTASK RETENTION: compaction seq ${location.compact}; ${location.id ? `message ${location.position} role=${location.role} id=${location.id} affected=${location.affected} quote=${JSON.stringify(task)}` : `absent ids=${location.ids.join(",")}`}\n`);
-    for (const reply of replies) process.stdout.write(`EMPTY REPLY READING: compaction seq ${reply.compact}; response=${reply.response ?? "none"}; finish=${reply.finish_reason}; reasoning_tokens=${reply.reasoning_tokens}; completion_tokens=${reply.completion_tokens}; empty=${reply.empty}; reasoning=${reply.reasoning}; messages=${reply.message_count}; handoff_tokens=${reply.handoff_tokens}; handoff_first_80=${JSON.stringify(reply.handoff_first_80)}; ${reply.reading}\n`);
+    for (const reply of replies) process.stdout.write(`EMPTY REPLY READING: compaction seq ${reply.compact}; response=${reply.response ?? "none"}; finish=${reply.finish_reason}; reasoning_tokens=${reply.reasoning_tokens}; completion_tokens=${reply.completion_tokens}; empty=${reply.empty}; tool_calls=${reply.tool_calls}; reasoning=${reply.reasoning}; messages=${reply.message_count}; handoff_tokens=${reply.handoff_tokens}; handoff_first_80=${JSON.stringify(reply.handoff_first_80)}; ${reply.reading}\n`);
     process.stdout.write(`\n| condition | pass | deciding turn | message |\n| ---: | :---: | ---: | --- |\n${conditions.map((one) => `| ${one.condition} | ${one.pass ? "yes" : "no"} | ${one.turn} | ${one.pass ? "—" : one.message} |`).join("\n")}\n`);
   }
   const measurements = compactions.map((compact) => { const row = around(compact); return { before: row?.before?.data?.used_measured, fixed_prompt_before: row && fixed(row.before.data), after: row?.response?.data?.usage?.prompt_tokens, fixed_prompt_after: row?.response && fixed(row.after?.data || row.before.data) }; });
@@ -222,7 +223,7 @@ async function prepare(sourceData, root, window, fileCount) {
 
 async function runGroup(app, sourceData, window, specs, startOnly = false, timing = {}, evidenceRoot = "") {
   const root = await mkdtemp(join(tmpdir(), "agentb-compaction-proof-"));
-  let child;
+  let child, eventsAbort;
   try {
     const prepared = await prepare(sourceData, root, window, specs[0].files);
     let lastLine = "";
@@ -246,6 +247,10 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     process.stdout.write(`COMPACTION PROOF: candidate page answered in ${(startupMs / 1000).toFixed(3)} seconds within ${(startAllowance / 1000).toFixed(3)}-second allowance\n`);
     const html = await document.text(), token = html.match(/agentb-mutation-token" content="([^"]+)/)?.[1], cookie = document.headers.get("set-cookie")?.split(";")[0] || "";
     assert.ok(token, "model unreachable"); const headers = { "Content-Type": "application/json", "X-AgentB-Mutation-Token": token, Cookie: cookie };
+    eventsAbort = new AbortController();
+    const eventsResponse = await fetch(`${base}/api/events`, { headers, signal: eventsAbort.signal });
+    assert.ok(eventsResponse.ok, "candidate event stream is unavailable");
+    void eventsResponse.body?.pipeTo(new WritableStream()).catch(() => {});
     if (startOnly) { const state = await json(`${base}/api/state?session=proof-example`, { headers }); return { record: prepared.record, startupMs, stateExample: { sessions: Object.keys(state.sessions || {}).length } }; }
     const activityBase = Math.max(timing.startupMs || 0, startupMs);
     const rows = [];
@@ -253,7 +258,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
       let runError; const sessionMessages = new Map();
-      const read = async () => { const events = await eventsIn(prepared.data, id); for (const compact of events.filter((one) => one.type === "compaction" && !sessionMessages.has(one.seq))) { const state = await json(`${base}/api/state?session=${encodeURIComponent(id)}`, { headers }); sessionMessages.set(compact.seq, state.sessions?.[id]?.messages || []); } return events; };
+      const read = async () => { const events = await eventsIn(prepared.data, id); for (const compact of events.filter((one) => one.type === "compaction" && !sessionMessages.has(one.seq))) { const state = await waitFor(async () => { const value = await json(`${base}/api/state?session=${encodeURIComponent(id)}`, { headers }); return value.sessions?.[id] ? value : null; }, "proof session projection", startupWaitMs); sessionMessages.set(compact.seq, state.sessions[id].messages || []); } return events; };
       try {
         if (spec.name === "full") {
           await send(prepared.task);
@@ -291,6 +296,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     }
     return rows;
   } finally {
+    eventsAbort?.abort();
     if (child && child.exitCode === null) { child.kill(); await Promise.race([new Promise((done) => child.once("exit", done)), sleep(5000)]); }
     removeTreeWithinAllowedRoots(root, [tmpdir()], "compaction proof cleanup");
   }

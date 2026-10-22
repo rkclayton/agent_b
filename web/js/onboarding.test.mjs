@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { recommendationForBytes, recommendationTable, recommendationTableVersion } from "./local-recommendations.js";
+import { largestFitting, recommendationForBytes, recommendationTable, recommendationTableVersion } from "./local-recommendations.js";
 
 const html = fs.readFileSync(new URL("../setup.html", import.meta.url), "utf8");
 const script = fs.readFileSync(new URL("setup.js", import.meta.url), "utf8");
@@ -99,4 +99,13 @@ test("Setup follows the console palette and reduced motion is zero seconds", () 
   assert.doesNotMatch(styles, /#[0-9a-f]{3,8}/i);
   assert.match(styles, /prefers-reduced-motion:reduce/);
   assert.match(styles, /transition-duration:0ms!important;animation-duration:0ms!important/);
+});
+
+test("The install step preselects the largest catalog model that fits 2wa", () => {
+  const models = [["0.8b", 0], ["2b", 4], ["4b", 6], ["9b", 12], ["27b", 20], ["35b", 48]].map(([id, min_gib]) => ({ id, min_gib }));
+  const fits = (available) => models.filter((item) => !available || available >= item.min_gib);
+  for (const [available, id] of [[8, "4b"], [12, "9b"], [24, "27b"], [3, "0.8b"]]) assert.equal(largestFitting(fits(available), available)?.id, id);
+  assert.equal(largestFitting(fits(0), 0), undefined);
+  assert.equal(fits(0).length, models.length);
+  assert.match(script, /· fits your \$\{available\} GiB/);
 });

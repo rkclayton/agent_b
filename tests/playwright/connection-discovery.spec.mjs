@@ -151,6 +151,19 @@ test("setup context row distinguishes usable published and typed readings 2sv", 
 		await page.close();
 	}
 });
+test("the install step preselects the largest model that fits 8 GiB 2wa", async () => {
+	await mkdir(join(repo, "test-results"), { recursive: true });
+	const page = await harness.context.newPage();
+	await page.route("**/api/local-detection", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ accelerators: { cuda: true }, gpus: [{ vendor: "NVIDIA", name: "Test GPU", vram_bytes: 8 * 2 ** 30 }], system_memory_bytes: 32 * 2 ** 30 }) }));
+	await page.goto(`${harness.base}/setup`);
+	await page.getByRole("button", { name: "Install one here" }).click();
+	const select = page.locator('select[data-field="install-model"]');
+	await expect(select.locator("option:checked")).toHaveText("Qwen3.5 4B Q4_K_M · 6 GiB minimum · fits your 8 GiB");
+	await expect(select.locator("option")).toHaveText(["Qwen3.5 0.8B Q4_K_M · 0 GiB minimum", "Qwen3.5 2B Q4_K_M · 4 GiB minimum", "Qwen3.5 4B Q4_K_M · 6 GiB minimum · fits your 8 GiB"]);
+	await page.screenshot({ path: join(repo, "test-results", "2wa-install-8gib.png"), fullPage: true });
+	await page.close();
+});
+
 test("Settings Context shows the server recommendation without changing the field 2sx", async () => {
 	await mkdir(join(repo, "test-results"), { recursive: true });
 	for (const [name, saved, expected] of [["saved", 65536, "server recommends 32768 tokens; saved value is kept"], ["empty", 0, "server context: 32768 tokens"]]) {

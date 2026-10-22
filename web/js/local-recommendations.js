@@ -15,3 +15,8 @@ export function recommendationForBytes(bytes) {
   const gib = Math.floor(Number(bytes || 0) / (1024 ** 3));
   return recommendationTable.find((row) => gib >= row.min_gib && (row.max_gib === null || gib <= row.max_gib)) || recommendationTable[0];
 }
+
+// The install step preselects the largest model that fits; unknown memory preselects nothing.
+export function largestFitting(models, availableGiB) {
+  return availableGiB ? models.filter((item) => availableGiB >= item.min_gib).at(-1) : undefined;
+}

@@ -1,4 +1,5 @@
 import { acquireBrowserSessionToken } from "./browser-session.js";
+import { largestFitting } from "./local-recommendations.js";
 
 const root = document.getElementById("setup");
 const connection = document.getElementById("connection");
@@ -9,6 +10,7 @@ let connectionID = "";
 let detection;
 let catalog;
 let installState;
+let available = 0;
 let busy = false;
 let measuring = false;
 let message = "";
@@ -93,8 +95,8 @@ export function measuredContext(connection) {
 function installer() {
   if (!detection && !catalog) return "";
   if (!detection || !catalog) return `<div class="setup-install"><p>Reading this computer…</p></div>`;
-  const models = catalog.models || [];
-  const modelOptions = models.map((item) => `<option value="${attr(item.id)}">${html(item.label)} · ${item.min_gib} GiB minimum</option>`).join("");
+  const models = catalog.models || [], chosen = largestFitting(models, available);
+  const modelOptions = models.map((item) => `<option value="${attr(item.id)}"${item === chosen ? " selected" : ""}>${html(item.label)} · ${item.min_gib} GiB minimum${item === chosen ? ` · fits your ${available} GiB` : ""}</option>`).join("");
   const progress = installState ? `<div class="setup-progress"><progress max="${installState.total_bytes || 1}" value="${installState.downloaded_bytes || 0}"></progress><span>${html(installState.text || installState.phase || "")}</span></div>` : "";
   const choice = localBackend(detection);
   const hardware = choice.gpu
@@ -171,11 +173,11 @@ async function click(event) {
 function change() {}
 
 async function showInstall() {
-  detection = {}; catalog = {}; message = ""; render();
+  detection = {}; catalog = {}; available = 0; message = ""; render();
   try {
     const values = await Promise.all([request("/api/local-detection", undefined, "GET"), request("/api/model-install", undefined, "GET")]);
     detection = values[0]; catalog = values[1].catalog; installState = values[1].state;
-    const available = Math.floor(Number(localRecommendationBytes(detection)) / 2 ** 30);
+    available = Math.floor(Number(localRecommendationBytes(detection)) / 2 ** 30);
     catalog.models = (catalog.models || []).filter((item) => !available || available >= item.min_gib);
   } catch (error) { fail(error); }
   render();

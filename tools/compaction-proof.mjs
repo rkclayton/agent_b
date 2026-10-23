@@ -16,6 +16,7 @@ const proofSummaryPct = .9;
 const proofTask = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
 const proofFiller = "fixture words preserve a long real-model context without carrying private data. ".repeat(90);
 const proofStep = `${proofTask}\n\n${proofFiller}`;
+const proofDetail = "47113";
 export const startupWaitMs = Math.ceil(5357 * 1.5);
 export const measuredAllowance = (startupMs, gaps = [], work = 1) => Math.ceil(Math.max(startupMs * Math.max(60, work * 12), ...gaps.map((gap) => gap * 12)));
 export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
@@ -40,15 +41,21 @@ export function proofSelection(machine, profile) {
 }
 
 export function proofPlan(machine, profile) {
-  const window = proofSelection(machine, profile).record.window;
+  const selected = proofSelection(machine, profile), window = selected.record.window;
   const sized = (minimum) => Math.ceil(40 * window / 32768) * minimum;
   const runs = [
     { name: "fresh", minimum: 3 },
     { name: "typed-continue", minimum: 3, interrupt: true, continueText: "continue" },
     { name: "Continue", minimum: 3, interrupt: true, continueText: "Continue" },
     { name: "queued-message", minimum: 3, queue: true },
-    { name: "full", minimum: 1 }
+    { name: "full", minimum: 1 },
+    { name: "needs-recall", minimum: 1, plant: proofDetail }
   ].map((run) => ({ ...run, window, files: sized(run.minimum) }));
+  // 2we: a prune and a summary in one crossing needs older results over half the context
+  // and the rest still over the line, which only a lowered line produces: half the room in
+  // results and a quarter in one user message under 0.9, then the line moves to 0.25.
+  const room = Math.max(0, window - Number(selected.model.context?.reserve_output || 0) - 3000), unit = Math.ceil([...proofFiller].length * 10 / 36);
+  runs.push({ name: "prune+summary", minimum: 1, window, lowered: .25, files: Math.max(2, Math.floor(.5 * room / unit)), history: Math.max(1, Math.ceil(.27 * room / unit)) });
   return { window, runs };
 }
 
@@ -108,29 +115,43 @@ export function journalMessages(events, compact) {
   for (const event of events.filter((one) => one.seq < end)) {
     const message = event.data?.message;
     if (event.type === "message.appended" && message) {
-      const at = message.category !== "summary" ? messages.length : String(message.content || "").startsWith("Fresh-context hand-off:\n") ? 0 : Math.min(1, messages.length);
+      const at = message.category !== "summary" ? messages.length : /^(Fresh-context hand-off:\n|Compacted: )/.test(String(message.content || "")) ? 0 : Math.min(1, messages.length);
       messages.splice(at, 0, { ...message });
     } else if (event.type === "message.updated" && event.data?.patch && "content" in event.data.patch) {
       for (const one of messages) if (one.id === event.data.id) one.content = event.data.patch.content;
     } else if (event.type === "message.removed") messages = messages.filter((one) => one.id !== event.data?.id);
-    else if (event.type === "compaction" && ["summarize", "fresh"].includes(event.data?.kind)) { const affected = new Set(event.data.affected_ids || []); messages = messages.filter((one) => !affected.has(one.id)); }
+    else if (event.type === "compaction" && ["summarize", "fresh", "prune+fresh"].includes(event.data?.kind)) { const affected = new Set(event.data.affected_ids || []); messages = messages.filter((one) => !affected.has(one.id)); }
+    else if (event.type === "compaction" && event.data?.kind === "prune") { const affected = new Set(event.data.affected_ids || []); for (const one of messages) if (affected.has(one.id)) one.content = `[${one.name || "tool"} result removed at compaction, ${Number(one.tokens || 0)} tokens; recall reads it]`; }
   }
   return messages;
 }
 
-export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "", driven = false) {
+// 2wd (f): the turn that asks for the planted detail — its request, whether it called
+// recall, whether the reply carries the detail, and whether the hand-off or the context did.
+export function recallAnswer(events, marker, detail) {
+  const after = events.filter((one) => one.seq > marker), last = events.filter((one) => one.type === "compaction" && one.seq < marker).at(-1);
+  const reply = after.filter((one) => one.type === "model.response").at(-1), handoffs = new Set(events.filter((one) => one.type === "compaction").map((one) => one.data?.summary_message_id).filter(Boolean));
+  const recall = after.some((one) => one.type === "tool.call" && one.data?.name === "recall"), correct = String(reply?.data?.content || "").includes(detail);
+  const handoff = events.some((one) => one.type === "message.appended" && handoffs.has(one.data?.message?.id) && String(one.data.message.content || "").includes(detail));
+  const in_context = Boolean(last && (journalMessages(events, last) || []).some((one) => String(one.content || "").includes(detail)));
+  return { request: after.find((one) => one.type === "model.request")?.seq, recall, correct, handoff, in_context, pass: recall || correct };
+}
+
+export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "", driven = false, { lowered = null, ask = null } = {}) {
   const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
   const compactions = events.filter((event) => event.type === "compaction");
+  const pct = (seq) => lowered && seq > lowered.seq ? lowered.pct : proofSummaryPct;
   const lines = notes.trimEnd().split(/\r?\n/);
   const budgets = events.filter((event) => event.type === "budget" && event.data?.used_est > 0);
   const rows = budgets.map((before, index) => {
     const end = budgets[index + 1]?.seq ?? Infinity, ran = compactions.filter((one) => one.seq > before.seq && one.seq < end);
     const response = ran.length ? events.find((one) => one.seq > ran.at(-1).seq && one.type === "model.response" && Number(one.data?.usage?.prompt_tokens) > 0) : undefined;
     const after = response ? budgets.find((one) => one.seq > response.seq) : undefined;
-    const prompt = Number(before.data.used_est), line = Math.ceil(fixed(before.data) + proofSummaryPct * (Number(before.data.ceiling) - fixed(before.data)));
+    const prompt = Number(before.data.used_est), line = Math.ceil(fixed(before.data) + pct(before.seq) * (Number(before.data.ceiling) - fixed(before.data)));
+    const recall = events.some((one) => one.type === "tool.call" && one.data?.name === "recall" && one.seq > before.seq && one.seq < end);
     const beforeUsed = Number(before.data.used_measured), afterUsed = Number(response?.data?.usage?.prompt_tokens);
     const beforeChangeable = beforeUsed - fixed(before.data), afterChangeable = afterUsed - fixed(after?.data || before.data);
-    return { turn: index + 1, before, after, response, ran, prompt, line, crossed: prompt >= line, beforeChangeable, afterChangeable, cut: response ? (beforeChangeable - afterChangeable) / beforeChangeable : NaN };
+    return { turn: index + 1, before, after, response, ran, prompt, line, recall, crossed: prompt >= line, beforeChangeable, afterChangeable, cut: response ? (beforeChangeable - afterChangeable) / beforeChangeable : NaN };
   });
   const around = (compact) => rows.find((one) => one.ran.includes(compact));
   const misplaced = rows.find((one) => one.crossed !== Boolean(one.ran.length));
@@ -161,16 +182,20 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
       : { condition: 4, pass: JSON.stringify(lines) === JSON.stringify(expected), turn: noteTurn, message: `turn ${noteTurn} notes.md saw ${JSON.stringify(lines[noteIndex] ?? "<missing>")}; expected ${JSON.stringify(expected[noteIndex] ?? "<end>")}` },
     { condition: 5, pass: !missingTask, turn: missingTask ? around(compactions.find((one) => one.seq === missingTask.compact))?.turn || 0 : 0, message: missingTask ? `task ${missingTask.id ? "affected" : "absent"} after compaction seq ${missingTask.compact}; ids=${missingTask.ids.join(",")}` : "task retained after every compaction" }
   ];
+  const answer = ask ? recallAnswer(events, ask.marker, ask.detail) : null;
+  if (answer) conditions.push({ condition: 6, pass: answer.pass, turn: rows.at(-1)?.turn || 0, message: `request ${answer.request ?? "missing"} asked for the planted detail: recall=${answer.recall} reply=${answer.correct}` });
   if (output) {
-    process.stdout.write(`\nCOMPACTION TRACE: ${name}\n| turn | assembly prompt | line | crossed | compaction | count after | fixed before | fixed after | share cut |\n| ---: | ---: | ---: | :---: | :---: | ---: | ---: | ---: | ---: |\n`);
-    for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.prompt} | ${row.line} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.length})` : "no"} | ${row.response?.data?.usage?.prompt_tokens ?? "—"} | ${fixed(row.before.data)} | ${row.response ? fixed(row.after?.data || row.before.data) : "—"} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} |\n`);
+    process.stdout.write(`\nCOMPACTION TRACE: ${name}\n| turn | assembly prompt | line | crossed | compaction | count after | fixed before | fixed after | share cut | recall |\n| ---: | ---: | ---: | :---: | :---: | ---: | ---: | ---: | ---: | :---: |\n`);
+    for (const row of rows) process.stdout.write(`| ${row.turn} | ${row.prompt} | ${row.line} | ${row.crossed ? "yes" : "no"} | ${row.ran.length ? `yes (${row.ran.map((one) => one.data?.kind || "?").join(", ")})` : "no"} | ${row.response?.data?.usage?.prompt_tokens ?? "—"} | ${fixed(row.before.data)} | ${row.response ? fixed(row.after?.data || row.before.data) : "—"} | ${Number.isFinite(row.cut) ? (row.cut * 100).toFixed(1) + "%" : "—"} | ${row.recall ? "yes" : "no"} |\n`);
+    if (answer) process.stdout.write(`\nNEEDS RECALL: request seq ${answer.request ?? "missing"}; recall called=${answer.recall}; reply carries the detail=${answer.correct}; hand-off carried it=${answer.handoff}; still in context=${answer.in_context}\n`);
     if (ending) process.stdout.write(`\nPROOF END: ${ending}\n`);
     for (const location of taskLocations) process.stdout.write(`\nTASK RETENTION: compaction seq ${location.compact}; ${location.id ? `message ${location.position} role=${location.role} id=${location.id} affected=${location.affected} quote=${JSON.stringify(task)}` : `absent ids=${location.ids.join(",")}`}\n`);
     for (const reply of replies) process.stdout.write(`EMPTY REPLY READING: compaction seq ${reply.compact}; response=${reply.response ?? "none"}; finish=${reply.finish_reason}; reasoning_tokens=${reply.reasoning_tokens}; completion_tokens=${reply.completion_tokens}; empty=${reply.empty}; tool_calls=${reply.tool_calls}; reasoning=${reply.reasoning}; messages=${reply.message_count}; handoff_tokens=${reply.handoff_tokens}; handoff_first_80=${JSON.stringify(reply.handoff_first_80)}; ${reply.reading}\n`);
     process.stdout.write(`\n| condition | pass | deciding turn | message |\n| ---: | :---: | ---: | --- |\n${conditions.map((one) => `| ${one.condition} | ${one.pass ? "yes" : "no"} | ${one.turn} | ${one.pass ? "—" : one.message} |`).join("\n")}\n`);
   }
   const measurements = compactions.map((compact) => { const row = around(compact); return { before: row?.before?.data?.used_measured, fixed_prompt_before: row && fixed(row.before.data), after: row?.response?.data?.usage?.prompt_tokens, fixed_prompt_after: row?.response && fixed(row.after?.data || row.before.data) }; });
-  return { result: { run: name, compactions: measurements, ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows, taskLocations, replies };
+  const followed = compactions.filter((compact) => events.some((one) => one.type === "tool.call" && one.data?.name === "recall" && one.seq > compact.seq && one.run_id === compact.run_id)).length;
+  return { result: { run: name, compactions: measurements, kinds: compactions.map((one) => one.data?.kind || ""), compactions_followed_by_recall: followed, recall_calls: events.filter((one) => one.type === "tool.call" && one.data?.name === "recall").length, ...(answer ? { needs_recall: answer } : {}), ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows, taskLocations, replies };
 }
 export function verifyRun(name, events, task, notes, fileCount, minimumCompactions, driven = false) {
   const checked = assessRun(name, events, task, notes, fileCount, minimumCompactions, false, "", driven), failure = checked.conditions.find((one) => !one.pass);
@@ -234,8 +259,8 @@ async function prepare(sourceData, root, window, fileCount) {
   machine.workspace = join(root, "workspace"); machine.log_dir = join(root, "data", "logs");
   machine.profiles = { active, names: [active] }; machine.context.summary_pct = .9;
   machine.run.max_turns = Math.max(machine.run.max_turns || 0, 600); machine.run.max_tool_calls = Math.max(machine.run.max_tool_calls || 0, 600);
-  machine.approval.mode = "boundary-only"; machine.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file"] }];
-  profile.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file"] }];
+  machine.approval.mode = "boundary-only"; machine.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file", "recall"] }];
+  profile.agents = [{ ...agent, toolset: ["read_file", "list_dir", "write_file", "edit_file", "recall"] }];
   await mkdir(join(root, "data", "profiles", active), { recursive: true }); await mkdir(machine.workspace, { recursive: true });
   await writeFile(join(root, "data", "harness.json"), JSON.stringify(machine));
   await writeFile(join(root, "data", "profiles", active, "profile.json"), JSON.stringify(profile));
@@ -280,16 +305,29 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
-      let runError;
-      const read = () => eventsIn(prepared.data, id);
+      let runError, lowered = null, ask = null;
+      const read = () => eventsIn(prepared.data, id), last = async () => (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
+      const completedAfter = (after) => (events) => { const reply = events.find((one) => one.seq > after && one.type === "model.response"); return reply && events.some((one) => one.seq > reply.seq && one.type === "run.stopped"); };
       try {
-        if (spec.name === "full") {
+        if (spec.lowered) {
+          let marker = await last(); await send(`${prepared.task}
+
+${proofFiller.repeat(spec.history)}`);
+          await waitForActivity(read, completedAfter(marker), `${spec.name} reading`, activityBase, spec.files);
+          lowered = { seq: await last(), pct: spec.lowered };
+          await json(`${base}/api/config`, { method: "POST", headers, body: JSON.stringify({ context: { summary_pct: spec.lowered } }) });
+          marker = await last(); await send(`${prepared.task}
+
+You have read them already in this chat; say how many numbered files there were.`);
+          await waitForActivity(read, completedAfter(marker), `${spec.name} lowered line`, activityBase, spec.files);
+        } else if (spec.name === "full") {
           await send(prepared.task);
           await waitForActivity(read, (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, activityBase, spec.files);
         } else {
           let steps = 1, marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
-          await send(prepared.step);
-          const completedAfter = (after) => (events) => { const reply = events.find((one) => one.seq > after && one.type === "model.response"); return reply && events.some((one) => one.seq > reply.seq && one.type === "run.stopped"); };
+          await send(spec.plant ? `The fixture port for this chat is ${spec.plant}; I will ask for it later.
+
+${prepared.step}` : prepared.step);
           if (spec.interrupt || spec.queue) {
             await waitForActivity(read, (events) => events.filter((one) => one.seq > marker && one.type === "tool.result").length >= 3, `${spec.name} middle`, activityBase, spec.files);
             if (spec.queue) { marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || marker; await send(prepared.step); steps++; }
@@ -311,10 +349,14 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
             events = await waitForActivity(read, completedAfter(marker), `${spec.name} step ${steps}`, activityBase, spec.files);
             measure();
           }
+          if (spec.plant) {
+            ask = { marker: await last(), detail: spec.plant }; await send("What fixture port did I give you in my first message in this chat? Answer with the number.");
+            await waitForActivity(read, completedAfter(ask.marker), `${spec.name} ask`, activityBase, spec.files);
+          }
         }
       } catch (error) { runError = error; }
       const events = await eventsIn(prepared.data, id);
-      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full");
+      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", { lowered, ask });
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
       if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
       await writeFile(join(prepared.workspace, "notes.md"), "");
@@ -340,6 +382,10 @@ export async function prove({ app, sourceData, root = here, record, only = "", e
   process.stdout.write(`COMPACTION PROOF CALIBRATION: startup ${(sample.startupMs / 1000).toFixed(3)} seconds; first scored-start allowance ${(timing.slowestStartupMs * 3 / 1000).toFixed(3)} seconds\n`);
   const selected = plan.runs.filter((run) => wanted.has(run.name)), checked = [];
   for (const run of selected) checked.push(...await runGroup(app, sourceData, plan.window, [run], false, timing, evidence));
+  const kinds = checked.flatMap((run) => run.kinds || []), wantKinds = selected.length === plan.runs.length ? ["prune", "prune+fresh"] : [];
+  for (const kind of wantKinds.filter((one) => !kinds.includes(one))) checked.push({ run: "proof", conditions: [{ condition: 7, pass: false, turn: 0, message: `no ${kind} crossing in any run; kinds seen: ${kinds.join(", ") || "none"}` }] });
+  process.stdout.write(`COMPACTION PROOF KINDS: ${kinds.join(", ") || "none"}; recall calls ${checked.reduce((sum, run) => sum + (run.recall_calls || 0), 0)}; compactions followed by recall ${checked.reduce((sum, run) => sum + (run.compactions_followed_by_recall || 0), 0)} of ${kinds.length}
+`);
   const failure = checked.flatMap((run) => run.conditions.filter((one) => !one.pass).map((one) => ({ ...one, run: run.run }))).at(0);
   if (failure) throw new Error(`condition ${failure.condition} at turn ${failure.turn} of ${failure.run}: ${failure.message}`);
   const runs = checked.map(({ conditions, ...run }) => run);

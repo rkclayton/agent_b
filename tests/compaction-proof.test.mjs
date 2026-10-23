@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, drivenStepPlan, measuredAllowance, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, drivenStepPlan, journalMessages, measuredAllowance, recallAnswer, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -159,12 +159,13 @@ test("the proof uses the measured start allowance and the active agent model 2ur
 });
 
 test("every proof run uses the installed model window and one scaled workload 2vr", () => {
-  const machine = { connections: [{ id: "main", model: "chosen", models: [{ model: "chosen", context: { n_ctx: 32768 } }] }] };
+  const machine = { connections: [{ id: "main", model: "chosen", models: [{ model: "chosen", context: { n_ctx: 32768, reserve_output: 8192 } }] }] };
   const profile = { agents: [{ name: "agent_b", b: "main" }] };
   const plan = proofPlan(machine, profile);
   assert.equal(plan.window, 32768);
   assert.ok(plan.runs.every((run) => run.window <= plan.window));
-  assert.deepEqual(plan.runs.map((run) => run.files), [120, 120, 120, 120, 40]);
+  assert.deepEqual(plan.runs.map((run) => run.files), [120, 120, 120, 120, 40, 40, 5]);
+  assert.deepEqual(plan.runs.map((run) => run.name).slice(-2), ["needs-recall", "prune+summary"]);
 });
 
 test("a stalled or turnless trace names its ending 2vr", () => {
@@ -191,4 +192,38 @@ test("the release gate skips an equal hash and refuses an unreachable changed so
     assert.equal(changed.status, 1); assert.match(changed.stderr, /^BUILT, NOT RELEASED: compaction is not proved: model unreachable/m);
     assert.equal(await readFile(raw, "utf8"), changed.stderr);
   } finally { removeTreeWithinAllowedRoots(root, [tmpdir()], "compaction gate test cleanup"); }
+});
+
+test("each turn says whether it called recall, and the result counts recall after compaction 2wd", () => {
+  const events = [budget(1, 950), { seq: 2, type: "compaction", run_id: "r1", data: { kind: "prune" } }, request(3), response(4, 400), { seq: 5, type: "tool.call", run_id: "r1", data: { name: "recall" } }, budget(6, 420), stopped(7)];
+  const checked = assessRun("recall", events, task, "0001\n", 1, 1);
+  assert.deepEqual(checked.rows.map((row) => row.recall), [true, false]);
+  assert.deepEqual({ kinds: checked.result.kinds, followed: checked.result.compactions_followed_by_recall }, { kinds: ["prune"], followed: 1 });
+});
+
+test("a prune stubs its results in the rebuilt list and prune+fresh removes them 2we", () => {
+  const appended = (seq, id, role, content, category = "") => ({ seq, type: "message.appended", data: { message: { id, role, content, category, name: "read_file", tokens: 300 } } });
+  const journal = [appended(1, "u", "user", task), appended(2, "r", "tool", "old body", "files")];
+  const pruned = journalMessages([...journal, { seq: 3, type: "compaction", data: { kind: "prune", affected_ids: ["r"], summary_message_id: "h" } }, appended(4, "h", "harness", "Compacted: 1 results, 300 tokens removed; nothing summarized", "summary"), request(5)], { seq: 3 });
+  assert.deepEqual(pruned.map((one) => [one.id, one.content]), [["h", "Compacted: 1 results, 300 tokens removed; nothing summarized"], ["u", task], ["r", "[read_file result removed at compaction, 300 tokens; recall reads it]"]]);
+  const both = journalMessages([...journal, { seq: 3, type: "compaction", data: { kind: "prune+fresh", affected_ids: ["r"], summary_message_id: "h" } }, appended(4, "h", "harness", "Fresh-context hand-off:\nwork", "summary"), request(5)], { seq: 3 });
+  assert.deepEqual(both.map((one) => one.id), ["h", "u"]);
+});
+
+test("a lowered line is read from the seq it changed at 2we", () => {
+  const events = [budget(1, 800), request(2), response(3, 800), budget(4, 820), { seq: 5, type: "compaction", data: { kind: "prune+fresh" } }, request(6), response(7, 300), budget(8, 300), stopped(9)];
+  const checked = assessRun("lowered", events, task, "", 0, 1, false, "", true, { lowered: { seq: 3, pct: .25 } });
+  assert.deepEqual(checked.rows.map(({ line, crossed }) => [line, crossed]), [[910, false], [325, true], [325, false]]);
+  assert.equal(checked.conditions[0].pass, true);
+});
+
+test("the needs-recall turn reports recall, the reply and the hand-off, and passes on either path 2wd", () => {
+  const appended = (seq, id, content, category = "") => ({ seq, type: "message.appended", data: { message: { id, role: category ? "harness" : "user", content, category } } });
+  const base = [appended(1, "p", "port 47113"), budget(2, 950), { seq: 3, type: "compaction", data: { kind: "fresh", affected_ids: ["p"], summary_message_id: "h" } }, appended(4, "h", "Fresh-context hand-off:\nNEXT: none", "summary"), request(5), response(6, 300), stopped(7)];
+  const asked = [{ seq: 9, type: "model.request" }, { seq: 10, type: "tool.call", data: { name: "recall" } }, { seq: 11, type: "model.response", data: { content: "47113" } }, stopped(12)];
+  assert.deepEqual(recallAnswer([...base, ...asked], 8, "47113"), { request: 9, recall: true, correct: true, handoff: false, in_context: false, pass: true });
+  const guessed = [{ seq: 9, type: "model.request" }, { seq: 11, type: "model.response", data: { content: "I do not know" } }, stopped(12)];
+  assert.equal(recallAnswer([...base, ...guessed], 8, "47113").pass, false);
+  const checked = assessRun("needs-recall", [...base, ...guessed], task, "", 0, 1, false, "", true, { ask: { marker: 8, detail: "47113" } });
+  assert.deepEqual([checked.conditions.at(-1).condition, checked.conditions.at(-1).pass], [6, false]);
 });

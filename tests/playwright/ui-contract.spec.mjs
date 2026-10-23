@@ -611,6 +611,7 @@ test("fresh context leaves every transcript entry visible and says how much and 
         ...Array.from({length:18},(_,index)=>({type:index%2?"agent":"user",key:`space-b:${index}`,text:`visible later row ${index} ${"work ".repeat(12)}`,done:true})),
         { type: "notice", key: "event:39", run_id: "r3", event: { seq: 39, type: "compaction", session_id: id, run_id: "r3", data: { kind: "prune", trigger: "summary_pct", before: 1200, after: 400, pruned_results: 7, pruned_tokens: 800 } } },
         { type: "notice", key: "event:40", run_id: "r3", event: { seq: 40, type: "compaction", session_id: id, run_id: "r3", data: { kind: "prune+fresh", trigger: "summary_pct", before: 1300, after: 150, pruned_results: 3, pruned_tokens: 500 } } },
+        { type: "notice", key: "event:40.5", run_id: "r3", event: { seq: 40.5, type: "cycle.detected", session_id: id, run_id: "r3", data: { stage: "steer", name: "list_dir", line: "list_dir on …/stand-in/chats/chat has given the same result 3 times; say what you need from the user, or finish." } } },
         { type: "notice", key: "event:41", run_id: "r3", event: { seq: 41, type: "run.stopped", session_id: id, run_id: "r3", data: { reason: "context_exhausted", detail: "newest result is 17000 tokens and does not fit the 16000-token window" } } },
       ], runnable: true, closed: false } },
     connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {},
@@ -648,6 +649,8 @@ test("fresh context leaves every transcript entry visible and says how much and 
     await expect(log).toContainText(fallback);
     await expect(log).toContainText(pruned);
     await expect(log).toContainText(prunedFresh);
+    for (const fold of await page.locator(".chat-work-summary-toggle:visible").all()) if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
+    await expect(log).toContainText("list_dir on …/stand-in/chats/chat has given the same result 3 times; say what you need from the user, or finish.");
     for (const fold of await page.locator(".chat-work-summary-toggle:visible").all()) {
       if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
     }

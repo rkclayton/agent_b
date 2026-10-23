@@ -740,6 +740,22 @@ if (!realModel) {
 }
 record("open-chat");
 
+// Item 2wg: the same folder listed three times is told once in the chat, and the run goes on.
+async function loopSteer(sessionID) {
+  const beforeLoop = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
+  await setTask("acceptance: loop steer"); await waitProjectedChatText(sessionID, "LOOP STEER ANSWER", "loop steer answered");
+  const loopEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeLoop), steers = loopEvents.filter((event) => event.type === "cycle.detected" && event.data?.stage === "steer");
+  const third = loopEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "loop-steer-2");
+  assert.equal(steers.length, 1); assert.ok(third && steers[0].seq > third.seq, "the steer follows the third listing");
+  assert.equal(loopEvents.filter((event) => event.type === "run.stopped").at(-1)?.data?.reason, "done");
+  await openStepFoldIfDrawn();
+  const steer = page.getByText(/^list_dir on .+ has given the same result 3 times; say what you need from the user, or finish\.$/);
+  await steer.waitFor({ state: "visible" }); await steer.scrollIntoViewIfNeeded();
+  await page.setViewportSize({ width: 1280, height: 1080 }); await steer.scrollIntoViewIfNeeded(); await page.screenshot({ path: join(args.evidence, "2wg-steer-1280.png") });
+  await page.setViewportSize({ width: 1250, height: 975 });
+  record("loop-steer-told-once-run-continues-2wg");
+}
+
 if (args.journey && !["scheduled-work", "skills", "chat-management"].includes(args.journey)) {
   const name = args.journey;
   const sessionID = await page.locator(".chat-list-row.selected").getAttribute("data-session");
@@ -747,6 +763,7 @@ if (args.journey && !["scheduled-work", "skills", "chat-management"].includes(ar
   if (name === "chat-and-reply") {
     await setTask("acceptance: journey chat and reply");
     await waitProjectedChatText(sessionID, "Acceptance response.", name, 20000);
+    await loopSteer(sessionID);
   } else if (name === "build-and-restore") {
     await page.reload();
     await browser.wait(`document.querySelector('.chat-list-row.selected')`, name);
@@ -1151,18 +1168,7 @@ if (realModel) {
   await openStepFoldIfDrawn();
   await page.locator('[data-entry-key="tool:clock-search"] .tool-tick').waitFor({ state: "visible" }); record("clock-search-runs-without-drive-card-2ts");
 
-  const beforeLoop = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
-  await setTask("acceptance: loop steer"); await waitProjectedChatText(sessionID, "LOOP STEER ANSWER", "loop steer answered");
-  const loopEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeLoop), steers = loopEvents.filter((event) => event.type === "cycle.detected" && event.data?.stage === "steer");
-  const third = loopEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "loop-steer-2");
-  assert.equal(steers.length, 1); assert.ok(third && steers[0].seq > third.seq, "the steer follows the third listing");
-  assert.equal(loopEvents.filter((event) => event.type === "run.stopped").at(-1)?.data?.reason, "done");
-  await openStepFoldIfDrawn();
-  const steer = page.getByText(/^list_dir on .+ has given the same result 3 times; say what you need from the user, or finish\.$/);
-  await steer.waitFor({ state: "visible" }); await steer.scrollIntoViewIfNeeded();
-  for (const width of [304, 1280]) { await page.setViewportSize({ width, height: width === 304 ? 860 : 1080 }); await steer.scrollIntoViewIfNeeded(); await page.screenshot({ path: join(args.evidence, `2wg-steer-${width}.png`) }); }
-  await page.setViewportSize({ width: 1250, height: 975 });
-  record("loop-steer-told-once-run-continues-2wg");
+  await loopSteer(sessionID);
 
   if (args["2rv-only"] === "true") {
     const created = [], mutation = (await state()).mutation_token;

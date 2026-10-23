@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, drivenStepPlan, journalMessages, notRun, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, drivenStepPlan, journalMessages, notRun, prepareCase, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -238,4 +238,18 @@ test("a step over its allowance is not run, names the step, and keeps timing for
   assert.ok(timing.longestStepMs >= 0);
   const row = notRun("typed-continue", "not run — step 4 exceeded 900 s");
   assert.deepEqual([row.run, row.not_run, row.conditions[0].pass, row.conditions[0].message], ["typed-continue", "not run — step 4 exceeded 900 s", false, "not run — step 4 exceeded 900 s"]);
+});
+
+test("a case plants its numbered files in the chat's own folder and reads notes.md there 2wh", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agentb-proof-case-")), chat = join(root, "chats", "chat"), workspace = join(root, "workspace");
+  await mkdir(chat, { recursive: true }); await mkdir(workspace, { recursive: true });
+  try {
+    const planted = await prepareCase({ session: { workspace: chat } }, 3);
+    assert.equal(planted.folder, chat);
+    assert.equal(planted.notes, join(chat, "notes.md"));
+    assert.deepEqual((await readdir(chat)).sort(), ["0001.txt", "0002.txt", "0003.txt"]);
+    assert.deepEqual(await readdir(workspace), []);
+    assert.match(await readFile(join(chat, "0002.txt"), "utf8"), /^0002\n/);
+    await assert.rejects(prepareCase({ session: {} }, 1), /chat folder/);
+  } finally { removeTreeWithinAllowedRoots(root, [tmpdir()], "proof case test cleanup"); }
 });

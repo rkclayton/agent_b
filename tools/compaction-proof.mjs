@@ -255,7 +255,16 @@ export async function waitForStep(read, done, { label = "", step = 1, units = 1,
   }
 }
 
-async function prepare(sourceData, root, window, fileCount) {
+// 2wh: "this folder" is the chat's own folder, made when the chat is created, so each case
+// plants its numbered files there after creating its chat, and reads notes.md from it.
+export async function prepareCase(created, fileCount) {
+  const folder = created?.session?.workspace;
+  if (!folder) throw new Error("the new chat has no chat folder");
+  for (let index = 1; index <= fileCount; index++) await writeFile(join(folder, `${String(index).padStart(4, "0")}.txt`), `${String(index).padStart(4, "0")}\n${proofFiller}\n`);
+  return { folder, notes: join(folder, "notes.md") };
+}
+
+async function prepare(sourceData, root, window) {
   const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8"));
   const active = machine.profiles.active;
   const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8"));
@@ -271,7 +280,6 @@ async function prepare(sourceData, root, window, fileCount) {
   await writeFile(join(root, "data", "harness.json"), JSON.stringify(machine));
   await writeFile(join(root, "data", "profiles", active, "profile.json"), JSON.stringify(profile));
   if (connection.credential) await copyFile(join(sourceData, `.agentb-connection-credential-${connection.credential}.dpapi`), join(root, "data", `.agentb-connection-credential-${connection.credential}.dpapi`));
-  for (let index = 1; index <= fileCount; index++) await writeFile(join(machine.workspace, `${String(index).padStart(4, "0")}.txt`), `${String(index).padStart(4, "0")}\n${proofFiller}\n`);
   return { active, port: Number(machine.listen.split(":").at(-1)), task: proofTask, step: proofStep, workspace: machine.workspace, data: join(root, "data"), record: { ...selected.record, window: declaredWindow }, redactions: [connection.id, connection.label, connection.base_url, connection.credential].filter(Boolean) };
 }
 
@@ -279,7 +287,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
   const root = await mkdtemp(join(tmpdir(), "agentb-compaction-proof-"));
   let child, eventsAbort;
   try {
-    const prepared = await prepare(sourceData, root, window, specs[0].files);
+    const prepared = await prepare(sourceData, root, window);
     let lastLine = "";
     const startupAt = Date.now();
     child = spawn(app, ["--config", join(prepared.data, "harness.json"), "--app-root", here, "--data-root", prepared.data], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
@@ -311,6 +319,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     const rows = [];
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
+      const planted = await prepareCase(created, spec.files);
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
       let runError, lowered = null, ask = null;
       read = () => eventsIn(prepared.data, id); const last = async () => (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
@@ -371,10 +380,9 @@ COMPACTION PROOF NOT RUN: ${spec.name} ${runError.notRun}
         continue;
       }
       const events = await eventsIn(prepared.data, id);
-      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", { lowered, ask });
+      const checked = assessRun(spec.name, events, prepared.task, await readFile(planted.notes, "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", { lowered, ask });
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
       if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
-      await writeFile(join(prepared.workspace, "notes.md"), "");
       if (runError) throw runError;
     }
     return rows;

@@ -19,8 +19,8 @@ const proofStep = `${proofTask}\n\n${proofFiller}`;
 const proofDetail = "47113";
 export const startupWaitMs = Math.ceil(5357 * 1.5);
 // A step's allowance is three times the longest step completed in this invocation, between
-// 120 and 900 seconds (planner, 2026-10-23); before any step completes it is the 900-second cap.
-export const stepAllowance = (longestMs = 0) => longestMs > 0 ? Math.min(900000, Math.max(120000, Math.ceil(longestMs * 3))) : 900000;
+// 600 and 1,800 seconds (planner, 2026-10-23 14:05); before any step completes it is the 1,800-second cap.
+export const stepAllowance = (longestMs = 0) => longestMs > 0 ? Math.min(1800000, Math.max(600000, Math.ceil(longestMs * 3))) : 1800000;
 export const notRun = (name, reason) => ({ run: name, not_run: reason, conditions: [{ condition: 0, pass: false, turn: 0, message: reason }] });
 export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
   const tokens = Math.ceil([...proofStep].length * 10 / 36);
@@ -242,12 +242,14 @@ async function waitFor(check, label, timeout) {
 
 // waitForStep waits for one step, or for units steps when a wait covers several, against the
 // step allowance times units; a step over it is not run, and the proof moves to the next case.
-export async function waitForStep(read, done, { label = "", step = 1, units = 1, allowanceMs, timing }) {
+// Only a wait that counts — one driven user message from its send to its final reply — sets
+// the longest step; a partial wait (results in, a stop landed) never does.
+export async function waitForStep(read, done, { label = "", step = 1, units = 1, allowanceMs, timing, counts = false }) {
   const started = Date.now(), allowance = allowanceMs * units;
   for (;;) {
     const values = await read();
     if (done(values)) {
-      timing.longestStepMs = Math.max(timing.longestStepMs || 0, (Date.now() - started) / units);
+      if (counts) timing.longestStepMs = Math.max(timing.longestStepMs || 0, Date.now() - started);
       if (label) process.stdout.write(`COMPACTION PROOF WAIT: ${label} took ${((Date.now() - started) / 1000).toFixed(3)} of ${(allowance / 1000).toFixed(3)} seconds
 `);
       return values;
@@ -316,7 +318,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     assert.ok(eventsResponse.ok, "candidate event stream is unavailable");
     void eventsResponse.body?.pipeTo(new WritableStream()).catch(() => {});
     if (startOnly) { const state = await json(`${base}/api/state?session=proof-example`, { headers }); return { record: prepared.record, startupMs, stateExample: { sessions: Object.keys(state.sessions || {}).length } }; }
-    const wait = (done, label, step = 1, units = 1) => waitForStep(read, done, { label, step, units, allowanceMs: stepAllowance(timing.longestStepMs), timing });
+    const wait = (done, label, step = 1, units = 1, counts = false) => waitForStep(read, done, { label, step, units, counts, allowanceMs: stepAllowance(timing.longestStepMs), timing });
     let read;
     const rows = [];
     for (const spec of specs) {
@@ -331,13 +333,13 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
           let marker = await last(); await send(`${prepared.task}
 
 ${proofFiller.repeat(spec.history)}`);
-          await wait(completedAfter(marker), `${spec.name} reading`, 1, spec.files);
+          await wait(completedAfter(marker), `${spec.name} reading`, 1, spec.files, true);
           lowered = { seq: await last(), pct: spec.lowered };
           await json(`${base}/api/config`, { method: "POST", headers, body: JSON.stringify({ context: { summary_pct: spec.lowered } }) });
           marker = await last(); await send(`${prepared.task}
 
 You have read them already in this chat; say how many numbered files there were.`);
-          await wait(completedAfter(marker), `${spec.name} lowered line`, 2, spec.files);
+          await wait(completedAfter(marker), `${spec.name} lowered line`, 2, spec.files, true);
         } else if (spec.name === "full") {
           await send(prepared.task);
           await wait((events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, 1, spec.files);
@@ -356,7 +358,7 @@ ${prepared.step}` : prepared.step);
               marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || stopAt; await send(spec.continueText);
             }
           }
-          await wait(completedAfter(marker), `${spec.name} completion`);
+          await wait(completedAfter(marker), `${spec.name} completion`, 1, 1, true);
           let events = await eventsIn(prepared.data, id), first = events.find((one) => one.type === "budget" && one.data?.used_est > 0);
           const plan = drivenStepPlan(Number(first?.data?.ceiling || window), fixed(first?.data), spec.minimum); let maximum = plan.maximum, measured = false;
           const measure = () => { if (measured) return; const row = assessRun(spec.name, events, prepared.task, "", 0, spec.minimum, false, "", true).rows.find((one) => one.ran.length && one.response); if (row) { maximum = measuredStepMaximum(plan, spec.minimum, row.beforeChangeable, row.afterChangeable); measured = true; process.stdout.write(`COMPACTION PROOF STEPS MEASURED: ${spec.name} first=${plan.firstCrossing} cut=${row.beforeChangeable - row.afterChangeable} refill=${Math.ceil((row.beforeChangeable - row.afterChangeable) / plan.tokens)} minimum=${spec.minimum} plus=2 maximum=${maximum}\n`); } };
@@ -364,12 +366,12 @@ ${prepared.step}` : prepared.step);
           process.stdout.write(`COMPACTION PROOF STEPS: ${spec.name} fixed=${fixed(first?.data)} line=${Math.ceil(fixed(first?.data) + proofSummaryPct * (Number(first?.data?.ceiling || window) - fixed(first?.data)))} tokens=${plan.tokens} first=${plan.firstCrossing} maximum=${maximum}\n`);
           while (events.filter((one) => one.type === "compaction").length < spec.minimum && steps < maximum) {
             marker = events.at(-1)?.seq || 0; await send(prepared.step); steps++;
-            events = await wait(completedAfter(marker), `${spec.name} step ${steps}`, steps);
+            events = await wait(completedAfter(marker), `${spec.name} step ${steps}`, steps, 1, true);
             measure();
           }
           if (spec.plant) {
             ask = { marker: await last(), detail: spec.plant }; await send("What fixture port did I give you in my first message in this chat? Answer with the number.");
-            await wait(completedAfter(ask.marker), `${spec.name} ask`, steps + 1);
+            await wait(completedAfter(ask.marker), `${spec.name} ask`, steps + 1, 1, true);
           }
         }
       } catch (error) { runError = error; }

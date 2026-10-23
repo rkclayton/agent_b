@@ -226,15 +226,15 @@ test("the needs-recall turn reports recall, the reply and the hand-off, and pass
   assert.deepEqual([checked.conditions.at(-1).condition, checked.conditions.at(-1).pass], [6, false]);
 });
 
-test("a step's allowance is three times the longest completed step, between 120 and 900 seconds", () => {
-  assert.deepEqual([stepAllowance(0), stepAllowance(10000), stepAllowance(100000), stepAllowance(1000000)], [900000, 120000, 300000, 900000]);
+test("a step's allowance is three times the longest completed step, between 600 and 1800 seconds", () => {
+  assert.deepEqual([stepAllowance(0), stepAllowance(10000), stepAllowance(400000), stepAllowance(1000000)], [1800000, 600000, 1200000, 1800000]);
 });
 
 test("a step over its allowance is not run, names the step, and keeps timing for the next case", async () => {
   const timing = {};
   await assert.rejects(waitForStep(async () => [], () => false, { step: 4, allowanceMs: 60, timing }), (error) => error.notRun === "not run — step 4 exceeded 0.06 s");
   assert.equal(timing.longestStepMs, undefined);
-  await waitForStep(async () => [{ seq: 1 }], () => true, { step: 1, allowanceMs: 1000, timing, units: 2 });
+  await waitForStep(async () => [{ seq: 1 }], () => true, { step: 1, allowanceMs: 1000, timing, units: 2, counts: true });
   assert.ok(timing.longestStepMs >= 0);
   const row = notRun("typed-continue", "not run — step 4 exceeded 900 s");
   assert.deepEqual([row.run, row.not_run, row.conditions[0].pass, row.conditions[0].message], ["typed-continue", "not run — step 4 exceeded 900 s", false, "not run — step 4 exceeded 900 s"]);
@@ -260,4 +260,12 @@ test("a run's closing budget with no request after it is not a turn and is not s
   assert.deepEqual([closing.conditions[0].pass, closing.rows.length, closing.result.excluded_budget_rows], [true, 1, 1]);
   const asked = assessRun("asked", [...ending.slice(0, 4), request(4.5), response(4.6, 950), stopped(5)], task, "", 0, 0, false, "", true);
   assert.deepEqual([asked.conditions[0].pass, asked.rows.length, asked.result.excluded_budget_rows], [false, 2, 0]);
+});
+
+test("only a whole driven user message counts as a completed step 2wh", async () => {
+  const timing = {};
+  await waitForStep(async () => [{ seq: 1 }], () => true, { step: 1, allowanceMs: 1000, timing });
+  assert.equal(timing.longestStepMs, undefined, "a partial wait is not a step");
+  await waitForStep(async () => [{ seq: 1 }], () => true, { step: 1, allowanceMs: 1000, timing, counts: true });
+  assert.ok(timing.longestStepMs >= 0);
 });

@@ -255,7 +255,10 @@ function connectionFields(connection, reason, discovery) {
 	  : '<span class="settings-note inline">unavailable</span>';
 	const imagePath = `${p}.reads_images`;
 	const readsImages = boolDraft(imagePath, shown.reads_images);
-	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
+	// 2wb: the probe's verdict is a dated fact beside the switch; it decides nothing.
+	const verdict = { "reads images": "read a digit", "accepts images but does not read them": "accepted, did not read", rejected: "rejected" }[caps.vision];
+	const verdictFact = verdict && caps.probed_at ? `<span class="settings-note inline" data-vision-verdict>${html(`probe: ${verdict} · ${String(caps.probed_at).slice(0, 10)}`)}</span>` : "";
+	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images") + verdictFact, "", false);
 	const serverWindow = Number(store?.connection_health?.[id]?.window || caps.n_ctx || 0);
 	const contextProblem = reason?.startsWith("context ") ? reason : "";
 	const contextFact = serverWindow > 0 && !Number(shown.context.n_ctx || 0)

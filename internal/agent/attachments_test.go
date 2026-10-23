@@ -9,6 +9,9 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -396,6 +399,7 @@ func TestAttachmentHarnessLinesNameSidecarAndBinaryTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	connection := config.Defaults(workspace).Connections[0]
+	connection.AttachmentHandling = "extract"
 	message := events.Message{Content: "review", Attachments: []events.Attachment{
 		{Path: "attachments/paper.pdf", Bytes: 20},
 		{Path: "attachments/blob.bin", Bytes: 12},
@@ -428,5 +432,93 @@ func TestReadOfExtractedPDFSidecarIsUntrusted(t *testing.T) {
 	}
 	if !untrustedAttachmentRead(s, map[string]any{"path": "attachments/screen.png.txt"}) {
 		t.Fatal("OCR sidecar was not classified untrusted")
+	}
+}
+
+func TestAnyVerdictStillSendsTheImageAndDocumentParts2wb(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.Mkdir(filepath.Join(workspace, "attachments"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"pixel.png": smallPNG(t), "paper.pdf": []byte("%PDF-1.4\n%%EOF\n")} {
+		if err := os.WriteFile(filepath.Join(workspace, "attachments", name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, verdict := range []string{config.VisionRejected, config.VisionAcceptsUnreadable, config.VisionReadsImages} {
+		connection := config.Defaults(workspace).Connections[0]
+		connection.ReadsImages, connection.AttachmentHandling = true, "auto"
+		connection.Capabilities.Vision, connection.Capabilities.ImageInput, connection.Capabilities.DocumentInput = verdict, false, false
+		connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 4096
+		message := events.Message{Role: "user", Content: "look", Attachments: []events.Attachment{{Path: "attachments/pixel.png", Bytes: 9}, {Path: "attachments/paper.pdf", Bytes: 15}}}
+		body := fmt.Sprintf("%#v", requestMessage(&connection, &session.Session{Workspace: workspace}, message).Content)
+		if !strings.Contains(body, "image_url") || !strings.Contains(body, "file_data") {
+			t.Fatalf("verdict %q did not send both parts: %s", verdict, body)
+		}
+	}
+}
+
+func TestARefusedAttachmentPartIsRetriedOnceAsText2wb(t *testing.T) {
+	for _, tc := range []struct {
+		name, file, part, kind string
+		refuse                 bool
+	}{
+		{"image refused", "pixel.png", "image_url", "image", true},
+		{"document refused", "paper.pdf", "file_data", "document", true},
+		{"image accepted", "pixel.png", "image_url", "image", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var bodies []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				raw, _ := io.ReadAll(request.Body)
+				bodies = append(bodies, string(raw))
+				if tc.refuse && strings.Contains(string(raw), tc.part) {
+					http.Error(w, `{"error":{"message":"content part is not supported"}}`, http.StatusBadRequest)
+					return
+				}
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "described"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 50, "completion_tokens": 1}})
+			}))
+			defer server.Close()
+			root := t.TempDir()
+			if err := os.Mkdir(filepath.Join(root, "attachments"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			content := map[string][]byte{"pixel.png": smallPNG(t), "paper.pdf": []byte("%PDF-1.4\n%%EOF\n")}[tc.file]
+			if err := os.WriteFile(filepath.Join(root, "attachments", tc.file), content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "attachments", tc.file+".txt"), []byte("THE TEXT"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Defaults(root)
+			cfg.Context.Accounting = "estimated"
+			connection := cfg.Connections[0]
+			connection.ID, connection.BaseURL, connection.Model = "fixture", server.URL, "fixture"
+			connection.ReadsImages, connection.AttachmentHandling = true, "auto"
+			connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 4096
+			cfg.Connections = []config.Connection{connection}
+			bus := newCapturedBus()
+			runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+			item := &session.Session{ID: "chat", ConnectionID: connection.ID, Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+			item.Append(events.Message{ID: "task", Role: "user", Category: "history", Content: "what is this", Attachments: []events.Attachment{{Path: "attachments/" + tc.file, Bytes: int64(len(content))}}})
+			if reason, detail, _ := runner.Run(t.Context(), item, "run"); reason != "done" {
+				t.Fatalf("reason=%s detail=%q", reason, detail)
+			}
+			lines := []string{}
+			for _, event := range bus.Recent(item.ID) {
+				if data, ok := event.Data.(map[string]any); ok && event.Type == events.ModelRetry && data["reason"] == "attachment_as_text" {
+					lines = append(lines, fmt.Sprint(data["kind"]))
+				}
+			}
+			if !tc.refuse {
+				if len(bodies) != 1 || len(lines) != 0 {
+					t.Fatalf("accepted: calls=%d lines=%v", len(bodies), lines)
+				}
+				return
+			}
+			if len(bodies) != 2 || strings.Contains(bodies[1], tc.part) || !strings.Contains(bodies[1], tc.file+".txt") || len(lines) != 1 || lines[0] != tc.kind {
+				t.Fatalf("refused: calls=%d lines=%v second=%s", len(bodies), lines, bodies[len(bodies)-1])
+			}
+		})
 	}
 }

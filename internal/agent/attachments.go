@@ -51,7 +51,7 @@ func renderedUserTextAt(connection *config.Connection, s *session.Session, messa
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — extracted text: %s — read it with read_file", item.Path, item.Bytes, sidecar))
 		case kind == attachmentfile.PDF && hasSidecar && !nativeAttachmentAt(connection, kind, item.Bytes):
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — route: sidecar — extracted text: %s (untrusted:true) — read it with read_file", item.Path, item.Bytes, sidecar))
-		case kind == attachmentfile.Image && hasSidecar:
+		case kind == attachmentfile.Image && hasSidecar && !nativeAttachmentAt(connection, kind, item.Bytes):
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — OCR text: %s (untrusted:true; layout not preserved) — read it with read_file", item.Path, item.Bytes, sidecar))
 		case nativeAttachmentAt(connection, kind, item.Bytes) && !inline:
 			lines = append(lines, fmt.Sprintf("attached: %s (%d bytes) — shown in an earlier turn and not re-sent; ask the user to re-attach it to see it again", item.Path, item.Bytes))
@@ -176,6 +176,30 @@ func boundedModelImage(data []byte, mime string) ([]byte, string, error) {
 // threshold and only where the connection reads documents natively. The size is
 // the whole of the difference, so it is asked here rather than inferred from
 // branch order anywhere else.
+// attachedPartKind names the native part a request carries: "image", "document" or "".
+func attachedPartKind(request llm.Request) string {
+	kind := ""
+	for _, message := range request.Messages {
+		parts, _ := message.Content.([]any)
+		for _, part := range parts {
+			switch value, _ := part.(map[string]any); value["type"] {
+			case "image_url":
+				return "image"
+			case "file":
+				kind = "document"
+			}
+		}
+	}
+	return kind
+}
+
+// attachedPartRefusal is the probe's rejected verdict seen on a chat request:
+// the server answered with a client error instead of a reply.
+func attachedPartRefusal(err error) bool {
+	status, _ := serverRefusal(err)
+	return status == 400 || status == 415 || status == 422
+}
+
 func nativeAttachment(connection *config.Connection, kind attachmentfile.Kind) bool {
 	return nativeAttachmentAt(connection, kind, 0)
 }

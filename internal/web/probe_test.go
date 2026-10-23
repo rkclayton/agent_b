@@ -101,6 +101,10 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("ready Test changed the config file")
 	}
+	// 2wb: Test re-runs the vision probe and names what it sent and what came back.
+	if !strings.Contains(response.Body.String(), "images: accepts images but does not read them (sent digit ") || !strings.Contains(response.Body.String(), "got \\\"OK\\\"") {
+		t.Fatalf("Test did not name the vision probe: %s", response.Body)
+	}
 }
 
 func TestConnectionTestNamesARefusedKeyAndLogsTheModelListStep2r7(t *testing.T) {

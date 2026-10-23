@@ -1486,6 +1486,10 @@
 .connection-fields .field-error {
   margin-left: 124px;
 }
+.connection-fields .settings-note[data-vision-verdict] {
+  margin-left: 0;
+  white-space: nowrap;
+}
 .connection-sampling,
 .connection-capabilities {
   grid-column: 1 / -1;

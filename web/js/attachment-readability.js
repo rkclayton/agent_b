@@ -1,6 +1,5 @@
 export function attachmentReadability(session, connections, attachment) {
   const connection = (connections || []).find((value) => value.id === session?.connection_id);
-  const capabilities = connection?.capabilities || {};
   if (!connection) return null;
   const handling = connection.attachment_handling || "auto";
   if (attachment?.sidecar) return null;
@@ -10,8 +9,6 @@ export function attachmentReadability(session, connections, attachment) {
     return "This connection cannot read images";
   if (attachment?.kind === "pdf" && handling === "extract")
     return "This PDF needs extraction before the connection can read it";
-  if (attachment?.kind === "pdf" && handling === "auto" && !capabilities.document_input)
-    return "This connection cannot read PDFs · probe found no document input";
   // a PDF has two routes and the operator chose - sidecar by
   // default, inline only under the threshold. The chip NAMES the route rather
   // than leaving him to infer it from the size and the connection.

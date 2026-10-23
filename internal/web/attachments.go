@@ -209,7 +209,7 @@ func storeAttachment(workspace, name string, content []byte, connection *config.
 	sum := sha256.Sum256(content)
 	digest := hex.EncodeToString(sum[:])
 	stem, extension := strings.TrimSuffix(name, filepath.Ext(name)), filepath.Ext(name)
-	needsSidecar := kind == attachmentfile.Office || (kind == attachmentfile.PDF && !connection.NativeDocumentInput()) || (kind == attachmentfile.Image && !connection.NativeImageInput())
+	needsSidecar := kind == attachmentfile.Office || kind == attachmentfile.PDF || kind == attachmentfile.Image
 	indexDir := filepath.Join(dir, ".agentb-index")
 	if err := os.MkdirAll(indexDir, 0o700); err != nil {
 		return attachmentResponse{}, "", false, err
@@ -357,8 +357,12 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 		}
 		return "office", note, sidecar, nil
 	case attachmentfile.PDF:
+		// 2wb: a native PDF or image still has its text read beside it, so a
+		// server that refuses the part is sent the text instead.
 		if connection.NativeDocumentInput() {
-			return "native", "document routed natively", "", nil
+			connection.AttachmentHandling = "extract"
+			_, _, sidecar, _ = s.extractAttachment(ctx, connection, resolved, relative, kind, progress)
+			return "native", "document routed natively", sidecar, nil
 		}
 		if connection.ExtractURL != "" {
 			text, extractErr := s.postExtraction(ctx, connection, resolved)
@@ -410,7 +414,9 @@ func (s *Server) extractAttachment(ctx context.Context, connection config.Connec
 		return tier, note, sidecar, nil
 	case attachmentfile.Image:
 		if connection.NativeImageInput() {
-			return "native", "image routed natively", "", nil
+			connection.AttachmentHandling = "extract"
+			_, _, sidecar, _ = s.extractAttachment(ctx, connection, resolved, relative, kind, progress)
+			return "native", "image routed natively", sidecar, nil
 		}
 		visionReason := ""
 		if connection.Capabilities.Vision == config.VisionAcceptsUnreadable {

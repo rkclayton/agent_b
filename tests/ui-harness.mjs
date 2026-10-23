@@ -54,7 +54,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
       sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
       reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false },
       context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
-      capabilities: { connection: "ui-harness", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] },
+      capabilities: { connection: "ui-harness", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, vision: "rejected", reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] },
     }],
     services: {}, agents: [{ name: "UI", b: "ui", toolset: TOOLSET }, ...[...new Set(agents)].filter((name) => name.toLowerCase() !== "ui").map((name) => ({ name, b: "ui", toolset: TOOLSET }))],
     run: { max_turns: 4, cycle_window: 8, max_concurrent: 1, queue_depth: 0 },

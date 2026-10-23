@@ -121,16 +121,28 @@ func TestNetworkBoundaryStaysStableUntilReopen(t *testing.T) {
 
 func TestMediaCapabilitiesFollowConnectionAndToolset(t *testing.T) {
 	textOnly := MediaCapabilities(config.Config{}, &config.Connection{}, map[string]bool{})
-	for _, want := range []string{"run_script is not enabled", "cannot see an attached image", "Making pictures is not set up", "Do not prefer SVG"} {
+	for _, want := range []string{"run_script is not enabled", "sent as its OCR text", "Making pictures is not set up", "Do not prefer SVG"} {
 		if !strings.Contains(textOnly, want) {
 			t.Fatalf("text-only capabilities %q do not contain %q", textOnly, want)
 		}
 	}
 	vision := config.Connection{AttachmentHandling: "native", ReadsImages: true}
 	native := MediaCapabilities(config.Config{Images: config.Images{Connection: "pictures"}}, &vision, map[string]bool{"run_script": true, "image": true})
-	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "can see a user-attached image", "make and change pictures"} {
+	for _, want := range []string{"render PNG or JPEG", "System.Drawing", "An attached image or PDF is included in the message", "make and change pictures"} {
 		if !strings.Contains(native, want) {
 			t.Fatalf("native capabilities %q do not contain %q", native, want)
+		}
+	}
+}
+
+func TestMediaCapabilitiesDescribeTheHarnessWhateverTheVerdict2wb(t *testing.T) {
+	for _, verdict := range []string{"", config.VisionRejected, config.VisionAcceptsUnreadable, config.VisionReadsImages} {
+		for _, reads := range []bool{false, true} {
+			connection := config.Connection{AttachmentHandling: "auto", ReadsImages: reads, Capabilities: config.Capabilities{Vision: verdict}}
+			text := MediaCapabilities(config.Config{}, &connection, map[string]bool{})
+			if strings.Contains(text, "cannot see an attached image") || !strings.Contains(text, "if the server refuses one, its text is sent instead") {
+				t.Fatalf("verdict=%q reads=%t capabilities=%q", verdict, reads, text)
+			}
 		}
 	}
 }

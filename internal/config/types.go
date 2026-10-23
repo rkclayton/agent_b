@@ -465,7 +465,8 @@ func (p Connection) NativeImageInput() bool {
 }
 
 func (p Connection) NativeDocumentInput() bool {
-	return p.AttachmentHandling == "native" || (p.AttachmentHandling == "auto" && p.Capabilities.DocumentInput)
+	// 2wb: the probe advises; a PDF goes as a document unless he chose extract.
+	return p.AttachmentHandling != "extract"
 }
 
 func (p Connection) IsQwen38() bool {

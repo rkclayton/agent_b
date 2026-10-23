@@ -671,6 +671,45 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
 
 // 2qx replaces the two identity halves with the settings people change;
 // the action line and collapsed Defaults remain beneath them.
+test("the probe verdict is a dated fact and Test names what it sent and got 2wb", async () => {
+  test.setTimeout(120000);
+  const page = await harness.context.newPage();
+  await page.goto(`${harness.base}/chat`);
+  await toggleSettings(page);
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await expect(page.locator(".connection-editor [data-vision-verdict]")).toHaveText(/^probe: rejected · \d{4}-\d{2}-\d{2}$/);
+  await page.screenshot({ path: join(repo, "test-results", "2wb-verdict.png") });
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await expect(page.locator(".connection-editor")).toHaveCount(0);
+  await page.locator('[data-action="add-connection"]').click();
+  const editor = page.locator(".connection-editor");
+  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  const address = editor.locator(`[data-path="connections.${id}.base_url"]`);
+  const addressSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  const modelsListed = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/models`));
+  await address.fill(`http://127.0.0.1:${harness.modelPort}`);
+  await address.press("Enter");
+  await addressSaved;
+  await modelsListed;
+  let model = page.locator(`[data-path="connections.${id}.model"]`);
+  if (await model.evaluate((node) => node.tagName === "SELECT")) {
+    await model.selectOption("__type__");
+    model = page.locator(`[data-path="connections.${id}.model"]`);
+  }
+  await model.fill("second-model");
+  const modelSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  await model.press("Enter");
+  await modelSaved;
+  const tested = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/probe`));
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
+  await tested;
+  await expect(page.locator(".connection-editor .discovery-note")).toContainText(/Test passed in \d+ ms · images: accepts images but does not read them \(sent digit \d; got "ui harness reply"\)/);
+  await expect(page.locator(".connection-editor [data-vision-verdict]"), "an unprobed connection has no verdict").toHaveCount(0);
+  await page.screenshot({ path: join(repo, "test-results", "2wb-connections.png") });
+  await page.close();
+});
+
 test("the sheet reads as eight ordered fields above its actions and Defaults", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();

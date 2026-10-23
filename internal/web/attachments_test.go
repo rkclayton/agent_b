@@ -124,7 +124,9 @@ func TestAttachmentsPDFExtractionEndpointStoresUntrustedSidecar(t *testing.T) {
 		_, _ = io.WriteString(w, "extracted PDF text")
 	}))
 	defer extractor.Close()
-	server, workspace := attachmentTestServer(t, func(cfg *config.Config) { cfg.Connections[0].ExtractURL = extractor.URL })
+	server, workspace := attachmentTestServer(t, func(cfg *config.Config) {
+		cfg.Connections[0].ExtractURL, cfg.Connections[0].AttachmentHandling = extractor.URL, "extract"
+	})
 	result := postAttachment(t, server, "paper.pdf", []byte("%PDF-1.1\n%%EOF\n"))
 	if result.Tier != "extracted" || !strings.Contains(result.Note, "untrusted") {
 		t.Fatalf("result=%+v", result)
@@ -292,11 +294,16 @@ func multipartAttachmentRequest(t *testing.T, server *Server, name string, data 
 // PDF's text layer is read locally (the walk's walk-doc.pdf), and a PDF with no
 // text layer is read by OCR page by page; the result names the route.
 func TestAttachmentsPDFTextLayerAndScanAreReadLocally(t *testing.T) {
-	server, workspace := attachmentTestServer(t, nil)
 	walkDoc, err := os.ReadFile(filepath.Join("..", "attachment", "testdata", "walk-doc.pdf"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 2wb: a native PDF is routed as a document and still has its text beside it.
+	native, _ := attachmentTestServer(t, nil)
+	if result := postAttachment(t, native, "walk-doc.pdf", walkDoc); result.Tier != "native" || result.Sidecar != "attachments/walk-doc.pdf.txt" {
+		t.Fatalf("native result=%+v", result)
+	}
+	server, workspace := attachmentTestServer(t, func(cfg *config.Config) { cfg.Connections[0].AttachmentHandling = "extract" })
 	result := postAttachment(t, server, "walk-doc.pdf", walkDoc)
 	if result.Tier != "extracted" || result.Sidecar != "attachments/walk-doc.pdf.txt" || !strings.Contains(result.Note, "text layer") {
 		t.Fatalf("text-layer result=%+v", result)

@@ -427,7 +427,9 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	}
 	duration := max(int(time.Since(started).Milliseconds()), 1)
 	s.releaseReachableConnection(id)
-	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "duration_ms": duration, "message": fmt.Sprintf("Test passed in %d ms", duration)})
+	// 2wb: the vision probe runs again and says what it sent and got; it saves nothing.
+	vision, _, seen := probe.Vision(r.Context(), llm.New(&updated))
+	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "duration_ms": duration, "message": fmt.Sprintf("Test passed in %d ms · images: %s (%s)", duration, vision, seen)})
 }
 
 func (s *Server) saveDetectedProtocol(id, protocol string) error {

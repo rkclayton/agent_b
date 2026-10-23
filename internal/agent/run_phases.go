@@ -39,6 +39,7 @@ type runState struct {
 	refusalSentence                                   string
 	refusalAttempt                                    int
 	refusedTurn                                       int
+	attachmentsAsTextTurn                             int
 	accountingRepairTried, templateRetryTried         bool
 	fallbackActive                                    bool
 	fallbackID                                        string
@@ -327,6 +328,10 @@ func (x *runState) turnBoundary() runOutcome {
 	x.connection = &localConnection
 	x.connection.Capabilities.ObservedMessageLimit = x.runMessageLimit
 	x.connection.Capabilities.ObservedByteLimit = x.runByteLimit
+	// 2wb: the turn whose server refused an attached part sends it as text, that turn only.
+	if x.attachmentsAsTextTurn == x.turn {
+		x.connection.AttachmentHandling = "extract"
+	}
 	if x.runWindow > 0 {
 		x.connection.Context.NCtx = x.runWindow
 		x.connection.Context.ReserveOutput = min(x.connection.Context.ReserveOutput, x.runWindow/2)
@@ -690,6 +695,12 @@ func (x *runState) callModelStep() runOutcome {
 		}
 		if tokenWindowRefusal(x.callErr) {
 			x.refusalSentence, x.refusalAttempt = x.callErr.Error(), x.refusalAttempt+1
+			x.turn--
+			return runAgainOutcome
+		}
+		if kind := attachedPartKind(x.request); kind != "" && x.attachmentsAsTextTurn != x.turn && attachedPartRefusal(x.callErr) {
+			x.attachmentsAsTextTurn = x.turn
+			r.bus.Publish(events.New(events.ModelRetry, x.s.ID, x.runID, map[string]any{"turn": x.turn, "reason": "attachment_as_text", "kind": kind, "attempt": 1, "max_attempts": 1}))
 			x.turn--
 			return runAgainOutcome
 		}

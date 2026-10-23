@@ -56,9 +56,13 @@ func TestProbeVisionClassifiesAllResponseShapes(t *testing.T) {
 			connection := config.Defaults(t.TempDir()).Connections[0]
 			connection.BaseURL = server.URL
 			connection.Model = "vision-fixture"
-			vision, accepted := probeVision(context.Background(), llm.New(&connection))
+			vision, accepted, detail := probeVision(context.Background(), llm.New(&connection))
 			if vision != shape {
 				t.Fatalf("vision=%q want=%q", vision, shape)
+			}
+			// 2wb: the finding names what was sent and what came back.
+			if want := map[bool]string{true: "got \"", false: "HTTP "}[accepted]; !strings.HasPrefix(detail, "sent digit ") || !strings.Contains(detail, want) {
+				t.Fatalf("detail=%q want %q", detail, want)
 			}
 			if accepted != (shape != config.VisionRejected) {
 				t.Fatalf("accepted=%t shape=%q", accepted, shape)
@@ -110,6 +114,6 @@ func TestLiveVisionProbe(t *testing.T) {
 	connection := config.Defaults(t.TempDir()).Connections[0]
 	connection.BaseURL = baseURL
 	connection.Model = os.Getenv("AGENTB_VISION_LIVE_MODEL")
-	vision, accepted := probeVision(context.Background(), llm.New(&connection))
-	t.Logf("LIVE_VISION_CLASSIFICATION url=%s model=%s vision=%q accepted=%t", baseURL, connection.Model, vision, accepted)
+	vision, accepted, detail := probeVision(context.Background(), llm.New(&connection))
+	t.Logf("LIVE_VISION_CLASSIFICATION url=%s model=%s vision=%q accepted=%t detail=%s", baseURL, connection.Model, vision, accepted, detail)
 }

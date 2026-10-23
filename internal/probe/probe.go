@@ -168,9 +168,10 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 	findings = append(findings, "tool calls: "+toolLine, "grammar constrained: "+availability(caps.GrammarConstrained))
 
 	caps.DocumentInput = probeContentPart(ctx, client, map[string]any{"type": "file", "file": map[string]any{"filename": "probe.pdf", "file_data": "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(probePDF())}})
-	caps.Vision, caps.ImageInput = probeVision(ctx, client)
+	var visionDetail string
+	caps.Vision, caps.ImageInput, visionDetail = probeVision(ctx, client)
 	caps.Images = probeImages(ctx, client)
-	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput), "images: "+availability(caps.Images), "vision: "+caps.Vision)
+	findings = append(findings, "document input: "+availability(caps.DocumentInput), "image input: "+availability(caps.ImageInput), "images: "+availability(caps.Images), "vision: "+caps.Vision+" ("+visionDetail+")")
 
 	probeReasoning(ctx, client, connection, &caps, &findings)
 	probeOverflow(ctx, client, connection, &caps, &findings, evaluateCeiling)
@@ -327,10 +328,16 @@ func probeContentPart(ctx context.Context, client *llm.Client, part map[string]a
 	return err == nil
 }
 
-func probeVision(ctx context.Context, client *llm.Client) (string, bool) {
+// Vision is the probe's image check on its own, for Test.
+func Vision(ctx context.Context, client *llm.Client) (string, bool, string) {
+	return probeVision(ctx, client)
+}
+
+// probeVision also returns what it sent and what came back, so Test shows why.
+func probeVision(ctx context.Context, client *llm.Client) (string, bool, string) {
 	chosen, err := cryptorand.Int(cryptorand.Reader, big.NewInt(10))
 	if err != nil {
-		return config.VisionRejected, false
+		return config.VisionRejected, false, "no digit chosen"
 	}
 	digit := int(chosen.Int64())
 	pngBytes := probeDigitPNG(digit)
@@ -338,13 +345,27 @@ func probeVision(ctx context.Context, client *llm.Client) (string, bool) {
 	check, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	response, err := client.Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: []any{map[string]any{"type": "text", "text": "What single digit is shown in this image? Reply with the digit only."}, part}}}, MaxTokens: 8})
+	sent := "sent digit " + strconv.Itoa(digit)
 	if err != nil {
-		return config.VisionRejected, false
+		if status := httpStatus.FindString(err.Error()); status != "" {
+			return config.VisionRejected, false, sent + "; " + status
+		}
+		return config.VisionRejected, false, sent + "; " + firstRunes(err.Error(), 80)
 	}
+	got := fmt.Sprintf("%s; got %q", sent, firstRunes(strings.TrimSpace(response.Content), 80))
 	if strings.TrimSpace(response.Content) == strconv.Itoa(digit) {
-		return config.VisionReadsImages, true
+		return config.VisionReadsImages, true, got
 	}
-	return config.VisionAcceptsUnreadable, true
+	return config.VisionAcceptsUnreadable, true, got
+}
+
+var httpStatus = regexp.MustCompile(`HTTP \d{3}`)
+
+func firstRunes(value string, limit int) string {
+	if runes := []rune(value); len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return value
 }
 
 func probeDigitPNG(digit int) []byte {

@@ -508,9 +508,12 @@ func MediaCapabilities(settings config.Config, connection *config.Connection, en
 	if enabled["run_script"] {
 		render = "You can render PNG or JPEG files from code with run_script using Windows PowerShell System.Drawing; files written in the workspace are delivered when the run ends."
 	}
-	read := "This connection cannot see an attached image; it can use OCR text when extraction finds any."
+	// 2wb: what the harness does with an attachment, never the probe's verdict.
+	read := "An attached image is sent as its OCR text; an attached PDF is included in the message; if the server refuses one, its text is sent instead."
 	if connection != nil && connection.NativeImageInput() {
-		read = "This connection can see a user-attached image included in the current message."
+		read = "An attached image or PDF is included in the message; if the server refuses one, its text is sent instead."
+	} else if connection != nil && !connection.NativeDocumentInput() {
+		read = "An attached image or PDF is sent as its extracted text."
 	}
 	makePictures := "Making pictures is not set up."
 	if enabled["image"] && (settings.Images.Connection != "" || connection != nil && connection.Capabilities.Images) {

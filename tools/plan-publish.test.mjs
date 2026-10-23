@@ -7,7 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { preparePublication, publishNext, publishPublication, workerStopped } from "./plan-publish.mjs";
+import { preparePublication, publishNext, publishPublication, takeFirstBlock, workerStopped } from "./plan-publish.mjs";
 import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -205,6 +205,23 @@ assert.equal(fs.existsSync(publisher), true);
   assert.match(published, /^## Current work order — first\n\nRULING/m);
   assert.doesNotMatch(published, /SECOND/);
   assert.equal(publishNext({ root, inbox }).already_published, true);
+}
+// Planner ruling, 2026-10-23 18:15: next accepts a block that opens directly with its order heading.
+{
+  const root = makeRoot();
+  const inbox = path.join(root, "INBOX.md");
+  fs.writeFileSync(inbox, ["## Current work order — bare", "", "Order ID: `BARE`", "", "- W1 **2a existing work.**", ""].join("\n"));
+  assert.equal(publishNext({ root, inbox }).order_id, "BARE");
+  assert.match(fs.readFileSync(path.join(root, "PLAN.md"), "utf8"), /^## Current work order — bare\n\nOrder ID: `BARE`/m);
+  fs.writeFileSync(inbox, "Order ID: `NONE`\n");
+  assert.throws(() => publishNext({ root, inbox }), /opens with neither # PUBLISH THEN EXECUTE nor ## Current work order/);
+}
+// Taking the first block keeps the heading as the file's first line while a block remains.
+{
+  const two = ["# PUBLISH THEN EXECUTE", "", "## Current work order — first", "", "==== NEXT ORDER ====", "", "## Current work order — second", "", "Order ID: `SECOND`", ""].join("\r\n");
+  assert.equal(takeFirstBlock(two), ["# PUBLISH THEN EXECUTE", "", "## Current work order — second", "", "Order ID: `SECOND`", ""].join("\r\n"));
+  assert.equal(takeFirstBlock(["# PUBLISH THEN EXECUTE", "", "## a", "", "==== NEXT ORDER ====", "", "# PUBLISH THEN EXECUTE", "", "## b", ""].join("\n")), "# PUBLISH THEN EXECUTE\n\n## b\n");
+  assert.equal(takeFirstBlock("# PUBLISH THEN EXECUTE\n\n## only\n"), "");
 }
 process.stdout.write("plan publication fixtures passed\n");
 

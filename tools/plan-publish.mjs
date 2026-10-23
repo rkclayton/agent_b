@@ -315,8 +315,10 @@ export function publishNext({ root = defaultRoot, inbox = "" }) {
   const [first] = splitInbox(fs.readFileSync(inboxPath, "utf8"));
   if (!first) throw new Error("INBOX.md holds no order");
   const lines = first.block.split("\n");
-  if (!/^# PUBLISH THEN EXECUTE\s*$/.test(lines[0])) throw new Error("the first INBOX block does not open with # PUBLISH THEN EXECUTE");
-  let body = first.body ?? lines.slice(1).join("\n").replace(/^\s+/, "");
+  // Planner ruling, 2026-10-23 18:15: a block that opens directly with its order heading is accepted too.
+  const headed = /^# PUBLISH THEN EXECUTE\s*$/.test(lines[0]);
+  if (!headed && !/^## Current work order\b/.test(lines[0])) throw new Error("the first INBOX block opens with neither # PUBLISH THEN EXECUTE nor ## Current work order");
+  let body = first.body ?? (headed ? lines.slice(1) : lines).join("\n").replace(/^\s+/, "");
   // A planner's ruling may sit between the queue heading and the order's own
   // heading (rel-1.62.154). The heading leads the body and the ruling follows
   // it, so the published plan still holds exactly one order heading.
@@ -334,6 +336,22 @@ export function publishNext({ root = defaultRoot, inbox = "" }) {
   const prepared = preparePublication({ root, candidate });
   const result = publishPublication({ root, candidate });
   return { order_id: orderId, published: result.proposalId, files: result.files, warnings: [...(prepared.warnings ?? []), ...(result.warnings ?? [])] };
+}
+
+// takeFirstBlock removes the first queued block and its separator from INBOX text read fresh at
+// that moment, and keeps `# PUBLISH THEN EXECUTE` as the first line while any block remains
+// (planner ruling, 2026-10-23 18:15: taking a block had left the file without its heading).
+export function takeFirstBlock(text) {
+  const crlf = /\r\n/.test(String(text ?? "")), normalized = String(text ?? "").replace(/\r\n/g, "\n");
+  const marker = new RegExp("^" + queueMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$", "m").exec(normalized);
+  let rest = marker ? normalized.slice(marker.index + marker[0].length).replace(/^\s+/, "") : "";
+  if (rest.trim() && !/^# PUBLISH THEN EXECUTE\s*$/.test(rest.split("\n")[0])) rest = `# PUBLISH THEN EXECUTE\n\n${rest}`;
+  return crlf ? rest.replace(/\n/g, "\r\n") : rest;
+}
+function takeFirst(inbox) {
+  const inboxPath = path.resolve(inbox), rest = takeFirstBlock(fs.readFileSync(inboxPath, "utf8"));
+  fs.writeFileSync(inboxPath, rest);
+  return { inbox: inboxPath, blocks_left: splitInbox(rest).length };
 }
 
 // splitInboxTo writes each queued order's whole block and its body to --out,
@@ -368,6 +386,7 @@ function parseCLI(argv) {
     else throw new Error(`unknown argument: ${argv[index]}`);
   }
   if (command === "next") return { command, root, inbox };
+  if (command === "take-first") return { command, root, inbox: inbox || path.join(root, "INBOX.md") };
   if (command === "split-inbox") {
     if (!inbox || !out) throw new Error("split-inbox needs --inbox and --out");
     return { command, root, candidate, body, dryRun, inbox, out };
@@ -381,11 +400,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const { command, root, candidate, body, dryRun, inbox = "", out } = parseCLI(process.argv);
     const result = command === "next" ? publishNext({ root, inbox })
+      : command === "take-first" ? takeFirst(inbox)
       : command === "split-inbox" ? splitInboxTo(inbox, out)
       : dryRun ? dryRunPublication({ root, body })
       : command === "prepare" ? preparePublication({ root, candidate })
         : command === "publish" ? publishPublication({ root, candidate })
-          : (() => { throw new Error("command must be next, prepare, publish or split-inbox"); })();
+          : (() => { throw new Error("command must be next, take-first, prepare, publish or split-inbox"); })();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     if (dryRun && !result.ok) process.exitCode = 1;
   } catch (error) {

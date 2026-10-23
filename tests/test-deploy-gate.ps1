@@ -16,6 +16,8 @@ foreach ($forbidden in @('layout-gate.mjs', '--candidate $candidate', 'test-sign
 foreach ($required in @('tools\compaction-proof.mjs', 'tests\compaction-proof.json', 'BUILT, NOT RELEASED: compaction is not proved')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy is missing compaction proof contract: $required" }
 }
+$proofCall = [regex]::Match($deploy, "(?m)^.*'tools\\compaction-proof\.mjs'.*$").Value
+if ($proofCall -notmatch '--mode gate' -or $proofCall -match '--real') { throw "Deploy's compaction step must run the stand-in gate and never --real: $proofCall" }
 foreach ($required in @('CompactionProofOperatorSkip', 'set aside on his word, 2026-10-14 15:37', 'fix the problem then release this one and proceed, on his word, 2026-10-19 14:23', 'ok release it so we can proceed with the rest of work, on his word, 2026-10-22 22:30', 'COMPACTION PROOF:')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy is missing the named operator proof skip: $required" }
 }

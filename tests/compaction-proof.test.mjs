@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, drivenStepPlan, journalMessages, notRun, prepareCase, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, drivenStepPlan, proofCases, stubConnection, stubOptions, stubStepMs, stubWindow, journalMessages, notRun, prepareCase, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
+import { promptTokens, startStubModel, stubHandOff, stubTurn } from "../tools/stub-model.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
 const budget = (seq, usedEst, usedMeasured = usedEst) => ({ seq, type: "budget", data: { used_est: usedEst, used_measured: usedMeasured, ceiling: 1000, categories: { system: 100 } } });
@@ -268,4 +269,74 @@ test("only a whole driven user message counts as a completed step 2wh", async ()
   assert.equal(timing.longestStepMs, undefined, "a partial wait is not a step");
   await waitForStep(async () => [{ seq: 1 }], () => true, { step: 1, allowanceMs: 1000, timing, counts: true });
   assert.ok(timing.longestStepMs >= 0);
+});
+
+test("a budget published between runs is not a turn and is not scored 2wi", () => {
+  const started = (seq) => ({ seq, type: "run.started" });
+  const between = [started(0.5), budget(1, 500), request(2), response(3, 500), stopped(4), budget(5, 950), started(6), budget(7, 950), { seq: 8, type: "compaction" }, request(9), response(10, 300), budget(11, 300), request(12), response(13, 300), stopped(14)];
+  const checked = assessRun("between", between, task, "", 0, 1, false, "", true);
+  assert.deepEqual([checked.conditions[0].pass, checked.rows.length, checked.result.excluded_budget_rows], [true, 3, 1]);
+});
+
+test("the stand-in reads after each user message, answers in prose, and writes the hand-off 2wi", () => {
+  const state = {}, user = { role: "user", content: "go" }, result = { role: "tool", content: "x" };
+  const one = stubTurn({ stream: true, messages: [user] }, state, { calls: [2] });
+  assert.equal(JSON.parse(one.tool_call.function.arguments).path, "0001.txt");
+  assert.equal(JSON.parse(stubTurn({ stream: true, messages: [user, result] }, state, { calls: [2] }).tool_call.function.arguments).path, "0002.txt");
+  assert.match(stubTurn({ stream: true, messages: [user, result, result] }, state, { calls: [2] }).content, /^Read 2 numbered files so far\./);
+  assert.equal(JSON.parse(stubTurn({ stream: true, messages: [user] }, state, { calls: [2] }).tool_call.function.arguments).path, "0003.txt", "no path repeats");
+  assert.equal(stubTurn({ stream: false, messages: [{ role: "user", content: "Write a compact hand-off using exactly these headings:\nDONE:" }] }, state).content, stubHandOff);
+  assert.equal(promptTokens({ messages: [{ role: "user", content: "x".repeat(36) }] }), 15, "4 a message, 10 for 36 characters, 1 for an empty tool list");
+});
+
+test("the stand-in serves a streamed turn with usage and a plain hand-off 2wi", async () => {
+  const model = await startStubModel({ calls: [1] });
+  try {
+    const post = (body) => fetch(`${model.url}/v1/chat/completions`, { method: "POST", body: JSON.stringify(body) });
+    const streamed = await (await post({ stream: true, messages: [{ role: "user", content: "go" }] })).text();
+    assert.match(streamed, /"tool_calls":\[\{"index":0,"id":"call_1"/); assert.match(streamed, /"finish_reason":"tool_calls"/); assert.match(streamed, /"usage":\{"prompt_tokens":\d+/); assert.match(streamed, /data: \[DONE\]\n\n$/);
+    const plain = await (await post({ stream: false, messages: [{ role: "user", content: "Write a compact hand-off" }] })).json();
+    assert.equal(plain.choices[0].message.content, stubHandOff);
+    assert.equal((await fetch(`${model.url}/props`)).status, 404);
+  } finally { await model.close(); }
+});
+
+test("the gate runs the five stand-in cases; --real adds full; needs-recall runs only when named 2wi", () => {
+  const machine = { connections: [{ id: "main", model: "chosen", base_url: "http://elsewhere", credential: "c1", models: [{ model: "chosen", reasoning: { enabled: true }, context: { n_ctx: 262144, reserve_output: 10240 }, capabilities: { server: "llama.cpp", tokenize: true } }] }] };
+  const profile = { agents: [{ name: "agent_b", b: "main" }] };
+  const stubbed = stubConnection(machine, profile, "http://127.0.0.1:1"), connection = stubbed.connections[0];
+  assert.deepEqual([connection.base_url, connection.credential, connection.models[0].context.n_ctx, connection.models[0].capabilities.tokenize, connection.models[0].reasoning.enabled], ["http://127.0.0.1:1", undefined, stubWindow, false, false]);
+  assert.equal(machine.connections[0].credential, "c1", "the installed connection is not changed");
+  const plan = proofPlan(stubbed, profile);
+  assert.deepEqual(proofCases(plan).map((run) => run.name), ["fresh", "typed-continue", "Continue", "queued-message", "prune+summary"]);
+  assert.deepEqual(proofCases(plan, { real: true }).map((run) => run.name), ["fresh", "typed-continue", "Continue", "queued-message", "full", "prune+summary"]);
+  assert.deepEqual(proofCases(plan, { only: "needs-recall" }).map((run) => run.name), ["needs-recall"]);
+  assert.deepEqual(plan.runs.map((run) => stubOptions(run).calls), [[3], [120, 3], [120, 3], [12, 3], [3], [3], [5, 0]]);
+  assert.equal(stubStepMs, 60000);
+});
+
+test("--real is a measurement: never the gate, and always with evidence 2wi", () => {
+  const gate = spawnSync(process.execPath, [resolve("tools/compaction-proof.mjs"), "--real", "--mode", "gate", "--app", "x", "--evidence", "y", "--record", join(tmpdir(), "agentb-no-record.json")], { encoding: "utf8", windowsHide: true });
+  assert.equal(gate.status, 1); assert.match(gate.stderr, /never the gate/);
+  const bare = spawnSync(process.execPath, [resolve("tools/compaction-proof.mjs"), "--real", "--app", "x"], { encoding: "utf8", windowsHide: true });
+  assert.equal(bare.status, 1); assert.match(bare.stderr, /--real needs --app and --evidence/);
+});
+
+test("the real-model proof is scheduled as a one-shot task outside 08:00-17:00 and removed 2wi", { skip: process.platform !== "win32" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "agentb-real-schedule-")), name = `Agentb-real-proof-test-${process.pid}`, app = join(root, "Agent_b.exe");
+  const ps = (...args) => spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File", resolve("tools/schedule-real-proof.ps1"), ...args], { encoding: "utf8", windowsHide: true });
+  try {
+    await writeFile(app, "");
+    const daytime = ps("-At", "12:00", "-App", app, "-Evidence", join(root, "evidence"), "-Name", name);
+    assert.notEqual(daytime.status, 0); assert.match(daytime.stdout + daytime.stderr, /never runs between 08:00 and 17:00/);
+    const made = ps("-At", "23:59", "-App", app, "-Evidence", join(root, "evidence"), "-Name", name, "-Cases", "fresh");
+    assert.equal(made.status, 0, made.stderr); assert.ok(made.stdout.includes(`REAL PROOF TASK: ${name} state=Ready start=`)); assert.match(made.stdout, / start=\d{4}-\d\d-\d\d 23:59 /);
+    const listed = spawnSync("schtasks", ["/Query", "/TN", name, "/FO", "LIST"], { encoding: "utf8", windowsHide: true });
+    assert.equal(listed.status, 0); assert.match(listed.stdout, new RegExp(name));
+    assert.match(await readFile(join(root, "evidence", "real-proof.ps1"), "utf8"), /--real --app .* --evidence .*journals.* --only 'fresh'/);
+  } finally {
+    ps("-Remove", "-Name", name);
+    assert.notEqual(spawnSync("schtasks", ["/Query", "/TN", name], { encoding: "utf8", windowsHide: true }).status, 0, "the test task is removed");
+    removeTreeWithinAllowedRoots(root, [tmpdir()], "real schedule test cleanup");
+  }
 });

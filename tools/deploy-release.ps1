@@ -110,6 +110,8 @@ Complete-ReleaseStep 'build-sign-release-key'
 if ($CompactionProofOperatorSkip) {
     Write-Host "COMPACTION PROOF: $CompactionProofOperatorSkip"
 } else {
+    # Item 2wi: the gate is the stand-in model proof, seconds on no GPU; the real model is never
+    # contacted here. The real-model run is a scheduled measurement (tools\schedule-real-proof.ps1).
     & node (Join-Path $repository 'tools\compaction-proof.mjs') --mode gate --source $repository --record (Join-Path $repository 'tests\compaction-proof.json') --app (Join-Path $candidate 'Agent_b.exe')
     if ($LASTEXITCODE -ne 0) { throw 'BUILT, NOT RELEASED: compaction is not proved' }
 }

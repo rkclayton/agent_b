@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
+import { startStubModel, stubModel } from "./stub-model.mjs";
 
 const here = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -21,6 +22,8 @@ export const startupWaitMs = Math.ceil(5357 * 1.5);
 // A step's allowance is three times the longest step completed in this invocation, between
 // 600 and 1,800 seconds (planner, 2026-10-23 14:05); before any step completes it is the 1,800-second cap.
 export const stepAllowance = (longestMs = 0) => longestMs > 0 ? Math.min(1800000, Math.max(600000, Math.ceil(longestMs * 3))) : 1800000;
+// Against the stand-in a step answers in under a second; one that takes a minute is a harness fault.
+export const stubStepMs = 60000;
 export const notRun = (name, reason) => ({ run: name, not_run: reason, conditions: [{ condition: 0, pass: false, turn: 0, message: reason }] });
 export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
   const tokens = Math.ceil([...proofStep].length * 10 / 36);
@@ -46,20 +49,39 @@ export function proofSelection(machine, profile) {
 export function proofPlan(machine, profile) {
   const selected = proofSelection(machine, profile), window = selected.record.window;
   const sized = (minimum) => Math.ceil(40 * window / 32768) * minimum;
+  // 2wi: `stub` cases gate a release against the stand-in model; `real` cases are the scheduled
+  // measurement; needs-recall is shelved (operator, 2026-10-23 15:19) and runs only when named.
   const runs = [
-    { name: "fresh", minimum: 3 },
-    { name: "typed-continue", minimum: 3, interrupt: true, continueText: "continue" },
-    { name: "Continue", minimum: 3, interrupt: true, continueText: "Continue" },
-    { name: "queued-message", minimum: 3, queue: true },
-    { name: "full", minimum: 1 },
+    { name: "fresh", minimum: 3, stub: true, real: true },
+    { name: "typed-continue", minimum: 3, interrupt: true, continueText: "continue", stub: true, real: true },
+    { name: "Continue", minimum: 3, interrupt: true, continueText: "Continue", stub: true, real: true },
+    { name: "queued-message", minimum: 3, queue: true, stub: true, real: true },
+    { name: "full", minimum: 1, real: true },
     { name: "needs-recall", minimum: 1, plant: proofDetail }
   ].map((run) => ({ ...run, window, files: sized(run.minimum) }));
   // 2we: a prune and a summary in one crossing needs older results over half the context
   // and the rest still over the line, which only a lowered line produces: half the room in
   // results and a quarter in one user message under 0.9, then the line moves to 0.25.
   const room = Math.max(0, window - Number(selected.model.context?.reserve_output || 0) - 3000), unit = Math.ceil([...proofFiller].length * 10 / 36);
-  runs.push({ name: "prune+summary", minimum: 1, window, lowered: .25, files: Math.max(2, Math.floor(.5 * room / unit)), history: Math.max(1, Math.ceil(.27 * room / unit)) });
+  runs.push({ name: "prune+summary", minimum: 1, window, lowered: .25, files: Math.max(2, Math.floor(.5 * room / unit)), history: Math.max(1, Math.ceil(.27 * room / unit)), stub: true, real: true });
   return { window, runs };
+}
+
+// The cases one invocation runs: the named ones, else the mode's own set.
+export function proofCases(plan, { real = false, only = "" } = {}) {
+  const named = new Set(String(only || "").split(",").filter(Boolean));
+  return plan.runs.filter((run) => named.size ? named.has(run.name) : real ? run.real : run.stub);
+}
+
+// The stand-in connection: the installed one's agent and settings, pointed at the stub, with a
+// fixed 32,768-token window, no credential and no server-side counting, so nothing leaves the PC.
+export const stubWindow = 32768;
+export function stubConnection(machine, profile, url = "") {
+  const selected = proofSelection(machine, profile), connection = structuredClone(selected.connection);
+  delete connection.credential; connection.base_url = url; connection.protocol = "chat-completions"; connection.label = "stand-in model"; connection.model = stubModel;
+  connection.models = [{ ...structuredClone(selected.model), model: stubModel, context: { n_ctx: stubWindow, reserve_output: 8192 }, reasoning: { ...selected.model.reasoning, enabled: false },
+    capabilities: { server: stubModel, n_ctx: stubWindow, tokenize: false, apply_template: false, streaming: true, tool_calls: true, probed_at: new Date().toISOString(), findings: [] } }];
+  return { ...machine, connections: machine.connections.map((one) => one.id === connection.id ? connection : one) };
 }
 
 async function filesBelow(directory) {
@@ -147,7 +169,9 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   const lines = notes.trimEnd().split(/\r?\n/);
   // 2wh (d): a run's closing total — a budget the run stops after with no request — is not a turn.
   const measured = events.filter((event) => event.type === "budget" && event.data?.used_est > 0);
-  const budgets = measured.filter((one) => events.find((event) => event.seq > one.seq && (event.type === "model.request" || event.type === "run.stopped"))?.type !== "run.stopped");
+  // 2wi: nor is a budget published between runs — after a run stopped and before the next started.
+  const between = (one) => events.filter((event) => event.seq < one.seq && (event.type === "run.started" || event.type === "run.stopped")).at(-1)?.type === "run.stopped";
+  const budgets = measured.filter((one) => !between(one) && events.find((event) => event.seq > one.seq && (event.type === "model.request" || event.type === "run.stopped"))?.type !== "run.stopped");
   const rows = budgets.map((before, index) => {
     const end = budgets[index + 1]?.seq ?? Infinity, ran = compactions.filter((one) => one.seq > before.seq && one.seq < end);
     const response = ran.length ? events.find((one) => one.seq > ran.at(-1).seq && one.type === "model.response" && Number(one.data?.usage?.prompt_tokens) > 0) : undefined;
@@ -268,11 +292,13 @@ export async function prepareCase(created, fileCount) {
   return { folder, notes: join(folder, "notes.md") };
 }
 
-async function prepare(sourceData, root, window) {
-  const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8"));
+async function prepare(sourceData, root, window, stubURL = "") {
+  let machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8"));
   const active = machine.profiles.active;
   const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8"));
+  if (stubURL) machine = stubConnection(machine, profile, stubURL);
   const selected = proofSelection(machine, profile), { agent, connection, model } = selected;
+  if (stubURL) selected.record.connection = "stand-in model";
   const declaredWindow = window || selected.record.window; model.context.n_ctx = declaredWindow;
   machine.connections = [connection]; machine.listen = `127.0.0.1:${await freePort()}`;
   machine.workspace = join(root, "workspace"); machine.log_dir = join(root, "data", "logs");
@@ -287,11 +313,17 @@ async function prepare(sourceData, root, window) {
   return { active, port: Number(machine.listen.split(":").at(-1)), task: proofTask, step: proofStep, workspace: machine.workspace, data: join(root, "data"), record: { ...selected.record, window: declaredWindow }, redactions: [connection.id, connection.label, connection.base_url, connection.credential].filter(Boolean) };
 }
 
-async function runGroup(app, sourceData, window, specs, startOnly = false, timing = {}, evidenceRoot = "") {
+// The reads the stand-in makes after each user message: three for a driven step; every planted
+// file then none for prune+summary's two messages. An interrupted or queued first message keeps
+// reading, a tenth of a second a request, so the stop or the second message lands mid-run.
+export const stubOptions = (spec) => spec.lowered ? { calls: [spec.files, 0] } : spec.interrupt ? { calls: [spec.files, 3], delayMs: 100 } : spec.queue ? { calls: [12, 3], delayMs: 100 } : { calls: [3] };
+
+async function runGroup(app, sourceData, window, specs, startOnly = false, timing = {}, evidenceRoot = "", stub = false) {
   const root = await mkdtemp(join(tmpdir(), "agentb-compaction-proof-"));
-  let child, eventsAbort;
+  let child, eventsAbort, model;
   try {
-    const prepared = await prepare(sourceData, root, window);
+    if (stub) model = await startStubModel(stubOptions(specs[0]));
+    const prepared = await prepare(sourceData, root, window, model?.url);
     let lastLine = "";
     const startupAt = Date.now();
     child = spawn(app, ["--config", join(prepared.data, "harness.json"), "--app-root", here, "--data-root", prepared.data], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
@@ -318,7 +350,7 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     assert.ok(eventsResponse.ok, "candidate event stream is unavailable");
     void eventsResponse.body?.pipeTo(new WritableStream()).catch(() => {});
     if (startOnly) { const state = await json(`${base}/api/state?session=proof-example`, { headers }); return { record: prepared.record, startupMs, stateExample: { sessions: Object.keys(state.sessions || {}).length } }; }
-    const wait = (done, label, step = 1, units = 1, counts = false) => waitForStep(read, done, { label, step, units, counts, allowanceMs: stepAllowance(timing.longestStepMs), timing });
+    const wait = (done, label, step = 1, units = 1, counts = false) => waitForStep(read, done, { label, step, units, counts, allowanceMs: stub ? stubStepMs : stepAllowance(timing.longestStepMs), timing });
     let read;
     const rows = [];
     for (const spec of specs) {
@@ -393,27 +425,35 @@ COMPACTION PROOF NOT RUN: ${spec.name} ${runError.notRun}
   } finally {
     eventsAbort?.abort();
     if (child && child.exitCode === null) { child.kill(); await Promise.race([new Promise((done) => child.once("exit", done)), sleep(5000)]); }
+    await model?.close();
     removeTreeWithinAllowedRoots(root, [tmpdir()], "compaction proof cleanup");
   }
 }
 
-export async function dryStart({ app, sourceData, window }) {
-  return runGroup(app, sourceData, window, [{ name: "start", files: 1 }], true);
+export async function dryStart({ app, sourceData, window, stub = false }) {
+  return runGroup(app, sourceData, window, [{ name: "start", files: 1 }], true, {}, "", stub);
 }
 
-export async function prove({ app, sourceData, root = here, record, only = "", evidence = "" }) {
-  const machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active;
-  const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), plan = proofPlan(machine, profile);
-  const wanted = new Set(only ? only.split(",") : plan.runs.map((run) => run.name));
-  const sample = await dryStart({ app, sourceData, window: plan.window }), timing = { startupMs: sample.startupMs, slowestStartupMs: sample.startupMs };
-  process.stdout.write(`COMPACTION PROOF CALIBRATION: startup ${(sample.startupMs / 1000).toFixed(3)} seconds; first scored-start allowance ${(timing.slowestStartupMs * 3 / 1000).toFixed(3)} seconds\n`);
-  const selected = plan.runs.filter((run) => wanted.has(run.name)), checked = [];
-  for (const run of selected) checked.push(...await runGroup(app, sourceData, plan.window, [run], false, timing, evidence));
-  const kinds = checked.flatMap((run) => run.kinds || []), wantKinds = selected.length === plan.runs.length ? ["prune", "prune+fresh"] : [];
+// prove runs the stand-in cases and writes the record on ALL PASS (the release gate), or with
+// `real` the real-model cases against the active connection: tables and evidence only, no record.
+export async function prove({ app, sourceData, root = here, record, only = "", evidence = "", real = false }) {
+  const started = Date.now();
+  let machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")); const active = machine.profiles.active;
+  const profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8"));
+  if (!real) machine = stubConnection(machine, profile);
+  const plan = proofPlan(machine, profile), stub = !real;
+  const sample = await dryStart({ app, sourceData, window: plan.window, stub }), timing = { startupMs: sample.startupMs, slowestStartupMs: sample.startupMs };
+  process.stdout.write(`COMPACTION PROOF CALIBRATION: ${real ? "real model" : "stand-in model"}; startup ${(sample.startupMs / 1000).toFixed(3)} seconds; first scored-start allowance ${(timing.slowestStartupMs * 3 / 1000).toFixed(3)} seconds\n`);
+  const selected = proofCases(plan, { real, only }), checked = [];
+  if (!selected.some((run) => run.name === "needs-recall")) process.stdout.write("COMPACTION PROOF: needs-recall is shelved; it runs only with --case needs-recall\n");
+  for (const run of selected) checked.push(...await runGroup(app, sourceData, plan.window, [run], false, timing, evidence, stub));
+  const kinds = checked.flatMap((run) => run.kinds || []), wantKinds = real && selected.length === plan.runs.filter((run) => run.real).length ? ["prune", "prune+fresh"] : [];
   for (const kind of wantKinds.filter((one) => !kinds.includes(one))) checked.push({ run: "proof", conditions: [{ condition: 7, pass: false, turn: 0, message: `no ${kind} crossing in any run; kinds seen: ${kinds.join(", ") || "none"}` }] });
   process.stdout.write(`COMPACTION PROOF KINDS: ${kinds.join(", ") || "none"}; recall calls ${checked.reduce((sum, run) => sum + (run.recall_calls || 0), 0)}; compactions followed by recall ${checked.reduce((sum, run) => sum + (run.compactions_followed_by_recall || 0), 0)} of ${kinds.length}
 `);
+  process.stdout.write(`COMPACTION PROOF WALL CLOCK: ${((Date.now() - started) / 1000).toFixed(3)} seconds for ${selected.map((run) => run.name).join(", ")}\n`);
   const failure = checked.flatMap((run) => run.conditions.filter((one) => !one.pass).map((one) => ({ ...one, run: run.run }))).at(0);
+  if (real) { process.stdout.write(`COMPACTION PROOF (real model, measurement only): ${failure ? `condition ${failure.condition} at turn ${failure.turn} of ${failure.run}: ${failure.message}` : "ALL PASS"}\n`); return { real: true, runs: checked }; }
   if (failure) throw new Error(`condition ${failure.condition} at turn ${failure.turn} of ${failure.run}: ${failure.message}`);
   const runs = checked.map(({ conditions, ...run }) => run);
   const identity = JSON.parse((await new Promise((done, reject) => { const child = spawn(app, ["--version"], { windowsHide: true }); let out = ""; child.stdout.on("data", (part) => out += part); child.on("error", reject); child.on("close", () => done(out)); })) || "{}");
@@ -422,7 +462,8 @@ export async function prove({ app, sourceData, root = here, record, only = "", e
 }
 
 async function main() {
-  const pairs = process.argv.slice(2), args = {}; for (let i = 0; i < pairs.length; i += 2) args[pairs[i].replace(/^--/, "")] = pairs[i + 1];
+  const pairs = process.argv.slice(2), args = {};
+  for (let i = 0; i < pairs.length; i++) { const name = pairs[i].replace(/^--/, ""), value = pairs[i + 1]; if (value === undefined || value.startsWith("--")) args[name] = true; else { args[name] = value; i++; } }
   let raw;
   if (args["raw-output"]) {
     const path = resolve(args["raw-output"]); await mkdir(dirname(path), { recursive: true }); raw = createWriteStream(path, { flags: "w" });
@@ -432,7 +473,16 @@ async function main() {
   try {
     if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
     if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window} state_sessions=${result.stateExample.sessions}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
-    try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData: resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), root, record, only: args.only, evidence: args.evidence ? resolve(args.evidence) : "" }); process.stdout.write("COMPACTION PROOF: passed\n"); }
+    const only = args.case || args.only || "", sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b"));
+    if (args.real) {
+      try {
+        if (args.mode === "gate") throw new Error("--real is a measurement and never the gate");
+        if (!args.app || !args.evidence) throw new Error("--real needs --app and --evidence");
+        await prove({ app: resolve(args.app), sourceData, root, record, only, evidence: resolve(args.evidence), real: true });
+      } catch (error) { process.stderr.write(`COMPACTION PROOF (real model, measurement only): did not run: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
+      return;
+    }
+    try { if (!args.app) throw new Error("model unreachable"); await prove({ app: resolve(args.app), sourceData, root, record, only, evidence: args.evidence ? resolve(args.evidence) : "" }); process.stdout.write("COMPACTION PROOF: passed\n"); }
     catch (error) { process.stderr.write(`BUILT, NOT RELEASED: compaction is not proved: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; }
   } finally { if (raw) await new Promise((done) => raw.end(done)); }
 }

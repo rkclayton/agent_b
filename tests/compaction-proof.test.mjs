@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, drivenStepPlan, measuredAllowance, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, drivenStepPlan, measuredAllowance, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -12,6 +12,8 @@ const budget = (seq, usedEst, usedMeasured = usedEst) => ({ seq, type: "budget",
 const response = (seq, promptTokens) => ({ seq, type: "model.response", data: { usage: { prompt_tokens: promptTokens } } });
 const request = (seq, content = task) => ({ seq, type: "model.request", body: { messages: [{ role: "user", content }] } });
 const stopped = (seq) => ({ seq, type: "run.stopped", data: { reason: "done" } });
+// A session-message fixture as the journal carries it: appended before the compaction they follow.
+const withJournal = (events, messages) => [...messages.get(2).map((message, index) => ({ seq: 1 + (index + 1) / 100, type: "message.appended", data: { message } })), ...events].sort((a, b) => a.seq - b.seq);
 const good = [budget(1, 950), { seq: 2, type: "compaction" }, request(3), response(4, 400), budget(5, 400), stopped(6)];
 
 test("the proof accepts a more-than-half real-count drop with the task retained", () => {
@@ -52,6 +54,21 @@ test("a driven case crosses twice and compacts twice 2w4", () => {
   const twice = [budget(1, 950), { seq: 2, type: "compaction" }, request(3), answered(4), budget(5, 400), budget(6, 950), { seq: 7, type: "compaction" }, request(8), answered(9), budget(10, 400), stopped(11)];
   assert.equal(verifyRun("fresh", twice, task, "", 0, 2, true).compactions.length, 2);
   assert.deepEqual(drivenStepPlan(24576, 2666, 3), { tokens: 2050, firstCrossing: 10, maximum: 32 });
+  assert.equal(measuredStepMaximum({ tokens: 100, firstCrossing: 10 }, 3, 850, 300), 30);
+});
+
+test("condition 5 reads the whole message list rebuilt from the journal, not the newest 50 2wf", () => {
+  const appended = (seq, id, role, content, category = "") => ({ seq, type: "message.appended", data: { message: { id, role, content, category } } });
+  const journal = [appended(1, "m-0", "user", task)];
+  for (let index = 1; index <= 64; index++) journal.push(appended(index + 1, `m-${index}`, index % 2 ? "assistant" : "tool", `step ${index}`));
+  journal.push(budget(70, 950), { seq: 71, type: "compaction", data: { kind: "fresh", affected_ids: ["m-1", "m-2", "m-3"], summary_message_id: "h-1" } }, appended(72, "h-1", "harness", "Fresh-context hand-off:\nwork so far", "summary"), { seq: 73, type: "message.removed", data: { id: "m-4" } });
+  const screen = journal.filter((one) => one.type === "message.appended").slice(-50).map((one) => one.data.message);
+  const tail = [{ seq: 74, type: "model.request", body: { messages: screen } }, response(75, 400), budget(76, 400), stopped(77)];
+  const rebuilt = assessRun("rebuilt", [...journal, ...tail], task, "0001\n", 1, 1);
+  assert.equal(rebuilt.conditions[4].pass, true);
+  assert.deepEqual({ role: rebuilt.taskLocations[0].role, position: rebuilt.taskLocations[0].position, count: rebuilt.taskLocations[0].ids.length }, { role: "user", position: 2, count: 62 });
+  const fifty = assessRun("screen", [budget(70, 950), { seq: 71, type: "compaction", data: { kind: "fresh", affected_ids: [] } }, ...tail], task, "0001\n", 1, 1);
+  assert.equal(fifty.conditions[4].pass, false);
 });
 
 test("a driven empty post-compaction reply is attributed to the model but is not an answer 2w8", () => {
@@ -70,10 +87,10 @@ test("session messages decide task retention after compaction 2w5", () => {
   const events = [budget(1, 950), compact, response(4, 400), budget(5, 400), stopped(6)];
   const handoff = { id: "handoff", role: "user", content: task, tokens: 40 };
   const kept = { id: "kept", role: "assistant", content: "working" };
-  const present = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [handoff, kept]]]));
+  const present = assessRun("fresh", withJournal(events, new Map([[2, [handoff, kept]]])), task, "", 0, 1, false, "", true);
   assert.equal(present.conditions[4].pass, true);
   assert.deepEqual(present.taskLocations[0], { compact: 2, role: "user", id: "handoff", position: 1, affected: false, ids: ["handoff", "kept"] });
-  const absent = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [kept]]]));
+  const absent = assessRun("fresh", withJournal(events, new Map([[2, [kept]]])), task, "", 0, 1, false, "", true);
   assert.equal(absent.conditions[4].pass, false);
   assert.match(absent.conditions[4].message, /absent.*kept/);
 });
@@ -82,11 +99,11 @@ test("post-compaction empty replies distinguish model from malformed request 2w5
   const compact = { seq: 2, type: "compaction", data: { summary_message_id: "handoff" } };
   const reasoning = { ...response(4, 400), data: { ...response(4, 400).data, content: "", finish_reason: "stop", reasoning_tokens: 7, usage: { prompt_tokens: 400, completion_tokens: 9 } } };
   const events = [budget(1, 950), compact, reasoning, budget(5, 400), stopped(6)];
-  const model = assessRun("fresh", events, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]));
+  const model = assessRun("fresh", withJournal(events, new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]])), task, "", 0, 1, false, "", true);
   assert.equal(model.replies[0].reading, "MODEL");
   assert.equal(model.conditions[3].pass, false);
   const answered = events.map((one) => one.type === "model.response" ? { ...one, data: { ...one.data, content: "answered" } } : one);
-  const malformed = assessRun("fresh", answered, task, "", 0, 1, false, "", true, new Map([[2, [{ id: "orphan", role: "tool", content: "result", tool_call_id: "missing" }]]]));
+  const malformed = assessRun("fresh", withJournal(answered, new Map([[2, [{ id: "orphan", role: "tool", content: "result", tool_call_id: "missing" }]]])), task, "", 0, 1, false, "", true);
   assert.equal(malformed.replies[0].reading, "HARNESS");
   assert.equal(malformed.conditions[3].pass, true);
 });
@@ -95,9 +112,9 @@ test("a post-compaction tool call is an answer and an actually empty response is
   const compact = { seq: 2, type: "compaction", data: { summary_message_id: "handoff" } };
   const messages = new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]);
   const toolCall = { ...response(4, 400), data: { ...response(4, 400).data, content: "", finish_reason: "tool_calls", tool_calls: [{ id: "call", name: "read_file", arguments: "{}" }] } };
-  const answered = assessRun("fresh", [budget(1, 950), compact, toolCall, budget(5, 400), stopped(6)], task, "", 0, 1, false, "", true, messages);
+  const answered = assessRun("fresh", withJournal([budget(1, 950), compact, toolCall, budget(5, 400), stopped(6)], messages), task, "", 0, 1, false, "", true);
   assert.equal(answered.conditions[3].pass, true);
-  const empty = assessRun("fresh", [budget(1, 950), compact, response(4, 400), budget(5, 400), stopped(6)], task, "", 0, 1, false, "", true, messages);
+  const empty = assessRun("fresh", withJournal([budget(1, 950), compact, response(4, 400), budget(5, 400), stopped(6)], messages), task, "", 0, 1, false, "", true);
   assert.equal(empty.conditions[3].pass, false);
 });
 
@@ -106,7 +123,7 @@ test("reply-empty terminal reasons fail the post-compaction answer condition 2w8
   const answered = { ...response(4, 400), data: { ...response(4, 400).data, content: "answered" } };
   const ended = { seq: 6, type: "run.stopped", data: { reason: "reply_empty_reasoning_shown" } };
   const messages = new Map([[2, [{ id: "handoff", role: "user", content: task, tokens: 40 }]]]);
-  assert.equal(assessRun("fresh", [budget(1, 950), compact, answered, budget(5, 400), ended], task, "", 0, 1, false, "", true, messages).conditions[3].pass, false);
+  assert.equal(assessRun("fresh", withJournal([budget(1, 950), compact, answered, budget(5, 400), ended], messages), task, "", 0, 1, false, "", true).conditions[3].pass, false);
 });
 
 test("the two negative controls fail on no compaction and missing notes", () => {

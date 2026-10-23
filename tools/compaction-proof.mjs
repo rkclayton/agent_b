@@ -24,6 +24,9 @@ export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
   const firstCrossing = Math.ceil((line - fixedPrompt) / tokens);
   return { tokens, firstCrossing, maximum: firstCrossing * minimum + 2 };
 }
+export function measuredStepMaximum(plan, minimum, beforeChangeable, afterChangeable) {
+  return plan.firstCrossing + Math.ceil((beforeChangeable - afterChangeable) / plan.tokens) * minimum + 2;
+}
 
 export function startupFailure(wait, last) { return `candidate page did not answer after ${(wait / 1000).toFixed(3)} seconds; last log: ${last || "none"}`; }
 export function proofSelection(machine, profile) {
@@ -95,7 +98,27 @@ export function runEnding(events, error) {
   return stopped ? `terminal event: run.stopped ${stopped.data?.reason || "without a reason"}` : `last event: ${events.at(-1)?.type || "none"}`;
 }
 
-export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "", driven = false, sessionMessages = new Map()) {
+// The message list the request after a compaction carries, rebuilt from the journal as the
+// projection applies it: appended in order, a hand-off at the front, removals and a summarizing
+// compaction's affected ids taken out. Never the newest-50 screen /api/state returns.
+export function journalMessages(events, compact) {
+  if (!events.some((one) => one.type === "message.appended")) return undefined;
+  const end = events.find((one) => one.seq > compact.seq && (one.type === "model.request" || one.type === "model.response"))?.seq ?? Infinity;
+  let messages = [];
+  for (const event of events.filter((one) => one.seq < end)) {
+    const message = event.data?.message;
+    if (event.type === "message.appended" && message) {
+      const at = message.category !== "summary" ? messages.length : String(message.content || "").startsWith("Fresh-context hand-off:\n") ? 0 : Math.min(1, messages.length);
+      messages.splice(at, 0, { ...message });
+    } else if (event.type === "message.updated" && event.data?.patch && "content" in event.data.patch) {
+      for (const one of messages) if (one.id === event.data.id) one.content = event.data.patch.content;
+    } else if (event.type === "message.removed") messages = messages.filter((one) => one.id !== event.data?.id);
+    else if (event.type === "compaction" && ["summarize", "fresh"].includes(event.data?.kind)) { const affected = new Set(event.data.affected_ids || []); messages = messages.filter((one) => !affected.has(one.id)); }
+  }
+  return messages;
+}
+
+export function assessRun(name, events, task, notes, fileCount, minimumCompactions, output = false, ending = "", driven = false) {
   const stopped = events.filter((event) => event.type === "run.stopped").at(-1);
   const compactions = events.filter((event) => event.type === "compaction");
   const lines = notes.trimEnd().split(/\r?\n/);
@@ -114,12 +137,12 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   const weak = rows.filter((one) => one.ran.length).find((one) => !one.response || !Number.isFinite(one.cut) || one.afterChangeable * 2 >= one.beforeChangeable);
   const expected = Array.from({ length: fileCount }, (_, index) => String(index + 1).padStart(4, "0"));
   const taskLocations = compactions.map((compact) => {
-    const messages = sessionMessages.has(compact.seq) ? sessionMessages.get(compact.seq) : events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages || [], position = messages.findIndex((message) => String(message.content || "").includes(task)), message = messages[position];
+    const messages = journalMessages(events, compact) ?? events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages ?? [], position = messages.findIndex((message) => String(message.content || "").includes(task)), message = messages[position];
     return { compact: compact.seq, role: message?.role, id: message?.id, position: position + 1, affected: Boolean(message && compact.data?.affected_ids?.includes(message.id)), ids: messages.map((one) => one.id) };
   });
   const missingTask = taskLocations.find((one) => one.position < 1 || one.affected);
   const replies = compactions.map((compact) => {
-    const messages = sessionMessages.has(compact.seq) ? sessionMessages.get(compact.seq) : events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages || [], response = events.find((event) => event.seq > compact.seq && event.type === "model.response"), handoff = messages.find((one) => one.id === compact.data?.summary_message_id);
+    const messages = journalMessages(events, compact) ?? events.find((event) => event.seq > compact.seq && event.type === "model.request")?.body?.messages ?? [], response = events.find((event) => event.seq > compact.seq && event.type === "model.response"), handoff = messages.find((one) => one.id === compact.data?.summary_message_id);
     const calls = new Set(messages.flatMap((one) => one.tool_calls || []).map((one) => one.id));
     const malformed = !messages.length || messages.some((one) => one.role === "tool" && !calls.has(one.tool_call_id)) || messages.some((one) => !String(one.content || "").trim() && !String(one.reasoning || "").trim() && !(one.tool_calls || []).length);
     const empty = !String(response?.data?.content || "").trim(), tool_calls = (response?.data?.tool_calls || []).length, reasoning = Number(response?.data?.reasoning_tokens || 0) > 0;
@@ -257,8 +280,8 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
-      let runError; const sessionMessages = new Map();
-      const read = async () => { const events = await eventsIn(prepared.data, id); for (const compact of events.filter((one) => one.type === "compaction" && !sessionMessages.has(one.seq))) { const state = await waitFor(async () => { const value = await json(`${base}/api/state?session=${encodeURIComponent(id)}`, { headers }); return value.sessions?.[id] ? value : null; }, "proof session projection", startupWaitMs); sessionMessages.set(compact.seq, state.sessions[id].messages || []); } return events; };
+      let runError;
+      const read = () => eventsIn(prepared.data, id);
       try {
         if (spec.name === "full") {
           await send(prepared.task);
@@ -279,16 +302,19 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
           }
           await waitForActivity(read, completedAfter(marker), `${spec.name} completion`, activityBase, spec.files);
           let events = await eventsIn(prepared.data, id), first = events.find((one) => one.type === "budget" && one.data?.used_est > 0);
-          const plan = drivenStepPlan(Number(first?.data?.ceiling || window), fixed(first?.data), spec.minimum);
-          process.stdout.write(`COMPACTION PROOF STEPS: ${spec.name} fixed=${fixed(first?.data)} line=${Math.ceil(fixed(first?.data) + proofSummaryPct * (Number(first?.data?.ceiling || window) - fixed(first?.data)))} tokens=${plan.tokens} first=${plan.firstCrossing} maximum=${plan.maximum}\n`);
-          while (events.filter((one) => one.type === "compaction").length < spec.minimum && steps < plan.maximum) {
+          const plan = drivenStepPlan(Number(first?.data?.ceiling || window), fixed(first?.data), spec.minimum); let maximum = plan.maximum, measured = false;
+          const measure = () => { if (measured) return; const row = assessRun(spec.name, events, prepared.task, "", 0, spec.minimum, false, "", true).rows.find((one) => one.ran.length && one.response); if (row) { maximum = measuredStepMaximum(plan, spec.minimum, row.beforeChangeable, row.afterChangeable); measured = true; process.stdout.write(`COMPACTION PROOF STEPS MEASURED: ${spec.name} first=${plan.firstCrossing} cut=${row.beforeChangeable - row.afterChangeable} refill=${Math.ceil((row.beforeChangeable - row.afterChangeable) / plan.tokens)} minimum=${spec.minimum} plus=2 maximum=${maximum}\n`); } };
+          measure();
+          process.stdout.write(`COMPACTION PROOF STEPS: ${spec.name} fixed=${fixed(first?.data)} line=${Math.ceil(fixed(first?.data) + proofSummaryPct * (Number(first?.data?.ceiling || window) - fixed(first?.data)))} tokens=${plan.tokens} first=${plan.firstCrossing} maximum=${maximum}\n`);
+          while (events.filter((one) => one.type === "compaction").length < spec.minimum && steps < maximum) {
             marker = events.at(-1)?.seq || 0; await send(prepared.step); steps++;
             events = await waitForActivity(read, completedAfter(marker), `${spec.name} step ${steps}`, activityBase, spec.files);
+            measure();
           }
         }
       } catch (error) { runError = error; }
       const events = await eventsIn(prepared.data, id);
-      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", sessionMessages);
+      const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full");
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
       if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
       await writeFile(join(prepared.workspace, "notes.md"), "");

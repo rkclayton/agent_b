@@ -139,6 +139,25 @@ func (r *Registry) Names(enabled map[string]bool) []string {
 	return out
 }
 
+// LoopKey is the argument that makes two calls of a tool "the same" for the
+// repeat rule (item 2wg); "" means every argument, as before.
+func (r *Registry) LoopKey(name string, args map[string]any) string {
+	text := func(key string) string { value, _ := args[key].(string); return strings.TrimSpace(value) }
+	switch name {
+	case "list_dir", "read_file", "write_file", "edit_file":
+		return text("path")
+	case "shell":
+		return text("command")
+	case "fetch_url":
+		return text("url")
+	case "web_search":
+		return text("query")
+	case "call_service":
+		return strings.TrimSpace(text("service") + " " + text("operation"))
+	}
+	return ""
+}
+
 // Reads reports whether a call may share an execution group. Every other call
 // is a change and remains a full ordering barrier.
 func (r *Registry) Reads(name string, args map[string]any) bool {

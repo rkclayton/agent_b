@@ -20,7 +20,7 @@ This page describes the build of 2026-10-16.
 | **The model's context** |  |  |  |  |
 | Context ceiling | The next model request cannot fit the usable context. | `context_ceiling` | connection context | built-in |
 | Context exhausted | The server reports that its context is exhausted. | `context_exhausted` | connection context | built-in |
-| Cycle detected | The model repeats the same call cycle. | `cycle` | always | built-in |
+| Cycle detected | One tool's loop key gives the same result again: three times tells the model once; six asks you, or ends the run when nobody is there. | `cycle` | always | operator 2026-10-23 |
 | Finished normally | The model completes the task. | `done` | always | built-in |
 | Length reached | The model response reaches its output length. | `length` | connection context | built-in |
 | Announced, no call | The model twice in a row announces an action and makes no call. | `announced_action_and_stopped` | always | operator 2026-10-19 |

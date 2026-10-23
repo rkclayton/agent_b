@@ -84,3 +84,16 @@ func uncoveredEventPinState(t *testing.T) Snapshot {
 	}
 	return state
 }
+
+// Item 2wg: a steer is a chat notice and raises no alarm; the cycle decision still does.
+func TestLoopSteerIsANoticeWithoutTheAlarm2wg(t *testing.T) {
+	state := uncoveredEventPinState(t)
+	next, _, err := Next(state, Record{Cursor: Cursor{Generation: "pin.events", Offset: 300}, Event: events.Event{SessionID: "main", RunID: "run-one", Seq: 300, Type: events.CycleDetected, Data: map[string]any{"stage": "steer", "name": "list_dir", "line": "list_dir on chat has given the same result 3 times"}}})
+	if last := next.Chat[len(next.Chat)-1]; err != nil || next.Activity.DispatchAlarm || last.Type != "notice" || last.Event == nil || last.Event.Type != events.CycleDetected {
+		t.Fatalf("alarm=%v last=%+v err=%v", next.Activity.DispatchAlarm, last, err)
+	}
+	cycle, _, err := Next(state, Record{Cursor: Cursor{Generation: "pin.events", Offset: 301}, Event: events.Event{SessionID: "main", RunID: "run-one", Seq: 301, Type: events.CycleDetected}})
+	if err != nil || !cycle.Activity.DispatchAlarm || len(cycle.Chat) != len(state.Chat) {
+		t.Fatalf("cycle alarm=%v chat=%d err=%v", cycle.Activity.DispatchAlarm, len(cycle.Chat), err)
+	}
+}

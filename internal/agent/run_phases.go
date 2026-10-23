@@ -288,7 +288,7 @@ func (x *runState) start() runOutcome {
 	x.accountingRepairTried = false
 	x.templateRetryTried = false
 	x.runMessageLimit, x.runByteLimit, x.runWindow = 0, 0, 0
-	x.guards = newRunGuards(x.runCfg.CycleWindow)
+	x.guards = newRunGuards(x.runCfg.CycleWindow).withLoopKey(x.r.tools.LoopKey)
 	x.currentReasoning = map[string]bool{}
 	return runGoOnOutcome
 }
@@ -1053,6 +1053,11 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 	for _, item := range x.results {
 		eventArgs := sanitizedToolArguments(item.call.Name, item.args)
 		reason, detail, prior := x.guards.Observe(item.call.ID, item.call.Name, eventArgs, item.content, item.ok)
+		if reason == "steer" {
+			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, detail)
+			r.bus.Publish(events.New(events.CycleDetected, x.s.ID, x.runID, map[string]any{"stage": "steer", "call_id": item.call.ID, "name": item.call.Name, "line": detail}))
+			continue
+		}
 		if reason == "cycle" {
 			r.bus.Publish(events.New(events.CycleDetected, x.s.ID, x.runID, map[string]any{"call_id": item.call.ID, "name": item.call.Name, "args": eventArgs, "prior_call_id": prior}))
 			decision, err := r.gate.WaitCycleDecision(x.ctx, x.s, x.runID, item.call.ID+"-cycle", map[string]any{"tool": item.call.Name, "detail": detail})

@@ -36,7 +36,7 @@ func prepareProjection(previous Snapshot, record Record) (Snapshot, map[string]a
 }
 
 func finishProjection(next Snapshot, record Record, data map[string]any, live bool) Snapshot {
-	appendNotice := chatNotice(record.Event.Type)
+	appendNotice := chatNotice(record.Event.Type) || (record.Event.Type == events.CycleDetected && stringValue(data["stage"]) == "steer")
 	if appendNotice && record.Event.Type == events.Compaction && stringValue(data["trigger"]) == "byte_limit_trim" {
 		appendNotice = intValue(data["trimmed_results"]) > 0
 	}
@@ -253,8 +253,12 @@ func projectApprovalRequired(next Snapshot, record Record) Snapshot {
 	return next
 }
 
-func projectCycleDetected(next Snapshot) Snapshot {
-	next.Activity.DispatchAlarm = true
+// A steer (item 2wg) is told to the model and shown in the chat; only the
+// cycle decision raises the alarm.
+func projectCycleDetected(next Snapshot, data map[string]any) Snapshot {
+	if stringValue(data["stage"]) != "steer" {
+		next.Activity.DispatchAlarm = true
+	}
 	return next
 }
 

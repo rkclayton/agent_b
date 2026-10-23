@@ -1149,6 +1149,7 @@ function noticeContent(session, entry, actionable) {
     : data.reason === "attachment_as_text" ? "this model's server refused the " + (data.kind === "document" ? "document" : "image") + "; sent its text instead"
     : data.reason === "truncated_tool_call" ? `harness: retrying truncated ${data.tool || "tool"} call (${data.attempt || 1}/${data.max_attempts || 1})`
       : `harness: repaired malformed ${data.tool || "tool"} history and retried`;
+  else if (event.type === "cycle.detected") content.textContent = data.line || "";
   else if (event.type === "compaction") content.textContent = data.trigger === "byte_limit_trim"
     ? `trimmed ${data.trimmed_results || 0} old result(s) · removed ${formatBytes(data.bytes_removed || 0)} · server size limit`
     : data.kind === "prune"

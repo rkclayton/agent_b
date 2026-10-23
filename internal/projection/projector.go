@@ -440,7 +440,7 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 	case events.ApprovalDecided:
 		next = projectApprovalDecided(next, record, data)
 	case events.CycleDetected:
-		next = projectCycleDetected(next)
+		next = projectCycleDetected(next, data)
 	case events.WorkspaceConflict:
 		next = projectWorkspaceConflict(next)
 	case events.Compaction:

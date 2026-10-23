@@ -249,6 +249,12 @@ const fakeHandler = async (request, response) => {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "scratch-write", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: "scratch-proof.txt", content: "scratch tool passed\n" }) } }] }, "tool_calls");
     return stream(response, { content: "SCRATCH FILE COMPLETE" });
   }
+  // Item 2wg: the same folder listed three times with the same listing is told once; the run goes on.
+  if (user.includes("acceptance: loop steer")) {
+    const count = toolCountAfterLatestUser(body);
+    if (count < 3) return stream(response, { tool_calls: [{ index: 0, id: `loop-steer-${count}`, type: "function", function: { name: "list_dir", arguments: JSON.stringify({ path: "." }) } }] }, "tool_calls");
+    return stream(response, { content: "LOOP STEER ANSWER" });
+  }
   if (user.includes("acceptance: clock search")) {
     if (!hasToolAfterLatestUser(body)) return stream(response, { tool_calls: [{ index: 0, id: "clock-search", type: "function", function: { name: "shell", arguments: JSON.stringify({ command: String.raw`Select-String -Pattern '\d:\d\d:\d\d' notes.txt` }) } }] }, "tool_calls");
     return stream(response, { content: "CLOCK SEARCH COMPLETE" });
@@ -1144,6 +1150,19 @@ if (realModel) {
   assert.equal(clockEvents.some((event) => event.type === "approval.required"), false); assert.equal(clockResult?.data?.ok, true);
   await openStepFoldIfDrawn();
   await page.locator('[data-entry-key="tool:clock-search"] .tool-tick').waitFor({ state: "visible" }); record("clock-search-runs-without-drive-card-2ts");
+
+  const beforeLoop = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
+  await setTask("acceptance: loop steer"); await waitProjectedChatText(sessionID, "LOOP STEER ANSWER", "loop steer answered");
+  const loopEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeLoop), steers = loopEvents.filter((event) => event.type === "cycle.detected" && event.data?.stage === "steer");
+  const third = loopEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "loop-steer-2");
+  assert.equal(steers.length, 1); assert.ok(third && steers[0].seq > third.seq, "the steer follows the third listing");
+  assert.equal(loopEvents.filter((event) => event.type === "run.stopped").at(-1)?.data?.reason, "done");
+  await openStepFoldIfDrawn();
+  const steer = page.getByText(/^list_dir on .+ has given the same result 3 times; say what you need from the user, or finish\.$/);
+  await steer.waitFor({ state: "visible" }); await steer.scrollIntoViewIfNeeded();
+  for (const width of [304, 1280]) { await page.setViewportSize({ width, height: width === 304 ? 860 : 1080 }); await steer.scrollIntoViewIfNeeded(); await page.screenshot({ path: join(args.evidence, `2wg-steer-${width}.png`) }); }
+  await page.setViewportSize({ width: 1250, height: 975 });
+  record("loop-steer-told-once-run-continues-2wg");
 
   if (args["2rv-only"] === "true") {
     const created = [], mutation = (await state()).mutation_token;

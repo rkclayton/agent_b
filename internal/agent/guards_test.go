@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"harness/internal/config"
@@ -124,5 +125,50 @@ func TestTwelveFailuresAcrossAndWithinTurnsStillEndDone2tc(t *testing.T) {
 	reason, detail, _ := runner.Run(context.Background(), item, "run")
 	if reason != "done" || item.ToolCalls["failure_fixture"] != 13 {
 		t.Fatalf("reason=%q detail=%q calls=%d", reason, detail, item.ToolCalls["failure_fixture"])
+	}
+}
+
+// Item 2wg CHECK 2: a repeat counts per loop key, not only consecutively.
+func TestLoopKeySteersAtThreeAndAsksAtSix2wg(t *testing.T) {
+	type call struct{ tool, path, result string }
+	reasons := func(window int, calls ...call) string {
+		out := []string{}
+		guard := newRunGuards(window).withLoopKey(toolpkg.New().LoopKey)
+		for index, one := range calls {
+			reason, _, _ := guard.Observe(fmt.Sprint(index), one.tool, map[string]any{"path": one.path, "line": float64(index)}, one.result, true)
+			if reason == "" {
+				reason = "-"
+			}
+			out = append(out, reason)
+		}
+		return strings.Join(out, " ")
+	}
+	list, read := call{"list_dir", "chat", "chat.json notes.md"}, call{"read_file", "notes.md", ""}
+	interleaved := []call{}
+	for index := 0; index < 6; index++ {
+		read.result = fmt.Sprint("line ", index)
+		interleaved = append(interleaved, list, read)
+	}
+	for _, row := range []struct {
+		name  string
+		calls []call
+		want  string
+	}{
+		{"one folder, other calls between", interleaved, "- - - - steer - - - - - cycle -"},
+		{"a changed listing resets", []call{list, list, {"list_dir", "chat", "changed"}, {"list_dir", "chat", "changed"}, {"list_dir", "chat", "changed"}}, "- - - - steer"},
+		{"one path at moving lines, same content", []call{read, read, read}, "- - steer"},
+		{"two paths twice each", []call{{"read_file", "a", "same"}, {"read_file", "b", "same"}, {"read_file", "a", "same"}, {"read_file", "b", "same"}}, "- - - -"},
+		{"no key: arguments differ", []call{{"run_script", "", "same"}, {"run_script", "", "same"}, {"run_script", "", "same"}}, "- - -"},
+		{"steered once per key", []call{list, list, list, list, list}, "- - steer - -"},
+	} {
+		if got := reasons(5, row.calls...); got != row.want {
+			t.Fatalf("%s: reasons=%q want %q", row.name, got, row.want)
+		}
+	}
+	if got := reasons(0, list, list, list, list, list, list); got != "- - - - - -" {
+		t.Fatalf("disabled guard reasons=%q", got)
+	}
+	if got := steerLine("list_dir", `C:\stand-in\data\profiles\stand-in\chats\chat`); got != "list_dir on …/profiles/stand-in/chats/chat has given the same result 3 times; say what you need from the user, or finish." {
+		t.Fatalf("steer=%q", got)
 	}
 }

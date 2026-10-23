@@ -632,7 +632,7 @@ func (h *historyIndex) record(event Event, location historyLocation) {
 	case MessageRemoved:
 		h.remove(valueString(data["id"]))
 	case Compaction:
-		if kind := valueString(data["kind"]); kind == "summarize" || kind == "fresh" {
+		if kind := valueString(data["kind"]); kind == "summarize" || kind == "fresh" || kind == "prune+fresh" {
 			h.compact(valueString(data["summary_message_id"]), valueStrings(data["affected_ids"]))
 		}
 	}

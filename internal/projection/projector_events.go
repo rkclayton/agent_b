@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	contextmgr "harness/internal/context"
 	"harness/internal/events"
 	workspaceinfo "harness/internal/workspace"
 )
@@ -605,7 +606,7 @@ func projectMessageAppended(next, previous Snapshot, record Record) (Snapshot, e
 	next.Messages = cloneMessages(next.Messages)
 	if wrapper.Message.Category == "summary" {
 		at := min(1, len(next.Messages))
-		if strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") {
+		if strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") || strings.HasPrefix(wrapper.Message.Content, contextmgr.PrunedPrefix) {
 			at = 0
 		}
 		next.Messages = append(next.Messages[:at], append([]events.Message{wrapper.Message}, next.Messages[at:]...)...)
@@ -613,7 +614,7 @@ func projectMessageAppended(next, previous Snapshot, record Record) (Snapshot, e
 		next.Messages = append(next.Messages, wrapper.Message)
 	}
 	next.Chat = cloneChat(next.Chat)
-	if wrapper.Message.Category == "summary" && !strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") {
+	if wrapper.Message.Category == "summary" && !strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") && !strings.HasPrefix(wrapper.Message.Content, contextmgr.PrunedPrefix) {
 		next.Chat = append(next.Chat, ChatEntry{Type: "summary", Key: "message:" + wrapper.Message.ID, Text: summaryTranscript(wrapper.Message.Content)})
 	} else if wrapper.Message.Role == "user" {
 		next.Chat = append(next.Chat, ChatEntry{Type: "user", Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content, Attachments: append([]events.Attachment(nil), wrapper.Message.Attachments...)})
@@ -800,7 +801,16 @@ func projectCompaction(next Snapshot, data map[string]any) Snapshot {
 			}
 		}
 	}
-	if kind := stringValue(data["kind"]); kind == "summarize" || kind == "fresh" {
+	if stringValue(data["kind"]) == "prune" {
+		next.Messages = cloneMessages(next.Messages)
+		for index, message := range next.Messages {
+			if affected[message.ID] {
+				next.Messages[index].Content = contextmgr.PruneStub(message)
+				next.Messages[index].Elided = true
+			}
+		}
+	}
+	if kind := stringValue(data["kind"]); kind == "summarize" || kind == "fresh" || kind == "prune+fresh" {
 		removed := map[string]bool{}
 		for _, id := range stringValues(data["affected_ids"]) {
 			removed[id] = true

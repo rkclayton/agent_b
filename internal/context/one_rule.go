@@ -50,14 +50,33 @@ func (c *Compactor) Compact(ctx context.Context, s *session.Session, runID strin
 	messages := s.MessagesCopy()
 	keep := oneRuleKeep(messages, in.Pin, max(0, in.Window-in.Fixed)/4)
 	older, kept := splitOneRule(messages, keep)
-	request := append(append([]events.Message(nil), older...), events.Message{Role: "user", Content: HandOffInstruction})
-	result.HandOffRequestTokens = tokenSum(request[:len(request)-1]) + estimateTokens(HandOffInstruction)
-	maxSummary := max(500, int(.03*float64(max(0, in.Window-in.Fixed))))
-	text, reason := oneRuleSummary(ctx, request, maxSummary, in.Summarize)
 	handoffID := in.HandOffID
 	if handoffID == "" {
 		handoffID = runID + "-handoff"
 	}
+	// Item 2we: older results that are at least PruneShare of the changeable
+	// context are stubbed first; the summary runs only if that is not enough.
+	prune := oneRulePrune{}
+	if changeable := in.Used - in.Fixed; changeable > 0 && float64(tokenSum(prunable(older))) >= PruneShare*float64(changeable) {
+		messages, prune = pruneOlder(messages, keep)
+		older, kept = splitOneRule(messages, keep)
+		if in.Used-prune.saved < line {
+			note := events.Message{ID: handoffID, Role: "harness", Category: "summary", Content: fmt.Sprintf("%s%d results, %d tokens removed; nothing summarized", PrunedPrefix, len(prune.ids), prune.tokens)}
+			note.Tokens, note.Estimated = estimateTokens(note.Content), true
+			next := append([]events.Message{note}, messages...)
+			result.HandOffTokens, result.KeptIDs = note.Tokens, messageIDs(messages)
+			result.AfterChangeable = tokenSum(next)
+			s.ReplaceMessages(next)
+			s.RecordCompaction(result.AfterChangeable - result.BeforeChangeable)
+			result.Changed, result.Retry = true, in.RefusalSentence != ""
+			c.publishOneRule(s, runID, in, result, "", prune, prune.ids, note)
+			return result
+		}
+	}
+	request := append(append([]events.Message(nil), older...), events.Message{Role: "user", Content: HandOffInstruction})
+	result.HandOffRequestTokens = tokenSum(request[:len(request)-1]) + estimateTokens(HandOffInstruction)
+	maxSummary := max(500, int(.03*float64(max(0, in.Window-in.Fixed))))
+	text, reason := oneRuleSummary(ctx, request, maxSummary, in.Summarize)
 	handoff := events.Message{ID: handoffID, Role: "harness", Category: "summary", Content: text, Tokens: estimateTokens(text), Estimated: true}
 	result.HandOffTokens = handoff.Tokens
 	result.KeptIDs = messageIDs(kept)
@@ -75,8 +94,53 @@ func (c *Compactor) Compact(ctx context.Context, s *session.Session, runID strin
 		result.Stop = oneRuleTooBig(kept, in.Fixed, in.Window, result.AfterChangeable)
 	}
 	removed, _ := splitOneRule(messages, indexSet(result.KeptIDs, messages))
-	c.publishOneRule(s, runID, in, result, reason, messageIDs(removed), handoff)
+	c.publishOneRule(s, runID, in, result, reason, prune, messageIDs(removed), handoff)
 	return result
+}
+
+// PruneShare is the share of the changeable context older results must reach
+// before they are stubbed at the line (item 2we); it is not a setting.
+const PruneShare = .5
+
+// PrunedPrefix opens the harness line a prune-only crossing leaves in context.
+const PrunedPrefix = "Compacted: "
+
+type oneRulePrune struct {
+	ids           []string
+	tokens, saved int
+}
+
+func prunable(messages []events.Message) []events.Message {
+	out := []events.Message{}
+	for _, message := range messages {
+		if message.Role == "tool" && !message.Elided && (message.Category == "files" || message.Category == "results" || message.Category == "fetched") {
+			out = append(out, message)
+		}
+	}
+	return out
+}
+
+// PruneStub is the one line an older result becomes in model context.
+func PruneStub(message events.Message) string {
+	name := message.Name
+	if name == "" {
+		name = "tool"
+	}
+	return fmt.Sprintf("[%s result removed at compaction, %d tokens; recall reads it]", name, message.Tokens)
+}
+
+func pruneOlder(messages []events.Message, keep map[int]bool) ([]events.Message, oneRulePrune) {
+	out, prune := append([]events.Message(nil), messages...), oneRulePrune{}
+	for index, message := range out {
+		if keep[index] || len(prunable([]events.Message{message})) == 0 {
+			continue
+		}
+		stub := PruneStub(message)
+		prune.ids, prune.tokens = append(prune.ids, message.ID), prune.tokens+message.Tokens
+		out[index].Content, out[index].Tokens, out[index].Estimated, out[index].Elided = stub, estimateTokens(stub), true, true
+		prune.saved += message.Tokens - out[index].Tokens
+	}
+	return out, prune
 }
 
 func oneRuleKeep(messages []events.Message, pin string, allowance int) map[int]bool {
@@ -191,9 +255,16 @@ func indexSet(ids []string, messages []events.Message) map[int]bool {
 	return out
 }
 
-func (c *Compactor) publishOneRule(s *session.Session, runID string, in OneRuleInput, result OneRuleResult, reason string, affected []string, handoff events.Message) {
+func (c *Compactor) publishOneRule(s *session.Session, runID string, in OneRuleInput, result OneRuleResult, reason string, prune oneRulePrune, affected []string, handoff events.Message) {
 	if c.bus == nil {
 		return
+	}
+	kind := "fresh"
+	if len(prune.ids) > 0 {
+		kind = "prune+fresh"
+		if strings.HasPrefix(handoff.Content, PrunedPrefix) {
+			kind = "prune"
+		}
 	}
 	source := events.CompactionSummaryData{Outcome: "accepted", Trigger: "threshold", EstimatedPromptTokens: result.BeforeChangeable, Estimated: true}
 	if in.Source != nil {
@@ -202,7 +273,9 @@ func (c *Compactor) publishOneRule(s *session.Session, runID string, in OneRuleI
 	if reason != "" {
 		source.Outcome, source.Reason, source.FallbackReason = reason, reason, reason
 	}
-	c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
-	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": "fresh", "trigger": source.Trigger, "before": result.BeforeChangeable, "after": result.AfterChangeable, "affected_ids": affected, "summary_message_id": handoff.ID, "role": source.Role, "connection_id": source.ConnectionID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
+	if kind != "prune" {
+		c.bus.Publish(events.New(events.CompactionSummary, s.ID, runID, source))
+	}
+	c.bus.Publish(events.New(events.Compaction, s.ID, runID, map[string]any{"kind": kind, "pruned_results": len(prune.ids), "pruned_tokens": prune.tokens, "trigger": source.Trigger, "before": result.BeforeChangeable, "after": result.AfterChangeable, "affected_ids": affected, "summary_message_id": handoff.ID, "role": source.Role, "connection_id": source.ConnectionID, "model": source.Model, "fallback_reason": source.FallbackReason, "usage": source.Usage}))
 	c.bus.Publish(events.New(events.MessageAppended, s.ID, runID, map[string]any{"message": handoff}))
 }

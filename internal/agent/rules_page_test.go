@@ -27,7 +27,7 @@ func TestRulesPageMatchesRuntime2vg(t *testing.T) {
 			}
 		}
 	}
-	paths := []string{filepath.Join(root, "internal", "agent", "tool_window.go")}
+	paths := []string{filepath.Join(root, "internal", "agent", "tool_window.go"), filepath.Join(root, "internal", "context", "one_rule.go")}
 	entries, err := os.ReadDir(filepath.Join(root, "internal", "tools"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestRulesPageMatchesRuntime2vg(t *testing.T) {
 			switch {
 			case unquoteErr == nil && strings.Contains(filepath.ToSlash(path), "/tools/") && strings.HasPrefix(value, "error: "):
 				sources[value] = "call refusal"
-			case unquoteErr == nil && (strings.Contains(value, "[tool result cut") || strings.HasPrefix(value, "engines_benched:")):
+			case unquoteErr == nil && (strings.Contains(value, "[tool result cut") || strings.Contains(value, "result removed at compaction") || strings.HasPrefix(value, "engines_benched:")):
 				sources[strings.TrimSpace(value)] = "result change"
 			}
 		}

@@ -3,6 +3,7 @@ package contextmgr
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -135,6 +136,85 @@ func oneRuleChat(shape string) *session.Session {
 func hasExact(messages []events.Message, id, content string) bool {
 	for _, message := range messages {
 		if message.ID == id && message.Content == content {
+			return true
+		}
+	}
+	return false
+}
+
+// Item 2we CHECK 2: at the line, older results that are at least half of the
+// changeable context are stubbed first; the summary runs only if that is not enough.
+func TestOneRulePrunesOlderResultsBeforeSummarizing2we(t *testing.T) {
+	for _, row := range []struct {
+		name               string
+		used, r1, r2       int
+		stubbed, summarize bool
+		kind               string
+	}{
+		{"results at 60%", 950, 300, 210, true, false, "prune"},
+		{"results at 40%", 950, 200, 140, false, true, "fresh"},
+		{"results at 60% still over the line", 2100, 700, 500, true, true, "prune+fresh"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			s := &session.Session{Messages: []events.Message{
+				{ID: "old-user", Role: "user", Content: "old", Tokens: 50},
+				{ID: "old-call", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "c1"}, {ID: "c2"}}, Tokens: 10},
+				{ID: "old-r1", Role: "tool", ToolCallID: "c1", Name: "read_file", Category: "files", Content: "old file", Tokens: row.r1},
+				{ID: "old-r2", Role: "tool", ToolCallID: "c2", Name: "shell", Category: "results", Content: "old output", Tokens: row.r2},
+				{ID: "old-answer", Role: "assistant", Content: "answer", Tokens: 50},
+				{ID: "task", Role: "user", Content: "CURRENT TASK WORD FOR WORD", Tokens: 20},
+				{ID: "call", Role: "assistant", ToolCalls: []events.ToolCall{{ID: "c3"}}, Tokens: 10},
+				{ID: "result", Role: "tool", ToolCallID: "c3", Name: "read_file", Category: "files", Content: "newest", Tokens: 30},
+			}}
+			bus, published := events.NewBus(), []events.Event{}
+			bus.SetObserver(func(event events.Event) { published = append(published, event) })
+			asked := []events.Message{}
+			got := New(bus).Compact(context.Background(), s, "run", OneRuleInput{Used: row.used, Window: 1000, Fixed: 100, SummaryPct: .9, Pin: "task", Summarize: func(messages []events.Message, _ int) (string, error) {
+				asked = append(asked, messages...)
+				return "DONE: old\nNEXT: task\nFILES CHANGED: none\nOPEN QUESTIONS: none", nil
+			}})
+			if !got.Changed || got.Stop != "" || (len(asked) > 0) != row.summarize {
+				t.Fatalf("result=%+v summarized=%v", got, len(asked) > 0)
+			}
+			after := s.MessagesCopy()
+			want := "[read_file result removed at compaction, " + itoa(row.r1) + " tokens; recall reads it]"
+			if row.stubbed && !row.summarize && (!hasExact(after, "old-r1", want) || !hasExact(after, "result", "newest") || !hasExact(after, "task", "CURRENT TASK WORD FOR WORD") || !hasExact(after, "old-user", "old")) {
+				t.Fatalf("prune context=%+v", after)
+			}
+			if row.stubbed && !row.summarize && (after[0].Role != "harness" || after[0].Content != "Compacted: 2 results, "+itoa(row.r1+row.r2)+" tokens removed; nothing summarized") {
+				t.Fatalf("prune line=%+v", after[0])
+			}
+			if row.summarize && row.stubbed && !hasExact(asked, "old-r1", want) {
+				t.Fatalf("summary request was not stubbed: %+v", asked)
+			}
+			if row.summarize && !row.stubbed && !hasExact(asked, "old-r1", "old file") {
+				t.Fatalf("summary request changed: %+v", asked)
+			}
+			var compaction map[string]any
+			for _, event := range published {
+				if event.Type == events.Compaction {
+					compaction, _ = event.Data.(map[string]any)
+				}
+			}
+			if compaction == nil || compaction["kind"] != row.kind {
+				t.Fatalf("compaction=%+v", compaction)
+			}
+			affected, _ := compaction["affected_ids"].([]string)
+			if row.stubbed && (compaction["pruned_results"] != 2 || compaction["pruned_tokens"] != row.r1+row.r2 || !contains(affected, "old-r1") || !contains(affected, "old-r2") || contains(affected, "result") || contains(affected, "task")) {
+				t.Fatalf("prune event=%+v", compaction)
+			}
+			if !row.stubbed && compaction["pruned_results"] != 0 {
+				t.Fatalf("fresh event=%+v", compaction)
+			}
+		})
+	}
+}
+
+func itoa(value int) string { return strconv.Itoa(value) }
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}

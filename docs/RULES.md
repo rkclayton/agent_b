@@ -66,6 +66,7 @@ This page describes the build of 2026-10-16.
 | Result saved and cut | A tool result exceeds the remaining model context and its full text is saved. | `[tool result cut: %d bytes; full output saved at %s; read_file path=%s offset=%d to page the omitted middle]` | connection context | built-in |
 | Result save failed | A tool result exceeds the remaining model context and saving its full text fails. | `[tool result cut: %d bytes; saving the full output failed: %v]` | connection context | built-in |
 | Server byte cut | A non-windowed result exceeds one quarter of a server's learned request-byte limit. | `[tool result cut to fit the server's %d-byte request limit]` | connection context | built-in |
+| Results pruned at the line | At the compaction line, older tool results are at least half of the changeable context; each becomes one line, and the summary runs only if that is not enough. | `[%s result removed at compaction, %d tokens; recall reads it]` | connection context | operator 2026-10-22 |
 | **The web** |  |  |  |  |
 | Search engine benched | A search engine is temporarily skipped after its recorded failures or rate limit. | `engines_benched: %s` | Settings → tools → web search | operator 2026-09-28 |
 | **Memory** |  |  |  |  |

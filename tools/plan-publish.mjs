@@ -317,7 +317,12 @@ export function publishNext({ root = defaultRoot, inbox = "" }) {
   const lines = first.block.split("\n");
   if (!/^# PUBLISH THEN EXECUTE\s*$/.test(lines[0])) throw new Error("the first INBOX block does not open with # PUBLISH THEN EXECUTE");
   let body = first.body ?? lines.slice(1).join("\n").replace(/^\s+/, "");
-  if (!/^## Current work order/.test(body)) body = body.replace(/^## (?:\S+\s+—\s+)?/, "## Current work order — ");
+  // A planner's ruling may sit between the queue heading and the order's own
+  // heading (rel-1.62.154). The heading leads the body and the ruling follows
+  // it, so the published plan still holds exactly one order heading.
+  const heading = body.match(/^## Current work order[^\n]*$/m);
+  if (heading && heading.index > 0) body = `${heading[0]}\n\n${body.slice(0, heading.index).trim()}\n\n${body.slice(heading.index + heading[0].length).replace(/^\s+/, "")}`;
+  else if (!heading) body = body.replace(/^## (?:\S+\s+—\s+)?/, "## Current work order — ");
   const orderId = orderIdOf(body);
   if (!orderId) throw new Error("the first INBOX block has no Order ID line");
   const published = loadPublishedProposal(root);

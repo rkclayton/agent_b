@@ -7,7 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { preparePublication, publishPublication, workerStopped } from "./plan-publish.mjs";
+import { preparePublication, publishNext, publishPublication, workerStopped } from "./plan-publish.mjs";
 import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -186,6 +186,25 @@ assert.equal(fs.existsSync(publisher), true);
   const root = makeRoot();
   const bare = item("2b").replace(/^@budget.*$/m, "@budget  none");
   expectPrepareFailure(root, makeCandidate(root, "- W1 **2b bare none.**", [{ id: "2b", text: bare }]), /PUBLICATION BUDGET: ordered item 2b/);
+}
+// rel-1.62.154: a two-block INBOX whose first block carries a ruling before its
+// order heading publishes that first block, with one order heading.
+{
+  const root = makeRoot();
+  const inbox = path.join(root, "INBOX.md");
+  fs.writeFileSync(inbox, [
+    "# PUBLISH THEN EXECUTE", "", "RULING — the order below is next.", "",
+    "## Current work order — first", "", "Order ID: `FIRST`", "", "- W1 **2a existing work.**", "",
+    "==== NEXT ORDER ====", "",
+    "# PUBLISH THEN EXECUTE", "", "## Current work order — second", "", "Order ID: `SECOND`", "", "- W1 **2a existing work.**", "",
+  ].join("\n"));
+  const result = publishNext({ root, inbox });
+  assert.equal(result.order_id, "FIRST");
+  const published = fs.readFileSync(path.join(root, "PLAN.md"), "utf8");
+  assert.equal([...published.matchAll(/^## Current work order\b/gm)].length, 1);
+  assert.match(published, /^## Current work order — first\n\nRULING/m);
+  assert.doesNotMatch(published, /SECOND/);
+  assert.equal(publishNext({ root, inbox }).already_published, true);
 }
 process.stdout.write("plan publication fixtures passed\n");
 

@@ -151,7 +151,7 @@ func oneRuleSummary(ctx context.Context, request []events.Message, limit int, su
 }
 
 func fallbackHandOff(reason string) string {
-	return "Earlier work was put aside without a summary because of " + reason + "; the record can be searched with chat_history."
+	return "Earlier work was put aside without a summary because of " + reason + "; the record can be searched with recall."
 }
 
 func oneRuleTooBig(kept []events.Message, fixed, window, used int) string {

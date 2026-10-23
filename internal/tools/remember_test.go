@@ -24,7 +24,7 @@ func memoryTools(t *testing.T) (*Remember, *Recall, *session.Session, string) {
 	cfg := config.Defaults(workspace)
 	cfg.Memory.Dir = filepath.Join(baseDir, "memory")
 	manager := memory.New(baseDir, func() config.Config { return cfg }, nil)
-	return NewRemember(manager, events.NewBus()), NewRecall(manager), &session.Session{ID: "memory-test", AgentID: "coder", Workspace: workspace}, baseDir
+	return NewRemember(manager, events.NewBus()), NewRecall(manager, nil), &session.Session{ID: "memory-test", AgentID: "coder", Workspace: workspace}, baseDir
 }
 
 func TestRepositoryNoteLivesInGitignoredRepoAndLoadsOnlyThere2qj(t *testing.T) {
@@ -233,8 +233,9 @@ func TestRecallEmptyStoreIgnoresModelSuppliedPath(t *testing.T) {
 func TestRecallSchemaExposesNoPath(t *testing.T) {
 	_, recall, _, _ := memoryTools(t)
 	properties, ok := recall.Schema()["properties"].(map[string]any)
-	if !ok || len(properties) != 0 {
-		t.Fatalf("recall properties = %#v, want none", recall.Schema()["properties"])
+	_, path := properties["path"]
+	if !ok || path || len(properties) != 3 || properties["query"] == nil || properties["offset"] == nil || properties["limit"] == nil {
+		t.Fatalf("recall properties = %#v, want query, offset and limit only", recall.Schema()["properties"])
 	}
 }
 

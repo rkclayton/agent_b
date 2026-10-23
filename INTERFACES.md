@@ -126,8 +126,8 @@ and the file name is validated against the memory directory so no other path can
 holds facts about the host rather than about a folder or an agent, is written only by reflection,
 and is available through `recall` beside the other two. Saved note text is never injected into the system prompt; the folder layer contributes only
 `This folder has <n> saved notes; recall reads them.` **The file cap is `memory.max_tokens`, 16384 by default, applied per layer:** every new note is saved,
-then oldest notes are dropped until the file fits; `remember` reports the dropped count. `recall` returns every retained note newest first and the ordinary
-per-result window bounds that one result. Settings -> Activity continues to show the retained notes and count.
+then oldest notes are dropped until the file fits; `remember` reports the dropped count. `recall` with no arguments returns every retained note newest first and the ordinary
+per-result window bounds that one result; its `query`, `offset` and `limit` are below. Settings -> Activity continues to show the retained notes and count.
 
 **Prompt cache across runs (item 6, measured v1.0.1/W2 from retained logs):** within a run the server reports most of the prefix cached (82% mean on a run's
 last response). At a run boundary the rendered prefix — messages and the tools block — is byte-identical in 161 of 298 retained boundaries,
@@ -143,7 +143,7 @@ with `summary_pct` of the usable window. At the line, every user message in the 
 25% of the room after the fixed prompt; the newest turn always stays. The chat's own model receives exactly the older messages as last sent plus the fixed
 four-heading instruction and may write a hand-off up to 3% of that room, never fewer than 500 tokens. The next context is one harness-role hand-off followed
 by the kept messages in order. If that call errors, refuses, or returns empty, the replacement still happens with a fixed line naming why and pointing to
-`chat_history`. If it still cannot fit, only the newest turn and user messages remain; a final stop names the fixed prompt, task message, or newest result
+`recall`. If it still cannot fit, only the newest turn and user messages remain; a final stop names the fixed prompt, task message, or newest result
 and its token size. A token, byte, message-count, or unnamed-window refusal invokes that same action once and retries once; a second refusal stops with the
 server's sentence. `soft_pct` remains accepted and inert. Restore-time stubbing, plan-chat settled spans, the journal, the meter, and ingest-time sizing of
 one tool result are outside this rule and unchanged.
@@ -190,13 +190,13 @@ Reapply and verify Host protections on an existing hardened installation before 
 
 The registry sends enabled tools in this stable order (registered in `cmd/harness/main.go`, dispatched by `internal/tools/registry.go`): `read_file`,
 `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, `call_service`, `delegate`,
-`chat_history`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`. The internal-service caller remains position 12; `delegate` remains at 13;
-the read-only `chat_history` remains at 14, `cronjob` remains at 15, `image` remains at 16, `todo` and `ask` remain at 17 and 18, `process` remains at 19, and `code` is appended at 20, while every older tool retains its relative position.
+`cronjob`, `image`, `todo`, `ask`, `process`, `code`. The internal-service caller remains position 12; `delegate` remains at 13;
+`cronjob` follows at 14, `image` at 15, `todo` and `ask` at 16 and 17, `process` at 18, and `code` at 19, while every older tool retains its relative position.
 Tool errors normally enter model context with an `error:` prefix and always produce `tool.result.ok:false`;
 a stale-view or routing refusal may instead start with `note:` while remaining an unsuccessful, unexecuted outcome.
 Documented empty/no-match results are successful outcomes.
 
-Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `search`, `recall`, `fetch_url`, `web_search`, `chat_history`, `delegate`, and `call_service` with GET or HEAD are reads; every other call is a change. Neighbouring reads in one model reply run together, no more than four at once. A change waits for all earlier calls and blocks every later call until it finishes. Calls and results remain recorded and appended to model context in the model's written order even when reads finish in another order. A call waiting on an approval card does not hold its read siblings; Stop cancels every live call, and one failed call does not cancel its siblings.
+Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `search`, `recall`, `fetch_url`, `web_search`, `delegate`, and `call_service` with GET or HEAD are reads; every other call is a change. Neighbouring reads in one model reply run together, no more than four at once. A change waits for all earlier calls and blocks every later call until it finishes. Calls and results remain recorded and appended to model context in the model's written order even when reads finish in another order. A call waiting on an approval card does not hold its read siblings; Stop cancels every live call, and one failed call does not cancel its siblings.
 
 - `read_file {path,offset?,limit?,line?,lines?,windows?}` reads numbered UTF-8 source text. Item 2mn (b):
   every answer begins with one `[file sha256=<12 hex>]` line — the digest of the WHOLE file, not of the window — which `edit_file` takes back as `read_sha256`.
@@ -303,11 +303,11 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   windowing, the listener refusal and the result shape — is the same code path. This identity-bearing internal-service surface remains distinct from anonymous,
   GET-only, untrusted-open-web `fetch_url`.
 - `delegate {task,thoroughness?:quick|thorough,write?:bool,connection?:label}` keeps absent/false `write` as the prior read-only child. A writer receives read, file-write, shell and script tools in a bounded isolated copy (1 GiB and 50,000 files), never service, memory, schedule or delegation tools. Its files apply as one undoable return only when every real file still matches the starting copy; otherwise none apply and every helper version is kept in chat collision scratch. Results name applied or collided files and retain the transcript. At most four helpers run per chat; each connection's `max_concurrent` counts children but not their waiting parent. Another connection's first use requires chat-held approval and a delegated run inherits its parent's unattended choice. Parent cancellation removes every copy.
-- `chat_history {query?,offset?,limit?}` is a read-only view of the active chat's append-only retained journal.
-  With `query` it searches message records case-insensitively; without it, it reads message entries by zero-based range. `offset` skips matching entries,
-  `limit` defaults to 20 and is capped at 50. The journal is decoded one record at a time and is never loaded as a whole.
-  It is offered in every chat so a model after a fresh-context boundary can recover exact earlier details;
-  ordinary tool-result fitting still bounds what enters model context.
+- `recall {query?,offset?,limit?}` reads saved notes and the active chat's append-only retained journal; it never writes.
+  With no argument it returns every retained note as above. With any argument it returns `{entries,total}`: each entry is `{source:"chat",message}`
+  or `{source:"note",layer,note}`, this chat's matching messages first and then matching notes, each newest first; `query` matches case-insensitively,
+  and without it every message and note matches. `offset` skips matching entries, `limit` defaults to 20 and is capped at 50. The journal is decoded
+  one record at a time and is never loaded as a whole; ordinary tool-result fitting still bounds what enters model context.
 - `cronjob {action,schedule?,prompt?,name?,skills?,skill?,repeat?,job_id?,deliver?}` creates, lists, updates, pauses, resumes, immediately runs,
   or removes jobs in `<profile>/cron/jobs.json`. A job carries `unattended:true|false`, default false; due jobs run serially in fresh B chats with that choice, load named skills in order, omit `cronjob`,
   and write the answer to `<profile>/cron/output/<job-id>/<timestamp>.md`. `[SILENT]` successful answers leave only that file;
@@ -434,7 +434,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   …` for `run_script`) with no decision.
 - `chat.deleted` `{session_id}` is published with an empty session ID when a chat is deleted (item 2py), so every client, the paired phone included,
   drops what it holds of that chat. Deletion writes no export: nothing of the chat survives it except the memory notes, plans and repository files it produced.
-- `compaction.summary` [8] remains `{role,connection_id,model,outcome,reason?,fallback_reason?,dispatched,estimated_prompt_tokens,estimated,n_ctx,usage:{prompt_tokens,completion_tokens,cached_tokens},duration_ms,trigger?}` and records the one hand-off attempt, including error, refusal, and empty fallbacks. `compaction` [8] remains `{kind,trigger,before,after,affected_ids,summary_message_id?,role?,connection_id?,model?,fallback_reason?,usage?}`; context replacements use `kind:fresh`, while `kind:settled` remains for explicitly settled plan-chat spans. No new telemetry event or field is introduced. The projector applies `after` to the meter immediately. The immutable journal and `chat_history` retain what the model-visible context replaced. A retained chat restored at startup still carries tool results older than the newest journal-named user message as stubs, and duplicate restored message IDs are reminted by position; both are restore behavior, not compaction. A snapshot (`GET /api/state` or an SSE connect) never advances the store's broadcast cursor for a session it has already been sent; only the fold of an appended record does, so a record appended but not yet folded when a snapshot is taken still reaches every subscriber as a patch, and a client whose snapshot is newer resyncs on the `previous_cursor` mismatch. `memory.noted` [8] is `{note,path}`.
+- `compaction.summary` [8] remains `{role,connection_id,model,outcome,reason?,fallback_reason?,dispatched,estimated_prompt_tokens,estimated,n_ctx,usage:{prompt_tokens,completion_tokens,cached_tokens},duration_ms,trigger?}` and records the one hand-off attempt, including error, refusal, and empty fallbacks. `compaction` [8] remains `{kind,trigger,before,after,affected_ids,summary_message_id?,role?,connection_id?,model?,fallback_reason?,usage?}`; context replacements use `kind:fresh`, while `kind:settled` remains for explicitly settled plan-chat spans. No new telemetry event or field is introduced. The projector applies `after` to the meter immediately. The immutable journal, read by `recall`, retains what the model-visible context replaced. A retained chat restored at startup still carries tool results older than the newest journal-named user message as stubs, and duplicate restored message IDs are reminted by position; both are restore behavior, not compaction. A snapshot (`GET /api/state` or an SSE connect) never advances the store's broadcast cursor for a session it has already been sent; only the fold of an appended record does, so a record appended but not yet folded when a snapshot is taken still reaches every subscriber as a patch, and a client whose snapshot is newer resyncs on the `previous_cursor` mismatch. `memory.noted` [8] is `{note,path}`.
  `item.done` and `item.stuck` are `{item,plan_id}` and `{item,plan_id,reason}`; `plan.done` is `{plan_id,done,stuck}`;
  `c.job` is `{plan_id,item,question,routed_to:d|operator,role:c,worker,proposal?}` and carries the worker's own last words, never a summary written for it;
  the one harness-worded `c.job` is the verifier request, whose `proposal` is `{id,kind:verifier,path,old_text,new_text:"",item_id}` and which the tray shows
@@ -602,8 +602,8 @@ approval registers exactly as the operator's sentence does, a decline registers 
   then receives the session scratch/retained root followed by only plan repositories selected by file operations in that run.
   An absent or signed-out `sbx` keeps the stored switch off and exposes the reason in state. If an enabled sandbox stops,
   the switch is saved off before ordinary shell falls back and the result begins with that disclosure;
-  `run_script` bash refuses because it has no host fallback. The registry is nineteen tools; `delegate` follows the twelve-tool 2ho order,
-  `chat_history` follows `delegate`, `cronjob` follows it, `image` follows it, `todo` then `ask` follow, and `process` is last.
+  `run_script` bash refuses because it has no host fallback. The registry is eighteen tools; `delegate` follows the twelve-tool 2ho order,
+  `cronjob` follows `delegate`, `image` follows it, `todo` then `ask` follow, and `process` is last.
 - `POST /api/shell-credential {action:store,password}` writes a user-scoped DPAPI blob; `{action:test}` attempts a no-op service-account process;
   `{action:clear}` removes it. Responses and events expose status only, never the password.
 - `GET /api/service-account` inspects the configured local account without elevation through the Windows account APIs. With `connection_id`, it also returns
@@ -670,7 +670,7 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
   file tools impersonate that account and Windows ACLs decide reach. With it disabled, file tools use the non-elevated operator's OS reach;
   plan ownership and repository-policy immutability remain enforced in both postures.
 - Tool order is `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`,
-  `call_service`, `delegate`, `chat_history`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`. `process {action,...}` starts a command immediately, lists it, reads its one-mebibyte rolling output window by byte offset, writes stdin, waits, or kills its tree. It uses `shell`'s identity, approval, deny-list, sandbox, and working-folder decisions; at most four run in a chat, and every process is killed at run or app end. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
+  `call_service`, `delegate`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`. `process {action,...}` starts a command immediately, lists it, reads its one-mebibyte rolling output window by byte offset, writes stdin, waits, or kills its tree. It uses `shell`'s identity, approval, deny-list, sandbox, and working-folder decisions; at most four run in a chat, and every process is killed at run or app end. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
   their model-visible descriptions tell callers to pass a returned `next_offset` as `offset`. Before any tool result is appended,
   the room remaining before the output reserve is divided among every result still in that call batch.
   A result larger than its share is cut to a UTF-8-safe head and tail, remains successful or failed as the tool reported it, and names the byte size,

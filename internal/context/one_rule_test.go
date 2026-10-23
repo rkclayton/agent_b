@@ -54,7 +54,7 @@ func TestOneRuleFallbackStillCompacts2up(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			s := oneRuleChat(row.name)
 			result := New(nil).Compact(context.Background(), s, "run", OneRuleInput{Used: 950, Window: 1000, Fixed: 100, SummaryPct: .9, Pin: "task", Summarize: func([]events.Message, int) (string, error) { return row.answer, row.err }})
-			if !result.Changed || result.Stop != "" || !strings.Contains(s.MessagesCopy()[0].Content, "record can be searched") || !strings.Contains(s.MessagesCopy()[0].Content, row.name) {
+			if !result.Changed || result.Stop != "" || !strings.Contains(s.MessagesCopy()[0].Content, "record can be searched with recall.") || !strings.Contains(s.MessagesCopy()[0].Content, row.name) {
 				t.Fatalf("result=%+v messages=%+v", result, s.MessagesCopy())
 			}
 		})

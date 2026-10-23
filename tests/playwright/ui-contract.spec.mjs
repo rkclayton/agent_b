@@ -638,7 +638,7 @@ test("fresh context leaves every transcript entry visible and says how much and 
     await expect(log).toContainText("FIRST VISIBLE TURN");
     await expect(log).toContainText("SECOND VISIBLE TURN");
     const line = "fresh context · 1000 → 100 tokens · window full · earlier turns searchable";
-    const fallback = "Earlier work was put aside without a summary because of error; the record can be searched with chat_history.";
+    const fallback = "Earlier work was put aside without a summary because of error; the record can be searched with recall.";
     const stopped = "stopped: context exhausted · newest result is 17000 tokens and does not fit the 16000-token window";
     await expect(log).toContainText(line);
     await expect(log).toContainText(fallback);

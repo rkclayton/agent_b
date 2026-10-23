@@ -538,7 +538,7 @@ func TestHookValidation2rn(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, hook := range []Hook{{Event: "other", Command: "x"}, {Event: "before_tool", Tool: "missing", Command: "x"}, {Event: "after_tool", Command: ""}, {Event: "run_end", Command: "x", TimeoutS: 61}} {
+	for _, hook := range []Hook{{Event: "other", Command: "x"}, {Event: "before_tool", Tool: "missing", Command: "x"}, {Event: "after_tool", Tool: "chat_history", Command: "x"}, {Event: "after_tool", Command: ""}, {Event: "run_end", Command: "x", TimeoutS: 61}} {
 		bad := cfg
 		bad.Hooks = []Hook{hook}
 		if err := bad.Validate(); err == nil {

@@ -119,7 +119,7 @@ func TestAChatRequestNeverSaysOperator2pz(t *testing.T) {
 	files, notes := tools.NewFileCoordinator(nil, nil, bus), memory.New(root, func() config.Config { return cfg }, nil)
 	shell, fetch := tools.NewShell(cfg.Shell), tools.NewFetch(cfg.Tools.Fetch)
 	registry := tools.New(tools.NewReadFile(cfg.Tools.ReadFile), tools.NewListDir(cfg.Tools.ListDir), tools.NewWriteFile(files), tools.NewEditFile(files),
-		tools.NewSearch(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), tools.NewGlob(cfg.Tools.FindFiles)), shell, tools.NewRemember(notes, bus), tools.NewRecall(notes),
+		tools.NewSearch(tools.NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir), tools.NewGlob(cfg.Tools.FindFiles)), shell, tools.NewRemember(notes, bus), tools.NewRecall(notes, nil),
 		fetch, tools.NewWebSearch(fetch, cfg.Tools.WebSearch), tools.NewRunScript(shell), tools.NewCallService(cfg.Services), tools.NewDelegate())
 	item := &session.Session{ID: "word", ConnectionID: "main", Workspace: root, Runnable: true, Run: session.RunState{Status: "running"}, ToolsEnabled: map[string]bool{},
 		ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
@@ -132,6 +132,10 @@ func TestAChatRequestNeverSaysOperator2pz(t *testing.T) {
 	sent := <-body
 	if !strings.Contains(sent, `"delegate"`) || regexp.MustCompile(`(?i)(^|[^\w-])operator('s)?([^\w-]|$)`).MatchString(sent) {
 		t.Fatalf("the request lacks the tools or says operator: %s", sent)
+	}
+	// Item 2wd CHECK 3: the earlier-turns line names recall, and chat_history is gone.
+	if !strings.Contains(sent, "use recall to search or read them") || strings.Contains(sent, "chat_history") {
+		t.Fatalf("the earlier-turns line does not name recall alone: %s", sent)
 	}
 }
 

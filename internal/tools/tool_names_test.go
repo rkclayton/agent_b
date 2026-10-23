@@ -38,10 +38,13 @@ func TestRegistryDoesNotDispatchCancelledCall(t *testing.T) {
 
 func TestParallelReadClassification2rs(t *testing.T) {
 	r := New()
-	for _, name := range []string{"read_file", "list_dir", "search", "recall", "fetch_url", "web_search", "chat_history", "delegate"} {
+	for _, name := range []string{"read_file", "list_dir", "search", "recall", "fetch_url", "web_search", "delegate"} {
 		if !r.Reads(name, nil) {
 			t.Fatalf("%s is not reads", name)
 		}
+	}
+	if r.Reads("chat_history", nil) {
+		t.Fatal("retired chat_history is still classified as a read")
 	}
 	if !r.Reads("call_service", map[string]any{"method": "HEAD"}) || r.Reads("call_service", map[string]any{"method": "POST"}) || r.Reads("write_file", nil) {
 		t.Fatal("dynamic or changing tool classification is wrong")

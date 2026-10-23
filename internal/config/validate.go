@@ -59,7 +59,7 @@ func (c Config) validateBasics() error {
 		if !oneOf(hook.Event, "before_tool", "after_tool", "run_end") {
 			return fmt.Errorf("hooks[%d].event: must be before_tool, after_tool, or run_end", i)
 		}
-		if hook.Event != "run_end" && hook.Tool != "" && hook.Tool != "*" && !slices.Contains(append(FullToolset(), "chat_history"), hook.Tool) {
+		if hook.Event != "run_end" && hook.Tool != "" && hook.Tool != "*" && !slices.Contains(FullToolset(), hook.Tool) {
 			return fmt.Errorf("hooks[%d].tool: must be a tool name or *", i)
 		}
 		if strings.TrimSpace(hook.Command) == "" {

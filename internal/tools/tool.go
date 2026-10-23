@@ -143,7 +143,7 @@ func (r *Registry) Names(enabled map[string]bool) []string {
 // is a change and remains a full ordering barrier.
 func (r *Registry) Reads(name string, args map[string]any) bool {
 	switch name {
-	case "read_file", "list_dir", "search", "recall", "fetch_url", "web_search", "chat_history", "delegate":
+	case "read_file", "list_dir", "search", "recall", "fetch_url", "web_search", "delegate":
 		return true
 	case "call_service":
 		method, _ := args["method"].(string)

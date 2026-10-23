@@ -195,7 +195,7 @@ test("the release gate skips an equal hash and refuses an unreachable changed so
 test("each turn says whether it called recall, and the result counts recall after compaction 2wd", () => {
   const events = [budget(1, 950), { seq: 2, type: "compaction", run_id: "r1", data: { kind: "prune" } }, request(3), response(4, 400), { seq: 5, type: "tool.call", run_id: "r1", data: { name: "recall" } }, budget(6, 420), stopped(7)];
   const checked = assessRun("recall", events, task, "0001\n", 1, 1);
-  assert.deepEqual(checked.rows.map((row) => row.recall), [true, false]);
+  assert.deepEqual(checked.rows.map((row) => row.recall), [true]);
   assert.deepEqual({ kinds: checked.result.kinds, followed: checked.result.compactions_followed_by_recall }, { kinds: ["prune"], followed: 1 });
 });
 
@@ -211,7 +211,7 @@ test("a prune stubs its results in the rebuilt list and prune+fresh removes them
 test("a lowered line is read from the seq it changed at 2we", () => {
   const events = [budget(1, 800), request(2), response(3, 800), budget(4, 820), { seq: 5, type: "compaction", data: { kind: "prune+fresh" } }, request(6), response(7, 300), budget(8, 300), stopped(9)];
   const checked = assessRun("lowered", events, task, "", 0, 1, false, "", true, { lowered: { seq: 3, pct: .25 } });
-  assert.deepEqual(checked.rows.map(({ line, crossed }) => [line, crossed]), [[910, false], [325, true], [325, false]]);
+  assert.deepEqual(checked.rows.map(({ line, crossed }) => [line, crossed]), [[910, false], [325, true]]);
   assert.equal(checked.conditions[0].pass, true);
 });
 
@@ -252,4 +252,12 @@ test("a case plants its numbered files in the chat's own folder and reads notes.
     assert.match(await readFile(join(chat, "0002.txt"), "utf8"), /^0002\n/);
     await assert.rejects(prepareCase({ session: {} }, 1), /chat folder/);
   } finally { removeTreeWithinAllowedRoots(root, [tmpdir()], "proof case test cleanup"); }
+});
+
+test("a run's closing budget with no request after it is not a turn and is not scored 2wh", () => {
+  const ending = [budget(1, 500), request(2), response(3, 500), budget(4, 950), stopped(5)];
+  const closing = assessRun("closing", ending, task, "", 0, 0, false, "", true);
+  assert.deepEqual([closing.conditions[0].pass, closing.rows.length, closing.result.excluded_budget_rows], [true, 1, 1]);
+  const asked = assessRun("asked", [...ending.slice(0, 4), request(4.5), response(4.6, 950), stopped(5)], task, "", 0, 0, false, "", true);
+  assert.deepEqual([asked.conditions[0].pass, asked.rows.length, asked.result.excluded_budget_rows], [false, 2, 0]);
 });

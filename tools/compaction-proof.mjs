@@ -145,11 +145,13 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   const compactions = events.filter((event) => event.type === "compaction");
   const pct = (seq) => lowered && seq > lowered.seq ? lowered.pct : proofSummaryPct;
   const lines = notes.trimEnd().split(/\r?\n/);
-  const budgets = events.filter((event) => event.type === "budget" && event.data?.used_est > 0);
+  // 2wh (d): a run's closing total — a budget the run stops after with no request — is not a turn.
+  const measured = events.filter((event) => event.type === "budget" && event.data?.used_est > 0);
+  const budgets = measured.filter((one) => events.find((event) => event.seq > one.seq && (event.type === "model.request" || event.type === "run.stopped"))?.type !== "run.stopped");
   const rows = budgets.map((before, index) => {
     const end = budgets[index + 1]?.seq ?? Infinity, ran = compactions.filter((one) => one.seq > before.seq && one.seq < end);
     const response = ran.length ? events.find((one) => one.seq > ran.at(-1).seq && one.type === "model.response" && Number(one.data?.usage?.prompt_tokens) > 0) : undefined;
-    const after = response ? budgets.find((one) => one.seq > response.seq) : undefined;
+    const after = response ? measured.find((one) => one.seq > response.seq) : undefined;
     const prompt = Number(before.data.used_est), line = Math.ceil(fixed(before.data) + pct(before.seq) * (Number(before.data.ceiling) - fixed(before.data)));
     const recall = events.some((one) => one.type === "tool.call" && one.data?.name === "recall" && one.seq > before.seq && one.seq < end);
     const beforeUsed = Number(before.data.used_measured), afterUsed = Number(response?.data?.usage?.prompt_tokens);
@@ -198,7 +200,7 @@ export function assessRun(name, events, task, notes, fileCount, minimumCompactio
   }
   const measurements = compactions.map((compact) => { const row = around(compact); return { before: row?.before?.data?.used_measured, fixed_prompt_before: row && fixed(row.before.data), after: row?.response?.data?.usage?.prompt_tokens, fixed_prompt_after: row?.response && fixed(row.after?.data || row.before.data) }; });
   const followed = compactions.filter((compact) => events.some((one) => one.type === "tool.call" && one.data?.name === "recall" && one.seq > compact.seq && one.run_id === compact.run_id)).length;
-  return { result: { run: name, compactions: measurements, kinds: compactions.map((one) => one.data?.kind || ""), compactions_followed_by_recall: followed, recall_calls: events.filter((one) => one.type === "tool.call" && one.data?.name === "recall").length, ...(answer ? { needs_recall: answer } : {}), ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows, taskLocations, replies };
+  return { result: { run: name, compactions: measurements, excluded_budget_rows: measured.length - budgets.length, kinds: compactions.map((one) => one.data?.kind || ""), compactions_followed_by_recall: followed, recall_calls: events.filter((one) => one.type === "tool.call" && one.data?.name === "recall").length, ...(answer ? { needs_recall: answer } : {}), ended: stopped?.data?.reason || "without a stop", notes_lines: lines.filter(Boolean).length }, conditions, rows, taskLocations, replies };
 }
 export function verifyRun(name, events, task, notes, fileCount, minimumCompactions, driven = false) {
   const checked = assessRun(name, events, task, notes, fileCount, minimumCompactions, false, "", driven), failure = checked.conditions.find((one) => !one.pass);

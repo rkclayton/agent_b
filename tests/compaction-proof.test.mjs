@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, drivenStepPlan, journalMessages, measuredAllowance, recallAnswer, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, drivenStepPlan, journalMessages, notRun, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
@@ -154,8 +154,6 @@ test("the proof uses the measured start allowance and the active agent model 2ur
   assert.deepEqual(selected.record, { connection: "active profile agent_b role b", model: "chosen", window: 200000 });
   assert.equal(selected.agent.c, "");
   assert.equal(startupFailure(startupWaitMs, "agents[0].c: invalid"), "candidate page did not answer after 8.036 seconds; last log: agents[0].c: invalid");
-  assert.equal(measuredAllowance(1000, [500, 5000]), 60000);
-  assert.equal(measuredAllowance(1000, [500, 5000], 30), 360000);
 });
 
 test("every proof run uses the installed model window and one scaled workload 2vr", () => {
@@ -226,4 +224,18 @@ test("the needs-recall turn reports recall, the reply and the hand-off, and pass
   assert.equal(recallAnswer([...base, ...guessed], 8, "47113").pass, false);
   const checked = assessRun("needs-recall", [...base, ...guessed], task, "", 0, 1, false, "", true, { ask: { marker: 8, detail: "47113" } });
   assert.deepEqual([checked.conditions.at(-1).condition, checked.conditions.at(-1).pass], [6, false]);
+});
+
+test("a step's allowance is three times the longest completed step, between 120 and 900 seconds", () => {
+  assert.deepEqual([stepAllowance(0), stepAllowance(10000), stepAllowance(100000), stepAllowance(1000000)], [900000, 120000, 300000, 900000]);
+});
+
+test("a step over its allowance is not run, names the step, and keeps timing for the next case", async () => {
+  const timing = {};
+  await assert.rejects(waitForStep(async () => [], () => false, { step: 4, allowanceMs: 60, timing }), (error) => error.notRun === "not run — step 4 exceeded 0.06 s");
+  assert.equal(timing.longestStepMs, undefined);
+  await waitForStep(async () => [{ seq: 1 }], () => true, { step: 1, allowanceMs: 1000, timing, units: 2 });
+  assert.ok(timing.longestStepMs >= 0);
+  const row = notRun("typed-continue", "not run — step 4 exceeded 900 s");
+  assert.deepEqual([row.run, row.not_run, row.conditions[0].pass, row.conditions[0].message], ["typed-continue", "not run — step 4 exceeded 900 s", false, "not run — step 4 exceeded 900 s"]);
 });

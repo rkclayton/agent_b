@@ -18,7 +18,10 @@ const proofFiller = "fixture words preserve a long real-model context without ca
 const proofStep = `${proofTask}\n\n${proofFiller}`;
 const proofDetail = "47113";
 export const startupWaitMs = Math.ceil(5357 * 1.5);
-export const measuredAllowance = (startupMs, gaps = [], work = 1) => Math.ceil(Math.max(startupMs * Math.max(60, work * 12), ...gaps.map((gap) => gap * 12)));
+// A step's allowance is three times the longest step completed in this invocation, between
+// 120 and 900 seconds (planner, 2026-10-23); before any step completes it is the 900-second cap.
+export const stepAllowance = (longestMs = 0) => longestMs > 0 ? Math.min(900000, Math.max(120000, Math.ceil(longestMs * 3))) : 900000;
+export const notRun = (name, reason) => ({ run: name, not_run: reason, conditions: [{ condition: 0, pass: false, turn: 0, message: reason }] });
 export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
   const tokens = Math.ceil([...proofStep].length * 10 / 36);
   const line = Math.ceil(fixedPrompt + proofSummaryPct * (ceiling - fixedPrompt));
@@ -235,17 +238,20 @@ async function waitFor(check, label, timeout) {
   throw new Error(`${label} timed out`);
 }
 
-async function waitForActivity(read, done, label, startupMs, work) {
-  const gaps = []; let lastChange = Date.now(), lastSeq = -1, allowance = measuredAllowance(startupMs, gaps, work), deadline = lastChange + allowance;
+// waitForStep waits for one step, or for units steps when a wait covers several, against the
+// step allowance times units; a step over it is not run, and the proof moves to the next case.
+export async function waitForStep(read, done, { label = "", step = 1, units = 1, allowanceMs, timing }) {
+  const started = Date.now(), allowance = allowanceMs * units;
   for (;;) {
-    const values = await read(), now = Date.now(), seq = values.at(-1)?.seq || 0;
+    const values = await read();
     if (done(values)) {
-      process.stdout.write(`COMPACTION PROOF WAIT: ${label} allowance ${(allowance / 1000).toFixed(3)} seconds, measured from ${(startupMs / 1000).toFixed(3)}-second startup and same-run event gaps\n`);
+      timing.longestStepMs = Math.max(timing.longestStepMs || 0, (Date.now() - started) / units);
+      if (label) process.stdout.write(`COMPACTION PROOF WAIT: ${label} took ${((Date.now() - started) / 1000).toFixed(3)} of ${(allowance / 1000).toFixed(3)} seconds
+`);
       return values;
     }
-    if (seq !== lastSeq) { if (lastSeq >= 0) gaps.push(now - lastChange); lastSeq = seq; lastChange = now; allowance = measuredAllowance(startupMs, gaps, work); deadline = now + allowance; }
-    if (now >= deadline) throw new Error(`${label} timed out after measured ${(allowance / 1000).toFixed(3)}-second activity allowance`);
-    await sleep(250);
+    if (Date.now() - started >= allowance) throw Object.assign(new Error(`not run — step ${step} exceeded ${allowance / 1000} s`), { notRun: `not run — step ${step} exceeded ${allowance / 1000} s` });
+    await sleep(Math.min(250, allowance));
   }
 }
 
@@ -300,45 +306,46 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     assert.ok(eventsResponse.ok, "candidate event stream is unavailable");
     void eventsResponse.body?.pipeTo(new WritableStream()).catch(() => {});
     if (startOnly) { const state = await json(`${base}/api/state?session=proof-example`, { headers }); return { record: prepared.record, startupMs, stateExample: { sessions: Object.keys(state.sessions || {}).length } }; }
-    const activityBase = Math.max(timing.startupMs || 0, startupMs);
+    const wait = (done, label, step = 1, units = 1) => waitForStep(read, done, { label, step, units, allowanceMs: stepAllowance(timing.longestStepMs), timing });
+    let read;
     const rows = [];
     for (const spec of specs) {
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
       let runError, lowered = null, ask = null;
-      const read = () => eventsIn(prepared.data, id), last = async () => (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
+      read = () => eventsIn(prepared.data, id); const last = async () => (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
       const completedAfter = (after) => (events) => { const reply = events.find((one) => one.seq > after && one.type === "model.response"); return reply && events.some((one) => one.seq > reply.seq && one.type === "run.stopped"); };
       try {
         if (spec.lowered) {
           let marker = await last(); await send(`${prepared.task}
 
 ${proofFiller.repeat(spec.history)}`);
-          await waitForActivity(read, completedAfter(marker), `${spec.name} reading`, activityBase, spec.files);
+          await wait(completedAfter(marker), `${spec.name} reading`, 1, spec.files);
           lowered = { seq: await last(), pct: spec.lowered };
           await json(`${base}/api/config`, { method: "POST", headers, body: JSON.stringify({ context: { summary_pct: spec.lowered } }) });
           marker = await last(); await send(`${prepared.task}
 
 You have read them already in this chat; say how many numbered files there were.`);
-          await waitForActivity(read, completedAfter(marker), `${spec.name} lowered line`, activityBase, spec.files);
+          await wait(completedAfter(marker), `${spec.name} lowered line`, 2, spec.files);
         } else if (spec.name === "full") {
           await send(prepared.task);
-          await waitForActivity(read, (events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, activityBase, spec.files);
+          await wait((events) => events.some((one) => one.type === "run.stopped"), `${spec.name} completion`, 1, spec.files);
         } else {
           let steps = 1, marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || 0;
           await send(spec.plant ? `The fixture port for this chat is ${spec.plant}; I will ask for it later.
 
 ${prepared.step}` : prepared.step);
           if (spec.interrupt || spec.queue) {
-            await waitForActivity(read, (events) => events.filter((one) => one.seq > marker && one.type === "tool.result").length >= 3, `${spec.name} middle`, activityBase, spec.files);
+            await wait((events) => events.filter((one) => one.seq > marker && one.type === "tool.result").length >= 3, `${spec.name} middle`);
             if (spec.queue) { marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || marker; await send(prepared.step); steps++; }
             else {
               const stopAt = (await eventsIn(prepared.data, id)).at(-1)?.seq || marker;
               await json(`${base}/api/stop`, { method: "POST", headers, body: JSON.stringify({ session_id: id }) });
-              await waitForActivity(read, (events) => events.some((one) => one.seq > stopAt && one.type === "run.stopped"), `${spec.name} stop`, activityBase, spec.files);
+              await wait((events) => events.some((one) => one.seq > stopAt && one.type === "run.stopped"), `${spec.name} stop`);
               marker = (await eventsIn(prepared.data, id)).at(-1)?.seq || stopAt; await send(spec.continueText);
             }
           }
-          await waitForActivity(read, completedAfter(marker), `${spec.name} completion`, activityBase, spec.files);
+          await wait(completedAfter(marker), `${spec.name} completion`);
           let events = await eventsIn(prepared.data, id), first = events.find((one) => one.type === "budget" && one.data?.used_est > 0);
           const plan = drivenStepPlan(Number(first?.data?.ceiling || window), fixed(first?.data), spec.minimum); let maximum = plan.maximum, measured = false;
           const measure = () => { if (measured) return; const row = assessRun(spec.name, events, prepared.task, "", 0, spec.minimum, false, "", true).rows.find((one) => one.ran.length && one.response); if (row) { maximum = measuredStepMaximum(plan, spec.minimum, row.beforeChangeable, row.afterChangeable); measured = true; process.stdout.write(`COMPACTION PROOF STEPS MEASURED: ${spec.name} first=${plan.firstCrossing} cut=${row.beforeChangeable - row.afterChangeable} refill=${Math.ceil((row.beforeChangeable - row.afterChangeable) / plan.tokens)} minimum=${spec.minimum} plus=2 maximum=${maximum}\n`); } };
@@ -346,15 +353,23 @@ ${prepared.step}` : prepared.step);
           process.stdout.write(`COMPACTION PROOF STEPS: ${spec.name} fixed=${fixed(first?.data)} line=${Math.ceil(fixed(first?.data) + proofSummaryPct * (Number(first?.data?.ceiling || window) - fixed(first?.data)))} tokens=${plan.tokens} first=${plan.firstCrossing} maximum=${maximum}\n`);
           while (events.filter((one) => one.type === "compaction").length < spec.minimum && steps < maximum) {
             marker = events.at(-1)?.seq || 0; await send(prepared.step); steps++;
-            events = await waitForActivity(read, completedAfter(marker), `${spec.name} step ${steps}`, activityBase, spec.files);
+            events = await wait(completedAfter(marker), `${spec.name} step ${steps}`, steps);
             measure();
           }
           if (spec.plant) {
             ask = { marker: await last(), detail: spec.plant }; await send("What fixture port did I give you in my first message in this chat? Answer with the number.");
-            await waitForActivity(read, completedAfter(ask.marker), `${spec.name} ask`, activityBase, spec.files);
+            await wait(completedAfter(ask.marker), `${spec.name} ask`, steps + 1);
           }
         }
       } catch (error) { runError = error; }
+      if (runError?.notRun) {
+        process.stdout.write(`
+COMPACTION PROOF NOT RUN: ${spec.name} ${runError.notRun}
+`);
+        rows.push({ ...prepared.record, ...notRun(spec.name, runError.notRun) });
+        if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
+        continue;
+      }
       const events = await eventsIn(prepared.data, id);
       const checked = assessRun(spec.name, events, prepared.task, await readFile(join(prepared.workspace, "notes.md"), "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", { lowered, ask });
       rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });

@@ -473,7 +473,7 @@ async function main() {
   try {
     if (args.mode === "gate") { const current = await sourceHash(root), prior = JSON.parse(await readFile(record, "utf8").catch(() => "{}")); if (prior.source_hash === current) return void process.stdout.write("COMPACTION PROOF: source unchanged\n"); }
     if (args.mode === "start") { try { const sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b")), machine = JSON.parse(await readFile(join(sourceData, "harness.json"), "utf8")), active = machine.profiles.active, profile = JSON.parse(await readFile(join(sourceData, "profiles", active, "profile.json"), "utf8")), window = proofPlan(machine, profile).window; const result = await dryStart({ app: resolve(args.app), sourceData, window }); return void process.stdout.write(`COMPACTION PROOF START: passed window=${result.record.window} state_sessions=${result.stateExample.sessions}\n`); } catch (error) { process.stderr.write(`COMPACTION PROOF START: failed: ${String(error.message).replace(/[\r\n]+/g, " ")}\n`); process.exitCode = 1; return; } }
-    const only = args.case || args.only || "", sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA, "Agent_b"));
+    const only = args.case || args.only || "", sourceData = resolve(args["source-data"] || join(process.env.LOCALAPPDATA || "", "Agent_b"));
     if (args.real) {
       try {
         if (args.mode === "gate") throw new Error("--real is a measurement and never the gate");

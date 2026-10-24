@@ -202,7 +202,11 @@ function Copy-TrackedTree {
 # here, and every install below takes the exe and manifest it wrote.
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ($UseExistingSignedCandidate) {
-    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $repositoryRoot -SignForTest
+    # Item 2wk: an existing candidate is checked against its own identity, not the checkout's HEAD,
+    # which moves on after a release (the record commit, the next block's work).
+    $existingIdentity = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') | ConvertFrom-Json
+    $existingDirty = ([string]([bool]$existingIdentity.dirty)).ToLowerInvariant()
+    & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $repositoryRoot -Commit ([string]$existingIdentity.commit) -Dirty $existingDirty -SignForTest
 } else {
     & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $repositoryRoot -SignForTest
 }

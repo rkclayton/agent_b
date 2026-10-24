@@ -173,7 +173,7 @@ func TestCanonicalTerminalReasonsAreClosed(t *testing.T) {
 		// fault, and calling it one sends somebody looking for a bug that is not
 		// there. The four that fell through now have words of their own.
 		"cycle": "cycle", "mailbox_stop": "stopped-by-mailbox",
-		"reply_empty": "reply-empty", "connection_not_runnable": "connection-not-runnable",
+		"reply_empty": "reply-empty", "connection_not_runnable": "connection-not-runnable", "workspace_not_runnable": "workspace-not-runnable",
 		// And the reason rel-1.20.0/W1 found live and undeclared.
 		"malformed_turn": "model-error",
 	}

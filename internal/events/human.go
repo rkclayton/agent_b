@@ -71,6 +71,9 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 		if reason == "done" {
 			return HumanNotice{Happened: "The run finished.", HarnessAction: "The harness kept the completed work in this chat."}
 		}
+		if reason == "workspace not runnable" {
+			return HumanNotice{Happened: "The run did not start because this chat's folder cannot be used.", HarnessAction: "The harness sent nothing to the model; the stop line names the folder."}
+		}
 		return HumanNotice{
 			Happened:      fmt.Sprintf("The run stopped because of %s.", reason),
 			HarnessAction: "The harness kept completed work and did not start another action.",

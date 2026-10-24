@@ -788,6 +788,8 @@ func canonicalTerminalReason(reason string) string {
 		return "reply-empty"
 	case "connection_not_runnable":
 		return "connection-not-runnable"
+	case "workspace_not_runnable":
+		return "workspace-not-runnable"
 	default:
 		return "harness-error"
 	}

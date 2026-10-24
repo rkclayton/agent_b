@@ -299,7 +299,8 @@ function createShell(options = {}) {
     }
     const openFolders = new Set([...chatList.querySelectorAll(".chat-list-folder[open]")].map((folder) => folder.dataset.folder));
     const arranged = arrangeChats(store.sessions, chatTree);
-    const pulseDelay = `-${performance.now() % 1000}ms`;
+    // 2wn: every render recreates the rows' pulses, so each takes its phase from the clock modulo the whole cycle, chat.css's 2.4 s alternate twice.
+    const pulseDelay = `-${performance.now() % 4800}ms`;
     chatList.replaceChildren();
     listTop = node("div", "chat-list-top-row"); listTop.append(listActions, newFolderButton); chatList.append(listTop);
     const act = async (body, state = false) => {

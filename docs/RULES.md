@@ -17,6 +17,7 @@ This page describes the build of 2026-10-16.
 | User stop | The user stops the active run. | `user_stop` | always | built-in |
 | **Your folders and files** |  |  |  |  |
 | Tool failures | The run ends after tool failures prevent useful progress. | `tool_errors` | always | built-in |
+| Folder unavailable | The run ends before its first turn because the chat's folder is missing, is not a folder, or, for a scratch chat, cannot be created. | `workspace_not_runnable` | the chat's folder | built-in |
 | **The model's context** |  |  |  |  |
 | Context ceiling | The next model request cannot fit the usable context. | `context_ceiling` | connection context | built-in |
 | Context exhausted | The server reports that its context is exhausted. | `context_exhausted` | connection context | built-in |

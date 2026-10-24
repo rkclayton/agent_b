@@ -146,7 +146,7 @@ const (
 )
 
 var Stages = []string{"assemble", "call_model", "parse", "dispatch", "execute", "append", "compact", "wait_user"}
-var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "cron_timeout", "wall_clock", "cycle", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable", "malformed_turn"}
+var StopReasons = []string{"done", "reply_empty_reasoning_shown", "reply_empty", "announced_action_and_stopped", "aborted_mid_model", "aborted_mid_tool", "aborted_mid_run", "mailbox_stop", "cron_timeout", "wall_clock", "cycle", "context_ceiling", "context_exhausted", "length", "model_error", "model_unreachable", "connection_not_runnable", "workspace_not_runnable", "malformed_turn"}
 
 // every stop reason a run can produce is one the product names.
 //

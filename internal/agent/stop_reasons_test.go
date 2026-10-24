@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,16 +26,8 @@ func TestEveryReasonThisPackageCanEmitIsDeclared2lw(t *testing.T) {
 	if len(emitted) < 8 {
 		t.Fatalf("only %d reasons read out of the source; the scan has stopped finding them: %v", len(emitted), emitted)
 	}
-	// Item 2wm found this one when the scan began reading x.stop calls: emitted at the run's
-	// start when the chat's folder is unusable, never declared. Declaring it changes what
-	// run.stopped reports, which that item could not do; it is named here until an item does.
-	knownUndeclared := map[string]string{"workspace_not_runnable": "emitted by start(), not in events.StopReasons"}
 	for _, reason := range emitted {
 		if events.DeclaredStopReason(reason) {
-			continue
-		}
-		if why, known := knownUndeclared[reason]; known {
-			t.Logf("KNOWN UNDECLARED %q: %s", reason, why)
 			continue
 		}
 		if why, historical := events.HistoricalStopReasons[reason]; historical {
@@ -159,4 +152,25 @@ func emittedStopReasons(t *testing.T) []string {
 		}
 	}
 	return out
+}
+
+// Item 2wn: a run whose folder is gone ends declared, with the words its RULES row gives.
+func TestAMissingFolderEndsDeclared2wn(t *testing.T) {
+	_, _, item, scheduler := schedulerFixture(t, "http://127.0.0.1:1")
+	item.Workspace = filepath.Join(t.TempDir(), "gone")
+	seen, unsubscribe := scheduler.bus.Subscribe()
+	defer unsubscribe()
+	if _, err := scheduler.Submit(context.Background(), item.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	for event := range seen {
+		if data, ok := event.Data.(map[string]any); ok && event.Type == events.RunStopped {
+			human, _ := data["human"].(events.HumanNotice)
+			if data["reason"] != "workspace_not_runnable" || data["stop_reason_declared"] != nil || !strings.Contains(human.Happened, "folder cannot be used") {
+				t.Fatalf("run.stopped = %+v", data)
+			}
+			t.Logf("stopped %q, declared, %q · %v", data["reason"], human.Happened, data["detail"])
+			return
+		}
+	}
 }

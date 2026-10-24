@@ -4,9 +4,10 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assessRun, drivenStepPlan, proofCases, stubConnection, stubOptions, stubStepMs, stubWindow, journalMessages, notRun, prepareCase, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
+import { assessRun, caseEnding, drivenStepPlan, proofCases, stubConnection, stubOptions, stubStepMs, stubWindow, journalMessages, notRun, prepareCase, recallAnswer, stepAllowance, waitForStep, measuredStepMaximum, proofPlan, proofSelection, retainJournals, runEnding, sourceHash, startupFailure, startupWaitMs, uniqueEvents, verifyRun } from "../tools/compaction-proof.mjs";
 import { removeTreeWithinAllowedRoots } from "../tools/removal-guard.mjs";
 import { promptTokens, startStubModel, stubHandOff, stubTurn } from "../tools/stub-model.mjs";
+import { recordRefusal } from "../tools/tag-release.mjs";
 
 const task = "Read every numbered text file in this folder in filename order. After each read, append that file's first line to notes.md. Finish by saying how many numbered files there were.";
 const budget = (seq, usedEst, usedMeasured = usedEst) => ({ seq, type: "budget", data: { used_est: usedEst, used_measured: usedMeasured, ceiling: 1000, categories: { system: 100 } } });
@@ -339,4 +340,25 @@ test("the real-model proof is scheduled as a one-shot task outside 08:00-17:00 a
     assert.notEqual(spawnSync("schtasks", ["/Query", "/TN", name], { encoding: "utf8", windowsHide: true }).status, 0, "the test task is removed");
     removeTreeWithinAllowedRoots(root, [tmpdir()], "real schedule test cleanup");
   }
+});
+
+test("a tag is refused unless the committed record proves the tree's compaction source 2wj", () => {
+  assert.match(recordRefusal(null, "a".repeat(64)), /no committed tests\/compaction-proof\.json/);
+  assert.match(recordRefusal({ source_hash: "b".repeat(64) }, "a".repeat(64)), /proves bbbbbbbbbbbb, not aaaaaaaaaaaa/);
+  assert.equal(recordRefusal({ source_hash: "a".repeat(64) }, "a".repeat(64)), "");
+});
+
+test("in --real a step past the cap is logged and the wait goes on to the case's allowance 2wj", async () => {
+  const lines = [], started = Date.now();
+  const values = await waitForStep(async () => Date.now() - started > 300 ? ["done"] : [], (one) => one.length, { label: "slow", step: 2, allowanceMs: 50, timing: {}, real: true, log: (line) => lines.push(line) });
+  assert.deepEqual(values, ["done"]);
+  assert.equal(lines.filter((line) => /^COMPACTION PROOF WAIT: slow step 2 over cap at \d+\.\d{3} s, continuing$/.test(line.trim())).length, 1);
+  await assert.rejects(waitForStep(async () => [], () => false, { step: 3, allowanceMs: 20, timing: {}, real: true, caseDeadline: Date.now() + 120, log: () => {} }), (error) => /^not run — case exceeded its completion allowance at step 3/.test(error.notRun));
+  await assert.rejects(waitForStep(async () => [], () => false, { step: 1, allowanceMs: 20, timing: {} }), (error) => /^not run — step 1 exceeded/.test(error.notRun), "the gate's cap still ends the case");
+});
+
+test("every case says how it ended before its table: done, not run, or a fault 2wj", () => {
+  assert.equal(caseEnding(), "done");
+  assert.equal(caseEnding(Object.assign(new Error("x"), { notRun: "not run — step 2 exceeded 9 s" })), "not run — step 2 exceeded 9 s");
+  assert.equal(caseEnding(new Error("proof request 500")), "fault: proof request 500");
 });

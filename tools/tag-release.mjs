@@ -25,6 +25,14 @@ export function tagRefusal(tag, identity) {
   return "";
 }
 
+// Item 2wj: the stand-in proof's record is committed before the tag, so the tagged commit carries
+// it and the deploy's gate on the signed candidate must prove the same internal/context/ source.
+export function recordRefusal(record, current) {
+  if (!record?.source_hash) return "no committed tests/compaction-proof.json; run the stand-in proof on a build of this tree and commit its record";
+  if (record.source_hash !== current) return `the committed compaction record proves ${record.source_hash.slice(0, 12)}, not ${current.slice(0, 12)}`;
+  return "";
+}
+
 export function telemetryVectors(root = repo) {
   const document = fs.readFileSync(path.join(root, "docs", "telemetry-trace.md"), "utf8");
   return [...document.matchAll(/```json vector:[^\r\n]+\r?\n([\s\S]*?)```/g)]
@@ -76,6 +84,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   const tag = process.argv[2] || "";
   const git = (...args) => execFileSync("git", ["-C", repo, ...args]).toString().trim();
   let refusal = tagRefusal(tag, releaseIdentity());
+  if (!refusal) {
+    const { sourceHash } = await import("./compaction-proof.mjs");
+    let record = null; try { record = JSON.parse(fs.readFileSync(path.join(repo, "tests", "compaction-proof.json"), "utf8")); } catch {}
+    refusal = recordRefusal(record, await sourceHash(repo));
+  }
   if (!refusal) {
     try {
       const terms = loadTerms(resolveOutsideList());

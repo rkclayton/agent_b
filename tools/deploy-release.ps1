@@ -112,8 +112,13 @@ if ($CompactionProofOperatorSkip) {
 } else {
     # Item 2wi: the gate is the stand-in model proof, seconds on no GPU; the real model is never
     # contacted here. The real-model run is a scheduled measurement (tools\schedule-real-proof.ps1).
-    & node (Join-Path $repository 'tools\compaction-proof.mjs') --mode gate --source $repository --record (Join-Path $repository 'tests\compaction-proof.json') --app (Join-Path $candidate 'Agent_b.exe')
+    # Item 2wj: tests\compaction-proof.json is committed before the tag (tools\tag-release.mjs refuses
+    # without it), so the gate writes its own record beside the candidate and must prove the same source.
+    $candidateRecord = Join-Path $candidate 'compaction-proof.json'
+    & node (Join-Path $repository 'tools\compaction-proof.mjs') --mode gate --source $repository --record (Join-Path $candidate 'compaction-proof.json') --app (Join-Path $candidate 'Agent_b.exe')
     if ($LASTEXITCODE -ne 0) { throw 'BUILT, NOT RELEASED: compaction is not proved' }
+    $committedHash = (Get-Content -Raw -LiteralPath (Join-Path $repository 'tests\compaction-proof.json') | ConvertFrom-Json).source_hash
+    if ((Get-Content -Raw -LiteralPath $candidateRecord | ConvertFrom-Json).source_hash -cne $committedHash) { throw 'BUILT, NOT RELEASED: the committed compaction record does not prove this source' }
 }
 Complete-ReleaseStep 'compaction-proof'
 

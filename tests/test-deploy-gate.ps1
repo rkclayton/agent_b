@@ -18,6 +18,9 @@ foreach ($required in @('tools\compaction-proof.mjs', 'tests\compaction-proof.js
 }
 $proofCall = [regex]::Match($deploy, "(?m)^.*'tools\\compaction-proof\.mjs'.*$").Value
 if ($proofCall -notmatch '--mode gate' -or $proofCall -match '--real') { throw "Deploy's compaction step must run the stand-in gate and never --real: $proofCall" }
+# Item 2wj: the record is committed before the tag, so the gate writes its own record beside the
+# candidate and holds the release unless it proves the same source as the committed one.
+if ($proofCall -notmatch '--record \(Join-Path \$candidate ' -or $deploy -notmatch [regex]::Escape('BUILT, NOT RELEASED: the committed compaction record')) { throw "Deploy's gate must write its record beside the candidate and check the committed one: $proofCall" }
 foreach ($required in @('CompactionProofOperatorSkip', 'set aside on his word, 2026-10-14 15:37', 'fix the problem then release this one and proceed, on his word, 2026-10-19 14:23', 'ok release it so we can proceed with the rest of work, on his word, 2026-10-22 22:30', 'COMPACTION PROOF:')) {
     if ($deploy -notmatch [regex]::Escape($required)) { throw "Deploy is missing the named operator proof skip: $required" }
 }
@@ -30,7 +33,7 @@ $stage = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptR
 $candidateState = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
 $installerMatrix = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'test-installer.ps1')
 $apart = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\run-apart.ps1')
-foreach ($required in @('clock-timed-tests', 'long-packaged-chat-run', 'installer-matrix', 'TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc', 'TestWatchCoalescesBurstAndStillNoticesOneChange', 'TestCallServiceExecCredentialSuccessBearerAndCacheExpiry', 'TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt', 'test-chat-journeys.ps1', 'test-installer.ps1', 'Invoke-WithReleaseCandidate', 'candidate-final.json', 'ToArray()', 'ConvertTo-Json')) {
+foreach ($required in @('clock-timed-tests', 'long-packaged-chat-run', 'installer-matrix', 'TestSixtyFourChatStartupReadsSmallStateWithinTwoSeconds2qc', 'TestWatchCoalescesBurstAndStillNoticesOneChange', 'TestCallServiceExecCredentialSuccessBearerAndCacheExpiry', 'TestAttachmentStorageSearchDoesNotGrowWithStoredAttachments2pt', 'test-chat-journeys.ps1', 'test-installer.ps1', 'Invoke-WithReleaseCandidate', 'candidate-final.json', 'ToArray()', 'ConvertTo-Json', 'merge-base --is-ancestor', 'tests/compaction-proof.json')) {
     if ($apart -notmatch [regex]::Escape($required)) { throw "The apart command is missing $required." }
 }
 foreach ($required in @('$previousPreference', "`$ErrorActionPreference = 'Continue'", '$exitCode = $LASTEXITCODE')) {

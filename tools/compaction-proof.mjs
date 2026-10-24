@@ -24,6 +24,9 @@ export const startupWaitMs = Math.ceil(5357 * 1.5);
 export const stepAllowance = (longestMs = 0) => longestMs > 0 ? Math.min(1800000, Math.max(600000, Math.ceil(longestMs * 3))) : 1800000;
 // Against the stand-in a step answers in under a second; one that takes a minute is a harness fault.
 export const stubStepMs = 60000;
+// A real-model case's completion allowance: three hours, half the scheduled task's six.
+export const realCaseMs = 3 * 3600 * 1000;
+export const caseEnding = (error) => !error ? "done" : error.notRun || `fault: ${error.message}`;
 export const notRun = (name, reason) => ({ run: name, not_run: reason, conditions: [{ condition: 0, pass: false, turn: 0, message: reason }] });
 export function drivenStepPlan(ceiling, fixedPrompt, minimum) {
   const tokens = Math.ceil([...proofStep].length * 10 / 36);
@@ -268,17 +271,22 @@ async function waitFor(check, label, timeout) {
 // step allowance times units; a step over it is not run, and the proof moves to the next case.
 // Only a wait that counts — one driven user message from its send to its final reply — sets
 // the longest step; a partial wait (results in, a stop landed) never does.
-export async function waitForStep(read, done, { label = "", step = 1, units = 1, allowanceMs, timing, counts = false }) {
+// 2wj: in --real a step past the cap is logged once and the wait goes on to the case's own
+// completion allowance; the cap still ends the case in --mode gate.
+export async function waitForStep(read, done, { label = "", step = 1, units = 1, allowanceMs, timing, counts = false, real = false, caseDeadline = Infinity, log = (line) => process.stdout.write(line) }) {
   const started = Date.now(), allowance = allowanceMs * units;
-  for (;;) {
+  for (let over = false; ;) {
     const values = await read();
     if (done(values)) {
       if (counts) timing.longestStepMs = Math.max(timing.longestStepMs || 0, Date.now() - started);
-      if (label) process.stdout.write(`COMPACTION PROOF WAIT: ${label} took ${((Date.now() - started) / 1000).toFixed(3)} of ${(allowance / 1000).toFixed(3)} seconds
+      if (label) log(`COMPACTION PROOF WAIT: ${label} took ${((Date.now() - started) / 1000).toFixed(3)} of ${(allowance / 1000).toFixed(3)} seconds
 `);
       return values;
     }
-    if (Date.now() - started >= allowance) throw Object.assign(new Error(`not run — step ${step} exceeded ${allowance / 1000} s`), { notRun: `not run — step ${step} exceeded ${allowance / 1000} s` });
+    const elapsed = Date.now() - started, ended = real && Date.now() >= caseDeadline ? `not run — case exceeded its completion allowance at step ${step}` : !real && elapsed >= allowance ? `not run — step ${step} exceeded ${allowance / 1000} s` : "";
+    if (ended) throw Object.assign(new Error(ended), { notRun: ended });
+    if (real && !over && elapsed >= allowance) { over = true; log(`COMPACTION PROOF WAIT: ${label} step ${step} over cap at ${(elapsed / 1000).toFixed(3)} s, continuing
+`); }
     await sleep(Math.min(250, allowance));
   }
 }
@@ -350,10 +358,12 @@ async function runGroup(app, sourceData, window, specs, startOnly = false, timin
     assert.ok(eventsResponse.ok, "candidate event stream is unavailable");
     void eventsResponse.body?.pipeTo(new WritableStream()).catch(() => {});
     if (startOnly) { const state = await json(`${base}/api/state?session=proof-example`, { headers }); return { record: prepared.record, startupMs, stateExample: { sessions: Object.keys(state.sessions || {}).length } }; }
-    const wait = (done, label, step = 1, units = 1, counts = false) => waitForStep(read, done, { label, step, units, counts, allowanceMs: stub ? stubStepMs : stepAllowance(timing.longestStepMs), timing });
+    let caseDeadline = Infinity;
+    const wait = (done, label, step = 1, units = 1, counts = false) => waitForStep(read, done, { label, step, units, counts, allowanceMs: stub ? stubStepMs : stepAllowance(timing.longestStepMs), timing, real: !stub, caseDeadline });
     let read;
     const rows = [];
     for (const spec of specs) {
+      caseDeadline = Date.now() + realCaseMs;
       const created = await json(`${base}/api/sessions`, { method: "POST", headers, body: JSON.stringify({ agent_id: "agent_b" }) });
       const planted = await prepareCase(created, spec.files);
       const id = created.session.id, send = (text) => json(`${base}/api/message`, { method: "POST", headers, body: JSON.stringify({ session_id: id, text }) });
@@ -407,7 +417,7 @@ ${prepared.step}` : prepared.step);
           }
         }
       } catch (error) { runError = error; }
-      if (runError?.notRun) {
+      if (runError?.notRun && stub) {
         process.stdout.write(`
 COMPACTION PROOF NOT RUN: ${spec.name} ${runError.notRun}
 `);
@@ -416,10 +426,13 @@ COMPACTION PROOF NOT RUN: ${spec.name} ${runError.notRun}
         continue;
       }
       const events = await eventsIn(prepared.data, id);
+      process.stdout.write(`
+COMPACTION PROOF CASE: ${spec.name} ${caseEnding(runError)}
+`);
       const checked = assessRun(spec.name, events, prepared.task, await readFile(planted.notes, "utf8").catch((error) => error.code === "ENOENT" ? "" : Promise.reject(error)), spec.files, spec.minimum, true, runEnding(events, runError), spec.name !== "full", { lowered, ask });
-      rows.push({ ...prepared.record, ...checked.result, conditions: checked.conditions });
+      rows.push({ ...prepared.record, ...checked.result, conditions: runError ? [...notRun(spec.name, caseEnding(runError)).conditions, ...checked.conditions] : checked.conditions });
       if (evidenceRoot) await retainJournals(prepared.data, evidenceRoot, spec.name, prepared.redactions);
-      if (runError) throw runError;
+      if (runError && stub) throw runError;
     }
     return rows;
   } finally {

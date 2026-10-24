@@ -14,6 +14,13 @@ if ([string]::IsNullOrWhiteSpace($ResultPath)) { $ResultPath = Join-Path $reposi
 $results = New-Object System.Collections.Generic.List[object]
 $releaseCandidate = Join-Path (Join-Path $repository 'candidates') $Tag
 $candidateState = Get-Content -Raw -LiteralPath (Join-Path $releaseCandidate 'candidate-final.json') | ConvertFrom-Json
+# Item 2wj: a release cut before the record was committed ahead of its tag is followed by the record
+# commit alone; HEAD descended from the candidate's commit by nothing but that record is its source.
+if ([string]$candidateState.commit -cne $commit -and [string]$candidateState.commit -match '^[0-9a-f]{40}$') {
+    & git -C $repository merge-base --is-ancestor $candidateState.commit $commit
+    $recordOnly = $LASTEXITCODE -eq 0 -and ((@(& git -C $repository diff --name-only $candidateState.commit $commit) -join '|') -ceq 'tests/compaction-proof.json')
+    if ($recordOnly) { $commit = [string]$candidateState.commit }
+}
 if ([string]$candidateState.tag -cne $Tag -or [string]$candidateState.commit -cne $commit) {
     throw "APART REFUSED: $releaseCandidate is not the $Tag candidate for $commit."
 }

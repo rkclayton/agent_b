@@ -134,49 +134,11 @@ type runOutcome struct {
 var runGoOnOutcome = runOutcome{}
 var runAgainOutcome = runOutcome{again: true}
 
-func stopWorkspaceNotRunnable(detail string, count int) (string, string, int) {
-	return "workspace_not_runnable", detail, count
-}
-
-func stopMailboxStop(detail string, turn int) (string, string, int) {
-	return "mailbox_stop", detail, turn
-}
-
-func stopConnectionNotRunnable(detail string, turn int) (string, string, int) {
-	return "connection_not_runnable", detail, turn
-}
-
-func stopDone(detail string, turn int) (string, string, int) {
-	return "done", detail, turn
-}
-
-func stopModelUnreachable(detail string, turn int) (string, string, int) {
-	return "model_unreachable", detail, turn
-}
-
-func stopModelError(detail string, turn int) (string, string, int) {
-	return "model_error", detail, turn
-}
-
-func stopContextExhausted(detail string, turn int) (string, string, int) {
-	return "context_exhausted", detail, turn
-}
-
-func stopContextCeiling(detail string, turn int) (string, string, int) {
-	return "context_ceiling", detail, turn
-}
-
-func stopLength(detail string, turn int) (string, string, int) {
-	return "length", detail, turn
-}
-
-func stopMalformedTurn(detail string, turn int) (string, string, int) {
-	return "malformed_turn", detail, turn
-}
-
-func stopCycle(detail string, turn int) (string, string, int) {
-	return "cycle", detail, turn
-}
+// runStopReasons are the reasons this package's x.stop calls name (item 2wm). The stop-reason
+// test reads them here and refuses an x.stop("…") whose reason is not in the table. Reasons
+// that arrive computed — wall_clock and the aborted_mid_ ones from contextStop, the reply_empty
+// ones, announced_action_and_stopped — the test reads from their own returns.
+var runStopReasons = []string{"workspace_not_runnable", "mailbox_stop", "connection_not_runnable", "done", "model_unreachable", "model_error", "context_exhausted", "length", "malformed_turn", "cycle"}
 
 func (x *runState) stop(reason, detail string, turns int) runOutcome {
 	return runOutcome{stop: true, reason: reason, detail: detail, turns: turns}

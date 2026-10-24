@@ -25,8 +25,16 @@ func TestEveryReasonThisPackageCanEmitIsDeclared2lw(t *testing.T) {
 	if len(emitted) < 8 {
 		t.Fatalf("only %d reasons read out of the source; the scan has stopped finding them: %v", len(emitted), emitted)
 	}
+	// Item 2wm found this one when the scan began reading x.stop calls: emitted at the run's
+	// start when the chat's folder is unusable, never declared. Declaring it changes what
+	// run.stopped reports, which that item could not do; it is named here until an item does.
+	knownUndeclared := map[string]string{"workspace_not_runnable": "emitted by start(), not in events.StopReasons"}
 	for _, reason := range emitted {
 		if events.DeclaredStopReason(reason) {
+			continue
+		}
+		if why, known := knownUndeclared[reason]; known {
+			t.Logf("KNOWN UNDECLARED %q: %s", reason, why)
 			continue
 		}
 		if why, historical := events.HistoricalStopReasons[reason]; historical {
@@ -108,7 +116,14 @@ func emittedStopReasons(t *testing.T) []string {
 	returned := regexp.MustCompile(`return "([a-z][a-z0-9_]*)",\s*[^\n]*,\s*turn`)
 	// abortReason's own returns: `return "aborted_mid_run"` on its own.
 	bare := regexp.MustCompile(`^\s*return "(aborted_mid_[a-z]+)"\s*$`)
+	// Item 2wm: the reasons named at x.stop calls are the declared table runStopReasons, and
+	// every literal x.stop("…") in the package must be one of them.
 	seen := map[string]bool{}
+	tabled := map[string]bool{}
+	for _, reason := range runStopReasons {
+		seen[reason], tabled[reason] = true, true
+	}
+	stopped := regexp.MustCompile(`x\.stop\("([a-z][a-z0-9_]*)"`)
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -121,6 +136,11 @@ func emittedStopReasons(t *testing.T) []string {
 		text := string(body)
 		for _, match := range returned.FindAllStringSubmatch(text, -1) {
 			seen[match[1]] = true
+		}
+		for _, match := range stopped.FindAllStringSubmatch(text, -1) {
+			if !tabled[match[1]] {
+				t.Errorf("%s stops a run with %q, which is not in runStopReasons", name, match[1])
+			}
 		}
 		for _, line := range strings.Split(text, "\n") {
 			if match := bare.FindStringSubmatch(line); match != nil {

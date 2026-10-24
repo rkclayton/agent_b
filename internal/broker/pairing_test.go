@@ -127,7 +127,7 @@ func TestPairingCompletesAndTheOperatorCanRefuse2kq(t *testing.T) {
 					t.Error("the agent sent the pairing code itself")
 				}
 				frames <- Frame{Type: FramePairWaiting, Payload: mustEncodePayload(t, pairWaitingPayload{ExpiresAt: "2026-09-29T00:10:00Z"})}
-				frames <- Frame{Type: FramePairPeer, Payload: mustEncodePayload(t, pairPeerPayload{
+				frames <- Frame{Type: FramePairPeer, Payload: mustEncodePayload(t, PairPeerPayload{
 					PairingID: hex.EncodeToString(pairingID),
 					PeerKeyID: hex.EncodeToString(device.KeyID()),
 					Ed25519:   base64.RawURLEncoding.EncodeToString(device.SigningPublic()),
@@ -209,7 +209,7 @@ func TestAPeerKeyIDThatDoesNotMatchItsKeysIsRefused2kq(t *testing.T) {
 	go func() {
 		_ = transport.next(t)
 		wrong := append([]byte(nil), agent.KeyID()...)
-		frames <- Frame{Type: FramePairPeer, Payload: mustEncodePayload(t, pairPeerPayload{
+		frames <- Frame{Type: FramePairPeer, Payload: mustEncodePayload(t, PairPeerPayload{
 			PairingID: hex.EncodeToString(pairingID),
 			PeerKeyID: hex.EncodeToString(wrong),
 			Ed25519:   base64.RawURLEncoding.EncodeToString(device.SigningPublic()),

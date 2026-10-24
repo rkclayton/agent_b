@@ -47,7 +47,7 @@ func TestThePublicBrokerAnswersHello2nu(t *testing.T) {
 		// not_paired / "identity unavailable", fatal. That is the protocol's own answer
 		// and it is the proof this line wanted — the address is reachable and speaks v2 —
 		// without pairing anything, which the verify line forbids.
-		var problem errorPayload
+		var problem ErrorPayload
 		if err := DecodeInto(frame.Payload, &problem); err != nil {
 			t.Fatal(err)
 		}

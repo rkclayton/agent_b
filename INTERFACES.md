@@ -731,6 +731,10 @@ scope or token; operator-only `POST /api/credentials` adds/removes a key, adds a
 Both require the operator page's session cookie and mutation token, and both refuse a phone-authenticated request. Services default to an empty object.
 `broker.url` defaults to the address built into the build and is not a setting: it is absent from `/api/broker/status` and from Settings,
 so the page neither shows nor edits it; a `broker.url` written into the file still wins, for tests and for anyone running their own broker.
+`internal/broker` has two clients of the one wire: `Client`, the agent role this app runs, and `DeviceClient`, the device role a phone's core
+imports (`Pair`, `Connect`, `Send`, `Counters`, `Close`), with the payload types and `KeyIDFor` exported so no other repository copies them.
+The live transport has one writer per connection, paced to `SendFrameRate` (200 frames a second, under the broker's 240); ACK and PONG go first,
+so whoever reads the link never waits on a write, and Send waits only when the bounded queue is full.
 Other configuration remains additive under schema 15; omitted policy lists receive defaults while explicit empty lists clear them.
 Agent profiles are `agents[].{name,prompt,toolset,private,c,d}`; a connection optionally names one with `agent_profile`, where empty means `agent_b`.
 `operator_context` always saves false and starts off, mailbox approval answers default off, and delivery defaults to `both` at `%USERPROFILE%\Agent_b`.

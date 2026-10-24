@@ -56,7 +56,7 @@ func TestLiveSyntheticDevicePairsFromTheLink2ns(t *testing.T) {
 	})
 
 	peerFrame := pairDevice.waitFor(t, FramePairPeer, 30*time.Second)
-	var peer pairPeerPayload
+	var peer PairPeerPayload
 	if err := DecodeInto(peerFrame.Payload, &peer); err != nil {
 		t.Fatal(err)
 	}

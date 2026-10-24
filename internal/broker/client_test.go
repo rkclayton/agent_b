@@ -169,7 +169,7 @@ func (b *scriptedBroker) peerHandshake(t *testing.T) {
 	if init.Type != FrameSessionInit {
 		t.Fatalf("expected SESSION_INIT, got 0x%02x", init.Type)
 	}
-	var initFrame sessionFrame
+	var initFrame SessionFrame
 	if err := DecodeInto(init.Payload, &initFrame); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func (b *scriptedBroker) peerHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.push(FrameSessionResp, sessionFrame{
+	b.push(FrameSessionResp, SessionFrame{
 		PairingID: initFrame.PairingID, HandshakeID: initFrame.HandshakeID,
 		SenderKeyID: hexID(b.device.KeyID()), RecipientID: hexID(b.agent.KeyID()),
 		Noise:     base64.RawURLEncoding.EncodeToString(messageTwo),
@@ -211,7 +211,7 @@ func (b *scriptedBroker) peerHandshake(t *testing.T) {
 	if finish.Type != FrameSessionFinish {
 		t.Fatalf("expected SESSION_FINISH, got 0x%02x", finish.Type)
 	}
-	var finishFrame sessionFrame
+	var finishFrame SessionFrame
 	if err := DecodeInto(finish.Payload, &finishFrame); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func (b *scriptedBroker) peerHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.push(FrameSessionReady, sessionFrame{
+	b.push(FrameSessionReady, SessionFrame{
 		PairingID: initFrame.PairingID, HandshakeID: initFrame.HandshakeID,
 		SenderKeyID: hexID(b.device.KeyID()), RecipientID: hexID(b.agent.KeyID()),
 		SessionID: responder.SessionID(), Confirmation: base64.RawURLEncoding.EncodeToString(ready),
@@ -258,7 +258,7 @@ func (b *scriptedBroker) sendToAgent(t *testing.T, messageID []byte, counter uin
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.push(FrameCiphertext, ciphertextFrame{
+	b.push(FrameCiphertext, CiphertextFrame{
 		PairingID: hexID(b.pairing.PairingID), SessionID: responder.SessionID(), MessageID: hexID(messageID),
 		SenderKeyID: hexID(b.device.KeyID()), RecipientKeyID: hexID(b.agent.KeyID()),
 		Epoch: 0, Counter: counter, PlaintextBytes: len(plaintext),
@@ -268,7 +268,7 @@ func (b *scriptedBroker) sendToAgent(t *testing.T, messageID []byte, counter uin
 
 func (b *scriptedBroker) openFromAgent(t *testing.T, frame Frame) string {
 	t.Helper()
-	var payload ciphertextFrame
+	var payload CiphertextFrame
 	if err := DecodeInto(frame.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -446,11 +446,11 @@ func TestUndeliverableOpeningWaitsForTheNextPeerWithoutReconnecting2t1(t *testin
 	if init.Type != FrameSessionInit {
 		t.Fatalf("expected SESSION_INIT, got 0x%02x", init.Type)
 	}
-	var opening sessionFrame
+	var opening SessionFrame
 	if err := DecodeInto(init.Payload, &opening); err != nil {
 		t.Fatal(err)
 	}
-	broker.push(FrameQueued, idOnlyFrame{MessageID: opening.HandshakeID, RecipientKeyID: hexID(device.KeyID())})
+	broker.push(FrameQueued, IDOnlyFrame{MessageID: opening.HandshakeID, RecipientKeyID: hexID(device.KeyID())})
 	deadline := time.Now().Add(time.Second)
 	for client.Status().State != "holding" && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -530,7 +530,7 @@ func TestPeerReplacementMakesFreshSessionAndResendsPendingOnce2t1(t *testing.T) 
 	if second := client.Status().SessionID; second == "" || second == firstSession {
 		t.Fatalf("replacement session id = %q after %q", second, firstSession)
 	}
-	standIn.push(FrameResend, idOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
+	standIn.push(FrameResend, IDOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
 	if frame := standIn.next(t); frame.Type != FrameCiphertext {
 		t.Fatalf("resend = 0x%02x", frame.Type)
 	} else if plaintext := standIn.openFromAgent(t, frame); plaintext != "before replacement" {
@@ -609,12 +609,12 @@ func TestResendEncryptsTheSameMessageUnderTheNewSession2kq(t *testing.T) {
 		t.Fatal("the sender did not retain the message until it was acknowledged")
 	}
 	// The broker asks for it again, which is what a disconnect before ACK produces.
-	broker.push(FrameResend, idOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
+	broker.push(FrameResend, IDOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
 	second := broker.next(t)
 	if second.Type != FrameCiphertext {
 		t.Fatalf("expected the resend, got 0x%02x", second.Type)
 	}
-	var one, two ciphertextFrame
+	var one, two CiphertextFrame
 	if err := DecodeInto(first.Payload, &one); err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +631,7 @@ func TestResendEncryptsTheSameMessageUnderTheNewSession2kq(t *testing.T) {
 		t.Fatal("the resend produced identical ciphertext")
 	}
 	// And an ACK clears it.
-	broker.push(FrameAck, idOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
+	broker.push(FrameAck, IDOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID)})
 	deadline := time.Now().Add(3 * time.Second)
 	for client.Pending() != 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -664,7 +664,7 @@ func TestResyncAfterABrokerRestartOffersWhatIsRetained2kq(t *testing.T) {
 			t.Fatalf("expected the message, got 0x%02x", frame.Type)
 		}
 		// The broker reports it queued: the device is offline.
-		broker.push(FrameQueued, idOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID), ExpiresAt: time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339)})
+		broker.push(FrameQueued, IDOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(messageID), ExpiresAt: time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339)})
 	}
 	if client.Pending() != 3 {
 		t.Fatalf("retained %d messages, want 3", client.Pending())
@@ -698,7 +698,7 @@ func TestCloseReplacedStopsRatherThanReconnecting2kq(t *testing.T) {
 	broker.handshake(t)
 	waitConnected(t, client)
 
-	broker.push(FrameError, errorPayload{Code: "connection_replaced", Detail: "a newer connection for this key", Fatal: true})
+	broker.push(FrameError, ErrorPayload{Code: "connection_replaced", Detail: "a newer connection for this key", Fatal: true})
 	select {
 	case err := <-done:
 		if err != nil {
@@ -738,7 +738,7 @@ func TestFatalRevokedStopsAndSaysNotPaired2rb(t *testing.T) {
 	if frame := standin.next(t); frame.Type != FrameHello {
 		t.Fatalf("first frame = 0x%02x", frame.Type)
 	}
-	standin.push(FrameError, errorPayload{Code: "revoked", Detail: "identity unavailable", Fatal: true})
+	standin.push(FrameError, ErrorPayload{Code: "revoked", Detail: "identity unavailable", Fatal: true})
 	select {
 	case err := <-done:
 		if err != nil {
@@ -765,7 +765,7 @@ func TestNonfatalHandshakeErrorKeepsBackoff2rb(t *testing.T) {
 	client.OnSessionEvent(func(event string) { events <- event })
 	go func() { _ = client.Run(ctx) }()
 	_ = standin.next(t)
-	standin.push(FrameError, errorPayload{Code: "busy", Detail: "try later", Fatal: false})
+	standin.push(FrameError, ErrorPayload{Code: "busy", Detail: "try later", Fatal: false})
 	for _, want := range []string{"ERROR code=busy detail=try later", "reconnect attempt backoff=1s"} {
 		if got := <-events; got != want {
 			t.Fatalf("event = %q, want %q", got, want)
@@ -823,7 +823,7 @@ func TestMissingResendAnswersExpiredAndKeepsSession2un(t *testing.T) {
 	if frame.Type != FrameError {
 		t.Fatalf("missing resend answer=0x%02x", frame.Type)
 	}
-	var problem errorPayload
+	var problem ErrorPayload
 	if err := DecodeInto(frame.Payload, &problem); err != nil || problem.Code != "delivery_expired" || problem.Fatal {
 		t.Fatalf("problem=%+v err=%v", problem, err)
 	}

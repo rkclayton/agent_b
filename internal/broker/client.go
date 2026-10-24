@@ -395,7 +395,7 @@ type peerPayload struct {
 	Connected bool   `json:"connected"`
 }
 
-type errorPayload struct {
+type ErrorPayload struct {
 	Code   string `json:"code"`
 	Detail string `json:"detail"`
 	Fatal  bool   `json:"fatal"`
@@ -468,7 +468,7 @@ func (c *Client) expect(frame Frame, want byte, name string) error {
 	if frame.Type != FrameError {
 		return fmt.Errorf("broker: expected %s, got frame 0x%02x", name, frame.Type)
 	}
-	var problem errorPayload
+	var problem ErrorPayload
 	if err := DecodeInto(frame.Payload, &problem); err != nil {
 		return err
 	}
@@ -476,7 +476,7 @@ func (c *Client) expect(frame Frame, want byte, name string) error {
 	return &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}
 }
 
-type sessionFrame struct {
+type SessionFrame struct {
 	PairingID    string `json:"pairing_id"`
 	HandshakeID  string `json:"handshake_id"`
 	SenderKeyID  string `json:"sender_key_id"`
@@ -506,7 +506,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	init, err := Encode(FrameSessionInit, sessionFrame{
+	init, err := Encode(FrameSessionInit, SessionFrame{
 		PairingID:   hexID(c.pairing.PairingID),
 		HandshakeID: hexID(handshakeID),
 		SenderKeyID: hexID(c.identity.KeyID()),
@@ -527,7 +527,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if frame.Type != FrameSessionResp {
 		return fmt.Errorf("broker: expected SESSION_RESPONSE, got frame 0x%02x", frame.Type)
 	}
-	var response sessionFrame
+	var response SessionFrame
 	if err := DecodeInto(frame.Payload, &response); err != nil {
 		return err
 	}
@@ -546,7 +546,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	finishFrame, err := Encode(FrameSessionFinish, sessionFrame{
+	finishFrame, err := Encode(FrameSessionFinish, SessionFrame{
 		PairingID:    hexID(c.pairing.PairingID),
 		HandshakeID:  hexID(handshakeID),
 		SenderKeyID:  hexID(c.identity.KeyID()),
@@ -566,7 +566,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if frame.Type != FrameSessionReady {
 		return fmt.Errorf("broker: expected SESSION_READY, got frame 0x%02x", frame.Type)
 	}
-	var readyFrame sessionFrame
+	var readyFrame SessionFrame
 	if err := DecodeInto(frame.Payload, &readyFrame); err != nil {
 		return err
 	}
@@ -589,7 +589,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	return nil
 }
 
-type ciphertextFrame struct {
+type CiphertextFrame struct {
 	PairingID      string `json:"pairing_id"`
 	SessionID      string `json:"session_id"`
 	MessageID      string `json:"message_id"`
@@ -601,7 +601,7 @@ type ciphertextFrame struct {
 	Ciphertext     string `json:"ciphertext"`
 }
 
-type idOnlyFrame struct {
+type IDOnlyFrame struct {
 	PairingID      string `json:"pairing_id,omitempty"`
 	SessionID      string `json:"session_id,omitempty"`
 	MessageID      string `json:"message_id"`
@@ -681,7 +681,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 		case FrameAck:
-			var ack idOnlyFrame
+			var ack IDOnlyFrame
 			if err := DecodeInto(frame.Payload, &ack); err != nil {
 				return err
 			}
@@ -691,7 +691,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 		case FrameQueued:
 			// The device is offline; the broker holds an intent. The plaintext stays
 			// retained here until an ACK or a RESEND.
-			var queued idOnlyFrame
+			var queued IDOnlyFrame
 			if err := DecodeInto(frame.Payload, &queued); err != nil {
 				return err
 			}
@@ -701,7 +701,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			}
 			c.mu.Unlock()
 		case FrameResend:
-			var resend idOnlyFrame
+			var resend IDOnlyFrame
 			if err := DecodeInto(frame.Payload, &resend); err != nil {
 				return err
 			}
@@ -709,7 +709,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 		case FrameExpired:
-			var expired idOnlyFrame
+			var expired IDOnlyFrame
 			if err := DecodeInto(frame.Payload, &expired); err != nil {
 				return err
 			}
@@ -741,7 +741,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				}
 				continue
 			}
-			var problem errorPayload
+			var problem ErrorPayload
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return err
 			}
@@ -765,7 +765,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 
 // deliver opens one application message, executes it at most once, and answers.
 func (c *Client) deliver(frame Frame, transport Transport) error {
-	var payload ciphertextFrame
+	var payload CiphertextFrame
 	if err := DecodeInto(frame.Payload, &payload); err != nil {
 		return err
 	}
@@ -796,7 +796,7 @@ func (c *Client) deliver(frame Frame, transport Transport) error {
 	c.mu.Lock()
 	c.status.LastMessageAt = c.now().UTC().Format(time.RFC3339)
 	c.mu.Unlock()
-	ack, err := Encode(FrameAck, idOnlyFrame{PairingID: payload.PairingID, SessionID: payload.SessionID, MessageID: payload.MessageID})
+	ack, err := Encode(FrameAck, IDOnlyFrame{PairingID: payload.PairingID, SessionID: payload.SessionID, MessageID: payload.MessageID})
 	if err != nil {
 		return err
 	}
@@ -857,7 +857,7 @@ func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	out, err := Encode(FrameCiphertext, ciphertextFrame{
+	out, err := Encode(FrameCiphertext, CiphertextFrame{
 		PairingID:      hexID(c.pairing.PairingID),
 		SessionID:      session.SessionID(),
 		MessageID:      hexID(messageID),
@@ -881,7 +881,7 @@ func (c *Client) resend(messageID string, transport Transport) error {
 	delivery, ok := c.pending[messageID]
 	c.mu.Unlock()
 	if !ok {
-		out, err := Encode(FrameError, errorPayload{Code: "delivery_expired", Detail: "the retained delivery is no longer available"})
+		out, err := Encode(FrameError, ErrorPayload{Code: "delivery_expired", Detail: "the retained delivery is no longer available"})
 		if err != nil {
 			return err
 		}
@@ -975,7 +975,7 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport, handsha
 			}
 		}
 		if err == nil && frame.Type == FrameError {
-			var problem errorPayload
+			var problem ErrorPayload
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return Frame{}, err
 			}
@@ -983,7 +983,7 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport, handsha
 			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}
 		}
 		if err == nil && frame.Type == FrameQueued {
-			var queued idOnlyFrame
+			var queued IDOnlyFrame
 			if err := DecodeInto(frame.Payload, &queued); err != nil {
 				return Frame{}, err
 			}
@@ -1019,7 +1019,7 @@ func (c *Client) pushAnswer(frame Frame) (bool, error) {
 	case FramePushAccepted:
 		answer = "accepted"
 	case FrameError:
-		var problem errorPayload
+		var problem ErrorPayload
 		if err := DecodeInto(frame.Payload, &problem); err != nil {
 			return true, err
 		}

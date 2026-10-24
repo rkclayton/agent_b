@@ -43,7 +43,7 @@ func Dial(address string) Dialer {
 		if err != nil {
 			return nil, fmt.Errorf("broker dial: %w", err)
 		}
-		return &socketTransport{connection: connection}, nil
+		return newSocketTransport(connection), nil
 	}
 }
 
@@ -85,15 +85,113 @@ func hostOf(endpoint string) string {
 	return parsed.Host
 }
 
+// SendFrameRate is the most frames a connection writes in a second: one step below the
+// broker's limit of 240 frames per connection per second, past which it stops reading the
+// connection until the second turns (item 2wo).
+const SendFrameRate = 200
+
+// The frames waiting for the writer are bounded by count and, for data, by bytes, the
+// same bounds the agent's retained deliveries have; past them Send waits.
+const maxQueuedFrames, maxQueuedBytes = maxPendingDeliveries, maxPendingBytes
+
+// socketTransport has ONE WRITER, paced to SendFrameRate, so whoever reads the link never
+// waits on a write. ACK and PONG go ahead of everything else, so an ACK never waits behind
+// data; every other frame keeps its order.
 type socketTransport struct {
-	connection *websocket.Conn
-	mu         sync.Mutex
+	connection    *websocket.Conn
+	control, data chan []byte
+	done, drained chan struct{}
+	once          sync.Once
+	mu            sync.Mutex
+	err           error
+	queuedBytes   int
+}
+
+func newSocketTransport(connection *websocket.Conn) *socketTransport {
+	t := &socketTransport{connection: connection, control: make(chan []byte, maxQueuedFrames), data: make(chan []byte, maxQueuedFrames), done: make(chan struct{}), drained: make(chan struct{}, 1)}
+	go t.write()
+	return t
 }
 
 func (t *socketTransport) Send(frame []byte) error {
+	queue := t.data
+	if len(frame) > 1 && (frame[1] == FrameAck || frame[1] == FramePong) {
+		queue = t.control
+	}
+	for queue == t.data {
+		t.mu.Lock()
+		if t.queuedBytes == 0 || t.queuedBytes+len(frame) <= maxQueuedBytes {
+			t.queuedBytes += len(frame)
+			t.mu.Unlock()
+			break
+		}
+		t.mu.Unlock()
+		select {
+		case <-t.drained:
+		case <-t.done:
+			return t.failure()
+		}
+	}
+	select {
+	case queue <- frame:
+		return nil
+	case <-t.done:
+		return t.failure()
+	}
+}
+
+func (t *socketTransport) failure() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return websocket.Message.Send(t.connection, frame)
+	return t.err
+}
+
+func (t *socketTransport) write() {
+	pace := time.NewTicker(time.Second / SendFrameRate)
+	defer pace.Stop()
+	for {
+		var frame []byte
+		data := false
+		select {
+		case frame = <-t.control:
+		default:
+			select {
+			case frame = <-t.control:
+			case frame = <-t.data:
+				data = true
+			case <-t.done:
+				return
+			}
+		}
+		if err := websocket.Message.Send(t.connection, frame); err != nil {
+			t.end(err)
+			return
+		}
+		if data {
+			t.mu.Lock()
+			t.queuedBytes -= len(frame)
+			t.mu.Unlock()
+			select {
+			case t.drained <- struct{}{}:
+			default:
+			}
+		}
+		select {
+		case <-pace.C:
+		case <-t.done:
+			return
+		}
+	}
+}
+
+func (t *socketTransport) end(err error) {
+	t.once.Do(func() {
+		t.mu.Lock()
+		t.err = err
+		t.mu.Unlock()
+		close(t.done)
+		_ = t.connection.Close()
+	})
 }
 
 func (t *socketTransport) Receive(ctx context.Context) ([]byte, error) {
@@ -110,5 +208,6 @@ func (t *socketTransport) Receive(ctx context.Context) ([]byte, error) {
 }
 
 func (t *socketTransport) Close(int, string) error {
-	return t.connection.Close()
+	t.end(errors.New("broker: connection closed"))
+	return nil
 }

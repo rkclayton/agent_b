@@ -168,7 +168,7 @@ func (e *liveEndpoint) next(t *testing.T, timeout time.Duration) Frame {
 	select {
 	case frame := <-e.frames:
 		if frame.Type == FrameError {
-			var problem errorPayload
+			var problem ErrorPayload
 			_ = DecodeInto(frame.Payload, &problem)
 			t.Logf("%s got broker ERROR: %s %s (fatal=%t)", e.role, problem.Code, problem.Detail, problem.Fatal)
 		}
@@ -312,7 +312,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 
 	peerFrame := pairAgent.waitFor(t, FramePairPeer, 20*time.Second)
 	pairDevice.waitFor(t, FramePairPeer, 20*time.Second)
-	var peer pairPeerPayload
+	var peer PairPeerPayload
 	if err := DecodeInto(peerFrame.Payload, &peer); err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	}
 	teardown := trackLivePairing(t, address, "agent", agent, pairingID)
 	// The key id the broker labels the peer with is DERIVED here, not believed.
-	if got := hex.EncodeToString(Identity{}.keyIDFor(mustDecode64(t, peer.Ed25519), mustDecode64(t, peer.X25519))); got != peer.PeerKeyID {
+	if got := hex.EncodeToString(KeyIDFor(mustDecode64(t, peer.Ed25519), mustDecode64(t, peer.X25519))); got != peer.PeerKeyID {
 		t.Fatalf("the broker named key id %s for keys that derive %s", peer.PeerKeyID, got)
 	}
 	transcript := TranscriptHash(pairingID, agent.SigningPublic(), agent.AgreementPublic(), device.SigningPublic(), device.AgreementPublic())
@@ -368,14 +368,14 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveAgent.send(t, FrameSessionInit, sessionFrame{
+	liveAgent.send(t, FrameSessionInit, SessionFrame{
 		PairingID: peer.PairingID, HandshakeID: hex.EncodeToString(handshakeID),
 		SenderKeyID: hex.EncodeToString(agent.KeyID()), RecipientID: hex.EncodeToString(device.KeyID()),
 		Noise:     base64.RawURLEncoding.EncodeToString(messageOne),
 		Signature: base64.RawURLEncoding.EncodeToString(initiator.InitSignature(messageOne)),
 	})
 	initFrame := liveDevice.waitFor(t, FrameSessionInit, 20*time.Second)
-	var forwarded sessionFrame
+	var forwarded SessionFrame
 	if err := DecodeInto(initFrame.Payload, &forwarded); err != nil {
 		t.Fatal(err)
 	}
@@ -394,14 +394,14 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveDevice.send(t, FrameSessionResp, sessionFrame{
+	liveDevice.send(t, FrameSessionResp, SessionFrame{
 		PairingID: peer.PairingID, HandshakeID: forwarded.HandshakeID,
 		SenderKeyID: hex.EncodeToString(device.KeyID()), RecipientID: hex.EncodeToString(agent.KeyID()),
 		Noise:     base64.RawURLEncoding.EncodeToString(messageTwo),
 		Signature: base64.RawURLEncoding.EncodeToString(responder.ConfirmSignature()),
 	})
 	responseFrame := liveAgent.waitFor(t, FrameSessionResp, 20*time.Second)
-	var response sessionFrame
+	var response SessionFrame
 	if err := DecodeInto(responseFrame.Payload, &response); err != nil {
 		t.Fatal(err)
 	}
@@ -412,13 +412,13 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveAgent.send(t, FrameSessionFinish, sessionFrame{
+	liveAgent.send(t, FrameSessionFinish, SessionFrame{
 		PairingID: peer.PairingID, HandshakeID: hex.EncodeToString(handshakeID),
 		SenderKeyID: hex.EncodeToString(agent.KeyID()), RecipientID: hex.EncodeToString(device.KeyID()),
 		Confirmation: base64.RawURLEncoding.EncodeToString(finish),
 	})
 	finishFrame := liveDevice.waitFor(t, FrameSessionFinish, 20*time.Second)
-	var sealedFinish sessionFrame
+	var sealedFinish SessionFrame
 	if err := DecodeInto(finishFrame.Payload, &sealedFinish); err != nil {
 		t.Fatal(err)
 	}
@@ -429,13 +429,13 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveDevice.send(t, FrameSessionReady, sessionFrame{
+	liveDevice.send(t, FrameSessionReady, SessionFrame{
 		PairingID: peer.PairingID, HandshakeID: forwarded.HandshakeID,
 		SenderKeyID: hex.EncodeToString(device.KeyID()), RecipientID: hex.EncodeToString(agent.KeyID()),
 		SessionID: responder.SessionID(), Confirmation: base64.RawURLEncoding.EncodeToString(ready),
 	})
 	readyFrame := liveAgent.waitFor(t, FrameSessionReady, 20*time.Second)
-	var sessionReady sessionFrame
+	var sessionReady SessionFrame
 	if err := DecodeInto(readyFrame.Payload, &sessionReady); err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +465,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	case FramePushAccepted:
 		t.Log("LIVE PUSH accepted by the provider")
 	case FrameError:
-		var problem errorPayload
+		var problem ErrorPayload
 		if err := DecodeInto(pushAnswer.Payload, &problem); err != nil {
 			t.Fatal(err)
 		}
@@ -495,7 +495,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveAgent.send(t, FrameCiphertext, ciphertextFrame{
+	liveAgent.send(t, FrameCiphertext, CiphertextFrame{
 		PairingID: peer.PairingID, SessionID: initiator.SessionID(), MessageID: hex.EncodeToString(messageID),
 		SenderKeyID: hex.EncodeToString(agent.KeyID()), RecipientKeyID: hex.EncodeToString(device.KeyID()),
 		Epoch: 0, Counter: 1, PlaintextBytes: len(plaintext),
@@ -505,7 +505,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if strings.Contains(string(delivered.Payload), plaintext) {
 		t.Fatal("the plaintext crossed the broker in the clear")
 	}
-	var carried ciphertextFrame
+	var carried CiphertextFrame
 	if err := DecodeInto(delivered.Payload, &carried); err != nil {
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 	if string(opened) != plaintext {
 		t.Fatalf("the device read %q", opened)
 	}
-	liveDevice.send(t, FrameAck, idOnlyFrame{PairingID: peer.PairingID, SessionID: carried.SessionID, MessageID: carried.MessageID})
+	liveDevice.send(t, FrameAck, IDOnlyFrame{PairingID: peer.PairingID, SessionID: carried.SessionID, MessageID: carried.MessageID})
 	t.Logf("LIVE 4 round trip: %d bytes delivered and opened, plaintext absent from the wire", len(opened))
 
 	// 5. REVOKE from the agent, and nothing is left paired: a new connection with the
@@ -538,7 +538,7 @@ func TestLiveBrokerPairsRoundTripsAndRevokes2kq(t *testing.T) {
 		X25519:  base64.RawURLEncoding.EncodeToString(agent.AgreementPublic()),
 	})
 	refusal := after.waitFor(t, FrameError, 20*time.Second)
-	var problem errorPayload
+	var problem ErrorPayload
 	if err := DecodeInto(refusal.Payload, &problem); err != nil {
 		t.Fatal(err)
 	}
@@ -806,7 +806,7 @@ func seedJournals(t *testing.T, dir string, chats, entries int) {
 
 type disposablePairing struct {
 	device                   Identity
-	peer                     pairPeerPayload
+	peer                     PairPeerPayload
 	pairingID                []byte
 	agentSigning, agentKeyID []byte
 	teardown                 *livePairingTeardown
@@ -828,7 +828,7 @@ func pairDisposablePhone(t *testing.T, ctx context.Context, address string, desk
 	}{Role: "device", Code: strings.ReplaceAll(offer.Code, "-", ""),
 		Ed25519: base64.RawURLEncoding.EncodeToString(device.SigningPublic()),
 		X25519:  base64.RawURLEncoding.EncodeToString(device.AgreementPublic())})
-	var peer pairPeerPayload
+	var peer PairPeerPayload
 	if err := DecodeInto(join.waitFor(t, FramePairPeer, 30*time.Second).Payload, &peer); err != nil {
 		t.Fatal(err)
 	}
@@ -849,7 +849,7 @@ func pairDisposablePhone(t *testing.T, ctx context.Context, address string, desk
 	join.waitFor(t, FramePairComplete, 30*time.Second)
 	_ = join.transport.Close(1000, "paired")
 	return disposablePairing{device: device, peer: peer, pairingID: pairingID, agentSigning: agentSigning,
-		agentKeyID: Identity{}.keyIDFor(agentSigning, agentAgreement), teardown: teardown}
+		agentKeyID: KeyIDFor(agentSigning, agentAgreement), teardown: teardown}
 }
 
 // connectedPhone is the synthetic device after its session is up.
@@ -874,7 +874,7 @@ func connectPhone(t *testing.T, ctx context.Context, address string, device Iden
 	endpoint := dialLive(t, ctx, address, "device", device)
 	endpoint.authenticate(t)
 	init := endpoint.waitFor(t, FrameSessionInit, 60*time.Second)
-	var forwarded sessionFrame
+	var forwarded SessionFrame
 	if err := DecodeInto(init.Payload, &forwarded); err != nil {
 		t.Fatal(err)
 	}
@@ -893,10 +893,10 @@ func connectPhone(t *testing.T, ctx context.Context, address string, device Iden
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint.send(t, FrameSessionResp, sessionFrame{PairingID: forwarded.PairingID, HandshakeID: forwarded.HandshakeID,
+	endpoint.send(t, FrameSessionResp, SessionFrame{PairingID: forwarded.PairingID, HandshakeID: forwarded.HandshakeID,
 		SenderKeyID: hex.EncodeToString(device.KeyID()), RecipientID: hex.EncodeToString(agentKeyID),
 		Noise: base64.RawURLEncoding.EncodeToString(messageTwo), Signature: base64.RawURLEncoding.EncodeToString(responder.ConfirmSignature())})
-	var finish sessionFrame
+	var finish SessionFrame
 	if err := DecodeInto(endpoint.waitFor(t, FrameSessionFinish, 30*time.Second).Payload, &finish); err != nil {
 		t.Fatal(err)
 	}
@@ -907,7 +907,7 @@ func connectPhone(t *testing.T, ctx context.Context, address string, device Iden
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint.send(t, FrameSessionReady, sessionFrame{PairingID: forwarded.PairingID, HandshakeID: forwarded.HandshakeID,
+	endpoint.send(t, FrameSessionReady, SessionFrame{PairingID: forwarded.PairingID, HandshakeID: forwarded.HandshakeID,
 		SenderKeyID: hex.EncodeToString(device.KeyID()), RecipientID: hex.EncodeToString(agentKeyID),
 		SessionID: responder.SessionID(), Confirmation: base64.RawURLEncoding.EncodeToString(ready)})
 	endpoint.send(t, FramePushRegister, pushRegisterPayload{PairingID: forwarded.PairingID, DeviceToken: strings.Repeat("0", 64)})
@@ -942,14 +942,14 @@ func (p *connectedPhone) receive(t *testing.T) {
 			continue
 		}
 		if frame.Type == FrameError {
-			var problem errorPayload
+			var problem ErrorPayload
 			_ = DecodeInto(frame.Payload, &problem)
 			t.Logf("the phone got broker ERROR %s (%s)", problem.Code, problem.Detail)
 		}
 		if frame.Type != FrameCiphertext {
 			continue
 		}
-		var carried ciphertextFrame
+		var carried CiphertextFrame
 		if DecodeInto(frame.Payload, &carried) != nil {
 			continue
 		}
@@ -962,7 +962,7 @@ func (p *connectedPhone) receive(t *testing.T) {
 			t.Errorf("the phone could not open a unit: %v", err)
 			return
 		}
-		ack, _ := Encode(FrameAck, idOnlyFrame{PairingID: carried.PairingID, SessionID: carried.SessionID, MessageID: carried.MessageID})
+		ack, _ := Encode(FrameAck, IDOnlyFrame{PairingID: carried.PairingID, SessionID: carried.SessionID, MessageID: carried.MessageID})
 		_ = p.endpoint.transport.Send(ack)
 		var unit map[string]any
 		if json.Unmarshal(plaintext, &unit) != nil {
@@ -1016,7 +1016,7 @@ func (p *connectedPhone) request(t *testing.T, route, body string, wantStatus in
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.endpoint.send(t, FrameCiphertext, ciphertextFrame{PairingID: hex.EncodeToString(p.pairing), SessionID: p.sessionID, MessageID: hex.EncodeToString(messageID),
+	p.endpoint.send(t, FrameCiphertext, CiphertextFrame{PairingID: hex.EncodeToString(p.pairing), SessionID: p.sessionID, MessageID: hex.EncodeToString(messageID),
 		SenderKeyID: hex.EncodeToString(p.device.KeyID()), RecipientKeyID: hex.EncodeToString(p.agentKey), Epoch: 0, Counter: p.counter,
 		PlaintextBytes: len(unit), Ciphertext: base64.RawURLEncoding.EncodeToString(ciphertext)})
 	p.counter++

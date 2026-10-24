@@ -77,9 +77,9 @@ func TestNotifyPushDoesNotRequirePhoneSession2pn(t *testing.T) {
 		frame        byte
 		payload      any
 	}{
-		{"approval_required", "no_token", FrameError, errorPayload{Code: "malformed", Detail: "recipient_no_token", Fatal: false}},
+		{"approval_required", "no_token", FrameError, ErrorPayload{Code: "malformed", Detail: "recipient_no_token", Fatal: false}},
 		{"run_stopped", "accepted", FramePushAccepted, nil},
-		{"item_stuck", "refused", FrameError, errorPayload{Code: "push_provider", Detail: "named reason", Fatal: false}},
+		{"item_stuck", "refused", FrameError, ErrorPayload{Code: "push_provider", Detail: "named reason", Fatal: false}},
 	}
 	for _, test := range cases {
 		if err := client.Notify(test.kind, strings.Repeat("a", 32), "PLANTED notice must not enter the log"); err != nil {
@@ -87,7 +87,7 @@ func TestNotifyPushDoesNotRequirePhoneSession2pn(t *testing.T) {
 		}
 		_ = transport.next(t)
 		transport.push(test.frame, test.payload)
-		transport.push(FrameSessionResp, sessionFrame{})
+		transport.push(FrameSessionResp, SessionFrame{})
 		if frame, err := client.readHandshake(context.Background(), transport, ""); err != nil || frame.Type != FrameSessionResp {
 			t.Fatalf("the nonfatal push answer ended the phone handshake: %v", err)
 		}

@@ -115,7 +115,7 @@ type pairWaitingPayload struct {
 // document's frame registry says PAIR_PEER carries "both peer public keys" without
 // naming the fields, and the broker calls them peer_ed25519_public and
 // peer_x25519_public. Measured against wss://…:8444 at.
-type pairPeerPayload struct {
+type PairPeerPayload struct {
 	PairingID string `json:"pairing_id"`
 	PeerKeyID string `json:"peer_key_id"`
 	Ed25519   string `json:"peer_ed25519_public"`
@@ -192,7 +192,7 @@ func BeginPairing(transport Transport, identity Identity, code string, receive f
 			offer.ExpiresAt = waiting.ExpiresAt
 
 		case FramePairPeer:
-			var peer pairPeerPayload
+			var peer PairPeerPayload
 			if err := DecodeInto(frame.Payload, &peer); err != nil {
 				return Pairing{}, err
 			}
@@ -215,7 +215,7 @@ func BeginPairing(transport Transport, identity Identity, code string, receive f
 			// The broker told us an id for those keys; it is derived here rather than
 			// believed, because a key id that does not match its keys is a broker
 			// substituting an endpoint.
-			derived := Identity{}.keyIDFor(deviceSigning, deviceAgreement)
+			derived := KeyIDFor(deviceSigning, deviceAgreement)
 			if hexID(derived) != hexID(peerKeyID) {
 				return Pairing{}, errors.New("pairing: the peer key id does not match the peer keys")
 			}
@@ -252,7 +252,7 @@ func BeginPairing(transport Transport, identity Identity, code string, receive f
 			return pairing, nil
 
 		case FrameError:
-			var problem errorPayload
+			var problem ErrorPayload
 			if err := DecodeInto(frame.Payload, &problem); err != nil {
 				return Pairing{}, err
 			}
@@ -264,9 +264,9 @@ func BeginPairing(transport Transport, identity Identity, code string, receive f
 	}
 }
 
-// keyIDFor derives a key id from a peer's public keys, which is the same rule an
+// KeyIDFor derives a key id from a peer's public keys, which is the same rule an
 // endpoint applies to its own.
-func (Identity) keyIDFor(signing, agreement []byte) []byte {
+func KeyIDFor(signing, agreement []byte) []byte {
 	digest := sha256.New()
 	digest.Write(signing)
 	digest.Write(agreement)

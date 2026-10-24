@@ -57,7 +57,7 @@ func TestPresenceAndUndeliverableFramesMatchPublishedVectors2t1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var queued idOnlyFrame
+	var queued IDOnlyFrame
 	if err := DecodeInto(frame.Payload, &queued); err != nil {
 		t.Fatal(err)
 	}

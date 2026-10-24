@@ -2,7 +2,7 @@
 // which settings pages were opened — told to the app in one small post every
 // ten minutes and when the page is hidden. Counts and a number; no text.
 
-export const PAGE_HEALTH_EVERY_MS = 10 * 60 * 1000;
+const PAGE_HEALTH_EVERY_MS = 10 * 60 * 1000;
 
 let freezeMS = 0;
 let pages = {};

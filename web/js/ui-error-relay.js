@@ -1,5 +1,5 @@
 let installed = false;
-export const UI_ERROR_DEDUPE_MS = 1000;
+const UI_ERROR_DEDUPE_MS = 1000;
 export const UI_ERROR_REPEAT_CAP = 25;
 
 export function installUIErrorRelay(context = {}) {

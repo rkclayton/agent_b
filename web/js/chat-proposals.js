@@ -18,7 +18,7 @@ function remember(key, value) {
   try { localStorage.setItem(key, JSON.stringify([...values])); } catch { /* the row still goes; it may return after a reload */ }
 }
 
-export function pendingProposals(session, sessions = store.sessions) {
+function pendingProposals(session, sessions = store.sessions) {
   if (!session) return [];
   const resolved = readSet(resolvedKey(session.id));
   return [...(session.messages || []).flatMap((message) => message.plan_proposals || []), ...workerProposals(sessions, session)]

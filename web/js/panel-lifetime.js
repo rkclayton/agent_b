@@ -68,8 +68,6 @@ export function toolUseRows(tools = [], counters = {}) {
 // question the operator asks of this table. Two columns answer it; one does not.
 // Density rules are kept: text only, no bar, no pane, no chart.
 
-export const recentRunWindow = 20;
-
 function median(values) {
   const sorted = [...(values || [])].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
   if (!sorted.length) return null;

@@ -16,7 +16,7 @@
 // item — Settings and the activity page stay exactly where they are. Making
 // everything a tab at once is how a refactor becomes a rewrite.
 
-export const CHAT_KIND = "chat";
+const CHAT_KIND = "chat";
 export const PLAN_KIND = "plan";
 
 // A surface's key is what identifies it inside its kind. A chat's key is its
@@ -27,46 +27,17 @@ export function chatSurface(session) {
   return { kind: CHAT_KIND, key: String(session?.id || "") };
 }
 
-export function sameSurface(a, b) {
-  return !!a && !!b && a.kind === b.kind && a.key === b.key;
-}
-
 // The static surfaces the STRIP pins after every chat. emptied this list:
 // "why is plan a chat tab on the left side? ... i decided i think i want it under
 // settings, as its own top level item". The Plan is a Settings section now, so the
 // strip is chats only again. The list and the machinery around it stay, because the
 // next static surface will not need this argued a third time, and because a surface
 // is still what carries the Plan's page name and its URL.
-export const STATIC_SURFACES = Object.freeze([]);
+const STATIC_SURFACES = Object.freeze([]);
 
 const STATIC_DETAIL = {
   [PLAN_KIND]: { label: "plan", title: "Plan", href: "/plan", page: "plan" },
 };
-
-export function surfaceLabel(surface) {
-  return STATIC_DETAIL[surface?.kind]?.label || "";
-}
-
-export function surfaceTitle(surface) {
-  return STATIC_DETAIL[surface?.kind]?.title || "";
-}
-
-export function surfaceHref(surface, sessionID = "") {
-  if (surface?.kind === CHAT_KIND) {
-    const key = surface.key || sessionID;
-    return key ? `/chat?session=${encodeURIComponent(key)}` : "/chat";
-  }
-  const detail = STATIC_DETAIL[surface?.kind];
-  if (!detail) return "";
-  const suffix = sessionID ? `?session=${encodeURIComponent(sessionID)}` : "";
-  return `${detail.href}${suffix}`;
-}
-
-// The page name the shell uses for `page`, so a document that loaded on a
-// surface can tell which tab is selected without a second table.
-export function surfacePage(surface) {
-  return surface?.kind === CHAT_KIND ? CHAT_KIND : STATIC_DETAIL[surface?.kind]?.page || "";
-}
 
 export function surfaceForPage(page, sessionID = "") {
   if (page === CHAT_KIND) return { kind: CHAT_KIND, key: sessionID };

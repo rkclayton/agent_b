@@ -82,7 +82,7 @@ export function toolGroupRange(group, calls) {
   return null;
 }
 
-export function groupCallIDs(group) {
+function groupCallIDs(group) {
   return group.models.map((entry) => singleTool(entry).id);
 }
 

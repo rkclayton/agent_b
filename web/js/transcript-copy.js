@@ -172,7 +172,7 @@ const FURNITURE = ".chat-step-summary, .tool-tick";
 
 // selectedTextIn is the selected text inside one entry, in document order, with
 // furniture skipped and block boundaries kept as line breaks.
-export function selectedTextIn(row, range) {
+function selectedTextIn(row, range) {
   const doc = row?.ownerDocument;
   // A row that cannot be walked — a detached node, or a caller that passed a plain
   // object — falls back to its own text rather than failing the copy.

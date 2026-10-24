@@ -22,7 +22,7 @@ export function attachmentReadability(session, connections, attachment) {
 }
 
 // The install-wide threshold, as the state reports it, with the stated default.
-export function inlineDocumentLimit(session) {
+function inlineDocumentLimit(session) {
   const configured = Number(session?.attachment_inline_max_bytes || 0);
   return configured > 0 ? configured : 2 * 1024 * 1024;
 }

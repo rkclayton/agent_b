@@ -246,7 +246,7 @@ async function renderGo() {
 
 // the plan lint's findings, one line under the header. An error is
 // why Go refuses; warnings (an item with no verifier) change nothing.
-export function lintLine(diagnostics = []) {
+function lintLine(diagnostics = []) {
   if (!diagnostics.length) return { text: "", error: false };
   const errors = diagnostics.filter((entry) => entry.severity === "error");
   const shown = (errors.length ? errors : diagnostics).map((entry) => entry.message);

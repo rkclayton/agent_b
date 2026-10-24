@@ -43,7 +43,6 @@ const operatorReconciler = createOperatorReconciler({
 });
 export function subscribe(fn) { listeners.add(fn); fn(store, { type: "init" }); return () => listeners.delete(fn); }
 export function subscribeBeforePatch(fn) { beforePatchListeners.add(fn); return () => beforePatchListeners.delete(fn); }
-export function subscriberCount() { return listeners.size; }
 function notify(event) { for (const fn of listeners) fn(store, event); }
 
 // Session state is server-authored. This client applies versioned projection
@@ -313,7 +312,7 @@ export function setSelection(agentID, sessionID = "") {
 	} else if (target && !store.replay && Number(session?.history_total || 0) > 0 && !(session?.chat || []).length) void loadSessionHistory(target);
 }
 
-export async function loadSessionProjection(id) {
+async function loadSessionProjection(id) {
 	if (!id) return false;
 	if (projectionLoads.has(id)) return projectionLoads.get(id);
 	const pending = api(`/api/state?session=${encodeURIComponent(id)}`, undefined, "GET").then((snapshot) => {
@@ -401,7 +400,7 @@ source.onopen = () => {
   void operatorReconciler.reconcile().catch(() => {});
 };
 source.onerror = () => { const connection = document.getElementById("connection"); if (connection) { connection.textContent = "connection lost — retrying"; connection.className = "alarm"; } };
-export function applyServerEvent(event) {
+function applyServerEvent(event) {
   try {
     const parsed = JSON.parse(event.data);
     if (parsed.type === "snapshot") navigationSnapshotStarted();

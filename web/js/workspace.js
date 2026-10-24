@@ -52,13 +52,6 @@ function pathFor() {
   return `/chat${sessionID ? `?session=${encodeURIComponent(sessionID)}` : ""}`;
 }
 
-// the one view state. The chat is what this document mounts; Settings
-// is a sheet over it. Everything that navigates asks this, and nothing keeps a
-// second copy to disagree with.
-export function mountedView() {
-  return document.getElementById("settings-page")?.hidden === false ? "settings" : "chat";
-}
-
 // `/` was the route of the page now dissolved. It is still served and it still
 // shows the chat,
 // so a bookmark or a pasted link lands somewhere rather than nowhere.

@@ -11,17 +11,17 @@
 // zero is now a remembered position. The strip does not collapse with
 // the input row, so the operator can drag it open again without another control.
 export const COMPOSER_MIN = 0;
-export const TRANSCRIPT_MIN = 120;
-export const HEIGHT_KEY = "agentb.composer-height";
-export const COMPOSER_COLUMN_MIN = 90;
-export const COMPOSER_ACTIONS_MIN = 36;
+const TRANSCRIPT_MIN = 120;
+const HEIGHT_KEY = "agentb.composer-height";
+const COMPOSER_COLUMN_MIN = 90;
+const COMPOSER_ACTIONS_MIN = 36;
 
 export function composerLayoutForHeight(height) {
   if (height < COMPOSER_ACTIONS_MIN) return "shut";
   return height < COMPOSER_COLUMN_MIN ? "row" : "column";
 }
 
-export function clampComposerHeight(height, { current, transcript }) {
+function clampComposerHeight(height, { current, transcript }) {
   const ceiling = Math.max(COMPOSER_MIN, transcript + current - TRANSCRIPT_MIN);
   return Math.round(Math.min(Math.max(height, COMPOSER_MIN), ceiling));
 }

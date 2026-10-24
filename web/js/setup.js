@@ -81,7 +81,7 @@ function whereScreen() {
     ${installer()}${feedback()}</section>`;
 }
 
-export function measuredContext(connection) {
+function measuredContext(connection) {
 	const caps = connection?.capabilities || {};
 	const published = Number(caps.n_ctx || 0), bytes = Number(caps.observed_byte_limit || 0), typed = Number(connection?.context?.n_ctx || 0);
 	if (bytes > 0) {

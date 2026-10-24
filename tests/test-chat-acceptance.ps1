@@ -170,7 +170,15 @@ try {
     foreach ($process in $holders) {
         if (-not $process.WaitForExit(20000)) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue; $null = $process.WaitForExit(10000) }
     }
-    $resolvedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    # Item 2wm: the run's journals are kept beside its evidence, so two runs can be compared event by event.
+    if ((Test-Path -LiteralPath $evidence) -and (Test-Path -LiteralPath $data)) {
+        Get-ChildItem -LiteralPath $data -Recurse -Filter '*.jsonl' -File | ForEach-Object {
+            $target = Join-Path (Join-Path $evidence 'journals') $_.FullName.Substring($data.Length).TrimStart('\')
+            $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target)
+            Copy-Item -LiteralPath $_.FullName -Destination $target
+        }
+    }
+    $resolvedTemp =[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
     $resolvedTest = [IO.Path]::GetFullPath($testRoot)
     if ($resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and
         (Split-Path -Leaf $resolvedTest) -like 'Agent_b-chat-acceptance-*' -and

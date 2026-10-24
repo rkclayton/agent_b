@@ -1,0 +1,177 @@
+{
+  "date": "2026-10-24",
+  "build": {
+    "tag": "v1.60.91",
+    "commit": "e5d7ad52900eb51b6cbfaf1faf893c219292955b",
+    "dirty": false
+  },
+  "source_hash": "61c76a2423abe93d7af8726a3e158b267a51e6293b4bc39113b3281e1a4fa3ee",
+  "runs": [
+    {
+      "connection": "stand-in model",
+      "model": "stub",
+      "window": 32768,
+      "run": "fresh",
+      "compactions": [
+        {
+          "before": 21199,
+          "fixed_prompt_before": 2704,
+          "after": 11149,
+          "fixed_prompt_after": 2706
+        },
+        {
+          "before": 21473,
+          "fixed_prompt_before": 2713,
+          "after": 8825,
+          "fixed_prompt_after": 2700
+        },
+        {
+          "before": 21249,
+          "fixed_prompt_before": 2705,
+          "after": 8825,
+          "fixed_prompt_after": 2696
+        }
+      ],
+      "excluded_budget_rows": 6,
+      "kinds": [
+        "prune",
+        "fresh",
+        "fresh"
+      ],
+      "compactions_followed_by_recall": 0,
+      "recall_calls": 0,
+      "ended": "done",
+      "notes_lines": 0
+    },
+    {
+      "connection": "stand-in model",
+      "model": "stub",
+      "window": 32768,
+      "run": "typed-continue",
+      "compactions": [
+        {
+          "before": 21311,
+          "fixed_prompt_before": 2706,
+          "after": 9279,
+          "fixed_prompt_after": 2707
+        },
+        {
+          "before": 21659,
+          "fixed_prompt_before": 2714,
+          "after": 8681,
+          "fixed_prompt_after": 2701
+        },
+        {
+          "before": 21105,
+          "fixed_prompt_before": 2705,
+          "after": 8825,
+          "fixed_prompt_after": 2696
+        }
+      ],
+      "excluded_budget_rows": 7,
+      "kinds": [
+        "prune",
+        "fresh",
+        "fresh"
+      ],
+      "compactions_followed_by_recall": 0,
+      "recall_calls": 0,
+      "ended": "done",
+      "notes_lines": 0
+    },
+    {
+      "connection": "stand-in model",
+      "model": "stub",
+      "window": 32768,
+      "run": "Continue",
+      "compactions": [
+        {
+          "before": 21311,
+          "fixed_prompt_before": 2706,
+          "after": 9279,
+          "fixed_prompt_after": 2707
+        },
+        {
+          "before": 21659,
+          "fixed_prompt_before": 2714,
+          "after": 8681,
+          "fixed_prompt_after": 2701
+        },
+        {
+          "before": 21105,
+          "fixed_prompt_before": 2705,
+          "after": 8825,
+          "fixed_prompt_after": 2696
+        }
+      ],
+      "excluded_budget_rows": 7,
+      "kinds": [
+        "prune",
+        "fresh",
+        "fresh"
+      ],
+      "compactions_followed_by_recall": 0,
+      "recall_calls": 0,
+      "ended": "done",
+      "notes_lines": 0
+    },
+    {
+      "connection": "stand-in model",
+      "model": "stub",
+      "window": 32768,
+      "run": "queued-message",
+      "compactions": [
+        {
+          "before": 21109,
+          "fixed_prompt_before": 2703,
+          "after": 11059,
+          "fixed_prompt_after": 2704
+        },
+        {
+          "before": 21427,
+          "fixed_prompt_before": 2712,
+          "after": 6769,
+          "fixed_prompt_after": 2695
+        },
+        {
+          "before": 21249,
+          "fixed_prompt_before": 2705,
+          "after": 11195,
+          "fixed_prompt_after": 2706
+        }
+      ],
+      "excluded_budget_rows": 5,
+      "kinds": [
+        "prune",
+        "fresh",
+        "prune"
+      ],
+      "compactions_followed_by_recall": 0,
+      "recall_calls": 0,
+      "ended": "done",
+      "notes_lines": 0
+    },
+    {
+      "connection": "stand-in model",
+      "model": "stub",
+      "window": 32768,
+      "run": "prune+summary",
+      "compactions": [
+        {
+          "before": 18943,
+          "fixed_prompt_before": 2699,
+          "after": 2735,
+          "fixed_prompt_after": 2661
+        }
+      ],
+      "excluded_budget_rows": 3,
+      "kinds": [
+        "prune+fresh"
+      ],
+      "compactions_followed_by_recall": 0,
+      "recall_calls": 0,
+      "ended": "done",
+      "notes_lines": 0
+    }
+  ]
+}

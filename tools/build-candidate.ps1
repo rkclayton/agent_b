@@ -138,8 +138,12 @@ if ($UseExistingSignedBinary) {
     if (-not $SignForTest) { throw '-UseExistingSignedBinary requires -SignForTest.' }
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Existing signed test candidate not found: $binary" }
     $existingSignature = Get-AuthenticodeSignature -LiteralPath $binary
+    # Item 2wj/2wk: a retained release candidate is signed with the pinned release key, which the
+    # installer itself pins (cmd\harness\install_mode.go); it is admitted beside the disposable key.
+    $pinnedRelease = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'cmd\harness\install_mode.go')), 'agentBReleaseThumbprint = "([0-9A-F]{40})"').Groups[1].Value
+    $releaseSigned = $pinnedRelease -and $existingSignature.SignerCertificate.Thumbprint -eq $pinnedRelease
     if ($existingSignature.Status -ne 'Valid' -or ((-not $TestSignatureWithoutTimestamp) -and -not $existingSignature.TimeStamperCertificate) -or
-        $existingSignature.SignerCertificate.Subject -ne 'CN=Agent_b Disposable Test Signing') {
+        ($existingSignature.SignerCertificate.Subject -ne 'CN=Agent_b Disposable Test Signing' -and -not $releaseSigned)) {
         throw 'EXISTING TEST CANDIDATE REFUSED: a valid disposable-test signature with the requested timestamp policy is required.'
     }
 } else {

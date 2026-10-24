@@ -166,6 +166,9 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		f.audit(rawURL, 0, 0, false, err)
 		return detail
 	}
+	// The browser bound and this deadline are both TimeoutS, so whether the browser gave no
+	// answer is read from the caller's context, which only his stop ends (item 2wk).
+	caller := ctx
 	fetchCtx, cancelFetch := context.WithTimeout(ctx, time.Duration(cfg.TimeoutS)*time.Second)
 	defer cancelFetch()
 	ctx = fetchCtx
@@ -203,7 +206,7 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		readable, renderErr := render(browserCtx, target.String())
 		cancel()
 		if renderErr != nil {
-			if ctx.Err() == nil && errors.Is(renderErr, context.DeadlineExceeded) {
+			if caller.Err() == nil && errors.Is(renderErr, context.DeadlineExceeded) {
 				message := fmt.Sprintf("browser: no answer in %d s", cfg.TimeoutS) + f.openAccessLine(ctx, s, target, nil)
 				window, _ := windowUTF8(message, 1, limit)
 				detail.Content = untrustedFetchEnvelope(target.String(), 0, "text/plain", len(message), false, window, "browser", 0, false)

@@ -291,14 +291,22 @@ func TestCallServiceExecCredentialSuccessBearerAndCacheExpiry(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
-	tool := NewCallService(map[string]config.Service{"svc": testService(server.URL, auth)})
+	// Item 2wk: the subject is success, the bearer and the cache, not the helper's timeout (its own
+	// test below). The helper is this test binary started again: its first start measured
+	// 0.08–1.26 s alone and 1.13–7.94 s under the apart suite's load (later starts 35–65 ms), so
+	// the fixture's 2 s timed the machine's first launch of a freshly linked executable.
+	service := testService(server.URL, auth)
+	service.TimeoutS = 30
+	tool := NewCallService(map[string]config.Service{"svc": service})
 	tool.SetHTTPClientForTest(server.Client())
 	clock := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 	tool.now = func() time.Time { return clock }
 	args := map[string]any{"service": "svc", "method": "GET", "path": "check"}
 	for _, advance := range []time.Duration{0, 8 * time.Minute, time.Minute} {
 		clock = clock.Add(advance)
+		called := time.Now()
 		detail := tool.CallDetailed(context.Background(), &session.Session{}, args)
+		t.Logf("call after %v took %v", advance, time.Since(called))
 		if detail.Err != nil || !detail.OperatorContext {
 			t.Fatalf("detail=%+v", detail)
 		}

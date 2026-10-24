@@ -73,12 +73,18 @@ func TestWatchCoalescesBurstAndStillNoticesOneChange(t *testing.T) {
 	if time.Since(started) >= time.Second {
 		t.Fatalf("fixture did not produce its burst within one second: %v", time.Since(started))
 	}
+	// Item 2wk: this waits for the one rescan, not a latency. The rescan's first read of 45
+	// just-written chat.json files measured 0.58–2.11 s (a second read of the same files 4–8 ms:
+	// the machine's first-open cost of new files), and the rescan arrived 0.98–1.69 s after the
+	// burst alone and 1.41–1.59 s under the apart suite's load, so a 2 s wait failed on the machine.
+	burst := time.Now()
 	select {
 	case entries := <-changes:
+		t.Logf("burst rescan arrived %v after the burst ended", time.Since(burst))
 		if len(entries) != 45 {
 			t.Fatalf("burst scan saw %d chats, want 45", len(entries))
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("burst scan timed out")
 	}
 	select {

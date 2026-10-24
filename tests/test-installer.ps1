@@ -241,9 +241,13 @@ try {
 		$questionExit = $question.ExitCode
 	} finally { $ErrorActionPreference = $savedErrorAction }
 	$questionAfter = Get-RootFingerprint -Roots $singleTargets
-	if ($questionExit -eq 0 -or $questionOutput -notmatch '^installer signature verification failed: payload signer "CN=Agent_b Disposable Test Signing" .+ is not the pinned AgentB release key$' -or
+	# Item 2wk: a retained release candidate carries the pinned key, so its question is answered
+	# "verified"; the disposable signer's refusal is the default path's and install_mode_test.go's.
+	$releaseCandidate = [string]$candidateManifest.test_signature.subject -ne 'CN=Agent_b Disposable Test Signing'
+	$expectedAnswer = if ($releaseCandidate) { 'payload signature: AgentB release key \(CN=Agent_b Operator Code Signing\) . verified$' } else { '^installer signature verification failed: payload signer "CN=Agent_b Disposable Test Signing" .+ is not the pinned AgentB release key$' }
+	if (($questionExit -eq 0) -ne $releaseCandidate -or $questionOutput -notmatch $expectedAnswer -or
 		$questionBefore -cne $questionAfter -or @(Get-AgentBProcessesAtPath -Executable (Join-Path $repositoryRoot 'Agent_b.exe')).Count -ne $questionProcesses) {
-		throw "The installer question did not refuse the disposable signer without acting: exit=$questionExit answer=$questionOutput"
+		throw "The installer question did not answer the candidate's signer without acting: exit=$questionExit answer=$questionOutput"
 	}
 	Write-Host "PROOF installer question: $questionOutput; no install root or process changed"
 	# Item 2p8: unlike the interactive window-control arm below, this proof owns

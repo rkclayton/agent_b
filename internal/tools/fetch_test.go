@@ -408,8 +408,11 @@ func TestFetchBrowserTimeoutReturnsAnEnvelope2va(t *testing.T) {
 	cfg := fetchTestConfig()
 	cfg.TimeoutS = 1
 	tool := NewFetch(cfg)
+	// Item 2wk: the browser bound and the fetch's own deadline are both TimeoutS, so either timer
+	// can fire first; returning after a pause lets the fetch's deadline land first every time.
 	tool.browser = func(ctx context.Context, _ string) (string, error) {
 		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond)
 		return "", ctx.Err()
 	}
 	started := time.Now()

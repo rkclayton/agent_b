@@ -674,20 +674,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	processStart := name == "process" && args["action"] == "start"
 	shellStart := name == "shell" || processStart
 	if name == "shell" || name == "run_script" {
-		lastPublished := time.Time{}
-		var progressMu sync.Mutex
-		ctx = tools.WithOutputObserver(ctx, func(line string) {
-			progressMu.Lock()
-			defer progressMu.Unlock()
-			if time.Since(lastPublished) < 250*time.Millisecond {
-				return
-			}
-			lastPublished = time.Now()
-			r.bus.PublishTransient(events.New(events.ToolProgress, s.ID, runID, map[string]any{"name": name, "line": line}))
-			if s.ParentSessionID != "" {
-				r.bus.PublishTransient(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"child_id": s.ID, "status": "running", "tool": name, "target": shortActivityTarget(args), "turn": s.Snapshot().Run.Turn, "live": true}))
-			}
-		})
+		ctx = r.withToolProgress(ctx, s, runID, name, func() map[string]any { return args })
 	}
 	if path, ok := args["path"].(string); ok {
 		if resolved := resolveNamedPath(path); resolved != path {
@@ -714,14 +701,61 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 			return tools.CallOutcome{Content: "error: call denied by user"}
 		}
 	}
+	if outcome, routed := r.routeByIdentity(ctx, s, runID, callID, name, args, cfg, shellStart, processStart); routed {
+		return outcome
+	}
+	if name == "ask" {
+		return r.askTool(ctx, s, runID, callID, name, args)
+	}
+	if refused := r.approveTool(ctx, s, runID, callID, name, args, eventArgs, cfg, shellStart, processStart, skillMutation); refused != nil {
+		return *refused
+	}
+	if shellStart && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {
+		args = resolveRepoGrantedExecutable(cfg, args)
+	}
+	var outcome tools.CallOutcome
+	if skillRead {
+		outcome = r.callFileAsOperator(ctx, s, name, args)
+	} else {
+		outcome = r.callDetailed(ctx, s, name, args)
+	}
+	if !outcome.OperatorOverrideAvailable {
+		return outcome
+	}
+	return r.operatorOverride(ctx, s, runID, callID, name, path, args, cfg, shellStart, outcome)
+}
+
+// withToolProgress publishes a shell or script's output lines as transient progress, at most
+// one each 250 ms, and to the parent chat when this is a delegated helper. args reads the
+// call's arguments as they are when a line arrives, after executeTool has resolved them.
+func (r *Runner) withToolProgress(ctx context.Context, s *session.Session, runID, name string, args func() map[string]any) context.Context {
+	lastPublished := time.Time{}
+	var progressMu sync.Mutex
+	return tools.WithOutputObserver(ctx, func(line string) {
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		if time.Since(lastPublished) < 250*time.Millisecond {
+			return
+		}
+		lastPublished = time.Now()
+		r.bus.PublishTransient(events.New(events.ToolProgress, s.ID, runID, map[string]any{"name": name, "line": line}))
+		if s.ParentSessionID != "" {
+			r.bus.PublishTransient(events.New(events.DelegatedUsage, s.ParentSessionID, runID, map[string]any{"child_id": s.ID, "status": "running", "tool": name, "target": shortActivityTarget(args()), "turn": s.Snapshot().Run.Turn, "live": true}))
+		}
+	})
+}
+
+// routeByIdentity sends a call that the service identity cannot or need not run to the identity
+// that runs it — the operator through a grant, or a refusal — and reports whether it did.
+func (r *Runner) routeByIdentity(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any, cfg config.Config, shellStart, processStart bool) (tools.CallOutcome, bool) {
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if err := r.tools.PreflightServiceIdentity(); err != nil {
 			if s.Role == "e" {
-				return r.tools.CallDetailed(ctx, s, name, args)
+				return r.tools.CallDetailed(ctx, s, name, args), true
 			}
 			switch name {
 			case "read_file", "list_dir", "search", "search_text", "find_files":
-				return r.callFileAsOperator(ctx, s, name, args)
+				return r.callFileAsOperator(ctx, s, name, args), true
 			case "write_file", "edit_file", "shell", "process", "run_script", "call_service":
 				if name == "process" && !processStart {
 					break
@@ -729,27 +763,27 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 				if s.Scratch && (name == "write_file" || name == "edit_file") {
 					break
 				}
-				return tools.CallOutcome{Content: "error: service identity not set up"}
+				return tools.CallOutcome{Content: "error: service identity not set up"}, true
 			}
 		}
 	}
 	if cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.hasIdentityChatGrant(s.ID) {
 		if fileGrantTool(name) {
-			return r.callFileAsOperator(ctx, s, name, args)
+			return r.callFileAsOperator(ctx, s, name, args), true
 		}
 		if shellStart || name == "run_script" {
-			return r.callShellAsOperator(ctx, s, name, args)
+			return r.callShellAsOperator(ctx, s, name, args), true
 		}
 	}
 	if fileGrantTool(name) && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext && r.hasFileGrant(s.ID, runID) {
-		return r.callFileAsOperator(ctx, s, name, args)
+		return r.callFileAsOperator(ctx, s, name, args), true
 	}
 	if shellStart && cfg.Shell.ServiceAccount.Enabled && !cfg.Shell.OperatorContext {
 		if r.hasShellGrant(s.ID, runID, shellGrantBoundary, "") {
-			return r.callShellAsOperator(ctx, s, name, args)
+			return r.callShellAsOperator(ctx, s, name, args), true
 		}
 		if command, matched := r.tools.OperatorCommandWith(name, args, s.Policy().Shell.OperatorCommandsAdd); matched {
-			return r.executeOperatorCommand(ctx, s, runID, callID, name, args, command)
+			return r.executeOperatorCommand(ctx, s, runID, callID, name, args, command), true
 		}
 	}
 	if shellStart && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) && !r.hasShellGrant(s.ID, runID, shellGrantPolicy, "") {
@@ -759,17 +793,25 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		}
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: identity})
 	}
-	if name == "ask" {
-		question, choices, err := r.tools.Question(s, name, args)
-		if err != nil {
-			return tools.CallOutcome{Content: "error: " + err.Error()}
-		}
-		answer, err := r.gate.WaitQuestion(ctx, s, runID, callID, question, choices)
-		if err != nil {
-			return tools.CallOutcome{Content: "error: question canceled"}
-		}
-		return tools.CallOutcome{Content: answer, OK: true}
+	return tools.CallOutcome{}, false
+}
+
+// askTool puts the model's question to the operator and returns the answer.
+func (r *Runner) askTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
+	question, choices, err := r.tools.Question(s, name, args)
+	if err != nil {
+		return tools.CallOutcome{Content: "error: " + err.Error()}
 	}
+	answer, err := r.gate.WaitQuestion(ctx, s, runID, callID, question, choices)
+	if err != nil {
+		return tools.CallOutcome{Content: "error: question canceled"}
+	}
+	return tools.CallOutcome{Content: answer, OK: true}
+}
+
+// approveTool asks for whatever approval the call needs and records the grants an answer
+// gives; it returns the outcome that ends the call when it is refused, else nil.
+func (r *Runner) approveTool(ctx context.Context, s *session.Session, runID, callID, name string, args, eventArgs map[string]any, cfg config.Config, shellStart, processStart, skillMutation bool) *tools.CallOutcome {
 	decision := "approve"
 	var gateErr error
 	isolatedMutation := s.IsolatedHelper && (name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script")
@@ -781,55 +823,7 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		// The helper changes only its disposable copy. The parent's ordinary
 		// write approval is asked once, immediately before a clean return applies.
 	} else if connectorChange {
-		if connectorErr != nil {
-			eventArgs["validation_error"] = connectorErr.Error()
-		}
-		// a proposal that BINDS A CREDENTIAL, or that moves a bound
-		// connector to another address, says so on this card in those words — the
-		// credential's name and the exact origin it would be sent to. Nothing binds or
-		// moves silently, and the card is the existing one.
-		if connectorErr == nil && (strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") || strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "entra:")) {
-			auth := strings.TrimSpace(proposedConnector.Service.Auth)
-			kind := "stored"
-			if strings.HasPrefix(auth, "entra:") {
-				kind = "entra"
-			}
-			eventArgs["connector_credential"] = strings.TrimSpace(strings.TrimPrefix(auth, kind+":"))
-			eventArgs["connector_credential_kind"] = kind
-			if proposedConnector.Entra != nil {
-				eventArgs["connector_entra_tenant"] = proposedConnector.Entra.Tenant
-				eventArgs["connector_entra_client_id"] = proposedConnector.Entra.ClientID
-				eventArgs["connector_entra_scopes"] = proposedConnector.Entra.Scopes
-			}
-			if origin, originErr := credential.NormalizeOrigin(proposedConnector.Service.BaseURL); originErr == nil {
-				eventArgs["connector_origin"] = origin
-				if existing, present := cfg.Services[proposedConnector.Name]; present {
-					if previous, previousErr := credential.NormalizeOrigin(existing.BaseURL); previousErr == nil && previous != origin {
-						eventArgs["connector_previous_origin"] = previous
-					}
-				}
-			} else {
-				eventArgs["validation_error"] = originErr.Error()
-			}
-		}
-		// a proposal that names an OpenAPI document is shown on THIS card,
-		// with the operations it would enable and what the document says its own auth
-		// wants. The fetch happens once and is read again when the operator approves.
-		if connectorErr == nil && proposedConnector.Service.OpenAPI != nil {
-			_, document, loadErr := tools.LoadServiceDocument(ctx, proposedConnector.Service.OpenAPI.Source)
-			if loadErr != nil {
-				eventArgs["validation_error"] = loadErr.Error()
-			} else if enabled, enabledErr := document.Enabled(proposedConnector.Service.OpenAPI.Operations); enabledErr != nil {
-				eventArgs["validation_error"] = enabledErr.Error()
-			} else {
-				lines := make([]string, 0, len(enabled))
-				for _, operation := range enabled {
-					lines = append(lines, operation.Line())
-				}
-				eventArgs["connector_operations"] = lines
-				eventArgs["connector_document_auth"] = document.Auth
-			}
-		}
+		r.connectorCardArgs(ctx, cfg, eventArgs, proposedConnector, connectorErr)
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if name == "run_script" && cfg.Shell.ServiceAccount.Enabled && !r.hasPolicyChatGrant(s.ID, name) {
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
@@ -850,10 +844,10 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		decision, gateErr = r.gate.WaitDecision(ctx, s, runID, callID, name, eventArgs)
 	}
 	if gateErr != nil {
-		return tools.CallOutcome{Content: "error: call canceled"}
+		return &tools.CallOutcome{Content: "error: call canceled"}
 	}
 	if !approvalGranted(decision) {
-		return tools.CallOutcome{Content: "error: call denied by user"}
+		return &tools.CallOutcome{Content: "error: call denied by user"}
 	}
 	if shellStart && decision == "run" {
 		r.grantShellRun(s, runID, shellRunGrant{Rule: shellGrantPolicy, Identity: "service"})
@@ -864,18 +858,65 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if decision == "session" && !connectorChange && !skillMutation {
 		r.grantPolicyChat(s.ID, name)
 	}
-	if shellStart && repoRunGrantMatches(s.Policy().Shell.RunGrantDefaults, args) {
-		args = resolveRepoGrantedExecutable(cfg, args)
+	return nil
+}
+
+// connectorCardArgs puts a connector proposal's credential, origins and OpenAPI operations on its card.
+func (r *Runner) connectorCardArgs(ctx context.Context, cfg config.Config, eventArgs map[string]any, proposedConnector tools.ConnectorChange, connectorErr error) {
+	if connectorErr != nil {
+		eventArgs["validation_error"] = connectorErr.Error()
 	}
-	var outcome tools.CallOutcome
-	if skillRead {
-		outcome = r.callFileAsOperator(ctx, s, name, args)
-	} else {
-		outcome = r.callDetailed(ctx, s, name, args)
+	// a proposal that BINDS A CREDENTIAL, or that moves a bound
+	// connector to another address, says so on this card in those words — the
+	// credential's name and the exact origin it would be sent to. Nothing binds or
+	// moves silently, and the card is the existing one.
+	if connectorErr == nil && (strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") || strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "entra:")) {
+		auth := strings.TrimSpace(proposedConnector.Service.Auth)
+		kind := "stored"
+		if strings.HasPrefix(auth, "entra:") {
+			kind = "entra"
+		}
+		eventArgs["connector_credential"] = strings.TrimSpace(strings.TrimPrefix(auth, kind+":"))
+		eventArgs["connector_credential_kind"] = kind
+		if proposedConnector.Entra != nil {
+			eventArgs["connector_entra_tenant"] = proposedConnector.Entra.Tenant
+			eventArgs["connector_entra_client_id"] = proposedConnector.Entra.ClientID
+			eventArgs["connector_entra_scopes"] = proposedConnector.Entra.Scopes
+		}
+		if origin, originErr := credential.NormalizeOrigin(proposedConnector.Service.BaseURL); originErr == nil {
+			eventArgs["connector_origin"] = origin
+			if existing, present := cfg.Services[proposedConnector.Name]; present {
+				if previous, previousErr := credential.NormalizeOrigin(existing.BaseURL); previousErr == nil && previous != origin {
+					eventArgs["connector_previous_origin"] = previous
+				}
+			}
+		} else {
+			eventArgs["validation_error"] = originErr.Error()
+		}
 	}
-	if !outcome.OperatorOverrideAvailable {
-		return outcome
+	// a proposal that names an OpenAPI document is shown on THIS card,
+	// with the operations it would enable and what the document says its own auth
+	// wants. The fetch happens once and is read again when the operator approves.
+	if connectorErr == nil && proposedConnector.Service.OpenAPI != nil {
+		_, document, loadErr := tools.LoadServiceDocument(ctx, proposedConnector.Service.OpenAPI.Source)
+		if loadErr != nil {
+			eventArgs["validation_error"] = loadErr.Error()
+		} else if enabled, enabledErr := document.Enabled(proposedConnector.Service.OpenAPI.Operations); enabledErr != nil {
+			eventArgs["validation_error"] = enabledErr.Error()
+		} else {
+			lines := make([]string, 0, len(enabled))
+			for _, operation := range enabled {
+				lines = append(lines, operation.Line())
+			}
+			eventArgs["connector_operations"] = lines
+			eventArgs["connector_document_auth"] = document.Auth
+		}
 	}
+}
+
+// operatorOverride offers a call the sandbox refused to the operator's identity, and reruns it
+// once as the operator when he allows it.
+func (r *Runner) operatorOverride(ctx context.Context, s *session.Session, runID, callID, name, path string, args map[string]any, cfg config.Config, shellStart bool, outcome tools.CallOutcome) tools.CallOutcome {
 	command, _ := args["command"].(string)
 	subject := "tool call"
 	scope := "rerun this exact tool call once"

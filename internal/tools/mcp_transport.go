@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"harness/internal/config"
 )
 
 type stdioMCPEndpoint struct {
@@ -108,9 +106,4 @@ func (e *stdioMCPEndpoint) Close() error {
 func mcpCommand(value string) (string, bool) {
 	command, ok := strings.CutPrefix(strings.TrimSpace(value), "command:")
 	return strings.TrimSpace(command), ok && strings.TrimSpace(command) != ""
-}
-
-func validMCPServiceTarget(service config.Service) bool {
-	_, command := mcpCommand(service.BaseURL)
-	return command || strings.HasPrefix(service.BaseURL, "http://") || strings.HasPrefix(service.BaseURL, "https://")
 }

@@ -71,30 +71,6 @@ func TestLegacyVoiceKeyIsDroppedOnSave2sa(t *testing.T) {
 	}
 }
 
-func writeConfigFixture(t *testing.T, path, mode string, stamped bool) {
-	t.Helper()
-	cfg := Defaults(t.TempDir())
-	cfg.Approval.Mode = mode
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]any
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatal(err)
-	}
-	if !stamped {
-		delete(document, "config_version")
-	}
-	data, err = json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestAttachmentHandlingDefaultsAndValidation(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	if cfg.Connections[0].AttachmentHandling != "auto" {

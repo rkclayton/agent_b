@@ -316,15 +316,6 @@ func reserveFrom(runner *Runner, messages []events.Message) {
 	runner.ReserveIDs(floor)
 }
 
-func assertNoAdjacentAssistants(t *testing.T, messages []events.Message) {
-	t.Helper()
-	for index := 1; index < len(messages); index++ {
-		if messages[index].Role == "assistant" && messages[index-1].Role == "assistant" && len(messages[index-1].ToolCalls) == 0 {
-			t.Fatalf("%s and %s are adjacent assistant messages", messages[index-1].ID, messages[index].ID)
-		}
-	}
-}
-
 func freshRequestFixture2sz(t *testing.T, respond func(map[string]any, []map[string]any) map[string]any, mid bool) (*Runner, *session.Session, *templateServer) {
 	t.Helper()
 	server := newTemplateServer(t, respond)

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"harness/internal/config"
-	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/session"
 )
@@ -49,10 +48,6 @@ func TestShellDescriptionOnlyClaimsServiceNetworkBoundaryWhenSplitIsOn(t *testin
 		t.Fatalf("split-on description=%q", on)
 	}
 }
-
-type missingShellCredential struct{}
-
-func (missingShellCredential) Read() ([]byte, error) { return nil, credential.ErrNotStored }
 
 type presentShellCredential struct{}
 

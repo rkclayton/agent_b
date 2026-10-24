@@ -298,5 +298,3 @@ func liveSHA256(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
 }
-
-func liveBool(value bool) *bool { return &value }

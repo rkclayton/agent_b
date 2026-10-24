@@ -713,19 +713,6 @@ func seeded(t *testing.T) Snapshot {
 	return next
 }
 
-func cloneSnapshot(t *testing.T, value Snapshot) Snapshot {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result Snapshot
-	if err := json.Unmarshal(encoded, &result); err != nil {
-		t.Fatal(err)
-	}
-	return result
-}
-
 func TestMemoryNotedUpdatesStateWithoutSecondChatNotice2kt(t *testing.T) {
 	if chatNotice(events.MemoryNoted) {
 		t.Fatal("memory.noted still renders beside the one harness memory line")

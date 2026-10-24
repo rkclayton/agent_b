@@ -331,23 +331,6 @@ func (r *Registry) planRepos() []string {
 	return repos
 }
 
-func allocatePlanDir(root string) (string, string, error) {
-	for attempt := 0; attempt < 8; attempt++ {
-		random := make([]byte, 8)
-		if _, err := rand.Read(random); err != nil {
-			return "", "", err
-		}
-		id := hex.EncodeToString(random)
-		dir := filepath.Join(root, id)
-		if err := os.Mkdir(dir, 0o700); err == nil {
-			return id, dir, nil
-		} else if !os.IsExist(err) {
-			return "", "", err
-		}
-	}
-	return "", "", fmt.Errorf("could not allocate a unique plan id")
-}
-
 func allocatePlanID(plans []Plan) (string, error) {
 	used := make(map[string]bool, len(plans))
 	for _, item := range plans {

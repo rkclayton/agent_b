@@ -1487,13 +1487,6 @@ func resolveContextWindow(ctx context.Context, connection *config.Connection) (*
 	return nil, "", fmt.Errorf("connection %q context size unknown", label)
 }
 
-func budgetCountSource(budget events.Budget) string {
-	if budget.Estimated || budget.Mode == "estimated" {
-		return "estimated accounting"
-	}
-	return "measured accounting"
-}
-
 func guardedPromptTokens(budget events.Budget) int {
 	used := budget.UsedEst
 	if budget.Mode == "estimated" && budget.UsedMeasured <= 0 {

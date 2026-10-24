@@ -75,12 +75,6 @@ func New(vault *credential.Vault) *Manager {
 	}}
 }
 
-func (m *Manager) setTestAuthority(authority func(credential.EntraDefinition) string, client *http.Client) {
-	m.mu.Lock()
-	m.authority, m.httpClient, m.clients = authority, client, map[string]public.Client{}
-	m.mu.Unlock()
-}
-
 func (m *Manager) client(name string) (public.Client, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -224,8 +218,3 @@ func (m *Manager) Token(ctx context.Context, name string) (string, error) {
 }
 
 func (m *Manager) SignOut(name string) error { return m.clear(name) }
-func (m *Manager) ForgetMemoryForTest(name string) {
-	m.mu.Lock()
-	delete(m.clients, name)
-	m.mu.Unlock()
-}

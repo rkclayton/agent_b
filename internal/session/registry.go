@@ -291,12 +291,6 @@ func firstNonempty(values ...string) string {
 	}
 	return ""
 }
-func planRepoForRestore(dir, saved string) string {
-	if saved != "" {
-		return saved
-	}
-	return planRepo(dir)
-}
 func planDisplayName(dir string) string {
 	data, err := os.ReadFile(filepath.Join(dir, "plan.md"))
 	if err == nil {

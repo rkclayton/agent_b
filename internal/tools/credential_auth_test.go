@@ -27,22 +27,6 @@ import (
 
 const plantedSecret = "planted-2nv-secret-do-not-log"
 
-func vaultConnector(t *testing.T, origin, header string) (*CallService, *credential.Vault, string) {
-	t.Helper()
-	if runtime.GOOS != "windows" {
-		t.Skip("SKIPPED: credential storage is DPAPI, so these cases are Windows-only.")
-	}
-	root := t.TempDir()
-	vault := credential.NewVault(root)
-	if err := vault.Put("depot", origin, header, plantedSecret); err != nil {
-		t.Fatal(err)
-	}
-	service := config.Service{BaseURL: origin, Auth: "stored:depot", AllowedMethods: []string{"GET"}, TimeoutS: 5, MaxBodyKB: 16}
-	tool := NewCallService(map[string]config.Service{"depot": service})
-	tool.SetVault(vault)
-	return tool, vault, root
-}
-
 // (b) and (f): the key reaches exactly its origin, as the header the binding names.
 func TestAStoredCredentialReachesItsOriginAsItsHeader2nv(t *testing.T) {
 	if runtime.GOOS != "windows" {

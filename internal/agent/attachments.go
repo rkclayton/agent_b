@@ -435,12 +435,3 @@ func normalizeAdjacentAssistants(messages []llm.Message, records []events.Messag
 func templateRefused(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "apply-template HTTP 4")
 }
-
-// contextWindow is the model's context window for rule 4's
-// quarter-window test: n_ctx when known, else the ceiling.
-func contextWindow(budget events.Budget) int {
-	if budget.NCtx > 0 {
-		return budget.NCtx
-	}
-	return budget.Ceiling
-}

@@ -828,6 +828,7 @@ app-message state includes safe `connections` plus compatibility `agents:[{id,na
 and `chat.create` accepts `{label?,agent_id?,connection_id?}`. `agent_id` selects the chat's agent and that agent's current connection.
 The legacy `connection_id` maps to the agent named by that connection; an unnamed connection uses `agent_b`.
 An unknown id is refused without creating a chat; `role` and `source_session_id` remain refused.
+Item 2ws: each agents row also carries `tools:[{name,enabled}]` and, on `agent_b`, `read_only:true`; `tool` takes `{name,enabled}` with `agent_id` or `session_id`, and a toolset change publishes the session-less event `agent.tools` `{agent:<row>}`.
 
 Item 2qk additively extends the chat list and paired-phone surface. Top-level state carries `folders:[path...]`.
 Every `SessionSnapshot` carries `folder` (slash-separated below the Chats root,

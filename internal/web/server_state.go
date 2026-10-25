@@ -184,13 +184,35 @@ func (s *Server) phoneAgents() []map[string]any {
 	cfg := s.ConfigSnapshot()
 	result := make([]map[string]any, 0, len(cfg.Agents))
 	for _, agent := range cfg.Agents {
-		connectionID, model := "", ""
-		if connection, ok := cfg.AgentConnection(config.AgentID(agent.Name), "b"); ok {
-			connectionID, model = connection.ID, connection.Model
-		}
-		result = append(result, map[string]any{"id": config.AgentID(agent.Name), "name": agent.Name, "connection_id": connectionID, "model": model})
+		result = append(result, phoneAgent(cfg, agent))
 	}
 	return result
+}
+
+// phoneAgent is one agents row a device reads: the PROFILES page's tools for
+// that agent, in the toolset's own order, without the two it offers no
+// control for, and read_only where the toggles are disabled.
+func phoneAgent(cfg config.Config, agent config.Agent) map[string]any {
+	id := config.AgentID(agent.Name)
+	connectionID, model := "", ""
+	if connection, ok := cfg.AgentConnection(id, "b"); ok {
+		connectionID, model = connection.ID, connection.Model
+	}
+	enabled := map[string]bool{}
+	for _, tool := range agent.Toolset {
+		enabled[tool] = true
+	}
+	tools := []map[string]any{}
+	for _, name := range config.FullToolset() {
+		if name != "web_search" && name != "delegate" {
+			tools = append(tools, map[string]any{"name": name, "enabled": enabled[name]})
+		}
+	}
+	row := map[string]any{"id": id, "name": agent.Name, "connection_id": connectionID, "model": model, "tools": tools}
+	if id == "agent_b" {
+		row["read_only"] = true
+	}
+	return row
 }
 
 type countingWriter struct {

@@ -75,6 +75,7 @@ const (
 	ToolResult                 = "tool.result"
 	HookRan                    = "hook.ran"
 	ToolToggled                = "tool.toggled"
+	AgentTools                 = "agent.tools"
 	MessageAppended            = "message.appended"
 	MessageUpdated             = "message.updated"
 	MessageRemoved             = "message.removed"

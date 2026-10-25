@@ -203,12 +203,18 @@ func (s *Server) toggleTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tools/"), "/")
+	// name is the path segment again, as a device's `tool` body carries it.
 	var body struct {
+		Name      string `json:"name"`
 		SessionID string `json:"session_id"`
 		AgentID   string `json:"agent_id"`
 		Enabled   bool   `json:"enabled"`
 	}
 	if !decode(w, r, &body) {
+		return
+	}
+	if body.Name != "" && body.Name != name {
+		writeError(w, http.StatusBadRequest, "name differs from the path", "name")
 		return
 	}
 	if body.AgentID == "" {
@@ -287,6 +293,7 @@ func (s *Server) toggleTool(w http.ResponseWriter, r *http.Request) {
 		enabled[tool] = true
 	}
 	s.registry.ApplyAgentToolset(body.AgentID, enabled)
+	s.bus.Publish(events.New(events.AgentTools, "", "", map[string]any{"agent": phoneAgent(cfg, *agent)}))
 	for _, affected := range s.registry.List() {
 		if affected.AgentID == body.AgentID {
 			s.bus.Publish(events.New(events.ToolToggled, affected.ID, "", map[string]any{"agent_id": body.AgentID, "name": name, "enabled": body.Enabled}))

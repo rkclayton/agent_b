@@ -133,7 +133,7 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `message` | `POST /api/message` | `{session_id,text,attachments?}` |
 | `stop` | `POST /api/stop` | `{session_id?,all?}` |
 | `approve` | `POST /api/approve` | `{session_id,call_id,decision}` |
-| `tool` | `POST /api/tools/{name}` | `{name,session_id,enabled}` |
+| `tool` | `POST /api/tools/{name}` | `{name,enabled}` and `agent_id` or `session_id` |
 | `state` | `GET /api/state` | `{}` |
 | `resync` | `GET /api/state` for one session | `{session_id}` |
 | `chat.create` | `POST /api/sessions` | `{label?,agent_id?,connection_id?}` — connection selection added 2026-09-30; agent selection added 2026-10-09 |
@@ -147,17 +147,28 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 
 `tool` carries the path segment as a `name` field for the same reason: the route set is closed.
 
+`tool` turns one tool of one agent on or off. `agent_id` names the agent; without it, `session_id`
+names a chat and the chat's agent is used. A toolset belongs to the agent, so every chat on it
+changes. The read-only agent is refused `400` `{"error":"agent_b tools are read-only","field":"agent_id"}`;
+an unknown agent or tool is `404` (`field` `agent_id` or `name`), and a closed chat is `409`.
+
 `state.connections` is the PC's ordered Connection sheet. Each entry is exactly
 `{id,label,model,host,vision,docs,tools,ctx}`: `host` is only the URL host (and optional port),
 `vision` is the probed vision class, `docs` and `tools` are booleans, and `ctx` is the effective
 context-token count. It carries no URL path, credential, API key, system prompt, sampling value or
 probe finding.
 
-`chat.create` carries an optional `label`, `agent_id`, and legacy `connection_id`, and NOTHING ELSE. State lists safe agent rows `{id,name,connection_id,model}` beside connections. A named agent creates the chat on it. A released client naming a connection maps to `agent_b` when it uses that connection, otherwise the first matching agent. With neither id, the desktop uses `agent_b`. A known id creates the
+`chat.create` carries an optional `label`, `agent_id`, and legacy `connection_id`, and NOTHING ELSE. State lists safe agent rows `{id,name,connection_id,model,tools,read_only?}` beside connections. A named agent creates the chat on it. A released client naming a connection maps to `agent_b` when it uses that connection, otherwise the first matching agent. With neither id, the desktop uses `agent_b`. A known id creates the
 same ordinary PC chat as choosing that agent in the top strip. An unknown id returns the ordinary
 `400` field refusal and creates nothing. It still cannot carry `role` or
 `source_session_id`, so a device cannot open a planner or worker chat. With no `label`, the desktop
 names the chat as it names any unlabelled one.
+
+An agents row's `tools` is `[{name,enabled}]` in the toolset's own order: the tools the PC's
+PROFILES page offers for that agent (`web_search` and `delegate` are not offered there and are not
+listed). `read_only: true` is present only on a row whose tools cannot be changed (`agent_b`). When a
+`tool` changes a toolset, every device receives the event `agent.tools` with `{agent:<the new row>}`;
+a client that does not read it re-reads `state`.
 
 `chat.history` carries a session id and an optional exclusive `before` index. It returns at most
 50 chat entries plus `{start,before,total}`. Omitting `before` returns the newest page; passing the

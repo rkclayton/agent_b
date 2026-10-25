@@ -907,3 +907,85 @@ func TestPairingAgainStopsTheOldSessionBeforeTheNewDial2t1(t *testing.T) {
 	client.stopSessionLocked()
 	client.mu.Unlock()
 }
+
+// Item 2ws: each agents row a device reads carries that agent's tools, the
+// read-only row says so, and a `tool` naming an agent reaches the device.
+func TestADeviceSeesEachAgentsToolsAndAToggleReachesIt2ws(t *testing.T) {
+	server := dispatchServer(t)
+	server.mu.Lock()
+	server.cfg.Agents = append(server.cfg.Agents, config.Agent{Name: "Second", B: "remote", Toolset: []string{"read_file", "shell"}})
+	server.mu.Unlock()
+	second := config.AgentID("Second")
+	type row struct {
+		ID       string `json:"id"`
+		ReadOnly bool   `json:"read_only"`
+		Tools    []struct {
+			Name    string `json:"name"`
+			Enabled bool   `json:"enabled"`
+		} `json:"tools"`
+	}
+	rows := func() map[string]row {
+		response := dispatch(t, server, `{"v":1,"kind":"request","id":"aa","route":"state","body":{}}`)
+		var body struct {
+			Agents []row `json:"agents"`
+		}
+		if err := json.Unmarshal(response.Body, &body); err != nil || response.Status != 200 {
+			t.Fatalf("state = %d %s (%v)", response.Status, response.Body, err)
+		}
+		byID := map[string]row{}
+		for _, agent := range body.Agents {
+			byID[agent.ID] = agent
+		}
+		return byID
+	}
+	enabled := func(agent row, name string) (bool, bool) {
+		for _, tool := range agent.Tools {
+			if tool.Name == name {
+				return tool.Enabled, true
+			}
+		}
+		return false, false
+	}
+	agents := rows()
+	if len(agents["agent_b"].Tools) == 0 || !agents["agent_b"].ReadOnly {
+		t.Fatalf("agent_b row = %+v", agents["agent_b"])
+	}
+	if on, ok := enabled(agents[second], "shell"); !ok || !on || agents[second].ReadOnly {
+		t.Fatalf("second row = %+v", agents[second])
+	}
+	if on, ok := enabled(agents[second], "write_file"); !ok || on {
+		t.Fatalf("second row lists write_file %v %v: %+v", on, ok, agents[second])
+	}
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	streamed := make(chan struct{})
+	defer func() { stop(); <-streamed }()
+	go func() { server.streamToDevice(ctx, device); close(streamed) }()
+	time.Sleep(50 * time.Millisecond)
+	toggled := dispatch(t, server, `{"v":1,"kind":"request","id":"ab","route":"tool","body":{"name":"shell","agent_id":"`+second+`","enabled":false}}`)
+	if toggled.Status != 200 {
+		t.Fatalf("tool = %d %s", toggled.Status, toggled.Body)
+	}
+	if on, _ := enabled(rows()[second], "shell"); on {
+		t.Fatal("the state row still has shell enabled after the toggle")
+	}
+	device.waitFor(t, "the agent's tools after the toggle", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		agent, _ := payload["agent"].(map[string]any)
+		if unit["kind"] != "event" || data["type"] != events.AgentTools || agent["id"] != second {
+			return false
+		}
+		tools, _ := agent["tools"].([]any)
+		for _, tool := range tools {
+			if entry, _ := tool.(map[string]any); entry["name"] == "shell" {
+				return entry["enabled"] == false
+			}
+		}
+		return false
+	})
+	refused := dispatch(t, server, `{"v":1,"kind":"request","id":"ac","route":"tool","body":{"name":"shell","agent_id":"agent_b","enabled":false}}`)
+	if refused.Status != 400 || !strings.Contains(string(refused.Body), `"error":"agent_b tools are read-only"`) || !strings.Contains(string(refused.Body), `"field":"agent_id"`) {
+		t.Fatalf("read-only refusal = %d %s", refused.Status, refused.Body)
+	}
+}

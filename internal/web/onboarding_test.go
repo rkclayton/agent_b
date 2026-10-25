@@ -23,7 +23,7 @@ func TestFirstRunRoutesToSetupAndSkipRemainsAvailable(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	cfg.Connections = []config.Connection{}
 	cfg.Agents = []config.Agent{}
-	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), webDir, RuntimeRoots{Application: t.TempDir()}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(t.TempDir(), "harness.json"), webDir, RuntimeRoots{Application: t.TempDir()}, events.NewBus())
 
 	redirect := httptest.NewRecorder()
 	server.Handler().ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/chat", nil))
@@ -44,7 +44,7 @@ func TestFirstRunRoutesToSetupAndSkipRemainsAvailable(t *testing.T) {
 
 func TestLocalDetectionEndpointReturnsDetectorReport(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
-	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Application: t.TempDir()}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Application: t.TempDir()}, events.NewBus())
 	server.detectLocal = func(context.Context, string) (any, error) {
 		return map[string]any{"supported": true, "recommendation_memory_bytes": 32 << 30}, nil
 	}

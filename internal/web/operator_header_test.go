@@ -19,7 +19,7 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	webDir := filepath.Join("..", "..", "web")
 	cfg := config.Defaults(t.TempDir())
 	root := t.TempDir()
-	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: webDir, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: webDir, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	// Item 2gk (v1.2.3): both routes of the served document show the chat now;
 	// the page that "/" used to open is dissolved into Settings.
@@ -78,7 +78,7 @@ func TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry(t *testing.T) {
 	var recorded bytes.Buffer
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), filepath.Join("..", "..", "web"), RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), filepath.Join("..", "..", "web"), RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	server.pageMeasurements.requestWatchdogAfter = 30 * time.Millisecond
 	server.pageMeasurements.requestWatchdogLog = func(value string) { recorded.WriteString(value) }
 
@@ -123,7 +123,7 @@ func TestOperatorHeaderAssetsAreServedAtDeclaredDimensions(t *testing.T) {
 	webDir := filepath.Join("..", "..", "web")
 	cfg := config.Defaults(t.TempDir())
 	root := t.TempDir()
-	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: webDir, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: webDir, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	for _, item := range []struct {
 		path string

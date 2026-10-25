@@ -24,7 +24,7 @@ import (
 func TestTheReflectionEndpointIsReadOnlyTextAndSaysWhenItIsOff(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	recorder := httptest.NewRecorder()
 	server.reflectionEndpoint(recorder, httptest.NewRequest(http.MethodGet, "/api/reflection", nil))
@@ -98,7 +98,7 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	cfg.Connections = []config.Connection{{ID: "fake", Label: "Fake", BaseURL: fake.URL, Model: "test", RequestTimeoutS: 30}}
 	cfg.Agents = []config.Agent{{Name: "Tester", B: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestAFailingSummaryLeavesTheRunsOutcomeAlone(t *testing.T) {
 	cfg.Connections = []config.Connection{{ID: "fake", Label: "Fake", BaseURL: fake.URL, Model: "test", RequestTimeoutS: 5}}
 	cfg.Agents = []config.Agent{{Name: "Tester", B: "fake", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
 	if err != nil {
 		t.Fatal(err)

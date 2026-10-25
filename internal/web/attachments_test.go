@@ -249,7 +249,7 @@ func attachmentTestServer(t *testing.T, modify func(*config.Config)) (*Server, s
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	bus := events.NewBus()
-	server := New(&cfg, filepath.Join(data, "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(data, "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, bus)
 	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 	if _, err := registry.Create("main", cfg.Connections[0].ID, workspace); err != nil {

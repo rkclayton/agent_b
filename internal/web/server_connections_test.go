@@ -21,7 +21,7 @@ func TestTrustedFolderChoicePersistsCanonicalFolder(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: root}, events.NewBus())
 	if err := server.TrustFolders([]string{folder}); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestTrustedFolderParentsAreReducedWhenConfigLoads2vj(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	_ = New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: root}, events.NewBus())
+	_ = newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: root}, events.NewBus())
 	loaded, _, _, err := config.Load(path)
 	if err != nil || len(loaded.Shell.TrustedFolders) != 2 || loaded.Shell.TrustedFolders[1].Path != "not-a-path" {
 		t.Fatalf("loaded=%+v err=%v", loaded.Shell.TrustedFolders, err)
@@ -79,7 +79,7 @@ func TestARefusedDeleteNamesTheRoleAndLeavesTheSliceAlone2mb(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.SetRegistry(session.NewRegistry(events.NewBus(), nil, server.Connection, 1, server.ConfigSnapshot))
 
 	// (b): the message names the agent and the role, not "an agent role".

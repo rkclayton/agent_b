@@ -77,7 +77,7 @@ func consoleServer(t *testing.T) (*Server, *session.Registry, *events.Writers, *
 		t.Fatal(err)
 	}
 	bus.SetSink(writers.Write)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	registry := session.NewRegistry(bus, writers, server.Connection, 40, server.ConfigSnapshot)
 	memories := memory.New(root, server.ConfigSnapshot, func(context.Context, string, string) (int, error) { return 0, nil })
 	registry.SetMemoryLoader(memories.Load)

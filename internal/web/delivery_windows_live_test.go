@@ -116,7 +116,7 @@ func TestDeliveryLiveServiceSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, filepath.Join(temporary, "harness.json"), filepath.Join(root, "web"), RuntimeRoots{
+	server := newTestServer(t, &cfg, filepath.Join(temporary, "harness.json"), filepath.Join(root, "web"), RuntimeRoots{
 		Application: root, Data: temporary, Workspace: workspace,
 	}, bus)
 	server.SetProjection(projector, writers)

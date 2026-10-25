@@ -30,7 +30,7 @@ func TestCard6MeasurementAgainstALiveModel(t *testing.T) {
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Live", B: "live", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 
 	server.runMeasurement(context.Background(), "live", cfg.Connections[0])
 

@@ -30,27 +30,28 @@ const (
 	DirectionAgentToDevice = broker.DirectionAgentToDevice
 	DirectionDeviceToAgent = broker.DirectionDeviceToAgent
 
-	FrameHello         = broker.FrameHello
-	FrameChallenge     = broker.FrameChallenge
-	FrameAuth          = broker.FrameAuth
-	FrameReady         = broker.FrameReady
-	FramePairBegin     = broker.FramePairBegin
-	FramePairWaiting   = broker.FramePairWaiting
-	FramePairPeer      = broker.FramePairPeer
-	FramePairConfirm   = broker.FramePairConfirm
-	FramePairComplete  = broker.FramePairComplete
-	FrameSessionInit   = broker.FrameSessionInit
-	FrameSessionResp   = broker.FrameSessionResp
-	FrameSessionFinish = broker.FrameSessionFinish
-	FrameSessionReady  = broker.FrameSessionReady
-	FrameCiphertext    = broker.FrameCiphertext
-	FrameAck           = broker.FrameAck
-	FrameQueued        = broker.FrameQueued
-	FrameResend        = broker.FrameResend
-	FrameExpired       = broker.FrameExpired
-	FramePing          = broker.FramePing
-	FramePong          = broker.FramePong
-	FrameError         = broker.FrameError
+	FrameHello          = broker.FrameHello
+	FrameChallenge      = broker.FrameChallenge
+	FrameAuth           = broker.FrameAuth
+	FrameReady          = broker.FrameReady
+	FramePairBegin      = broker.FramePairBegin
+	FramePairWaiting    = broker.FramePairWaiting
+	FramePairPeer       = broker.FramePairPeer
+	FramePairConfirm    = broker.FramePairConfirm
+	FramePairComplete   = broker.FramePairComplete
+	FrameSessionInit    = broker.FrameSessionInit
+	FrameSessionResp    = broker.FrameSessionResp
+	FrameSessionFinish  = broker.FrameSessionFinish
+	FrameSessionReady   = broker.FrameSessionReady
+	FrameCiphertext     = broker.FrameCiphertext
+	FrameAck            = broker.FrameAck
+	FrameQueued         = broker.FrameQueued
+	FrameResend         = broker.FrameResend
+	FrameExpired        = broker.FrameExpired
+	FrameResendDeclined = broker.FrameResendDeclined
+	FramePing           = broker.FramePing
+	FramePong           = broker.FramePong
+	FrameError          = broker.FrameError
 )
 
 var (

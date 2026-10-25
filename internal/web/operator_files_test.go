@@ -20,7 +20,7 @@ func operatorFileServer(t *testing.T) (*Server, *operatorfiles.Manager) {
 	root := t.TempDir()
 	cfg := config.Defaults(filepath.Join(root, "workspace"))
 	bus := events.NewBus()
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: cfg.Workspace}, bus)
 	manager := operatorfiles.New(root, filepath.Join(root, "logs"), server.ConfigSnapshot)
 	if err := manager.Ensure(); err != nil {
 		t.Fatal(err)

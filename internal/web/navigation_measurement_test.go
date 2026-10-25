@@ -28,7 +28,7 @@ func TestNavigationMeasurementWritesOneSessionTapeEvent(t *testing.T) {
 	bus := events.NewBus()
 	bus.SetSink(writers.Write)
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, bus)
 	body := `{"navigation_id":"nav-1","navigation_kind":"flip","from":"console","to":"chat","document_request_parse_ms":12.5,"module_page_init_ms":1.25,"session_state_fetch_ms":0,"event_stream_connect_ms":2,"transcript_surface_rebuild_paint_ms":30,"end_to_end_ms":45,"transcript_entries":400,"chat_id":"s1","model_reachability":"reachable","since_previous_navigation_ms":1200,"instrumentation_sync_ms":0.04}`
 	for range 2 {
 		response := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestNavigationStartWritesWithoutCompletionAndDeduplicates(t *testing.T) {
 	_, unsubscribe := bus.Subscribe()
 	t.Cleanup(unsubscribe)
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, bus)
 	body := `{"navigation_id":"nav-start-1","navigation_kind":"flip","from":"console","to":"chat","full_document":true,"clicked_at":1789090000123.5,"chat_id":"s1","since_previous_navigation_ms":335.9}`
 	for range 2 {
 		response := httptest.NewRecorder()
@@ -138,7 +138,7 @@ func TestDocumentRequestRecordsServerPhasesAndConnection(t *testing.T) {
 	bus := events.NewBus()
 	bus.SetSink(writers.Write)
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Data: root, Workspace: root}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Data: root, Workspace: root}, bus)
 	request := httptest.NewRequest(http.MethodGet, "/chat?setup=skip&session=s1&navigation_id=nav-document-1", nil)
 	request.RemoteAddr = "127.0.0.1:54321"
 	response := httptest.NewRecorder()
@@ -206,7 +206,7 @@ func TestNavigationSuppressionWritesOneSessionTapeEvent(t *testing.T) {
 	bus := events.NewBus()
 	bus.SetSink(writers.Write)
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, bus)
 	body := `{"suppression_id":"suppressed-1","navigation_kind":"flip","from":"chat","to":"console","clicked_at":1789090000123.5,"chat_id":"s1"}`
 	for range 2 {
 		response := httptest.NewRecorder()
@@ -240,7 +240,7 @@ func TestNavigationSuppressionWritesOneSessionTapeEvent(t *testing.T) {
 func TestNavigationMeasurementRejectsInvalidPhase(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Workspace: root}, events.NewBus())
 	body := `{"navigation_id":"nav-1","navigation_kind":"flip","from":"console","to":"chat","document_request_parse_ms":-1,"module_page_init_ms":0,"session_state_fetch_ms":0,"event_stream_connect_ms":0,"transcript_surface_rebuild_paint_ms":0,"end_to_end_ms":0,"transcript_entries":0,"chat_id":"","model_reachability":"unknown","since_previous_navigation_ms":null,"instrumentation_sync_ms":0}`
 	response := httptest.NewRecorder()
 	server.navigationMeasurement(response, httptest.NewRequest(http.MethodPost, "/api/navigation-measurements", strings.NewReader(body)))

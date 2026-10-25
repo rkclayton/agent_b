@@ -50,7 +50,7 @@ func TestSpeechStreamFakeHelperScenarios(t *testing.T) {
 			bus := events.NewBus()
 			var journal []events.Event
 			bus.SetSink(func(event events.Event) error { journal = append(journal, event); return nil })
-			server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root}, bus)
+			server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root}, bus)
 			server.speech.status = &SpeechStatus{Available: true, Offline: true}
 			server.speech.checked = time.Now()
 			server.speechCommand = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {

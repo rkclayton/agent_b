@@ -45,7 +45,7 @@ func TestNotificationEndpointStoresOnlyDPAPICredentialAndSupportsTestAndClear(t 
 		t.Fatal(err)
 	}
 	bus := events.NewBus()
-	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	server.operatorState.request = func(*http.Request) error { return nil }
 	store, err := credential.NewNamed(root, cfg.Notifications.DiscordCredential)
 	if err != nil {

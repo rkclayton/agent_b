@@ -32,7 +32,7 @@ func TestProfilesEndpointCreatesRenamesAndSwitches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server := newTestServer(t, &cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
 	server.SetProfiles(manager)
 	var switched string
 	server.SetProfileChanged(func(value string) error { switched = value; return nil })
@@ -65,7 +65,7 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus := events.NewBus()
-	server := New(&cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
+	server := newTestServer(t, &cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
 	runner := agent.NewRunner(bus, tools.New(), nil, cfg.Connection, server.ConfigSnapshot)
 	server.SetRuntime(nil, runner, nil)
 	source := filepath.Join(t.TempDir(), "report-kit")
@@ -177,7 +177,7 @@ func TestChatSkillProposalReplacesAUserSkillButNeverAnIncludedSkill2u9(t *testin
 		t.Fatal(err)
 	}
 	bus := events.NewBus()
-	server := New(&cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
+	server := newTestServer(t, &cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
 	runner := agent.NewRunner(bus, tools.New(), nil, cfg.Connection, server.ConfigSnapshot)
 	server.SetRuntime(nil, runner, nil)
 	chat := &session.Session{ID: "chat", Role: "b", Workspace: t.TempDir()}
@@ -252,7 +252,7 @@ func TestSkillImportUsesNormalizedPathAndArrivesOnForSelectedAgent2u7(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server := newTestServer(t, &cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
 	server.SetProfiles(manager)
 	source := filepath.Join(t.TempDir(), "report-kit")
 	if err := os.MkdirAll(source, 0o700); err != nil {
@@ -287,7 +287,7 @@ func TestSkillImportUsesNormalizedPathAndArrivesOnForSelectedAgent2u7(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	afterRestart := New(restarted, path, t.TempDir(), RuntimeRoots{Data: root, Profile: reopened.Root(reopened.Active())}, events.NewBus())
+	afterRestart := newTestServer(t, restarted, path, t.TempDir(), RuntimeRoots{Data: root, Profile: reopened.Root(reopened.Active())}, events.NewBus())
 	if !afterRestart.skillState()[0].Enabled {
 		t.Fatal("selected agent skill did not stay on after restart")
 	}
@@ -300,7 +300,7 @@ func TestSkillImportUsesNormalizedPathAndArrivesOnForSelectedAgent2u7(t *testing
 func TestSkillImportErrorsNameTheTriedPath2pe(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Data: root, Profile: root}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Data: root, Profile: root}, events.NewBus())
 	noSkill := t.TempDir()
 	for _, tried := range []string{"", filepath.Join(root, "missing"), noSkill} {
 		body := `{"action":"import","path":` + strconv.Quote(tried) + `}`
@@ -342,7 +342,7 @@ func TestAnyFolderAddsOnlyPickedSkillsAndRemoveClearsEveryProfile2u7(t *testing.
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
+	server := newTestServer(t, &cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
 	preview, err := server.discoverSkillFolder(picked)
 	if err != nil || len(preview.Rows) != 3 {
 		t.Fatalf("preview=%+v err=%v", preview, err)
@@ -397,7 +397,7 @@ func TestReplacingSkillPreservesEveryProfileSwitchAndIncludedCannotReplace2u7(t 
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
+	server := newTestServer(t, &cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
 	body := `{"action":"import-many","agent_id":"agent_b","path":` + strconv.Quote(picked) + `,"include":["skill:stored"]}`
 	response := httptest.NewRecorder()
 	server.skillsEndpoint(response, httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(body)))
@@ -448,7 +448,7 @@ func TestHermesPreviewAndImport2nd(t *testing.T) {
 		}
 	}
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Data: root, Profile: profile}, events.NewBus())
 	call := func(action string, include []string) *httptest.ResponseRecorder {
 		body, _ := json.Marshal(map[string]any{"action": action, "path": source, "include": include})
 		response := httptest.NewRecorder()
@@ -540,7 +540,7 @@ func TestProfileSwitchRefusesLiveRun(t *testing.T) {
 	}
 	defer writers.Close()
 	bus := events.NewBus()
-	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, bus)
+	server := newTestServer(t, &cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, bus)
 	server.SetProfiles(manager)
 	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
@@ -570,7 +570,7 @@ func TestConfigUpdatePersistsAgentsInActiveProfile(t *testing.T) {
 	if err := manager.Create("Second"); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server := newTestServer(t, &cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
 	server.SetProfiles(manager)
 	agents := append([]config.Agent(nil), cfg.Agents...)
 	agents[0].Name = "Persisted agent"
@@ -633,7 +633,7 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
+	server := newTestServer(t, &cfg, path, t.TempDir(), RuntimeRoots{Data: root, Profile: manager.Root(manager.Active())}, events.NewBus())
 	server.SetProfiles(manager)
 
 	// The active profile takes an opinion about a per-profile setting.

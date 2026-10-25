@@ -24,7 +24,7 @@ func TestShellCredentialEndpointNeverReturnsPassword(t *testing.T) {
 	shell := tools.NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	shell.SetCredentialStore(store)
-	server := New(&cfg, root+`\harness.json`, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, root+`\harness.json`, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	server.SetShellSecurity(store, shell)
 
 	random := make([]byte, 24)

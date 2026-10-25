@@ -25,7 +25,7 @@ func TestWindowAttachEndpointTriggersOneRateLimitedCheck(t *testing.T) {
 	defer release.Close()
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, root+`\harness.json`, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, root+`\harness.json`, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	manager := updater.New(updater.Options{CurrentVersion: "v1.6.5", DataRoot: root, LatestURL: release.URL, Client: release.Client()})
 	server.SetUpdater(manager)
 

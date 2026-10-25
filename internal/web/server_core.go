@@ -53,6 +53,7 @@ type Server struct {
 	// the flight recorder, fed by the bus whatever the switch says.
 	recorder *recorder.Recorder
 	app      *recorder.App
+	stopApp  func()
 	// the broker client, or nothing when broker.url is empty.
 	brokerMu           sync.RWMutex
 	broker             BrokerHost
@@ -150,13 +151,30 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 	server.app = recorder.NewApp(time.Now())
 	server.app.SetSink(server.queueRunTelemetry)
 	server.app.Resources = server.resourceProbe
-	go server.app.Run(context.Background())
+	appContext, stopApp := context.WithCancel(context.Background())
+	appDone := make(chan struct{})
+	server.stopApp = func() { stopApp(); <-appDone }
+	go func() { defer close(appDone); server.app.Run(appContext) }()
 	if bus != nil {
 		bus.SetObserver(func(event events.Event) { server.recorder.Observe(event); server.app.Observe(event) })
 	}
 	_ = removeLegacyPhoneAccess(server.profileRoot())
 	server.initModelInstaller()
 	return server
+}
+
+// Close ends the background work New and SetRegistry start, and telemetry and reflection
+// when they run, waiting for each, so nothing writes into the data root after it returns.
+// A test's cleanup calls it before its folder is removed (item 2wr).
+func (s *Server) Close() {
+	s.stopApp()
+	s.chatState.watchMu.Lock()
+	s.chatState.stopLocked()
+	s.chatState.watchMu.Unlock()
+	s.telemetry.mu.Lock()
+	s.stopTelemetryLocked()
+	s.telemetry.mu.Unlock()
+	s.StopReflection()
 }
 
 func (s *Server) PlannerNotes() *memory.PlannerNotes { return s.plannerNotes }

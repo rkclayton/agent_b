@@ -60,6 +60,7 @@ type Delivery struct {
 	Counter   uint64
 	Epoch     uint32
 	Queued    bool
+	session   *Session // the one it was last sealed under
 }
 
 // Status is what Settings shows.
@@ -96,6 +97,7 @@ type Client struct {
 	pendingBytes int
 	room         *sync.Cond // signalled when pending shrinks or the session changes
 	heldPeer     *peerPayload
+	queueRefused bool // a queue_full came; the next session sends the refused again
 	// handled remembers request ids already executed, so a RESEND after a reconnect
 	// delivers the same answer instead of running the work twice. the
 	// deduplication at the execution boundary.
@@ -121,6 +123,16 @@ const maxPendingPushes = 128
 // deliveryLimit). Deliver keeps no more than this many unacknowledged, so the broker is
 // never asked to queue more (item 2wq).
 const deliveryIntentLimit = 64
+
+// handshakeLimit bounds SESSION_INIT to SESSION_READY. The live broker's encrypted round
+// trip is about 53 ms, so a handshake is about two of them; ten times that is under the
+// 5 s floor. A handshake not done by then is abandoned and the reconnect backoff runs, so a
+// phone that dropped mid-handshake is never left at "holding" (item 2wr).
+const handshakeLimit = 5 * time.Second
+
+// queueFullWait is how long, after the session that follows a queue_full, the sender
+// waits for the broker's RESENDs before it sends the refused messages again (item 2wr).
+const queueFullWait = time.Second
 const maxPendingBytes = 16 << 20
 const maxPendingDeliveries = 2048
 
@@ -556,9 +568,11 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err := transport.Send(init); err != nil {
 		return err
 	}
-	frame, err := c.readHandshake(ctx, transport, hexID(handshakeID))
+	bounded, cancel := context.WithTimeout(ctx, handshakeLimit)
+	defer cancel()
+	frame, err := c.readHandshake(bounded, transport, hexID(handshakeID))
 	if err != nil {
-		return err
+		return c.abandoned(ctx, bounded, err)
 	}
 	if frame.Type != FrameSessionResp {
 		return fmt.Errorf("broker: expected SESSION_RESPONSE, got frame 0x%02x", frame.Type)
@@ -595,9 +609,9 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	if err := transport.Send(finishFrame); err != nil {
 		return err
 	}
-	frame, err = c.readHandshake(ctx, transport, hexID(handshakeID))
+	frame, err = c.readHandshake(bounded, transport, hexID(handshakeID))
 	if err != nil {
-		return err
+		return c.abandoned(ctx, bounded, err)
 	}
 	if frame.Type != FrameSessionReady {
 		return fmt.Errorf("broker: expected SESSION_READY, got frame 0x%02x", frame.Type)
@@ -721,6 +735,7 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			}
 			c.setState("phone connected", nil)
 			c.recordEvent("session ready")
+			c.sendRefused(transport)
 			if c.connected != nil {
 				stopSession = c.startConnected(ctx)
 			}
@@ -799,6 +814,11 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 			}
 			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 			log.Printf("broker: %s (%s)", problem.Code, problem.Detail)
+			if problem.Code == "queue_full" {
+				c.mu.Lock()
+				c.queueRefused = true
+				c.mu.Unlock()
+			}
 		case FrameRevoked:
 			var revoked revokePayload
 			if err := DecodeInto(frame.Payload, &revoked); err != nil {
@@ -889,7 +909,7 @@ func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
 	epoch := c.epoch
 	c.sendCount++
 	if session != nil {
-		c.retainPendingLocked(&Delivery{MessageID: messageID, Plaintext: plaintext, Counter: counter, Epoch: epoch})
+		c.retainPendingLocked(&Delivery{MessageID: messageID, Plaintext: plaintext, Counter: counter, Epoch: epoch, session: session})
 	}
 	c.mu.Unlock()
 	if session == nil {
@@ -929,10 +949,13 @@ func (c *Client) resend(messageID string, transport Transport) error {
 	delivery, ok := c.pending[messageID]
 	c.mu.Unlock()
 	if !ok {
-		// The document gives a client no frame for "not held", and the broker refuses
-		// an ERROR from a client as fatal; the intent's own expiry ends it (item 2wq).
-		c.recordEvent("RESEND for a message no longer held: " + messageID[:min(8, len(messageID))])
-		return nil
+		// Declined once; the broker drops the intent and tells the recipient (item 2wr).
+		c.recordEvent("RESEND_DECLINED for a message no longer held: " + messageID[:min(8, len(messageID))])
+		declined, err := Encode(FrameResendDeclined, IDOnlyFrame{PairingID: hexID(c.pairing.PairingID), MessageID: messageID})
+		if err != nil {
+			return err
+		}
+		return transport.Send(declined)
 	}
 	raw, err := hex.DecodeString(messageID)
 	if err != nil {
@@ -988,7 +1011,7 @@ func (c *Client) removePendingLocked(id string) {
 func (c *Client) retainPendingLocked(delivery *Delivery) {
 	id := hexID(delivery.MessageID)
 	if current := c.pending[id]; current != nil {
-		current.Counter, current.Epoch = delivery.Counter, delivery.Epoch
+		current.Counter, current.Epoch, current.session = delivery.Counter, delivery.Epoch, delivery.session
 		return
 	}
 	for c.pendingBytes+len(delivery.Plaintext) > maxPendingBytes || len(c.pending) >= maxPendingDeliveries {
@@ -1011,6 +1034,45 @@ func (c *Client) retainPendingLocked(delivery *Delivery) {
 
 var errOpeningUndeliverable = errors.New("broker: session opening recipient absent")
 
+// abandoned names a handshake that ran out of handshakeLimit; other errors pass through.
+func (c *Client) abandoned(ctx, bounded context.Context, err error) error {
+	if deadline, _ := bounded.Deadline(); ctx.Err() != nil || time.Now().Before(deadline) {
+		return err
+	}
+	c.recordEvent("handshake abandoned: no SESSION_READY within " + handshakeLimit.String())
+	return fmt.Errorf("broker: no SESSION_READY within %s: %w", handshakeLimit, err)
+}
+
+// sendRefused follows a queue_full. The broker refuses only for a recipient with no
+// session, so the refused frame's session is ending and it holds no intent for it: once
+// this session's RESENDs have had queueFullWait to arrive, whatever is still retained
+// under an earlier session is sent again, same message id, under this one (item 2wr).
+func (c *Client) sendRefused(transport Transport) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.queueRefused {
+		return
+	}
+	c.queueRefused = false
+	session := c.session
+	go func() {
+		<-c.wait(queueFullWait)
+		c.mu.Lock()
+		var refused []*Delivery
+		for _, id := range c.pendingOrder {
+			if delivery := c.pending[id]; delivery != nil && delivery.session != session && c.session == session {
+				refused = append(refused, delivery)
+			}
+		}
+		c.mu.Unlock()
+		for _, delivery := range refused {
+			if c.Send(delivery.MessageID, delivery.Plaintext, transport) != nil {
+				return
+			}
+		}
+	}()
+}
+
 func (c *Client) readHandshake(ctx context.Context, transport Transport, handshakeID string) (Frame, error) {
 	for {
 		frame, err := c.read(ctx, transport)
@@ -1029,6 +1091,11 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport, handsha
 			}
 			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
 			if !problem.Fatal {
+				if problem.Code == "queue_full" {
+					c.mu.Lock()
+					c.queueRefused = true
+					c.mu.Unlock()
+				}
 				continue
 			}
 			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}

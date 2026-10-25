@@ -813,11 +813,11 @@ func TestRetainedDeliveriesStayWithinSixteenMiB2un(t *testing.T) {
 	}
 }
 
-// 2wq reverses what 2un asked for here: the broker refuses an ERROR from a client as
-// fatal, so a RESEND for a message no longer held sends nothing and records one line.
-func TestMissingResendSendsNothingAndKeepsSession2un(t *testing.T) {
+// 2wq reversed what 2un asked for here, and 2wr settles it as the document now says: a
+// RESEND for a message no longer held is answered with one RESEND_DECLINED, never an ERROR.
+func TestMissingResendIsDeclinedAndKeepsSession2un(t *testing.T) {
 	transport := newScriptedBroker(t, Identity{}, Identity{}, Pairing{})
-	client := NewClient(Identity{}, Pairing{}, nil, nil)
+	client := NewClient(Identity{}, Pairing{PairingID: make([]byte, 16)}, nil, nil)
 	var events []string
 	client.OnSessionEvent(func(event string) { events = append(events, event) })
 	if err := client.resend("00112233445566778899aabbccddeeff", transport); err != nil {
@@ -825,10 +825,14 @@ func TestMissingResendSendsNothingAndKeepsSession2un(t *testing.T) {
 	}
 	select {
 	case frame := <-transport.fromCli:
-		t.Fatalf("missing resend answered with frame 0x%02x", frame.Type)
+		want := `{"pairing_id":"00000000000000000000000000000000","message_id":"00112233445566778899aabbccddeeff"}`
+		if frame.Type != FrameResendDeclined || string(frame.Payload) != want {
+			t.Fatalf("missing resend answered with frame 0x%02x %s", frame.Type, frame.Payload)
+		}
 	default:
+		t.Fatal("missing resend answered with nothing")
 	}
-	if len(events) != 1 || events[0] != "RESEND for a message no longer held: 00112233" {
+	if len(events) != 1 || events[0] != "RESEND_DECLINED for a message no longer held: 00112233" {
 		t.Fatalf("events=%q", events)
 	}
 }

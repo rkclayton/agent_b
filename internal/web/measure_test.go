@@ -47,7 +47,7 @@ func TestMeasurementRunsTenBriefsAndPersistsProvenance(t *testing.T) {
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset(), Thinking: true}}
 	path := filepath.Join(root, "harness.json")
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runEvaluation(context.Background(), "measured", cfg.Connections[0])
 	state := server.pageMeasurements.measurements["measured"]
 	if state.Error != "" || state.Result == nil || state.Result.Total != 10 || state.Result.BriefsRun != 10 || state.Result.Provenance != measurementProvenance || state.Result.Trials != 1 {
@@ -91,7 +91,7 @@ func TestStoppingMeasurementCancelsCurrentBriefAndStoresPartialCount(t *testing.
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	server.pageMeasurements.measurements[connection.ID] = measureState{Running: true, Text: "Starting ten briefs"}
 	server.pageMeasurements.cancels[connection.ID] = cancel
@@ -179,7 +179,7 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runMeasurement(context.Background(), "measured", cfg.Connections[0])
 
 	result := server.pageMeasurements.measurements["measured"].Result
@@ -228,7 +228,7 @@ func TestAConnectionThatCannotExpressTheSwitchIsNotMeasured2ih(t *testing.T) {
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Plain", B: "plain", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.runMeasurement(context.Background(), "plain", cfg.Connections[0])
 
 	result := server.pageMeasurements.measurements["plain"].Result

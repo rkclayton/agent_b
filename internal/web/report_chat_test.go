@@ -24,7 +24,7 @@ func TestStrugglingRunsReportThemselvesAndTheButtonRouteIsGone2qa(t *testing.T) 
 	bus := events.NewBus()
 	root := t.TempDir()
 	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: true, Endpoint: "https://receiver.invalid/ingest"}}
-	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+	server := newTestServer(t, cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
 	server.recorder.Settle = time.Millisecond
 	var mu sync.Mutex
 	var sent [][]byte
@@ -122,7 +122,7 @@ func TestStrugglingRunsReportThemselvesAndTheButtonRouteIsGone2qa(t *testing.T) 
 func TestStrugglingRunsSendNothingWithTelemetryOff2qa(t *testing.T) {
 	bus, root := events.NewBus(), t.TempDir()
 	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: false}}
-	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+	server := newTestServer(t, cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
 	server.recorder.Settle = time.Millisecond
 	var sent [][]byte
 	server.telemetry.transport = func(body []byte) error { sent = append(sent, body); return nil }
@@ -144,7 +144,7 @@ func telemetryRun(t *testing.T, enabled bool) [][]byte {
 	bus, root := events.NewBus(), t.TempDir()
 	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: enabled, Endpoint: "https://receiver.invalid/ingest"},
 		Connections: []config.Connection{{ID: "c1", Label: secret + " label", BaseURL: "http://" + secret + ".example:8080", Model: `acme\` + secret + `\model.gguf`}}}
-	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+	server := newTestServer(t, cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
 	server.recorder.Settle = 10 * time.Millisecond
 	var mu sync.Mutex
 	var sent [][]byte
@@ -271,7 +271,7 @@ func TestTheAppsEventsCarryNoPlantedSecret2q7(t *testing.T) {
 	}
 	cfg := &config.Config{Telemetry: config.Telemetry{Enabled: true, Endpoint: "https://receiver.invalid/ingest"},
 		Connections: []config.Connection{{ID: "c1", Label: secret + " label", BaseURL: "http://" + secret + ".example:8080", Model: `acme\` + secret + `\model.gguf`}}}
-	server := New(cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+	server := newTestServer(t, cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
 	var mu sync.Mutex
 	var sent [][]byte
 	server.telemetry.transport = func(body []byte) error { mu.Lock(); sent = append(sent, body); mu.Unlock(); return nil }

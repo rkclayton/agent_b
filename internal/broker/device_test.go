@@ -46,7 +46,8 @@ type standInBroker struct {
 	frames     map[string]int       // "<role> 0x<type>" for every frame a client sent
 	sent       map[string]int       // "<role> 0x<type>" for every frame the stand-in sent
 	inject     func(role string, frame Frame)
-	swallow    string // a role whose CIPHERTEXT the broker loses without a word
+	swallow    string          // a role whose CIPHERTEXT the broker loses without a word
+	lose       map[string]bool // "<role> 0x<type>": the next such frame is lost (item 2wr)
 	worstAck   time.Duration
 	acks       int
 	holds      int
@@ -273,12 +274,20 @@ func (b *standInBroker) serve(ws *websocket.Conn) {
 			b.close(role, "malformed", ws)
 			return
 		}
+		key := fmt.Sprintf("%s 0x%02x", role, frame.Type)
 		b.mu.Lock()
-		b.frames[fmt.Sprintf("%s 0x%02x", role, frame.Type)]++
+		b.frames[key]++
 		inject := b.inject
 		b.mu.Unlock()
 		if inject != nil {
 			inject(role, frame)
+		}
+		b.mu.Lock()
+		lost := b.lose[key]
+		delete(b.lose, key)
+		b.mu.Unlock()
+		if lost {
+			continue
 		}
 		switch frame.Type {
 		case FrameHello:
@@ -343,6 +352,20 @@ func (b *standInBroker) serve(ws *websocket.Conn) {
 			}
 			b.mu.Unlock()
 			b.write(name, to, raw)
+		case FrameResendDeclined:
+			// The real broker's handleResendDeclined (server.go:1792): the sender's intent
+			// is dropped and the recipient, when connected, told DELIVERY_EXPIRED.
+			var declined IDOnlyFrame
+			_ = DecodeInto(frame.Payload, &declined)
+			b.mu.Lock()
+			intent := b.intents[declined.MessageID]
+			if intent != nil && intent.sender == role {
+				delete(b.intents, declined.MessageID)
+			}
+			b.mu.Unlock()
+			if intent != nil && intent.sender == role {
+				b.sendTo(otherRole(role), FrameExpired, declined)
+			}
 		case FrameAck:
 			var ack IDOnlyFrame
 			_ = DecodeInto(frame.Payload, &ack)

@@ -44,7 +44,7 @@ func (w *controlledSSEWriter) Bytes() []byte {
 func TestSSEOverflowClosesAndNextSubscriptionStartsWithSnapshot(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
 	bus := events.NewBus()
-	server := New(&cfg, "", t.TempDir(), RuntimeRoots{Application: t.TempDir(), Data: t.TempDir(), Workspace: t.TempDir()}, bus)
+	server := newTestServer(t, &cfg, "", t.TempDir(), RuntimeRoots{Application: t.TempDir(), Data: t.TempDir(), Workspace: t.TempDir()}, bus)
 
 	release := make(chan struct{})
 	first := &controlledSSEWriter{header: make(http.Header), entered: make(chan struct{}), release: release}

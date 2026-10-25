@@ -36,7 +36,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writers.Close()
-	server := New(&cfg, filepath.Join(data, "harness.json"), root, RuntimeRoots{Data: data, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(data, "harness.json"), root, RuntimeRoots{Data: data, Workspace: cfg.Workspace}, bus)
 	memories := memory.New(data, server.ConfigSnapshot, func(context.Context, string, string) (int, error) { return 0, nil })
 	workspaces := workspaceinfo.New(data, memories.Path)
 	registry := session.NewRegistry(bus, writers, server.Connection, 40, server.ConfigSnapshot)

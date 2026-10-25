@@ -200,7 +200,7 @@ func measuredServer(t *testing.T, chats, entries int) *Server {
 	}
 	root := t.TempDir()
 	cfg := sizedConfig(root, 1)
-	server := New(&cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Application: t.TempDir(), Data: t.TempDir(), Profile: t.TempDir(), Workspace: root}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), t.TempDir(), RuntimeRoots{Application: t.TempDir(), Data: t.TempDir(), Profile: t.TempDir(), Workspace: root}, bus)
 	server.SetProjection(store, writers)
 	if _, err := store.Snapshot(writers.SessionCursors()); err != nil {
 		t.Fatal(err)

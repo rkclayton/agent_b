@@ -90,7 +90,7 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", strings.NewReader(`{"base_url":"`+model.URL+`","model":"Friendly"}`))
 	response := httptest.NewRecorder()
 	server.connection(response, request)
@@ -208,7 +208,7 @@ func TestDiscoveryNamesRequiredBaseURLWithoutSaving(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil)
 	response := httptest.NewRecorder()
 	server.connection(response, request)
@@ -266,7 +266,7 @@ func TestConnectionTestReturnsDiscoveryListAndLogsEveryRequest(t *testing.T) {
 	bus := events.NewBus()
 	stream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
-	server := New(&cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	server := newTestServer(t, &cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
 	var output bytes.Buffer
 	previous := log.Writer()
 	log.SetOutput(&output)
@@ -373,7 +373,7 @@ func TestRecommendedUsesEvalThenServerWithoutCompletionAndDoesNotSave2qw(t *test
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	response := httptest.NewRecorder()
 	server.connection(response, httptest.NewRequest(http.MethodPost, "/api/connections/local/recommended", nil))
 	var answer struct {

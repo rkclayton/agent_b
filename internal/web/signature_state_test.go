@@ -36,7 +36,7 @@ func (readOnlySigningManager) Sign(context.Context, signing.Request) (signing.Re
 func TestSigningIsReadOnlyBuildStatusAndHasNoAPI2jw(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 	server.SetSigningManager(readOnlySigningManager{status: signing.Status{Supported: true, Files: []signing.FileStatus{{Status: "Valid", Timestamped: true}}}})
 	if err := server.RefreshSigningState(context.Background()); err != nil {
 		t.Fatal(err)

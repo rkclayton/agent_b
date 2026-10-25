@@ -737,8 +737,11 @@ Another repository imports them only as `harness/pkg/brokerclient`, which re-exp
 its own goroutine behind a queue of 256, so it may call `Send`; a message that finds the queue full is not acknowledged and ends the link.
 `Connect` asks for presence and its `event` says `peer connected` / `peer gone`. Each side keeps at most 64 messages unacknowledged, the broker's
 intent bound (`Client.Deliver` and `DeviceClient.Send` wait; a handler on the reader uses `DeliverNow`); a device frees one at DELIVERY_EXPIRED
-or after the broker's five-minute lifetime. A RESEND for a message no longer held sends nothing, since the broker refuses an ERROR from a client;
-frames of the old session and PEER during a handshake do not end it; a fatal refusal backs off 1 s doubling to 60 s.
+or after the broker's five-minute lifetime. A RESEND for a message no longer held is answered once with RESEND_DECLINED (frame 28), never an ERROR;
+after a nonfatal `queue_full` the agent sends the refused message again, same message id, under the next session, a second after its READY.
+Frames of the old session and PEER during a handshake do not end it; SESSION_INIT to SESSION_READY is bounded at 5 s, then abandoned with one
+event line and the reconnect backoff; a fatal refusal backs off 1 s doubling to 60 s. `web.Server.Close` stops the background work `New` and
+`SetRegistry` start, plus telemetry and reflection when they run; every `internal/web` test server closes in its cleanup.
 The live transport has one writer per connection, paced to `SendFrameRate` (200 frames a second, under the broker's 240); ACK and PONG go first,
 so whoever reads the link never waits on a write, and Send waits only when the bounded queue is full.
 Other configuration remains additive under schema 15; omitted policy lists receive defaults while explicit empty lists clear them.

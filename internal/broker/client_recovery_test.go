@@ -64,25 +64,165 @@ func TestAPeerAndAStaleAckDuringTheHandshakeDoNotDropIt2wq(t *testing.T) {
 	}
 }
 
-// The broker asks the agent to RESEND a message it no longer holds, and asks again after
-// every new session for as long as the intent lives.
-func TestAnUnknownResendCostsOneLineNotALoop2wq(t *testing.T) {
+// The broker asks each end to RESEND a message it no longer holds. Each declines once with
+// RESEND_DECLINED; the broker drops the intent and tells the other end DELIVERY_EXPIRED,
+// so no RESEND comes again and nothing reconnects (item 2wr).
+func TestAnUnknownResendIsDeclinedOnce2wr(t *testing.T) {
 	b := newStandIn(t)
 	b.expiry, b.deadline = 30*time.Second, 10*time.Second // the real broker: 5 min, 90 s
 	agent, _ := linkThrough(t, b, echo, func([]byte) {})
-	id := randomHex(t)
+	for _, role := range []string{"agent", "device"} {
+		id := randomHex(t)
+		b.mu.Lock()
+		b.intents[id] = &standInIntent{sender: role, queued: true, at: time.Now()}
+		b.mu.Unlock()
+		b.sendTo(role, FrameResend, IDOnlyFrame{PairingID: b.pairingHex(), MessageID: id})
+		for deadline := time.Now().Add(5 * time.Second); b.count(role+" 0x28", b.frames) == 0; time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: no RESEND_DECLINED; frames %v", role, b.frames)
+			}
+		}
+		b.mu.Lock()
+		_, held := b.intents[id]
+		b.mu.Unlock()
+		if held {
+			t.Fatalf("%s: the stand-in kept the declined intent", role)
+		}
+	}
+	time.Sleep(2 * time.Second)
+	t.Logf("RESEND_DECLINED agent %d, device %d; DELIVERY_EXPIRED to device %d, to agent %d; ERROR from agent %d, from device %d; reconnects %d",
+		b.count("agent 0x28", b.frames), b.count("device 0x28", b.frames), b.count("device 0x27", b.sent), b.count("agent 0x27", b.sent),
+		b.count("agent 0x7f", b.frames), b.count("device 0x7f", b.frames), agent.Status().Reconnects)
+	if b.count("agent 0x28", b.frames) != 1 || b.count("device 0x28", b.frames) != 1 || b.count("device 0x27", b.sent) != 1 || b.count("agent 0x27", b.sent) != 1 ||
+		b.count("agent 0x7f", b.frames)+b.count("device 0x7f", b.frames) != 0 || agent.Status().Reconnects != 0 {
+		t.Fatal("not one decline each, one expiry each, no ERROR and no reconnect")
+	}
+}
+
+// O4 card 1: the phone's link drops after the device's "session" event and before the
+// agent has SESSION_READY. The agent abandons the handshake at handshakeLimit, reconnects
+// after the first backoff step, and the phone's redial reaches a session (item 2wr).
+func TestADropBeforeSessionReadyIsAbandonedAndRedialed2wr(t *testing.T) {
+	b := newStandIn(t)
+	b.deadline = time.Minute // the real broker pings an idle link; this one must not cut it
+	b.lose = map[string]bool{"device 0x1b": true}
+	replies := make(chan string, 1)
+	received := func(plaintext []byte) { replies <- string(plaintext) }
+	agent, device := linkThrough(t, b, echo, received)
+	for deadline := time.Now().Add(5 * time.Second); b.count("device 0x1b", b.frames) == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in never took the device's SESSION_READY")
+		}
+	}
+	b.cut("device")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		b.mu.Lock()
+		closed := strings.HasPrefix(b.events[len(b.events)-1], "closed")
+		b.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the device never saw its link end")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	redialed := time.Now()
+	if err := device.Connect(ctx, Dial(b.address), received, b.deviceEvent); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(30 * time.Second); agent.Status().State != "phone connected"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("still waiting 30 s after the redial: %+v", agent.Status())
+		}
+	}
+	if err := device.Send(ctx, []byte("after the drop")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case reply := <-replies:
+		if reply != "echo: after the drop" {
+			t.Fatalf("reply %q", reply)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no reply; agent %+v", agent.Status())
+	}
+	t.Logf("session again %s after the redial; reconnects %d", time.Since(redialed).Round(time.Millisecond), agent.Status().Reconnects)
+}
+
+// The broker's nonfatal queue_full, where the real broker gives it: the recipient has no
+// session and 64 intents are held. The phone's link then drops and comes back; the
+// refused message, which has no intent, is sent again under the new session, same
+// message id, and arrives (item 2wr).
+func TestQueueFullSendsTheSameMessageAgain2wr(t *testing.T) {
+	b := newStandIn(t)
+	replies := make(chan string, 1)
+	received := func(plaintext []byte) {
+		if string(plaintext) == "refused once" {
+			replies <- string(plaintext)
+		}
+	}
+	agent, device := linkThrough(t, b, echo, received)
+	for deadline := time.Now().Add(5 * time.Second); agent.Status().State != "phone connected"; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no session: %+v", agent.Status())
+		}
+	}
+	var mu sync.Mutex
+	var sent []CiphertextFrame
 	b.mu.Lock()
-	b.intents[id] = &standInIntent{sender: "agent", queued: true, at: time.Now()}
+	b.inject = func(role string, frame Frame) {
+		if role == "agent" && frame.Type == FrameCiphertext {
+			var ciphertext CiphertextFrame
+			_ = DecodeInto(frame.Payload, &ciphertext)
+			mu.Lock()
+			sent = append(sent, ciphertext)
+			mu.Unlock()
+		}
+	}
+	b.sessionUp = false // the phone's session is going; its link has not closed yet
+	for range 64 {
+		b.intents[randomHex(t)] = &standInIntent{sender: "device", queued: true, at: time.Now()}
+	}
 	b.mu.Unlock()
-	b.sendTo("agent", FrameResend, IDOnlyFrame{PairingID: b.pairingHex(), MessageID: id})
-	time.Sleep(5 * time.Second)
-	reconnects, errors := agent.Status().Reconnects, b.count("agent 0x7f", b.frames)
-	b.mu.Lock()
-	closes := strings.Join(b.closes, "; ")
-	b.mu.Unlock()
-	t.Logf("in 5 s: reconnects %d, ERROR frames from the agent %d, RESENDs sent %d; stand-in: %s", reconnects, errors, b.count("agent 0x26", b.sent), closes)
-	if reconnects != 0 || errors != 0 {
-		t.Fatalf("an unknown RESEND cost %d reconnects and %d ERROR frames", reconnects, errors)
+	if err := agent.Deliver([]byte("refused once")); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); b.count("agent 0x7f", b.sent) == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in never refused with queue_full")
+		}
+	}
+	b.cut("device")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		b.mu.Lock()
+		closed := strings.HasPrefix(b.events[len(b.events)-1], "closed")
+		b.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the device never saw its link end")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := device.Connect(ctx, Dial(b.address), received, b.deviceEvent); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-replies:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("never delivered; agent %+v", agent.Status())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	t.Logf("CIPHERTEXT for it %d: refused %s session %s counter %d; again %s session %s counter %d; queue_full %d, ERROR from agent %d",
+		len(sent), sent[0].MessageID[:8], sent[0].SessionID[:8], sent[0].Counter, sent[len(sent)-1].MessageID[:8], sent[len(sent)-1].SessionID[:8], sent[len(sent)-1].Counter,
+		b.count("agent 0x7f", b.sent), b.count("agent 0x7f", b.frames))
+	if len(sent) != 2 || sent[1].MessageID != sent[0].MessageID || sent[1].SessionID == sent[0].SessionID || b.count("agent 0x7f", b.frames) != 0 {
+		t.Fatal("not the same message id once more under the new session")
 	}
 }
 

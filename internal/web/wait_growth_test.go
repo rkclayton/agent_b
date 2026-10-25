@@ -219,7 +219,7 @@ func TestSevenMappedWaitsAtTwoStoredSizes2pq(t *testing.T) {
 
 	stateRoot := t.TempDir()
 	stateCfg := sizedConfig(stateRoot, 30)
-	stateServer := New(&stateCfg, filepath.Join(stateRoot, "harness.json"), t.TempDir(), RuntimeRoots{Application: t.TempDir(), Data: t.TempDir(), Profile: t.TempDir(), Workspace: stateRoot}, events.NewBus())
+	stateServer := newTestServer(t, &stateCfg, filepath.Join(stateRoot, "harness.json"), t.TempDir(), RuntimeRoots{Application: t.TempDir(), Data: t.TempDir(), Profile: t.TempDir(), Workspace: stateRoot}, events.NewBus())
 	stateRead := func(sessions map[string]projection.Snapshot) func() {
 		return func() { mustJSON(t, stateServer.snapshotWithSessions(sessions, false)) }
 	}

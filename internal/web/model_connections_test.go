@@ -22,7 +22,7 @@ func TestApprovedConnectorMutationValidatesPersistsAndRemoves(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	service := config.Service{Kind: "mcp", BaseURL: "https://broker.test/mcp", Auth: "exec:helper headers", AllowedMethods: []string{"POST"}, TimeoutS: 60, MaxBodyKB: 64}
 	if err := server.ApplyConnector(tools.ConnectorChange{Operation: "add", Name: "acme-services", Service: service}); err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestApprovedMCPConnectorCanStorePublishedEntraDefinition(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "harness.json")
 	cfg := config.Defaults(root)
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	vault := credential.NewVault(root)
 	SetCredentialVault(vault)
 	t.Cleanup(func() { SetCredentialVault(nil) })
@@ -88,7 +88,7 @@ func TestDuplicateConnectionPreservesCredentialReferenceWithoutExposingSecret(t 
 	cfg.Connections[0] = runnableTestConnection("local")
 	cfg.Connections[0].Credential = "shared-model-key"
 	cfg.Connections[0].APIKey = "fixture-secret"
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	request := httptest.NewRequest(http.MethodPost, "/api/connections/local/duplicate", strings.NewReader(`{"id":"local-2","label":"Local copy"}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -163,7 +163,7 @@ func TestConnectionRouteRefusalsLeaveDiskUnchanged2r9(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestConfigPOSTStoresConnectionSecretOutsideJSON(t *testing.T) {
 	bus := events.NewBus()
 	eventStream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	const secret = "connection-test-secret"
 
 	response := postConfigPatch(t, server, `{"connections":[{"id":"local","credential":"acme","api_key":"`+secret+`"}]}`)
@@ -328,7 +328,7 @@ func TestPickingModelsThroughConfigKeepsTheirOwnSettings2s5(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
 
 	if response := postConfigPatch(t, server, `{"connections":[{"id":"local","model":"second"}]}`); response.Code != http.StatusOK {
 		t.Fatalf("pick second: %d %s", response.Code, response.Body)
@@ -400,7 +400,7 @@ func TestSavingTheModelPlaceholderIsRefusedByName2nq(t *testing.T) {
 	if saveErr := cfg.Save(path); saveErr != nil {
 		t.Fatal(saveErr)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	refused := postConfigPatch(t, server, `{"connections":[{"id":"server-3","model":"model"}]}`)
 	if refused.Code != http.StatusBadRequest {

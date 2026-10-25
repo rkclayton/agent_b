@@ -223,7 +223,9 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 		close(inbox)
 		_ = t.Close(1000, "done")
 		d.mu.Lock()
-		d.link, d.session = nil, nil
+		if d.link == t { // a Connect that came after this link ended keeps its own
+			d.link, d.session = nil, nil
+		}
 		d.mu.Unlock()
 		if ctx.Err() == nil {
 			event("closed: " + err.Error())
@@ -257,6 +259,7 @@ func (d *DeviceClient) authenticate(ctx context.Context, t Transport) error {
 func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []byte, event func(string)) error {
 	b64, p, me := base64.RawURLEncoding, d.Pairing(), d.identity.KeyID()
 	var opening *Session
+	var openedAt time.Time
 	for {
 		raw, err := t.Receive(ctx)
 		if err != nil {
@@ -282,6 +285,7 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				m1, _ := b64.DecodeString(in.Noise)
 				signature, _ := b64.DecodeString(in.Signature)
 				var m2 []byte
+				openedAt = d.now()
 				if opening, err = NewResponder(d.identity, SessionPrologue(p.PairingID, handshake, p.DeviceKeyID, me), ephemeral); err == nil {
 					if err = opening.ReadInit(m1, p.DeviceSigning, signature); err == nil {
 						m2, err = opening.WriteResponse()
@@ -368,6 +372,11 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				if err := d.seal(t, messageID, retained.plaintext, true); err != nil {
 					return err
 				}
+			} else if frame.Type == FrameResend {
+				// Declined once, as the document says (item 2wr).
+				if err := deviceSend(t, FrameResendDeclined, IDOnlyFrame{PairingID: hexID(p.PairingID), MessageID: in.MessageID}); err != nil {
+					return err
+				}
 			}
 		case FramePeer:
 			var peer peerPayload
@@ -388,6 +397,12 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			d.mu.Lock()
 			d.expireLocked()
 			d.mu.Unlock()
+			// The device never waits on a handshake, but an opening the agent left is
+			// dropped at the agent's bound (item 2wr).
+			if opening != nil && d.now().Sub(openedAt) >= handshakeLimit {
+				opening = nil
+				event("handshake abandoned")
+			}
 		case FrameError:
 			var in ErrorPayload
 			_ = DecodeInto(frame.Payload, &in)

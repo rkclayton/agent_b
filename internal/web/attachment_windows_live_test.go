@@ -97,7 +97,7 @@ func TestAttachmentIngestLiveServiceSplit(t *testing.T) {
 	projector := projection.NewStore()
 	bus.SetDurableSink(writers.WriteRecord, projector.Apply, projector.MarkStale)
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
-	server := New(&cfg, filepath.Join(temporary, "harness.json"), filepath.Join(root, "web"), RuntimeRoots{Application: root, Data: temporary, Workspace: workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(temporary, "harness.json"), filepath.Join(root, "web"), RuntimeRoots{Application: root, Data: temporary, Workspace: workspace}, bus)
 	server.SetProjection(projector, writers)
 	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)

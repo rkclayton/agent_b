@@ -14,34 +14,35 @@ import (
 // The frame layer, exactly as broker-protocol-v1.md's registry spells it. A frame is a
 // three-part header — version, type, big-endian payload length — and a JSON payload.
 const (
-	FrameHello         = 0x01
-	FrameChallenge     = 0x02
-	FrameAuth          = 0x03
-	FrameReady         = 0x04
-	FramePeerQuery     = 0x05
-	FramePeer          = 0x06
-	FramePairBegin     = 0x10
-	FramePairWaiting   = 0x11
-	FramePairPeer      = 0x12
-	FramePairConfirm   = 0x13
-	FramePairComplete  = 0x14
-	FrameSessionInit   = 0x18
-	FrameSessionResp   = 0x19
-	FrameSessionFinish = 0x1a
-	FrameSessionReady  = 0x1b
-	FrameCiphertext    = 0x20
-	FrameAck           = 0x21
-	FrameQueued        = 0x22
-	FramePushRegister  = 0x23
-	FramePush          = 0x24
-	FramePushAccepted  = 0x25
-	FrameResend        = 0x26
-	FrameExpired       = 0x27
-	FrameRevoke        = 0x30
-	FrameRevoked       = 0x31
-	FramePing          = 0x40
-	FramePong          = 0x41
-	FrameError         = 0x7f
+	FrameHello          = 0x01
+	FrameChallenge      = 0x02
+	FrameAuth           = 0x03
+	FrameReady          = 0x04
+	FramePeerQuery      = 0x05
+	FramePeer           = 0x06
+	FramePairBegin      = 0x10
+	FramePairWaiting    = 0x11
+	FramePairPeer       = 0x12
+	FramePairConfirm    = 0x13
+	FramePairComplete   = 0x14
+	FrameSessionInit    = 0x18
+	FrameSessionResp    = 0x19
+	FrameSessionFinish  = 0x1a
+	FrameSessionReady   = 0x1b
+	FrameCiphertext     = 0x20
+	FrameAck            = 0x21
+	FrameQueued         = 0x22
+	FramePushRegister   = 0x23
+	FramePush           = 0x24
+	FramePushAccepted   = 0x25
+	FrameResend         = 0x26
+	FrameExpired        = 0x27
+	FrameResendDeclined = 0x28
+	FrameRevoke         = 0x30
+	FrameRevoked        = 0x31
+	FramePing           = 0x40
+	FramePong           = 0x41
+	FrameError          = 0x7f
 
 	// The limits the document states. They are enforced BEFORE allocation, which is
 	// why they are here and not at the call site.

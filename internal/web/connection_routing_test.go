@@ -73,7 +73,7 @@ func TestEachChatsRunLandsOnItsOwnConnection2mi(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	bus.SetSink(writers.Write)
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
 	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
 

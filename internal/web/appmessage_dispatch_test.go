@@ -44,7 +44,7 @@ func dispatchServer(t *testing.T) *Server {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	writers, err := events.NewWriters(filepath.Join(root, "logs"))
 	if err != nil {
 		t.Fatal(err)

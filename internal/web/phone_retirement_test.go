@@ -15,7 +15,7 @@ import (
 func TestOlderPhoneBrowserEndpointsAreNotFound2pl(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Profile: root, Workspace: cfg.Workspace}, events.NewBus())
 	handler := server.Handler()
 	paths := []struct{ method, path string }{
 		{http.MethodGet, "/phone"},

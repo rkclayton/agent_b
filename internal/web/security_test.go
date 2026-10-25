@@ -37,7 +37,7 @@ func TestUnavailableSandboxCannotBeEnabledAndStoredOnIsDisabled2te(t *testing.T)
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Data: root, Profile: root, Workspace: root}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Data: root, Profile: root, Workspace: root}, events.NewBus())
 	shell := tools.NewShell(cfg.Shell)
 	shell.Configure(cfg)
 	server.SetShellSecurity(nil, shell)
@@ -93,7 +93,7 @@ func TestConfigPOSTRetainsSchemaStamp(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	server := New(&cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"approval":{"mode":"mutating"}}`))
 	authorizeMutation(request, server)
 	request.Host = "example.com"
@@ -122,7 +122,7 @@ func TestConfigPOSTRetainsSchemaStamp(t *testing.T) {
 func TestMutationGuardRequiresLaunchTokenAndSameOrigin(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(`{"approval":{"mode":"all"}}`))
 	request.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
@@ -155,7 +155,7 @@ func TestMutationGuardRequiresLaunchTokenAndSameOrigin(t *testing.T) {
 func TestControlPlaneRequiresBrowserSession2jy(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 
 	for _, target := range []string{"/api/state", "/api/events"} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
@@ -184,7 +184,7 @@ func TestBrowserCredentialBootstrapIsNotIssuedToToolDescendants2jy(t *testing.T)
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	server.operatorState.request = func(*http.Request) error { return errors.New("Agent_b descendant") }
 
 	page := httptest.NewRecorder()
@@ -212,7 +212,7 @@ func TestBrowserCredentialBootstrapIsNotIssuedToToolDescendants2jy(t *testing.T)
 func TestHostWindowActionsUseTheMutationBoundary(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	var got, title string
 	server.SetHostWindowAction(func(action, value string) bool { got, title = action, value; return true })
 
@@ -249,7 +249,7 @@ func TestHostWindowActionsUseTheMutationBoundary(t *testing.T) {
 func TestARefusedHostWindowPressNamesTheButtonAndMissingWindow2t2(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	var output bytes.Buffer
 	previous := log.Writer()
 	log.SetOutput(&output)
@@ -269,7 +269,7 @@ func TestARefusedHostWindowPressNamesTheButtonAndMissingWindow2t2(t *testing.T) 
 func TestSecurityHeaders(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
@@ -283,7 +283,7 @@ func TestSecurityHeaders(t *testing.T) {
 func TestSnapshotToolInventoryUsesPublicNames(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	raw := server.snapshotWithSessions(map[string]any{}, false)["tools"].([]map[string]string)
 	names := make([]string, 0, len(raw))
 	for _, item := range raw {
@@ -310,7 +310,7 @@ func TestSnapshotExposesBuildIdentity(t *testing.T) {
 	buildinfo.Commit, buildinfo.Dirty = "abcdef0123456789", "true"
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	info := server.snapshotWithSessions(map[string]any{}, false)["build"].(buildinfo.Info)
 	if info.Commit != buildinfo.Commit || info.Display != "abcdef012345+dirty" || !info.Dirty {
 		t.Fatalf("build identity = %+v", info)
@@ -324,7 +324,7 @@ func TestSnapshotExposesBuildIdentity(t *testing.T) {
 func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	SetCredentialVault(credential.NewVault(root))
 	t.Cleanup(func() { SetCredentialVault(nil) })
 
@@ -400,7 +400,7 @@ func TestOperatorsPageRevealsOneStoredConnectionKey2qn(t *testing.T) {
 	bus := events.NewBus()
 	eventStream, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, bus)
 	const planted = "planted-key-2qn"
 	stored, err := credential.NewNamed(root, "acme")
 	if err != nil {
@@ -440,7 +440,7 @@ func TestOperatorsPageManagesEntraSignIn2nw(t *testing.T) {
 	}
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	vault := credential.NewVault(root)
 	SetCredentialVault(vault)
 	t.Cleanup(func() { SetCredentialVault(nil); SetIdentityProvider("entra", nil) })
@@ -491,7 +491,7 @@ func TestSignInStartIsWindowsOwnSwitch2o9(t *testing.T) {
 	})
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	server := New(&cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	call := func(method, body string) bool {
 		request := httptest.NewRequest(method, "/api/sign-in-start", strings.NewReader(body))
 		authorizeMutation(request, server)

@@ -28,7 +28,7 @@ func TestDocumentIsNoStoreAndCarriesTheServingBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(t.TempDir())
-	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), webDir, RuntimeRoots{Application: t.TempDir()}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(t.TempDir(), "harness.json"), webDir, RuntimeRoots{Application: t.TempDir()}, events.NewBus())
 
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/chat", nil))
@@ -82,7 +82,7 @@ func TestHelpRoutesAreAbsent2vz(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(t.TempDir())
-	server := New(&cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: root}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), webDir, RuntimeRoots{Application: root}, events.NewBus())
 	for _, path := range []string{"/help/reference", "/help/rules"} {
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))

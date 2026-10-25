@@ -10,7 +10,7 @@ import (
 
 func TestStopAllCancelsEveryInFlightProbe(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
-	server := New(&cfg, "", "", RuntimeRoots{}, events.NewBus())
+	server := newTestServer(t, &cfg, "", "", RuntimeRoots{}, events.NewBus())
 	firstContext, firstCancel := context.WithCancel(context.Background())
 	secondContext, secondCancel := context.WithCancel(context.Background())
 	server.connectionChecks.probeCancels["first"] = &probeRun{cancel: firstCancel}
@@ -27,7 +27,7 @@ func TestStopAllCancelsEveryInFlightProbe(t *testing.T) {
 
 func TestFinishingOldProbeCannotDropNewProbeCancellation(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
-	server := New(&cfg, "", "", RuntimeRoots{}, events.NewBus())
+	server := newTestServer(t, &cfg, "", "", RuntimeRoots{}, events.NewBus())
 	old := &probeRun{cancel: func() {}}
 	current := &probeRun{cancel: func() {}}
 	server.connectionChecks.probeCancels["local"] = current

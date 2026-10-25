@@ -29,7 +29,7 @@ func TestFilesRouteDownloadsWorkspaceBytesAndRefusesJailEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(workspace)
-	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
 
 	request := httptest.NewRequest(http.MethodGet, "/api/files/reports/final.txt", nil)
 	response := httptest.NewRecorder()
@@ -65,7 +65,7 @@ func TestOpenFolderUsesJailResolvedWorkspaceFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults(workspace)
-	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
 	opened := ""
 	server.openFolder = func(value string) error { opened = value; return nil }
 	request := httptest.NewRequest(http.MethodPost, "/api/open-folder", strings.NewReader(`{"path":"result.txt"}`))
@@ -87,7 +87,7 @@ func TestOpenFileOpensDocumentsOnlyInsideTheWorkspace(t *testing.T) {
 		}
 	}
 	cfg := config.Defaults(workspace)
-	server := New(&cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
+	server := newTestServer(t, &cfg, filepath.Join(t.TempDir(), "harness.json"), t.TempDir(), RuntimeRoots{Workspace: workspace}, events.NewBus())
 	opened := []string{}
 	server.openFile = func(value string) error { opened = append(opened, value); return nil }
 	call := func(body string) int {

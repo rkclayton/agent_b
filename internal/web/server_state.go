@@ -125,23 +125,38 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
-		"tools": []map[string]string{
-			{"name": "read_file", "description": "Read numbered local UTF-8 text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike fetch_url, it reads the filesystem."},
-			{"name": "list_dir", "description": "List entries under local directory path to depth. Unlike find_files, it enumerates contents without a filename pattern."},
-			{"name": "write_file", "description": (&tools.WriteFile{}).Description()},
-			{"name": "edit_file", "description": "Replace one exact, unique old_string in path with new_string. Unlike write_file, it avoids reproducing the whole file."},
-			{"name": "search_text", "description": "Search local file contents under path for pattern, optionally filtering filenames with glob. Unlike find_files, it returns matching text lines."},
-			{"name": "shell", "description": shellDescription},
-			{"name": "remember", "description": "Save note as durable folder memory for future sessions. Call recall first to avoid duplicates; unlike recall, remember writes."},
-			{"name": "recall", "description": "Read all durable folder notes; takes no arguments. Use before remember to avoid duplicates; unlike recall, remember never writes."},
-			{"name": "fetch_url", "description": "Fetch untrusted public HTTP(S) text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike read_file, it uses the network."},
-			{"name": "web_search", "description": (&tools.WebSearch{}).Description()},
-			{"name": "find_files", "description": "Find local files under path whose names or relative paths match pattern. Unlike search_text, it does not inspect file contents."},
-			{"name": "run_script", "description": tools.NewRunScript(tools.NewShell(masked.Shell)).Description()},
-			{"name": "call_service", "description": tools.NewCallService(masked.Services).Description()},
-			{"name": "delegate", "description": (&tools.Delegate{}).Description()},
-		},
+		"tools": toolInventory(map[string]string{
+			"read_file":    "Read numbered local UTF-8 text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike fetch_url, it reads the filesystem.",
+			"list_dir":     "List entries under local directory path to depth. Unlike search, it enumerates contents without a pattern.",
+			"write_file":   (&tools.WriteFile{}).Description(),
+			"edit_file":    "Replace one exact, unique old_string in path with new_string. Unlike write_file, it avoids reproducing the whole file.",
+			"search":       (&tools.Search{}).Description(),
+			"shell":        shellDescription,
+			"remember":     "Save note as durable folder memory for future sessions. Call recall first to avoid duplicates; unlike recall, remember writes.",
+			"recall":       "Read all durable folder notes; takes no arguments. Use before remember to avoid duplicates; unlike recall, remember never writes.",
+			"fetch_url":    "Fetch untrusted public HTTP(S) text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike read_file, it uses the network.",
+			"web_search":   (&tools.WebSearch{}).Description(),
+			"run_script":   tools.NewRunScript(tools.NewShell(masked.Shell)).Description(),
+			"call_service": tools.NewCallService(masked.Services).Description(),
+			"delegate":     (&tools.Delegate{}).Description(),
+			"cronjob":      (&tools.Cronjob{}).Description(),
+			"image":        (&tools.Image{}).Description(),
+			"todo":         (&tools.Todo{}).Description(),
+			"ask":          (&tools.Ask{}).Description(),
+			"process":      (&tools.Process{}).Description(),
+			"code":         (&tools.Code{}).Description(),
+		}),
 	}
+}
+
+// toolInventory is state.tools: the toolset's names in its own order, the
+// names the tool handler and an agent's toolset use (item 2wt).
+func toolInventory(descriptions map[string]string) []map[string]string {
+	inventory := make([]map[string]string, 0, len(descriptions))
+	for _, name := range config.FullToolset() {
+		inventory = append(inventory, map[string]string{"name": name, "description": descriptions[name]})
+	}
+	return inventory
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {

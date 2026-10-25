@@ -107,6 +107,9 @@ type Server struct {
 	startedAt          string
 	chatState          chatState
 	fileUndo           *tools.FileUndoStore
+	// session-less events a device was not sent, by type (item 2wt).
+	deviceDroppedMu sync.Mutex
+	deviceDropped   map[string]int64
 }
 
 const appRequestWatchdogDelay = 30 * time.Second

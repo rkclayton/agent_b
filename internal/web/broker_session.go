@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"maps"
+	"slices"
 	"sync"
 
 	"harness/internal/broker"
@@ -104,6 +106,31 @@ func (c *BrokerClient) stopSessionLocked() {
 		c.stopSession()
 	}
 	c.client, c.stopSession = nil, nil
+}
+
+// deviceSessionlessEvents is the one list of session-less events a device is
+// sent (item 2wt); docs/app-message-v1.md quotes it and a test holds them
+// equal. Everything else — config.changed first — stays on the PC.
+var deviceSessionlessEvents = []string{
+	events.AgentTools,       // 2ws: an agent's tools after a toggle
+	events.ChatDeleted,      // the iOS chat list removes the row
+	events.ChatListPatch,    // the iOS chat list's folders
+	events.ChatListSnapshot, // the iOS chat list's folders
+}
+
+func (s *Server) noteDeviceDropped(eventType string) {
+	s.deviceDroppedMu.Lock()
+	if s.deviceDropped == nil {
+		s.deviceDropped = map[string]int64{}
+	}
+	s.deviceDropped[eventType]++
+	s.deviceDroppedMu.Unlock()
+}
+
+func (s *Server) deviceEventsDropped() map[string]int64 {
+	s.deviceDroppedMu.Lock()
+	defer s.deviceDroppedMu.Unlock()
+	return maps.Clone(s.deviceDropped)
 }
 
 // streamToDevice sends the bounded join, global events, and either the legacy
@@ -362,8 +389,10 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			if unit, mirrored := s.outboundMirror(event); mirrored {
 				send(unit)
 			}
-			if event.SessionID == "" {
+			if event.SessionID == "" && slices.Contains(deviceSessionlessEvents, event.Type) {
 				send(map[string]any{"v": 1, "kind": "event", "data": event})
+			} else if event.SessionID == "" {
+				s.noteDeviceDropped(event.Type)
 			}
 		case <-ctx.Done():
 			return

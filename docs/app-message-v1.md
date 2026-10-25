@@ -69,6 +69,11 @@ added). The join begins with one global event whose type is `chat.list.snapshot`
 new full folder path. These list events use the existing `event` unit and do not alter a chat's
 projection cursor.
 
+A device receives these session-less events and no others: `agent.tools`, `chat.deleted`, `chat.list.patch`, `chat.list.snapshot`.
+Every other session-less event (`config.changed` among them) stays on the desktop; the desktop
+counts each one it withholds, by type, in its diagnostics export. A chat's own events are not
+affected.
+
 ## Splitting a unit that does not fit
 
 A unit whose encoding would exceed `UNIT_MAX` is sent as an ordered sequence of `part` units:

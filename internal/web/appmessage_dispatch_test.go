@@ -814,10 +814,11 @@ func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 	server.bus.Publish(events.New(events.ApprovalRequired, existing.ID, "r1", map[string]any{"call_id": "c1"}))
 	server.bus.Publish(events.New(events.RunStopped, existing.ID, "r1", map[string]any{"reason": "done"}))
 	server.bus.Publish(events.New(events.ItemStuck, existing.ID, "r1", map[string]any{"item": "2ok"}))
-	server.bus.Publish(events.New("broker.test.global", "", "", map[string]any{"note": "global"}))
+	// A listed global event (2wt: only deviceSessionlessEvents reach a device).
+	server.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": "gone"}))
 	device.waitFor(t, "the global event", func(unit map[string]any) bool {
 		data, _ := unit["data"].(map[string]any)
-		return unit["kind"] == "event" && data["type"] == "broker.test.global"
+		return unit["kind"] == "event" && data["type"] == events.ChatDeleted
 	})
 }
 
@@ -987,5 +988,69 @@ func TestADeviceSeesEachAgentsToolsAndAToggleReachesIt2ws(t *testing.T) {
 	refused := dispatch(t, server, `{"v":1,"kind":"request","id":"ac","route":"tool","body":{"name":"shell","agent_id":"agent_b","enabled":false}}`)
 	if refused.Status != 400 || !strings.Contains(string(refused.Body), `"error":"agent_b tools are read-only"`) || !strings.Contains(string(refused.Body), `"field":"agent_id"`) {
 		t.Fatalf("read-only refusal = %d %s", refused.Status, refused.Body)
+	}
+}
+
+// Item 2wt (a): a device receives a session-less event only when its type is
+// on deviceSessionlessEvents; anything else is dropped and counted.
+func TestADeviceReceivesOnlyTheListedSessionlessEvents2wt(t *testing.T) {
+	server := dispatchServer(t)
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	streamed := make(chan struct{})
+	defer func() { stop(); <-streamed }()
+	go func() { server.streamToDevice(ctx, device); close(streamed) }()
+	time.Sleep(50 * time.Millisecond)
+	server.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": map[string]any{"workspace": "C:/stand-in"}}))
+	server.bus.Publish(events.New(events.UpdateChanged, "", "", map[string]any{"state": "idle"}))
+	server.bus.Publish(events.New(events.ConnectionHealth, "", "", map[string]any{"id": "local"}))
+	server.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": "gone"}))
+	server.bus.Publish(events.New(events.ChatListPatch, "", "", map[string]any{"operation": "add", "path": "folder"}))
+	device.waitFor(t, "the chat list patch", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return data["type"] == events.ChatListPatch
+	})
+	device.mu.Lock()
+	got := map[string]int{}
+	for _, unit := range device.units {
+		if data, _ := unit["data"].(map[string]any); unit["kind"] == "event" {
+			got[fmt.Sprint(data["type"])]++
+		}
+	}
+	device.mu.Unlock()
+	if got[events.ChatDeleted] != 1 || got[events.ConfigChanged]+got[events.UpdateChanged]+got[events.ConnectionHealth] != 0 {
+		t.Fatalf("the device received %v", got)
+	}
+	dropped := server.deviceEventsDropped()
+	if dropped[events.ConfigChanged] != 1 || dropped[events.UpdateChanged] != 1 || dropped[events.ConnectionHealth] != 1 || len(dropped) != 3 {
+		t.Fatalf("dropped = %v", dropped)
+	}
+	document, err := os.ReadFile(filepath.Join("..", "..", "docs", "app-message-v1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := "A device receives these session-less events and no others: `" + strings.Join(deviceSessionlessEvents, "`, `") + "`."
+	if !strings.Contains(string(document), listed) {
+		t.Fatalf("docs/app-message-v1.md does not say %q", listed)
+	}
+}
+
+// Item 2wt (b): every row the PROFILES page lists from state.tools toggles.
+func TestEveryListedToolTogglesOnAnAgent2wt(t *testing.T) {
+	server := dispatchServer(t)
+	server.mu.Lock()
+	server.cfg.Agents = append(server.cfg.Agents, config.Agent{Name: "Second", B: "remote", Toolset: config.FullToolset()})
+	server.mu.Unlock()
+	second := config.AgentID("Second")
+	listed := server.snapshotWithSessions(map[string]any{}, false)["tools"].([]map[string]string)
+	refused := []string{}
+	for _, tool := range listed {
+		answer := dispatch(t, server, `{"v":1,"kind":"request","id":"ad","route":"tool","body":{"name":"`+tool["name"]+`","agent_id":"`+second+`","enabled":false}}`)
+		if answer.Status != 200 {
+			refused = append(refused, fmt.Sprintf("%s=%d", tool["name"], answer.Status))
+		}
+	}
+	if len(refused) > 0 || len(listed) != len(config.FullToolset()) {
+		t.Fatalf("listed %d of %d tools; refused %v", len(listed), len(config.FullToolset()), refused)
 	}
 }

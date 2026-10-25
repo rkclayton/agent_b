@@ -168,6 +168,7 @@ function renderList() {
 
 function renderEmpty() {
   roots.name.textContent = "Repository";
+  roots.name.title = "";
   roots.raw.textContent = "";
   roots.stats.replaceChildren();
   roots.facts.replaceChildren();
@@ -181,6 +182,7 @@ function renderEmpty() {
 
 function renderPlan() {
   roots.name.textContent = loaded?.missing ? `repo missing · ${loaded.legacy_path || loaded.repo || selected}` : loaded?.repo || loaded?.name || selected || "Repository";
+  roots.name.title = roots.name.textContent; // 2wp: a path the narrow pane cuts is whole on hover
   roots.enable.hidden = !loaded || loaded.planning || loaded.missing;
   roots.go.hidden = !loaded?.planning;
   roots.refusal.hidden = !loaded?.refusal;

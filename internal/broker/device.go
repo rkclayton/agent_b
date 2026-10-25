@@ -119,8 +119,9 @@ func (d *DeviceClient) Pair(ctx context.Context, dial Dialer, code string) (stri
 }
 
 // Connect authenticates as the device and serves the link on its own goroutine until
-// Close or the context ends. received is given each opened message; event one line per
-// session change, ending with "closed: <why>" when the link ends on its own.
+// Close or the context ends. received is given each opened message, in order, on a
+// goroutine of its own, so it may call Send (item 2wp); event gets one line per session
+// change, ending with "closed: <why>" when the link ends on its own.
 func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([]byte), event func(string)) error {
 	if len(d.Pairing().PairingID) != 16 {
 		return errors.New("broker: not paired")
@@ -141,8 +142,15 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 	d.link, d.stop = t, stop
 	d.mu.Unlock()
 	event("ready")
+	inbox := make(chan []byte, maxDevicePending)
 	go func() {
-		err := d.serve(ctx, t, received, event)
+		for plaintext := range inbox {
+			received(plaintext)
+		}
+	}()
+	go func() {
+		err := d.serve(ctx, t, inbox, event)
+		close(inbox)
 		_ = t.Close(1000, "done")
 		d.mu.Lock()
 		d.link, d.session = nil, nil
@@ -176,7 +184,7 @@ func (d *DeviceClient) authenticate(ctx context.Context, t Transport) error {
 	return err
 }
 
-func (d *DeviceClient) serve(ctx context.Context, t Transport, received func([]byte), event func(string)) error {
+func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []byte, event func(string)) error {
 	b64, p, me := base64.RawURLEncoding, d.Pairing(), d.identity.KeyID()
 	var opening *Session
 	for {
@@ -253,13 +261,20 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, received func([]b
 			if err != nil {
 				return err
 			}
+			// The reader never waits on the handler: a message that finds the queue
+			// full is not acknowledged, so the broker keeps it in flight, and the link
+			// ends saying so.
+			select {
+			case inbox <- plaintext:
+			default:
+				return fmt.Errorf("broker: %d received messages not yet handled", maxDevicePending)
+			}
 			if err := deviceSend(t, FrameAck, IDOnlyFrame{PairingID: in.PairingID, SessionID: in.SessionID, MessageID: in.MessageID}); err != nil {
 				return err
 			}
 			d.mu.Lock()
 			d.counts.Received++
 			d.mu.Unlock()
-			received(plaintext)
 		case FrameAck, FrameExpired, FrameResend, FrameQueued:
 			var in IDOnlyFrame
 			if err := DecodeInto(frame.Payload, &in); err != nil {

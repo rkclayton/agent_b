@@ -19,6 +19,10 @@ let root;
 let harness;
 
 test.beforeAll(async () => {
+  // Item 2wp: this hook builds the harness. Measured: 7.7 s after a change deep in the
+  // tree on an idle machine, and past the default 30 s under the full suite; the bound is
+  // settings-journey's for the same hook.
+  test.setTimeout(120_000);
   root = await mkdtemp(join(tmpdir(), "agentb-discovery-playwright-"));
   const exe = join(root, "Agent_b.exe");
   await run(join(repo, ".tools", "go", "bin", "go.exe"), ["build", "-o", exe, "./cmd/harness"], { cwd: repo, windowsHide: true });
@@ -632,7 +636,9 @@ test("the Plan section fits the pane at the narrowest window the frame allows", 
       columns: getComputedStyle(panel).gridTemplateColumns.split(" ").length,
       offRight: Math.round(box.right) > window.innerWidth + 1,
       sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-      inner: [...panel.querySelectorAll("*")].filter((node) => node.scrollWidth > node.clientWidth + 1).map((node) => ({ tag: node.tagName, id: node.id, className: node.className, text: node.textContent?.trim().slice(0, 60), client: node.clientWidth, scroll: node.scrollWidth })),
+      // Item 2wp: a name cut with an ellipsis does not scroll; it passes when its whole
+      // text is one hover away. After 2w6 has added a repository it is a long path here.
+      inner: [...panel.querySelectorAll("*")].filter((node) => node.scrollWidth > node.clientWidth + 1 && !(getComputedStyle(node).textOverflow === "ellipsis" && node.title === node.textContent)).map((node) => ({ tag: node.tagName, id: node.id, className: node.className, text: node.textContent?.trim().slice(0, 60), client: node.clientWidth, scroll: node.scrollWidth })),
     };
   });
   expect(seen.columns, "the flyout and the document are still side by side").toBe(1);

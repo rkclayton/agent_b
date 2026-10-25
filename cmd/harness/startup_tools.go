@@ -25,7 +25,7 @@ import (
 func (a *harnessApp) wireTools() {
 	workspaces := session.NewWorkspaceRegistry()
 	coordinator := tools.NewFileCoordinator(workspaces, a.registry.Label, a.bus)
-	a.fileUndo = tools.NewFileUndoStore(a.paths.Data)
+	a.fileUndo = tools.NewFileUndoStore(a.profileRoot) // 2wp: the profile's, as after a switch
 	coordinator.SetUndoStore(a.fileUndo)
 	a.web.SetFileUndoStore(a.fileUndo)
 	// the store is pinned to the service account it holds the

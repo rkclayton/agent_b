@@ -147,9 +147,11 @@ func newIdentity(t *testing.T) Identity {
 	return Identity{SigningSeed: seed, Agreement: agreement}
 }
 
-// linkThroughStandIn starts a stand-in broker, the PC's agent Client answering "echo: …"
-// and a paired DeviceClient, and returns once their session is up.
-func linkThroughStandIn(t *testing.T, received func([]byte)) (*standInBroker, *Client, *DeviceClient) {
+func echo(_, plaintext []byte) []byte { return append([]byte("echo: "), plaintext...) }
+
+// linkThroughStandIn starts a stand-in broker, the PC's agent Client answering through
+// handle and a paired DeviceClient, and returns once their session is up.
+func linkThroughStandIn(t *testing.T, handle func(_, plaintext []byte) []byte, received func([]byte)) (*standInBroker, *Client, *DeviceClient) {
 	t.Helper()
 	b := &standInBroker{deadline: 3 * time.Second, ends: map[string]*standInEnd{}, forwarded: map[string]time.Time{}}
 	server := httptest.NewServer(websocket.Handler(b.serve))
@@ -158,7 +160,7 @@ func linkThroughStandIn(t *testing.T, received func([]byte)) (*standInBroker, *C
 	agentID, deviceID, pairingID := newIdentity(t), newIdentity(t), make([]byte, 16)
 	_, _ = rand.Read(pairingID)
 	agent := NewClient(agentID, Pairing{PairingID: pairingID, DeviceKeyID: deviceID.KeyID(), DeviceSigning: deviceID.SigningPublic(), DeviceAgreement: deviceID.AgreementPublic()},
-		Dial(address), func(_, plaintext []byte) []byte { return append([]byte("echo: "), plaintext...) })
+		Dial(address), handle)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go func() { _ = agent.Run(ctx) }()
@@ -197,7 +199,7 @@ func waitCounters(t *testing.T, device *DeviceClient, want Counters, within time
 // CHECK 3: the O1 shape, one message from the device answered by the PC's own client.
 func TestDeviceClientRoundTripsThroughTheAgentClient2wo(t *testing.T) {
 	replies := make(chan string, 1)
-	_, _, device := linkThroughStandIn(t, func(plaintext []byte) { replies <- string(plaintext) })
+	_, _, device := linkThroughStandIn(t, echo, func(plaintext []byte) { replies <- string(plaintext) })
 	if err := device.Send(context.Background(), []byte("hello from the phone")); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +228,7 @@ func TestABurstNeitherStallsNorClosesTheLink2wo(t *testing.T) {
 func burst(t *testing.T, size int) {
 	var mu sync.Mutex
 	answered := 0
-	b, _, device := linkThroughStandIn(t, func([]byte) { mu.Lock(); answered++; mu.Unlock() })
+	b, _, device := linkThroughStandIn(t, echo, func([]byte) { mu.Lock(); answered++; mu.Unlock() })
 	payload := make([]byte, size)
 	started := time.Now()
 	for index := 0; index < 256; index++ {
@@ -255,4 +257,45 @@ func burst(t *testing.T, size int) {
 		}
 	}
 	waitCounters(t, device, Counters{Sent: 256, Received: 256}, 5*time.Second)
+}
+
+// Item 2wp: a handler that replies from inside received while all 256 pending slots are
+// taken. The agent holds its reader on the first message until the device's pending set
+// is full, then answers it; the reply's Send needs the ACKs that follow on the device's
+// reader, so it completes only if received does not run there.
+func TestASendFromInsideReceivedCompletes2wp(t *testing.T) {
+	release, replied := make(chan struct{}), make(chan error, 1)
+	var device *DeviceClient
+	handle := func(_, plaintext []byte) []byte {
+		if string(plaintext) != "first" {
+			return nil
+		}
+		<-release
+		return []byte("answer me")
+	}
+	_, _, device = linkThroughStandIn(t, handle, func(plaintext []byte) {
+		if string(plaintext) == "answer me" {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			replied <- device.Send(ctx, []byte("the reply"))
+		}
+	})
+	for index := 0; index <= maxDevicePending; index++ {
+		if err := device.Send(context.Background(), []byte(map[bool]string{true: "first", false: "fill"}[index == 0])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := device.Counters().Unacknowledged; got != maxDevicePending {
+		t.Fatalf("unacknowledged %d, want %d", got, maxDevicePending)
+	}
+	close(release)
+	select {
+	case err := <-replied:
+		if err != nil {
+			t.Fatalf("Send from inside received: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Send from inside received did not return")
+	}
+	waitCounters(t, device, Counters{Sent: maxDevicePending + 2, Received: 1}, 10*time.Second)
 }

@@ -856,6 +856,11 @@ test("finished turns undo their own real file changes before and after restart 2
 		initialState = await harness.getState();
 		sessionID = Object.keys(initialState.sessions)[0];
 	}
+	// Item 2wp: away to another profile and back, as 2sb does earlier in this file; the
+	// undo records written after that must still be held after the restart below.
+	const headers = { "X-AgentB-Mutation-Token": harness.mutationToken }, active = initialState.profiles?.active;
+	await page.request.post(`${harness.base}/api/profiles`, { headers, data: { action: "create", name: "Undo fixture" } });
+	for (const name of ["Undo fixture", active]) expect((await page.request.post(`${harness.base}/api/profiles`, { headers, data: { action: "switch", name } })).ok()).toBe(true);
 	const workspace = initialState.sessions[sessionID].workspace;
 	for (const name of ["alpha", "beta", "gamma"]) for (const suffix of ["one", "two"]) await writeFile(join(workspace, `undo-${name}-${suffix}.txt`), original(`${name}-${suffix}`));
 	await page.goto(`${harness.base}/chat?session=${sessionID}`);

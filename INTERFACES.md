@@ -732,7 +732,9 @@ Both require the operator page's session cookie and mutation token, and both ref
 `broker.url` defaults to the address built into the build and is not a setting: it is absent from `/api/broker/status` and from Settings,
 so the page neither shows nor edits it; a `broker.url` written into the file still wins, for tests and for anyone running their own broker.
 `internal/broker` has two clients of the one wire: `Client`, the agent role this app runs, and `DeviceClient`, the device role a phone's core
-imports (`Pair`, `Connect`, `Send`, `Counters`, `Close`), with the payload types and `KeyIDFor` exported so no other repository copies them.
+uses (`Pair`, `Connect`, `Send`, `Counters`, `Close`), with the payload types and `KeyIDFor` exported so no other repository copies them.
+Another repository imports them only as `harness/pkg/brokerclient`, which re-exports those and nothing else. `Connect`'s `received` runs on
+its own goroutine behind a queue of 256, so it may call `Send`; a message that finds the queue full is not acknowledged and ends the link.
 The live transport has one writer per connection, paced to `SendFrameRate` (200 frames a second, under the broker's 240); ACK and PONG go first,
 so whoever reads the link never waits on a write, and Send waits only when the bounded queue is full.
 Other configuration remains additive under schema 15; omitted policy lists receive defaults while explicit empty lists clear them.

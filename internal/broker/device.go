@@ -233,12 +233,18 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				if err != nil {
 					return err
 				}
-				kind, out.SessionID, out.Confirmation = FrameSessionReady, opening.SessionID(), b64.EncodeToString(sealed)
+				// SESSION_READY is queued before the session is published, so no Send can
+				// put a CIPHERTEXT ahead of it (item 2wp).
+				out.SessionID, out.Confirmation = opening.SessionID(), b64.EncodeToString(sealed)
+				if err := deviceSend(t, FrameSessionReady, out); err != nil {
+					return err
+				}
 				d.mu.Lock()
 				d.session, d.counter = opening, 1 // the sealed ready was counter 0
 				d.mu.Unlock()
 				opening = nil
 				event("session " + out.SessionID[:8])
+				continue
 			}
 			if err := deviceSend(t, kind, out); err != nil {
 				return err

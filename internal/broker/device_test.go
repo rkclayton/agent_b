@@ -150,8 +150,9 @@ func newIdentity(t *testing.T) Identity {
 func echo(_, plaintext []byte) []byte { return append([]byte("echo: "), plaintext...) }
 
 // linkThroughStandIn starts a stand-in broker, the PC's agent Client answering through
-// handle and a paired DeviceClient, and returns once their session is up.
-func linkThroughStandIn(t *testing.T, handle func(_, plaintext []byte) []byte, received func([]byte)) (*standInBroker, *Client, *DeviceClient) {
+// handle and a paired DeviceClient, and returns once their session is up; onSession, when
+// set, runs inside the device's "session" event.
+func linkThroughStandIn(t *testing.T, handle func(_, plaintext []byte) []byte, received func([]byte), onSession ...func(*DeviceClient)) (*standInBroker, *Client, *DeviceClient) {
 	t.Helper()
 	b := &standInBroker{deadline: 3 * time.Second, ends: map[string]*standInEnd{}, forwarded: map[string]time.Time{}}
 	server := httptest.NewServer(websocket.Handler(b.serve))
@@ -173,6 +174,9 @@ func linkThroughStandIn(t *testing.T, handle func(_, plaintext []byte) []byte, r
 	ready := make(chan struct{}, 1)
 	if err := device.Connect(ctx, Dial(address), received, func(line string) {
 		if strings.HasPrefix(line, "session ") {
+			for _, hook := range onSession {
+				hook(device)
+			}
 			ready <- struct{}{}
 		}
 	}); err != nil {
@@ -250,7 +254,10 @@ func burst(t *testing.T, size int) {
 		}
 		if done == 256 && acks == 256 {
 			t.Logf("256 answered in %s, broker holds %d, worst ACK %s", time.Since(started).Round(time.Millisecond), holds, worst.Round(time.Millisecond))
-			if worst > 100*time.Millisecond {
+			// Under -race the PC's reader opens and answers slower than the 200 frames a
+			// second the device is paced to, so the ACK then measures that backlog, not a
+			// write it waited behind: CI measured 123 ms and 1.5 s at 64 KiB (item 2wp).
+			if worst > 100*time.Millisecond && !raceDetector {
 				t.Fatalf("worst ACK %s, over 100 ms", worst)
 			}
 			break
@@ -298,4 +305,26 @@ func TestASendFromInsideReceivedCompletes2wp(t *testing.T) {
 		t.Fatal("Send from inside received did not return")
 	}
 	waitCounters(t, device, Counters{Sent: maxDevicePending + 2, Received: 1}, 10*time.Second)
+}
+
+// Item 2wp: a Send the moment the session exists must reach the agent after SESSION_READY.
+// The race detector's scheduling found it: the burst began on the "session" event while
+// SESSION_READY was still unsent, and the agent dropped the session on the CIPHERTEXT.
+func TestASendOnTheSessionEventFollowsSessionReady2wp(t *testing.T) {
+	replies := make(chan string, 1)
+	b, agent, _ := linkThroughStandIn(t, echo, func(plaintext []byte) { replies <- string(plaintext) }, func(device *DeviceClient) {
+		if err := device.Send(context.Background(), []byte("at once")); err != nil {
+			t.Error(err)
+		}
+	})
+	select {
+	case reply := <-replies:
+		if reply != "echo: at once" {
+			t.Fatalf("reply %q", reply)
+		}
+	case <-time.After(5 * time.Second):
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		t.Fatalf("no reply; agent %+v; stand-in: %s", agent.Status(), strings.Join(b.closes, "; "))
+	}
 }

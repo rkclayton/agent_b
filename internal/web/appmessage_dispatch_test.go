@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -726,6 +727,7 @@ func TestTheEncoderReproducesEveryVector2o7(t *testing.T) {
 type recordingDevice struct {
 	mu    sync.Mutex
 	units []map[string]any
+	at    []time.Time
 }
 
 func (d *recordingDevice) Deliver(plaintext []byte) error {
@@ -734,7 +736,7 @@ func (d *recordingDevice) Deliver(plaintext []byte) error {
 		return err
 	}
 	d.mu.Lock()
-	d.units = append(d.units, unit)
+	d.units, d.at = append(d.units, unit), append(d.at, time.Now())
 	d.mu.Unlock()
 	return nil
 }
@@ -1052,5 +1054,164 @@ func TestEveryListedToolTogglesOnAnAgent2wt(t *testing.T) {
 	}
 	if len(refused) > 0 || len(listed) != len(config.FullToolset()) {
 		t.Fatalf("listed %d of %d tools; refused %v", len(listed), len(config.FullToolset()), refused)
+	}
+}
+
+// Item 2wu: a stand-in reply streamed to a paired device; mid runs after each
+// token. Returns the device's patch units in arrival order, when the last text
+// arrived, and when the last token was published.
+func streamStandInReplyToDevice(t *testing.T, tokens int, every time.Duration, mid func(index int, chat string, bus *events.Bus)) ([]map[string]any, time.Time, time.Time) {
+	t.Helper()
+	server, registry, writers, _, _, root := consoleServer(t)
+	t.Cleanup(func() { writers.Close() })
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	server.bus.SetTransientSink(server.projector.ApplyTransient)
+	chat, err := registry.Create("streamed", server.ConfigSnapshot().DefaultAgentID(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := &recordingDevice{}
+	ctx, stop := context.WithCancel(context.Background())
+	streamed := make(chan struct{})
+	t.Cleanup(func() { stop(); <-streamed })
+	go func() { server.streamToDevice(ctx, device); close(streamed) }()
+	device.waitFor(t, "the chat's snapshot", func(unit map[string]any) bool { return unit["kind"] == "snapshot" && unit["session_id"] == chat.ID })
+	server.bus.Publish(events.New(events.RunStarted, chat.ID, "r1", map[string]any{}))
+	server.bus.Publish(events.New(events.ModelRequest, chat.ID, "r1", map[string]any{"turn": 1}))
+	var pc strings.Builder
+	var ended time.Time
+	for index := 0; index < tokens; index++ {
+		token := fmt.Sprintf("t%d ", index)
+		pc.WriteString(token)
+		server.bus.Publish(events.New(events.ModelDelta, chat.ID, "r1", map[string]any{"turn": 1, "kind": "content", "text": token}))
+		ended = time.Now()
+		if mid != nil {
+			mid(index, chat.ID, server.bus)
+		}
+		time.Sleep(every)
+	}
+	device.waitFor(t, "the whole text", func(map[string]any) bool { return deviceText(device.units) == pc.String() })
+	server.bus.Publish(events.New(events.ModelResponse, chat.ID, "r1", map[string]any{"turn": 1, "content": pc.String()}))
+	device.waitFor(t, "the response", func(unit map[string]any) bool {
+		encoded, _ := json.Marshal(unit)
+		return unit["kind"] == "patch" && strings.Contains(string(encoded), `"done":true`)
+	})
+	device.mu.Lock()
+	defer device.mu.Unlock()
+	units := []map[string]any{}
+	var last time.Time
+	for index, unit := range device.units {
+		if data, _ := unit["data"].(map[string]any); unit["kind"] == "patch" && data["session_id"] == chat.ID {
+			units = append(units, unit)
+			if deviceText([]map[string]any{unit}) != "" {
+				last = device.at[index]
+			}
+		}
+	}
+	return units, last, ended
+}
+
+// deviceText is the reply text a device rebuilds from the units' appends.
+func deviceText(units []map[string]any) string {
+	var text strings.Builder
+	for _, unit := range units {
+		data, _ := unit["data"].(map[string]any)
+		operations, _ := data["operations"].([]any)
+		for _, operation := range operations {
+			if op, _ := operation.(map[string]any); op["op"] == "append" && strings.HasSuffix(fmt.Sprint(op["path"]), "/text") {
+				text.WriteString(fmt.Sprint(op["value"]))
+			}
+		}
+	}
+	return text.String()
+}
+
+func deviceUnitBytes(units []map[string]any) int {
+	total := 0
+	for _, unit := range units {
+		encoded, _ := json.Marshal(unit)
+		total += len(encoded)
+	}
+	return total
+}
+
+func TestAStreamedReplyReachesADeviceInTicks2wu(t *testing.T) {
+	const tokens, every = 1000, 20 * time.Millisecond
+	started := time.Now()
+	units, last, ended := streamStandInReplyToDevice(t, tokens, every, nil)
+	duration := time.Since(started)
+	text := 0
+	for _, unit := range units {
+		if deviceText([]map[string]any{unit}) != "" {
+			text++
+		}
+	}
+	t.Logf("%d tokens over %s: %d patch frames (%d with text), %d bytes; last text %s after the last token", tokens, duration.Round(time.Millisecond), len(units), text, deviceUnitBytes(units), last.Sub(ended).Round(time.Millisecond))
+	if limit := int(duration/deviceStreamTick) + 2; text > limit {
+		t.Fatalf("%d text frames for %d tokens; at most %d", text, tokens, limit)
+	}
+	// One tick, and the scheduler's few milliseconds on a loaded test machine.
+	if late := last.Sub(ended); late > deviceStreamTick+30*time.Millisecond {
+		t.Fatalf("the last token reached the device %s after the PC had it", late)
+	}
+}
+
+func TestARunStateChangeKeepsItsPlaceAmongMergedText2wu(t *testing.T) {
+	units, _, _ := streamStandInReplyToDevice(t, 40, 2*time.Millisecond, func(index int, chat string, bus *events.Bus) {
+		if index == 19 {
+			bus.Publish(events.New(events.ApprovalRequired, chat, "r1", map[string]any{"call_id": "c1"}))
+		}
+	})
+	paused := slices.IndexFunc(units, func(unit map[string]any) bool {
+		encoded, _ := json.Marshal(unit)
+		return strings.Contains(string(encoded), `"status":"paused"`)
+	})
+	if paused < 0 {
+		t.Fatal("the device never saw the run pause")
+	}
+	before, after := deviceText(units[:paused]), deviceText(units[paused+1:])
+	var want strings.Builder
+	for index := 0; index < 20; index++ {
+		fmt.Fprintf(&want, "t%d ", index)
+	}
+	if before != want.String() || !strings.HasPrefix(after, "t20 ") {
+		t.Fatalf("before the pause %q; after it %q", before, after)
+	}
+}
+
+// The operator's own stream is not merged: one patch frame per token still.
+func TestThePCStreamStillSendsOnePatchPerToken2wu(t *testing.T) {
+	server, registry, writers, _, _, root := consoleServer(t)
+	defer writers.Close()
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	chat, err := registry.Create("streamed", server.ConfigSnapshot().DefaultAgentID(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	page := &controlledSSEWriter{header: make(http.Header), entered: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		server.sse(page, httptest.NewRequest(http.MethodGet, "/api/events", nil).WithContext(ctx))
+		close(done)
+	}()
+	<-page.entered
+	server.bus.Publish(events.New(events.ModelRequest, chat.ID, "r1", map[string]any{"turn": 1}))
+	const tokens = 200
+	for index := 0; index < tokens; index++ {
+		server.bus.Publish(events.New(events.ModelDelta, chat.ID, "r1", map[string]any{"turn": 1, "kind": "content", "text": "x"}))
+	}
+	count := 0
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if count = strings.Count(string(page.Bytes()), `"path":"/chat/turn:r1:1/text"`); count >= tokens {
+			break
+		}
+	}
+	cancel()
+	<-done
+	if count != tokens {
+		t.Fatalf("the PC's stream carried %d text appends for %d tokens", count, tokens)
 	}
 }

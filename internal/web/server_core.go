@@ -110,6 +110,7 @@ type Server struct {
 	// session-less events a device was not sent, by type (item 2wt).
 	deviceDroppedMu sync.Mutex
 	deviceDropped   map[string]int64
+	deviceStream    []deviceStreamCount
 }
 
 const appRequestWatchdogDelay = 30 * time.Second

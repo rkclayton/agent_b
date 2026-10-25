@@ -291,6 +291,7 @@ func (s *Server) diagnosticsExport() map[string]any {
 		fromSnapshot("flow", "The stages a request passes through, as this build defines them."),
 		fromSnapshot("tools", "The tools this build offers."),
 		{Name: "device_events_dropped", Means: "Session-less events a paired device was not sent, by type, since start.", Value: s.deviceEventsDropped()},
+		{Name: "device_stream", Means: "For the last runs a paired device followed: patches produced, frames sent, bytes on the wire.", Value: s.deviceStreamCounts()},
 	}
 	sections = append(sections, s.diagnosticsProbes(red)...)
 	sections = append(sections,

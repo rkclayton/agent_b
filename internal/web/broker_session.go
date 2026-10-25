@@ -7,7 +7,9 @@ import (
 	"log"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"harness/internal/broker"
 	"harness/internal/events"
@@ -108,6 +110,11 @@ func (c *BrokerClient) stopSessionLocked() {
 	c.client, c.stopSession = nil, nil
 }
 
+// deviceStreamTick is how long a device's streamed text may wait to be merged
+// with the next tokens (item 2wu): ten frames a second instead of one per
+// token, at most one tick behind the PC, whose own stream is not merged.
+const deviceStreamTick = 100 * time.Millisecond
+
 // deviceSessionlessEvents is the one list of session-less events a device is
 // sent (item 2wt); docs/app-message-v1.md quotes it and a test holds them
 // equal. Everything else — config.changed first — stays on the PC.
@@ -131,6 +138,110 @@ func (s *Server) deviceEventsDropped() map[string]int64 {
 	s.deviceDroppedMu.Lock()
 	defer s.deviceDroppedMu.Unlock()
 	return maps.Clone(s.deviceDropped)
+}
+
+// deviceTextPatch says a patch is one streamed token: text appended to one
+// chat entry, with only the stream's running state beside it.
+func deviceTextPatch(patch projection.Patch) bool {
+	text := false
+	for _, operation := range patch.Operations {
+		switch {
+		case operation.Op == "append" && strings.HasPrefix(operation.Path, "/chat/") && (strings.HasSuffix(operation.Path, "/text") || strings.HasSuffix(operation.Path, "/reasoning")):
+			text = true
+		case operation.Op == "append" && (operation.Path == "/run/partial" || operation.Path == "/timeline"):
+		case operation.Op == "replace" && operation.Path == "/activity":
+		default:
+			return false
+		}
+	}
+	return text && !patch.Transient
+}
+
+// deviceTextBatch merges consecutive token patches into one patch of the same
+// shape: string appends joined, /activity's last value, each /timeline append kept.
+type deviceTextBatch struct {
+	patch projection.Patch
+	runID string
+	text  map[int]*strings.Builder
+	index map[string]int
+}
+
+func (b *deviceTextBatch) empty() bool { return b.patch.SessionID == "" }
+
+func (b *deviceTextBatch) add(patch projection.Patch, runID string) bool {
+	if b.empty() {
+		b.patch = projection.Patch{SchemaVersion: patch.SchemaVersion, SessionID: patch.SessionID, PreviousCursor: patch.PreviousCursor}
+		b.runID, b.text, b.index = runID, map[int]*strings.Builder{}, map[string]int{}
+	} else if patch.SessionID != b.patch.SessionID || patch.PreviousCursor != b.patch.Cursor {
+		return false
+	}
+	for _, operation := range patch.Operations {
+		at, merged := b.index[operation.Path]
+		switch {
+		case operation.Path == "/timeline":
+			b.patch.Operations = append(b.patch.Operations, operation)
+		case merged && operation.Op == "replace":
+			b.patch.Operations[at].Value = operation.Value
+		case operation.Op == "replace":
+			b.index[operation.Path] = len(b.patch.Operations)
+			b.patch.Operations = append(b.patch.Operations, operation)
+		default:
+			var value string
+			_ = json.Unmarshal(operation.Value, &value)
+			if !merged {
+				at = len(b.patch.Operations)
+				b.index[operation.Path], b.text[at] = at, &strings.Builder{}
+				b.patch.Operations = append(b.patch.Operations, projection.Operation{Op: "append", Path: operation.Path})
+			}
+			b.text[at].WriteString(value)
+		}
+	}
+	b.patch.Cursor = patch.Cursor
+	return true
+}
+
+func (b *deviceTextBatch) take() projection.Patch {
+	patch := b.patch
+	for at, text := range b.text {
+		patch.Operations[at].Value, _ = json.Marshal(text.String())
+	}
+	*b = deviceTextBatch{}
+	return patch
+}
+
+// deviceStreamRuns keeps the last runs' device stream counts for diagnostics.
+const deviceStreamRuns = 16
+
+type deviceStreamCount struct {
+	Session string `json:"session_id"`
+	Run     string `json:"run_id"`
+	Patches int64  `json:"patches"`
+	Frames  int64  `json:"frames"`
+	Bytes   int64  `json:"bytes"`
+}
+
+func (s *Server) noteDeviceStream(session, run string, patches int64, bytes int) {
+	s.deviceDroppedMu.Lock()
+	defer s.deviceDroppedMu.Unlock()
+	at := slices.IndexFunc(s.deviceStream, func(count deviceStreamCount) bool { return count.Session == session && count.Run == run })
+	if at < 0 {
+		if len(s.deviceStream) == deviceStreamRuns {
+			s.deviceStream = slices.Delete(s.deviceStream, 0, 1)
+		}
+		s.deviceStream = append(s.deviceStream, deviceStreamCount{Session: session, Run: run})
+		at = len(s.deviceStream) - 1
+	}
+	s.deviceStream[at].Patches += patches
+	if bytes > 0 {
+		s.deviceStream[at].Frames++
+		s.deviceStream[at].Bytes += int64(bytes)
+	}
+}
+
+func (s *Server) deviceStreamCounts() []deviceStreamCount {
+	s.deviceDroppedMu.Lock()
+	defer s.deviceDroppedMu.Unlock()
+	return slices.Clone(s.deviceStream)
 }
 
 // streamToDevice sends the bounded join, global events, and either the legacy
@@ -288,7 +399,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 	raw, dropped, unsubscribeRaw := s.bus.ListenUntilDrop("phone")
 	defer unsubscribeRaw()
 	var sent int64
-	send := func(unit map[string]any) {
+	deliver := func(unit map[string]any) int {
 		encoded, err := appCanonical(unit)
 		sent += int64(len(encoded))
 		if err == nil {
@@ -304,6 +415,31 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		if err != nil {
 			log.Printf("broker: a %v unit was not sent: %v", unit["kind"], err)
 		}
+		return len(encoded)
+	}
+	// Streamed text waits at most one tick to be merged with the tokens after
+	// it; anything else sent flushes it first, so nothing reorders (item 2wu).
+	var batch deviceTextBatch
+	var tick *time.Timer
+	var ticked <-chan time.Time
+	flush := func() {
+		if batch.empty() {
+			return
+		}
+		runID := batch.runID
+		patch := batch.take()
+		s.noteDeviceStream(patch.SessionID, runID, 0, deliver(map[string]any{"v": 1, "kind": "patch", "data": patch}))
+		tick.Stop()
+		ticked = nil
+		if resume != nil {
+			if current, ok := s.projector.CurrentSnapshot()[patch.SessionID]; ok {
+				resume[patch.SessionID] = s.firstScreenSessions(map[string]projection.Snapshot{patch.SessionID: current}, "-")[patch.SessionID]
+			}
+		}
+	}
+	send := func(unit map[string]any) {
+		flush()
+		deliver(unit)
 	}
 	var patches <-chan projection.Patch
 	var liveChanged <-chan struct{}
@@ -367,8 +503,26 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", row)})
 				}
 			}
+			s.noteDeviceStream(patch.SessionID, current.Run.RunID, 1, 0)
+			batched := false
 			if live == nil || live.accept(patch) {
-				send(map[string]any{"v": 1, "kind": "patch", "data": patch})
+				if batched = deviceTextPatch(patch); batched {
+					if !batch.add(patch, current.Run.RunID) {
+						flush()
+						batch.add(patch, current.Run.RunID)
+					}
+					if ticked == nil {
+						if tick == nil {
+							tick = time.NewTimer(deviceStreamTick)
+						} else {
+							tick.Reset(deviceStreamTick)
+						}
+						ticked = tick.C
+					}
+				} else {
+					flush()
+					s.noteDeviceStream(patch.SessionID, current.Run.RunID, 0, deliver(map[string]any{"v": 1, "kind": "patch", "data": patch}))
+				}
 			}
 			if found {
 				activity := latestTurnActivityPatch(current, patch)
@@ -377,11 +531,14 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 					activities[patch.SessionID] = activity
 				}
 			}
-			if resume != nil {
+			if resume != nil && !batched {
 				if current, ok := s.projector.CurrentSnapshot()[patch.SessionID]; ok {
 					resume[patch.SessionID] = s.firstScreenSessions(map[string]projection.Snapshot{patch.SessionID: current}, "-")[patch.SessionID]
 				}
 			}
+		case <-ticked:
+			ticked = nil
+			flush()
 		case event, ok := <-raw:
 			if !ok {
 				return

@@ -83,6 +83,7 @@ type Client struct {
 	dial     Dialer
 	handle   func(messageID []byte, plaintext []byte) []byte
 	now      func() time.Time
+	wait     func(time.Duration) <-chan time.Time // the reconnect backoff's timer
 
 	mu           sync.Mutex
 	status       Status
@@ -93,6 +94,8 @@ type Client struct {
 	pending      map[string]*Delivery
 	pendingOrder []string
 	pendingBytes int
+	room         *sync.Cond // signalled when pending shrinks or the session changes
+	heldPeer     *peerPayload
 	// handled remembers request ids already executed, so a RESEND after a reconnect
 	// delivers the same answer instead of running the work twice. the
 	// deduplication at the execution boundary.
@@ -112,6 +115,12 @@ type Client struct {
 }
 
 const maxPendingPushes = 128
+
+// deliveryIntentLimit is the broker's: it holds at most 64 delivery intents per pairing
+// and refuses the next with queue_full (agent_b_server internal/broker/server.go:45,
+// deliveryLimit). Deliver keeps no more than this many unacknowledged, so the broker is
+// never asked to queue more (item 2wq).
+const deliveryIntentLimit = 64
 const maxPendingBytes = 16 << 20
 const maxPendingDeliveries = 2048
 
@@ -145,8 +154,30 @@ func (c *Client) safeReason(err error) string {
 	return reason
 }
 
-// Deliver sends one downstream unit under a fresh message id on the live session.
+// Deliver sends one downstream unit under a fresh message id on the live session. With
+// deliveryIntentLimit messages unacknowledged it waits for an ACK or an expiry, and
+// returns an error if the session ends meanwhile. A handler, which runs on the reader
+// that receives those ACKs, uses DeliverNow.
 func (c *Client) Deliver(plaintext []byte) error {
+	transport, messageID, err := c.live()
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	session := c.session
+	for len(c.pending) >= deliveryIntentLimit && c.session == session && session != nil {
+		c.room.Wait()
+	}
+	ended := c.session != session || session == nil
+	c.mu.Unlock()
+	if ended {
+		return errors.New("broker: no session")
+	}
+	return c.Send(messageID, plaintext, transport)
+}
+
+// DeliverNow is Deliver without the wait, for a handler on the reader's goroutine.
+func (c *Client) DeliverNow(plaintext []byte) error {
 	transport, messageID, err := c.live()
 	if err != nil {
 		return err
@@ -201,16 +232,19 @@ func (c *Client) live() (Transport, []byte, error) {
 // NewClient builds one. handle is the application boundary: it is given a decrypted
 // request and returns the response plaintext.
 func NewClient(identity Identity, pairing Pairing, dial Dialer, handle func(messageID, plaintext []byte) []byte) *Client {
-	return &Client{
+	client := &Client{
 		identity: identity,
 		pairing:  pairing,
 		dial:     dial,
 		handle:   handle,
 		now:      time.Now,
+		wait:     time.After,
 		status:   Status{State: "broker unreachable"},
 		pending:  map[string]*Delivery{},
 		handled:  map[string][]byte{},
 	}
+	client.room = sync.NewCond(&client.mu)
+	return client
 }
 
 // Status is a snapshot for the Settings page.
@@ -265,11 +299,16 @@ func (c *Client) Run(ctx context.Context) error {
 		c.mu.Lock()
 		wasConnected := c.status.State == "holding" || c.status.State == "phone connected"
 		c.mu.Unlock()
+		var problem *Problem
+		// A fatal refusal keeps backing off even after a connection: the broker refuses
+		// the same thing again on the next one (item 2wq).
+		fatal := errors.As(err, &problem) && problem.Fatal
 		if wasConnected {
-			backoff = time.Second
+			if !fatal {
+				backoff = time.Second
+			}
 			c.recordEvent("disconnected reason=" + c.safeReason(err))
 		}
-		var problem *Problem
 		if errors.As(err, &problem) && c.refused != nil {
 			c.refused(problem.Code, problem.Detail)
 		}
@@ -307,7 +346,7 @@ func (c *Client) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(backoff):
+		case <-c.wait(backoff):
 		}
 		backoff = nextReconnectBackoff(backoff, false)
 	}
@@ -318,10 +357,7 @@ func nextReconnectBackoff(previous time.Duration, established bool) time.Duratio
 	if established {
 		return time.Second
 	}
-	if previous < 30*time.Second {
-		return min(previous*2, 32*time.Second)
-	}
-	return previous
+	return min(previous*2, 60*time.Second)
 }
 
 func (c *Client) once(ctx context.Context) error {
@@ -613,6 +649,7 @@ func (c *Client) dropSession() {
 	c.mu.Lock()
 	c.session = nil
 	c.status.SessionID = ""
+	c.room.Broadcast()
 	c.mu.Unlock()
 }
 
@@ -670,6 +707,17 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 					continue
 				}
 				return err
+			}
+			// A PEER that came during the handshake: connected=true is the connection
+			// the handshake just reached; connected=false means it has gone again.
+			if held := c.heldPeer; held != nil {
+				c.heldPeer = nil
+				if !held.Connected {
+					c.recordEvent("PEER received connected=false")
+					c.dropSession()
+					c.setState("holding", nil)
+					continue
+				}
 			}
 			c.setState("phone connected", nil)
 			c.recordEvent("session ready")
@@ -881,11 +929,10 @@ func (c *Client) resend(messageID string, transport Transport) error {
 	delivery, ok := c.pending[messageID]
 	c.mu.Unlock()
 	if !ok {
-		out, err := Encode(FrameError, ErrorPayload{Code: "delivery_expired", Detail: "the retained delivery is no longer available"})
-		if err != nil {
-			return err
-		}
-		return transport.Send(out)
+		// The document gives a client no frame for "not held", and the broker refuses
+		// an ERROR from a client as fatal; the intent's own expiry ends it (item 2wq).
+		c.recordEvent("RESEND for a message no longer held: " + messageID[:min(8, len(messageID))])
+		return nil
 	}
 	raw, err := hex.DecodeString(messageID)
 	if err != nil {
@@ -928,6 +975,7 @@ func (c *Client) removePendingLocked(id string) {
 	if delivery := c.pending[id]; delivery != nil {
 		c.pendingBytes -= len(delivery.Plaintext)
 		delete(c.pending, id)
+		c.room.Broadcast()
 	}
 	for index, pendingID := range c.pendingOrder {
 		if pendingID == id {
@@ -980,6 +1028,9 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport, handsha
 				return Frame{}, err
 			}
 			c.recordEvent("ERROR code=" + problem.Code + " detail=" + problem.Detail)
+			if !problem.Fatal {
+				continue
+			}
 			return Frame{}, &Problem{Code: problem.Code, Detail: problem.Detail, Fatal: problem.Fatal}
 		}
 		if err == nil && frame.Type == FrameQueued {
@@ -990,7 +1041,38 @@ func (c *Client) readHandshake(ctx context.Context, transport Transport, handsha
 			if queued.MessageID == handshakeID && queued.RecipientKeyID == hexID(c.pairing.DeviceKeyID) {
 				return Frame{}, errOpeningUndeliverable
 			}
-			return frame, nil
+			c.mu.Lock()
+			if delivery := c.pending[queued.MessageID]; delivery != nil {
+				delivery.Queued = true
+			}
+			c.mu.Unlock()
+			continue
+		}
+		// Item 2wq: frames of the session being replaced, and presence, arrive between
+		// SESSION_INIT and SESSION_RESPONSE. A PEER is held for after the handshake; an
+		// ACK or an expiry settles its delivery; a CIPHERTEXT of the old session is left
+		// unacknowledged, so the broker resends it under the new one; a RESEND waits for
+		// the RESEND the broker sends once the new session is ready.
+		if err == nil && frame.Type == FramePeer {
+			var peer peerPayload
+			if err := DecodeInto(frame.Payload, &peer); err != nil {
+				return Frame{}, err
+			}
+			c.heldPeer = &peer
+			continue
+		}
+		if err == nil && (frame.Type == FrameAck || frame.Type == FrameExpired) {
+			var settled IDOnlyFrame
+			if err := DecodeInto(frame.Payload, &settled); err != nil {
+				return Frame{}, err
+			}
+			c.mu.Lock()
+			c.removePendingLocked(settled.MessageID)
+			c.mu.Unlock()
+			continue
+		}
+		if err == nil && (frame.Type == FrameCiphertext || frame.Type == FrameResend) {
+			continue
 		}
 		if err != nil || frame.Type != FramePing {
 			return frame, err

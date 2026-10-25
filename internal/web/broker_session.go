@@ -63,7 +63,7 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		answer := server.dispatchAppMessage(device, plaintext, live)
 		var request appRequestUnit
 		_ = json.Unmarshal(plaintext, &request)
-		return deliverPhoneAnswer(client, server, request.ID, answer, live)
+		return deliverPhoneAnswer(handlerSink{client}, server, request.ID, answer, live)
 	})
 	client.OnSessionEvent(func(message string) {
 		c.recordSession(pairing, message)
@@ -111,6 +111,12 @@ func (c *BrokerClient) stopSessionLocked() {
 type deviceSink interface {
 	Deliver(plaintext []byte) error
 }
+
+// handlerSink sends an answer's parts from the handler, which runs on the client's
+// reader: Deliver's wait for an ACK would wait on that reader (item 2wq).
+type handlerSink struct{ client *broker.Client }
+
+func (s handlerSink) Deliver(plaintext []byte) error { return s.client.DeliverNow(plaintext) }
 
 func deliverPhoneAnswer(client deviceSink, server *Server, requestID string, answer []byte, live *phoneStreamState) []byte {
 	prepared := live.preparedAnswer()

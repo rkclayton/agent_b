@@ -785,7 +785,7 @@ func TestReconnectBackoffStartsOverAfterEstablishedSession2un(t *testing.T) {
 		}
 	}
 	backoff = time.Second
-	for _, want := range []time.Duration{2, 4, 8, 16, 32, 32, 32, 32, 32, 32} {
+	for _, want := range []time.Duration{2, 4, 8, 16, 32, 60, 60, 60, 60, 60} { // 2wq: doubling to 60 s
 		backoff = nextReconnectBackoff(backoff, false)
 		if backoff != want*time.Second {
 			t.Fatalf("consecutive-refusal backoff=%s want=%s", backoff, want*time.Second)
@@ -813,18 +813,22 @@ func TestRetainedDeliveriesStayWithinSixteenMiB2un(t *testing.T) {
 	}
 }
 
-func TestMissingResendAnswersExpiredAndKeepsSession2un(t *testing.T) {
+// 2wq reverses what 2un asked for here: the broker refuses an ERROR from a client as
+// fatal, so a RESEND for a message no longer held sends nothing and records one line.
+func TestMissingResendSendsNothingAndKeepsSession2un(t *testing.T) {
 	transport := newScriptedBroker(t, Identity{}, Identity{}, Pairing{})
 	client := NewClient(Identity{}, Pairing{}, nil, nil)
+	var events []string
+	client.OnSessionEvent(func(event string) { events = append(events, event) })
 	if err := client.resend("00112233445566778899aabbccddeeff", transport); err != nil {
 		t.Fatal(err)
 	}
-	frame := transport.next(t)
-	if frame.Type != FrameError {
-		t.Fatalf("missing resend answer=0x%02x", frame.Type)
+	select {
+	case frame := <-transport.fromCli:
+		t.Fatalf("missing resend answered with frame 0x%02x", frame.Type)
+	default:
 	}
-	var problem ErrorPayload
-	if err := DecodeInto(frame.Payload, &problem); err != nil || problem.Code != "delivery_expired" || problem.Fatal {
-		t.Fatalf("problem=%+v err=%v", problem, err)
+	if len(events) != 1 || events[0] != "RESEND for a message no longer held: 00112233" {
+		t.Fatalf("events=%q", events)
 	}
 }

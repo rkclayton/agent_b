@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // THE DEVICE ROLE, beside the agent's Client (item 2wo). A phone's core is this and a
@@ -16,8 +18,15 @@ import (
 // handshake as the responder, and then sends and receives ciphertext with ACK and RESEND.
 // Nothing outside this package builds a frame.
 
-// maxDevicePending bounds the messages a device retains for RESEND; Send waits for room.
-const maxDevicePending = 256
+// maxDeviceInbox bounds the opened messages waiting for the received handler. The
+// messages a device retains for RESEND are bounded at deliveryIntentLimit, the broker's
+// intent bound, and Send waits for room (item 2wq).
+const maxDeviceInbox = 256
+
+// deliveryLifetime is the broker's: an intent or relayed message unacknowledged this long
+// is dropped (agent_b_server internal/broker/server.go:47). A retained message older than
+// this frees its slot even if the broker never says DELIVERY_EXPIRED (item 2wq).
+const deliveryLifetime = 5 * time.Minute
 
 // Counters are application frames: sent, received, re-encrypted on RESEND, and sent but
 // not yet acknowledged.
@@ -31,18 +40,31 @@ type DeviceClient struct {
 
 	mu      sync.Mutex
 	sendMu  sync.Mutex // keeps sealed frames on the wire in counter order
+	now     func() time.Time
 	link    Transport
 	stop    context.CancelFunc
 	session *Session
 	counter uint64
-	pending map[string][]byte
+	pending map[string]devicePending
 	counts  Counters
+	pairing *devicePairing // between BeginPair and ConfirmPair
+}
+
+type devicePending struct {
+	plaintext []byte
+	sent      time.Time
+}
+
+type devicePairing struct {
+	link   Transport
+	peerID string
+	agent  Pairing
 }
 
 // NewDeviceClient builds one from a device identity and, when it is already paired, the
 // pairing Pair returned last time; keeping both is the caller's business.
 func NewDeviceClient(identity Identity, agent Pairing) *DeviceClient {
-	return &DeviceClient{identity: identity, agent: agent, slots: make(chan struct{}, maxDevicePending), pending: map[string][]byte{}}
+	return &DeviceClient{identity: identity, agent: agent, slots: make(chan struct{}, deliveryIntentLimit), now: time.Now, pending: map[string]devicePending{}}
 }
 
 // Pairing is what Pair learned: the pairing id and the agent's key id and public keys.
@@ -80,14 +102,25 @@ func deviceSend(t Transport, kind byte, payload any) error {
 	return t.Send(frame)
 }
 
-// Pair sends the agent's code as the device's PAIR_BEGIN and returns the fingerprint the
-// person compares with the one the agent shows.
+// Pair is BeginPair and ConfirmPair with no comparison between them.
 func (d *DeviceClient) Pair(ctx context.Context, dial Dialer, code string) (string, error) {
+	fingerprint, err := d.BeginPair(ctx, dial, code, nil)
+	if err == nil {
+		err = d.ConfirmPair(ctx)
+	}
+	return fingerprint, err
+}
+
+// BeginPair sends the agent's code as the device's PAIR_BEGIN and returns the fingerprint
+// the person compares with the one the agent shows; nothing is paired until ConfirmPair.
+// agentSigning, when set, is the key a scanned pairing link carried, and a PC whose key
+// differs is refused (item 2wq).
+func (d *DeviceClient) BeginPair(ctx context.Context, dial Dialer, code string, agentSigning []byte) (string, error) {
+	d.endPairing()
 	t, err := dial(ctx)
 	if err != nil {
 		return "", err
 	}
-	defer t.Close(1000, "paired")
 	b64, id := base64.RawURLEncoding, d.identity
 	if err := deviceSend(t, FramePairBegin, map[string]string{"role": "device", "ed25519_public": b64.EncodeToString(id.SigningPublic()), "x25519_public": b64.EncodeToString(id.AgreementPublic()), "code": code}); err != nil {
 		return "", err
@@ -101,27 +134,61 @@ func (d *DeviceClient) Pair(ctx context.Context, dial Dialer, code string) (stri
 	agreement, _ := b64.DecodeString(peer.X25519)
 	keyID := KeyIDFor(signing, agreement)
 	if hexID(keyID) != peer.PeerKeyID || len(pairingID) != 16 {
+		_ = t.Close(1000, "refused")
 		return "", errors.New("pairing: the peer key id does not match the peer keys")
 	}
-	transcript := TranscriptHash(pairingID, signing, agreement, id.SigningPublic(), id.AgreementPublic())
-	signature := ed25519.Sign(ed25519.NewKeyFromSeed(id.SigningSeed), transcript)
-	if err := deviceSend(t, FramePairConfirm, pairConfirmPayload{PairingID: peer.PairingID, TranscriptHash: hexID(transcript), Signature: b64.EncodeToString(signature)}); err != nil {
-		return "", err
-	}
-	var complete pairCompletePayload
-	if err := deviceRead(ctx, t, FramePairComplete, &complete); err != nil {
-		return "", err
+	if agentSigning != nil && !bytes.Equal(agentSigning, signing) {
+		_ = t.Close(1000, "refused")
+		return "", errors.New("pairing: the PC's key is not the one scanned")
 	}
 	d.mu.Lock()
-	d.agent = Pairing{PairingID: pairingID, DeviceKeyID: keyID, DeviceSigning: signing, DeviceAgreement: agreement}
+	d.pairing = &devicePairing{link: t, peerID: peer.PairingID, agent: Pairing{PairingID: pairingID, DeviceKeyID: keyID, DeviceSigning: signing, DeviceAgreement: agreement}}
 	d.mu.Unlock()
 	return Fingerprint(signing, agreement, id.SigningPublic(), id.AgreementPublic()), nil
+}
+
+// ConfirmPair sends PAIR_CONFIRM once the person has said the fingerprints match, and
+// keeps the pairing when the broker completes it.
+func (d *DeviceClient) ConfirmPair(ctx context.Context) error {
+	d.mu.Lock()
+	p := d.pairing
+	d.mu.Unlock()
+	if p == nil {
+		return errors.New("pairing: nothing to confirm")
+	}
+	defer d.endPairing()
+	id, a := d.identity, p.agent
+	transcript := TranscriptHash(a.PairingID, a.DeviceSigning, a.DeviceAgreement, id.SigningPublic(), id.AgreementPublic())
+	signature := ed25519.Sign(ed25519.NewKeyFromSeed(id.SigningSeed), transcript)
+	if err := deviceSend(p.link, FramePairConfirm, pairConfirmPayload{PairingID: p.peerID, TranscriptHash: hexID(transcript), Signature: base64.RawURLEncoding.EncodeToString(signature)}); err != nil {
+		return err
+	}
+	var complete pairCompletePayload
+	if err := deviceRead(ctx, p.link, FramePairComplete, &complete); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.agent = a
+	d.mu.Unlock()
+	return nil
+}
+
+// endPairing closes a pairing begun and not confirmed.
+func (d *DeviceClient) endPairing() {
+	d.mu.Lock()
+	p := d.pairing
+	d.pairing = nil
+	d.mu.Unlock()
+	if p != nil {
+		_ = p.link.Close(1000, "paired")
+	}
 }
 
 // Connect authenticates as the device and serves the link on its own goroutine until
 // Close or the context ends. received is given each opened message, in order, on a
 // goroutine of its own, so it may call Send (item 2wp); event gets one line per session
-// change, ending with "closed: <why>" when the link ends on its own.
+// change, "peer connected" or "peer gone" as the PC comes and goes (item 2wq), and
+// "closed: <why>" when the link ends on its own.
 func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([]byte), event func(string)) error {
 	if len(d.Pairing().PairingID) != 16 {
 		return errors.New("broker: not paired")
@@ -130,6 +197,9 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 	t, err := dial(ctx)
 	if err == nil {
 		err = d.authenticate(ctx, t)
+		if err == nil {
+			err = deviceSend(t, FramePeerQuery, peerQueryPayload{PairingID: hexID(d.Pairing().PairingID)})
+		}
 		if err != nil {
 			_ = t.Close(1000, "auth failed")
 		}
@@ -142,7 +212,7 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 	d.link, d.stop = t, stop
 	d.mu.Unlock()
 	event("ready")
-	inbox := make(chan []byte, maxDevicePending)
+	inbox := make(chan []byte, maxDeviceInbox)
 	go func() {
 		for plaintext := range inbox {
 			received(plaintext)
@@ -273,7 +343,7 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			select {
 			case inbox <- plaintext:
 			default:
-				return fmt.Errorf("broker: %d received messages not yet handled", maxDevicePending)
+				return fmt.Errorf("broker: %d received messages not yet handled", maxDeviceInbox)
 			}
 			if err := deviceSend(t, FrameAck, IDOnlyFrame{PairingID: in.PairingID, SessionID: in.SessionID, MessageID: in.MessageID}); err != nil {
 				return err
@@ -287,7 +357,7 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				return err
 			}
 			d.mu.Lock()
-			plaintext, held := d.pending[in.MessageID]
+			retained, held := d.pending[in.MessageID]
 			if held && (frame.Type == FrameAck || frame.Type == FrameExpired) {
 				delete(d.pending, in.MessageID)
 				<-d.slots
@@ -295,10 +365,16 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			d.mu.Unlock()
 			if frame.Type == FrameResend && held {
 				messageID, _ := hex.DecodeString(in.MessageID)
-				if err := d.seal(t, messageID, plaintext, true); err != nil {
+				if err := d.seal(t, messageID, retained.plaintext, true); err != nil {
 					return err
 				}
 			}
+		case FramePeer:
+			var peer peerPayload
+			if err := DecodeInto(frame.Payload, &peer); err != nil {
+				return err
+			}
+			event(map[bool]string{true: "peer connected", false: "peer gone"}[peer.Connected])
 		case FramePing:
 			var ping struct {
 				Token string `json:"token"`
@@ -309,6 +385,9 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			if err := deviceSend(t, FramePong, ping); err != nil {
 				return err
 			}
+			d.mu.Lock()
+			d.expireLocked()
+			d.mu.Unlock()
 		case FrameError:
 			var in ErrorPayload
 			_ = DecodeInto(frame.Payload, &in)
@@ -323,12 +402,19 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 }
 
 // Send seals one message to the agent and retains it until its ACK. With
-// maxDevicePending unacknowledged it waits for room, or for the link to end.
+// deliveryIntentLimit unacknowledged it waits for room, or for the context to end.
 func (d *DeviceClient) Send(ctx context.Context, plaintext []byte) error {
 	select {
 	case d.slots <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
+		d.mu.Lock()
+		d.expireLocked()
+		d.mu.Unlock()
+		select {
+		case d.slots <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	d.mu.Lock()
 	t := d.link
@@ -370,7 +456,12 @@ func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend boo
 	}
 	frame := CiphertextFrame{PairingID: hexID(p.PairingID), SessionID: s.SessionID(), MessageID: hexID(messageID), SenderKeyID: hexID(me), RecipientKeyID: hexID(p.DeviceKeyID), Counter: counter, PlaintextBytes: len(plaintext), Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)}
 	d.mu.Lock()
-	d.pending[frame.MessageID] = plaintext
+	if retained, held := d.pending[frame.MessageID]; held {
+		retained.plaintext = plaintext
+		d.pending[frame.MessageID] = retained
+	} else {
+		d.pending[frame.MessageID] = devicePending{plaintext: plaintext, sent: d.now()}
+	}
 	if resend {
 		d.counts.Resent++
 	} else {
@@ -378,6 +469,16 @@ func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend boo
 	}
 	d.mu.Unlock()
 	return deviceSend(t, FrameCiphertext, frame)
+}
+
+// expireLocked frees what the broker has dropped by its own lifetime without saying so.
+func (d *DeviceClient) expireLocked() {
+	for id, retained := range d.pending {
+		if d.now().Sub(retained.sent) >= deliveryLifetime {
+			delete(d.pending, id)
+			<-d.slots
+		}
+	}
 }
 
 // Counters is a snapshot; Unacknowledged is what is retained for RESEND.

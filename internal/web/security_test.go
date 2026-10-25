@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,6 +53,7 @@ func TestUnavailableSandboxCannotBeEnabledAndStoredOnIsDisabled2te(t *testing.T)
 }
 
 type recordedIdentityProvider struct {
+	mu                         sync.Mutex
 	origin, account            string
 	signIns, devices, signOuts int
 }
@@ -61,21 +63,31 @@ func (p *recordedIdentityProvider) Token(context.Context, string) (string, error
 	return "planted-token", nil
 }
 func (p *recordedIdentityProvider) SignIn(context.Context, string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.signIns++
 	p.account = "someone@example.org"
 	return p.account, nil
 }
 func (p *recordedIdentityProvider) DeviceCode(context.Context, string) (identity.DeviceAuthorization, error) {
+	p.mu.Lock()
 	p.devices++
+	p.mu.Unlock()
 	return identity.DeviceAuthorization{UserCode: "ABCD-EFGH", VerificationURL: "https://verify.example.test", Message: "Use the code", Wait: func(context.Context) (string, error) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
 		p.account = "someone@example.org"
 		return p.account, nil
 	}}, nil
 }
 func (p *recordedIdentityProvider) Account(context.Context, string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.account, nil
 }
 func (p *recordedIdentityProvider) SignOut(string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.signOuts++
 	p.account = ""
 	return nil

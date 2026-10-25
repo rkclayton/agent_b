@@ -35,12 +35,31 @@ func (s *Server) skillState() []skills.Skill {
 
 func (s *Server) skillCatalog(agentID string) ([]skills.Skill, string) {
 	s.mu.Lock()
-	settings := maps.Clone(s.agentSkillSettingsLocked(agentID))
+	settings := s.agentSkillSettingsCopyLocked(agentID)
 	s.mu.Unlock()
 	return skills.Scan(filepath.Join(s.profileRoot(), "skills"), filepath.Join(s.profileRoot(), "skill-state"), settings)
 }
 
 func (s *Server) Index(agentID string) string { _, block := s.skillCatalog(agentID); return block }
+
+// agentSkillSettingsCopyLocked reads what agentSkillSettingsLocked would
+// return without writing the configuration: a catalog read must not change
+// the agents a masked copy shares with s.cfg.
+func (s *Server) agentSkillSettingsCopyLocked(agentID string) map[string]config.SkillSetting {
+	if agentID == "" {
+		agentID = s.cfg.DefaultAgentID()
+	}
+	settings := s.cfg.Skills
+	for _, agent := range s.cfg.Agents {
+		if config.AgentID(agent.Name) == agentID && agent.Skills != nil {
+			settings = agent.Skills
+		}
+	}
+	if copied := maps.Clone(settings); copied != nil {
+		return copied
+	}
+	return map[string]config.SkillSetting{}
+}
 
 func (s *Server) agentSkillSettingsLocked(agentID string) map[string]config.SkillSetting {
 	if s.cfg.Skills == nil {

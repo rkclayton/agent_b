@@ -548,7 +548,7 @@ func TestProfileSwitchRefusesLiveRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item.Run.Status = "running"
+	item.SetRun(session.RunState{Status: "running"})
 	response := profileCall(t, server, `{"action":"switch","name":"Second"}`)
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "stop the run first") {
 		t.Fatalf("response: %d %s", response.Code, response.Body.String())

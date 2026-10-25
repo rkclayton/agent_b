@@ -599,7 +599,10 @@ func (p *Connection) SelectModel(model string, publishedContext int) {
 }
 
 func (p Connection) MarshalJSON() ([]byte, error) {
+	// A marshal is a read: the active model goes into a copy of Models, never
+	// into the array the connection it was copied from still shares.
 	copy := p
+	copy.Models = append([]ConnectionModel(nil), p.Models...)
 	copy.StoreActiveModel()
 	type plain Connection
 	data, err := json.Marshal(struct {

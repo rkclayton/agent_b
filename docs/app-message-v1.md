@@ -67,7 +67,7 @@ queued, stopping, paused or waiting for an approval, whatever its age, and for t
 the newest `last_activity` (ties by id) — not every chat the PC keeps. `total` is how many chats the
 PC keeps; `next` is the opaque cursor `chat.list.page` takes for the rest, or `null` when the join
 sent them all. The first patch of a chat the join did not send is preceded by
-`{operation:"upsert",session:{…list row…}}`, so a phone that lacks the row inserts it. Later PC folder changes use one constant-size global event of type
+`{operation:"upsert",session:{…list row…}}`, so a phone that lacks the row inserts it. An upsert row carries `folder` and `last_activity` as a join row does, so a phone may replace or merge its row without loss. Later PC folder changes use one constant-size global event of type
 `chat.list.patch`: `{operation:"add",path}`, `{operation:"rename",path,value}`,
 `{operation:"delete",path}`, `{operation:"move",session_id,folder}`, or
 `{operation:"activity",session_id,last_activity}`. While `chat.open` mode is active, creation, rename, open/close and run-state changes also use `{operation:"upsert",session:{…list row…}}`. A rename's `value` is the

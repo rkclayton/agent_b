@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/projection"
@@ -1156,6 +1157,11 @@ func deviceUnitBytes(units []map[string]any) int {
 	return total
 }
 
+// raceTickAllowance is the last token's bound under -race (item 2wz): the detector
+// slows the scheduler several-fold, and hosted CI measured 162-206 ms where an
+// unraced run measures 18-40 ms; the 2wu guarantee is measured without it.
+const raceTickAllowance = 4 * deviceStreamTick
+
 func TestAStreamedReplyReachesADeviceInTicks2wu(t *testing.T) {
 	const tokens, every = 1000, 20 * time.Millisecond
 	started := time.Now()
@@ -1178,8 +1184,12 @@ func TestAStreamedReplyReachesADeviceInTicks2wu(t *testing.T) {
 		t.Fatalf("%d text frames for %d tokens; at most %d", text, tokens, limit)
 	}
 	// One tick, and the scheduler's few milliseconds on a loaded test machine.
-	if late := last.Sub(ended); late > deviceStreamTick+30*time.Millisecond {
-		t.Fatalf("the last token reached the device %s after the PC had it", late)
+	limit := deviceStreamTick + 30*time.Millisecond
+	if raceDetector {
+		limit = raceTickAllowance
+	}
+	if late := last.Sub(ended); late > limit {
+		t.Fatalf("the last token reached the device %s after the PC had it; at most %s", late, limit)
 	}
 }
 
@@ -1365,13 +1375,40 @@ func TestADevicesChatListArrivesRecentFirstAndPages2wy(t *testing.T) {
 			outside = id
 		}
 	}
+	// 2wz: its row carries the folder and activity a join row carries.
+	chatStore := chatstore.New(t.TempDir())
+	server.chatState.store = chatStore
+	if _, err := chatStore.AddFolder("", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chatStore.Create(outside, outside, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chatStore.Move(outside, "work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := chatStore.NoteActivity(outside, time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	server.bus.Publish(events.New(events.ChatListPatch, "", "", map[string]any{"operation": "move", "session_id": outside, "folder": "work"}))
+	device.waitFor(t, "the move", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		return payload["operation"] == "move" && payload["session_id"] == outside
+	})
 	server.bus.Publish(events.New(events.RunStarted, outside, "late", map[string]any{"run_id": "late"}))
+	var row map[string]any
 	device.waitFor(t, "the outside chat's row", func(unit map[string]any) bool {
 		data, _ := unit["data"].(map[string]any)
 		payload, _ := data["data"].(map[string]any)
-		row, _ := payload["session"].(map[string]any)
+		row, _ = payload["session"].(map[string]any)
 		return data["type"] == events.ChatListPatch && payload["operation"] == "upsert" && row["id"] == outside
 	})
+	rows := server.projector.CurrentSnapshot()
+	server.decorateChatList(rows)
+	if want := rows[outside]; want.Folder != "work" || want.LastActivity == "" || row["folder"] != want.Folder || row["last_activity"] != want.LastActivity {
+		t.Fatalf("the upsert row carried folder %v, last_activity %v; a join row carries %q, %q", row["folder"], row["last_activity"], want.Folder, want.LastActivity)
+	}
 	seen[outside] = true
 	server.bus.Publish(events.New(events.SessionRenamed, outside, "", map[string]any{"label": "renamed outside"}))
 	device.waitFor(t, "the outside chat's title", func(unit map[string]any) bool {

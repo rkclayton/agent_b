@@ -129,21 +129,24 @@ func (s *Server) decorateChatList(sessions map[string]projection.Snapshot) []str
 		return folders
 	}
 	for _, entry := range entries {
-		value, found := sessions[entry.Metadata.ID]
-		if !found {
-			continue
+		if value, found := sessions[entry.Metadata.ID]; found {
+			sessions[entry.Metadata.ID] = s.decorateChatRow(value, entry)
 		}
-		value.Folder = s.relativeChatPath(filepath.Dir(entry.Path))
-		value.LastActivity = latestChatActivity(value)
-		if value.LastActivity == "" {
-			activity := entry.Metadata.LastActivity
-			if !activity.IsZero() {
-				value.LastActivity = activity.UTC().Format(time.RFC3339Nano)
-			}
-		}
-		sessions[entry.Metadata.ID] = value
 	}
 	return folders
+}
+
+// decorateChatRow gives one chat its list row's folder and last activity.
+func (s *Server) decorateChatRow(value projection.Snapshot, entry chatstore.Entry) projection.Snapshot {
+	value.Folder = s.relativeChatPath(filepath.Dir(entry.Path))
+	value.LastActivity = latestChatActivity(value)
+	if value.LastActivity == "" {
+		activity := entry.Metadata.LastActivity
+		if !activity.IsZero() {
+			value.LastActivity = activity.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	return value
 }
 
 func latestChatActivity(value projection.Snapshot) string {

@@ -190,8 +190,79 @@ func deviceChatPage(sessions map[string]projection.Snapshot, keep, before string
 // deviceListed is which chats a device's list holds: the join's page, the pages it
 // asked for, and each chat an upsert has since sent it (item 2wy).
 type deviceListed struct {
-	mu  sync.Mutex
-	ids map[string]bool
+	mu   sync.Mutex
+	ids  map[string]bool
+	rows map[string][2]string // each chat's folder and last activity as the list last decorated it (2wz)
+}
+
+// know keeps every decorated chat's folder and last activity for its upsert row.
+func (l *deviceListed) know(sessions map[string]projection.Snapshot) {
+	l.mu.Lock()
+	l.rows = make(map[string][2]string, len(sessions))
+	for id, value := range sessions {
+		l.rows[id] = [2]string{value.Folder, value.LastActivity}
+	}
+	l.mu.Unlock()
+}
+
+// place is id's folder and last activity, found once with find for a chat the
+// list never decorated (one created since the join).
+func (l *deviceListed) place(id string, find func() [2]string) [2]string {
+	l.mu.Lock()
+	row, known := l.rows[id]
+	l.mu.Unlock()
+	if !known {
+		row = find()
+		l.mu.Lock()
+		if l.rows == nil {
+			l.rows = map[string][2]string{}
+		}
+		l.rows[id] = row
+		l.mu.Unlock()
+	}
+	return row
+}
+
+// follow keeps the rows true to a move, a folder rename or a deletion on the PC.
+func (l *deviceListed) follow(event events.Event) {
+	change, _ := event.Data.(map[string]any)
+	id, _ := change["session_id"].(string)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch {
+	case event.Type == events.ChatDeleted:
+		delete(l.rows, id)
+		delete(l.ids, id)
+	case event.Type == events.ChatListPatch && change["operation"] == "move":
+		if row, ok := l.rows[id]; ok {
+			row[0], _ = change["folder"].(string)
+			l.rows[id] = row
+		}
+	case event.Type == events.ChatListPatch && change["operation"] == "rename":
+		from, _ := change["path"].(string)
+		to, _ := change["value"].(string)
+		for id, row := range l.rows {
+			if from != "" && (row[0] == from || strings.HasPrefix(row[0], from+"/")) {
+				row[0] = to + strings.TrimPrefix(row[0], from)
+				l.rows[id] = row
+			}
+		}
+	}
+}
+
+// deviceListRow is current with the folder and last activity its list row carries.
+func (s *Server) deviceListRow(listed *deviceListed, current projection.Snapshot) projection.Snapshot {
+	row := listed.place(current.ID, func() (row [2]string) {
+		if store := s.chatState.storeSnapshot(); store != nil {
+			if entry, found, _ := store.Find(current.ID); found {
+				decorated := s.decorateChatRow(current, entry)
+				row = [2]string{decorated.Folder, decorated.LastActivity}
+			}
+		}
+		return row
+	})
+	current.Folder, current.LastActivity = row[0], cmp.Or(latestChatActivity(current), row[1])
+	return current
 }
 
 func (l *deviceListed) set(page map[string]projection.Snapshot) {
@@ -566,6 +637,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		folders := s.decorateChatList(sessions)
 		page, next, _ := deviceChatPage(sessions, "", "", deviceListPage)
 		listed.set(page)
+		listed.know(sessions)
 		send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListSnapshot, "", "", map[string]any{"folders": folders, "total": len(sessions), "next": listOrNone(next)})})
 		activities = make(map[string]string, len(page))
 		for id, snapshot := range page {
@@ -611,6 +683,8 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			// a chat the device's list lacks arrives as a row before its patch.
 			if lacked := found && listed.add(patch.SessionID); lacked || found && live != nil && live.opened() {
 				if row := phoneChatListPatch(current, patch, lacked); row != nil {
+					placed, session := s.deviceListRow(listed, current), row["session"].(map[string]any)
+					session["folder"], session["last_activity"] = placed.Folder, placed.LastActivity
 					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", row)})
 				}
 			}
@@ -654,6 +728,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			if !ok {
 				return
 			}
+			listed.follow(event)
 			if unit, mirrored := s.outboundMirror(event); mirrored {
 				send(unit)
 			}

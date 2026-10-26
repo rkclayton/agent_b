@@ -464,3 +464,82 @@ func TestTheDeviceClientExpiresWhatTheBrokerNeverAnswers2wq(t *testing.T) {
 	b.sendTo("device", FramePing, map[string]string{"token": "expiry"})
 	waitCounters(t, device, Counters{Sent: 3, Unacknowledged: 0}, 5*time.Second)
 }
+
+// Item 2wv (b): a message the device sealed in a session that died unacknowledged is
+// sealed again, same id, under the next session, and answered once.
+func TestADeviceMessageFromADeadSessionIsSentInTheNext2wv(t *testing.T) {
+	for run := 0; run < 8; run++ {
+		replies := make(chan string, 4)
+		b, _, device := linkThroughStandIn(t, echo, func(plaintext []byte) { replies <- string(plaintext) })
+		var ids []string
+		b.mu.Lock()
+		b.swallow = "device"
+		b.inject = func(role string, frame Frame) {
+			if role == "device" && frame.Type == FrameCiphertext {
+				var ciphertext CiphertextFrame
+				_ = DecodeInto(frame.Payload, &ciphertext)
+				b.mu.Lock()
+				ids = append(ids, ciphertext.MessageID)
+				b.mu.Unlock()
+			}
+		}
+		b.mu.Unlock()
+		if err := device.Send(context.Background(), []byte("sealed in a dead session")); err != nil {
+			t.Fatal(err)
+		}
+		waitCounters(t, device, Counters{Sent: 1, Unacknowledged: 1}, 5*time.Second)
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			b.mu.Lock()
+			seen := len(ids)
+			b.mu.Unlock()
+			if seen == 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("run %d: the broker never saw the message", run)
+			}
+		}
+		b.mu.Lock()
+		b.swallow = ""
+		b.mu.Unlock()
+		b.cut("device")
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			device.mu.Lock()
+			gone := device.link == nil
+			device.mu.Unlock()
+			if gone {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("run %d: the device link did not end", run)
+			}
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		if err := device.Connect(ctx, Dial(b.address), func(plaintext []byte) { replies <- string(plaintext) }, b.deviceEvent); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case reply := <-replies:
+			if reply != "echo: sealed in a dead session" {
+				t.Fatalf("run %d: reply %q", run, reply)
+			}
+		case <-time.After(5 * time.Second):
+			b.mu.Lock()
+			lines := append([]string(nil), b.events...)
+			b.mu.Unlock()
+			t.Fatalf("run %d: never answered; device counters %+v; events %v", run, device.Counters(), lines)
+		}
+		select {
+		case reply := <-replies:
+			t.Fatalf("run %d: answered twice: %q", run, reply)
+		case <-time.After(300 * time.Millisecond):
+		}
+		b.mu.Lock()
+		sent := append([]string(nil), ids...)
+		b.mu.Unlock()
+		if len(sent) != 2 || sent[0] != sent[1] {
+			t.Fatalf("run %d: the device sent ids %v", run, sent)
+		}
+		cancel()
+	}
+}

@@ -1141,11 +1141,17 @@ func TestAStreamedReplyReachesADeviceInTicks2wu(t *testing.T) {
 	started := time.Now()
 	units, last, ended := streamStandInReplyToDevice(t, tokens, every, nil)
 	duration := time.Since(started)
-	text := 0
+	text, deltas := 0, 0
 	for _, unit := range units {
 		if deviceText([]map[string]any{unit}) != "" {
 			text++
 		}
+		encoded, _ := json.Marshal(unit)
+		deltas += strings.Count(string(encoded), `"type":"model.delta"`)
+	}
+	// 2wv (e): a token's own timeline entry stays on the PC.
+	if deltas > 0 {
+		t.Fatalf("%d model.delta timeline entries reached the device", deltas)
 	}
 	t.Logf("%d tokens over %s: %d patch frames (%d with text), %d bytes; last text %s after the last token", tokens, duration.Round(time.Millisecond), len(units), text, deviceUnitBytes(units), last.Sub(ended).Round(time.Millisecond))
 	if limit := int(duration/deviceStreamTick) + 2; text > limit {
@@ -1213,5 +1219,29 @@ func TestThePCStreamStillSendsOnePatchPerToken2wu(t *testing.T) {
 	<-done
 	if count != tokens {
 		t.Fatalf("the PC's stream carried %d text appends for %d tokens", count, tokens)
+	}
+}
+
+// Item 2wv (c): every row a chat's Settings "Current session" list shows toggles
+// through the route the switch posts to, and the list is the whole toolset.
+func TestEveryCurrentSessionToolToggles2wv(t *testing.T) {
+	server, registry, writers, _, _, root := consoleServer(t)
+	defer writers.Close()
+	chat, err := registry.Create("tools", server.ConfigSnapshot().DefaultAgentID(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, refused := []string{}, []string{}
+	for _, tool := range chat.Snapshot().Tools {
+		listed = append(listed, tool.Name)
+		request := httptest.NewRequest(http.MethodPost, "/api/tools/"+tool.Name, strings.NewReader(`{"session_id":"`+chat.ID+`","enabled":`+fmt.Sprint(!tool.Enabled)+`}`))
+		answer := httptest.NewRecorder()
+		server.toggleTool(answer, request)
+		if answer.Code != http.StatusOK {
+			refused = append(refused, fmt.Sprintf("%s=%d", tool.Name, answer.Code))
+		}
+	}
+	if len(refused) > 0 || !slices.Equal(listed, config.FullToolset()) {
+		t.Fatalf("listed %v; refused %v", listed, refused)
 	}
 }

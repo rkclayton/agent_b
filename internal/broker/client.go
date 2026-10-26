@@ -722,15 +722,14 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				}
 				return err
 			}
-			// A PEER that came during the handshake: connected=true is the connection
-			// the handshake just reached; connected=false means it has gone again.
+			// A PEER that came during the handshake came before the device's
+			// SESSION_READY, and the broker relays one connection's frames in order:
+			// connected=true is the connection the handshake just reached, and
+			// connected=false describes an older connection, never this one (item 2wv).
 			if held := c.heldPeer; held != nil {
 				c.heldPeer = nil
 				if !held.Connected {
-					c.recordEvent("PEER received connected=false")
-					c.dropSession()
-					c.setState("holding", nil)
-					continue
+					c.recordEvent("PEER connected=false ignored: it came before this handshake's SESSION_READY")
 				}
 			}
 			c.setState("phone connected", nil)

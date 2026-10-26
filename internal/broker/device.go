@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 )
@@ -53,6 +54,7 @@ type DeviceClient struct {
 type devicePending struct {
 	plaintext []byte
 	sent      time.Time
+	session   string // the one it was last sealed under
 }
 
 type devicePairing struct {
@@ -316,6 +318,7 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				d.mu.Lock()
 				d.session, d.counter = opening, 1 // the sealed ready was counter 0
 				d.mu.Unlock()
+				go d.resendStale(ctx, t, opening)
 				opening = nil
 				event("session " + out.SessionID[:8])
 				continue
@@ -472,10 +475,10 @@ func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend boo
 	frame := CiphertextFrame{PairingID: hexID(p.PairingID), SessionID: s.SessionID(), MessageID: hexID(messageID), SenderKeyID: hexID(me), RecipientKeyID: hexID(p.DeviceKeyID), Counter: counter, PlaintextBytes: len(plaintext), Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)}
 	d.mu.Lock()
 	if retained, held := d.pending[frame.MessageID]; held {
-		retained.plaintext = plaintext
+		retained.plaintext, retained.session = plaintext, frame.SessionID
 		d.pending[frame.MessageID] = retained
 	} else {
-		d.pending[frame.MessageID] = devicePending{plaintext: plaintext, sent: d.now()}
+		d.pending[frame.MessageID] = devicePending{plaintext: plaintext, sent: d.now(), session: frame.SessionID}
 	}
 	if resend {
 		d.counts.Resent++
@@ -484,6 +487,39 @@ func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend boo
 	}
 	d.mu.Unlock()
 	return deviceSend(t, FrameCiphertext, frame)
+}
+
+// resendStale follows the agent's rule (item 2wr) on the device (item 2wv): once a new
+// session's RESENDs have had queueFullWait to arrive, whatever is still retained under
+// an earlier session is sealed again, same message id, oldest first, under this one.
+func (d *DeviceClient) resendStale(ctx context.Context, t Transport, s *Session) {
+	select {
+	case <-time.After(queueFullWait):
+	case <-ctx.Done():
+		return
+	}
+	type stale struct {
+		id        string
+		plaintext []byte
+		sent      time.Time
+	}
+	var resend []stale
+	d.mu.Lock()
+	if d.session == s {
+		for id, retained := range d.pending {
+			if retained.session != s.SessionID() {
+				resend = append(resend, stale{id, retained.plaintext, retained.sent})
+			}
+		}
+	}
+	d.mu.Unlock()
+	slices.SortFunc(resend, func(a, b stale) int { return a.sent.Compare(b.sent) })
+	for _, message := range resend {
+		messageID, _ := hex.DecodeString(message.id)
+		if d.seal(t, messageID, message.plaintext, true) != nil {
+			return
+		}
+	}
 }
 
 // expireLocked frees what the broker has dropped by its own lifetime without saying so.

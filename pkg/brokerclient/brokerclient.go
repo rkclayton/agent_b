@@ -25,6 +25,7 @@ type (
 )
 
 const (
+	DefaultURL    = broker.DefaultURL // the one broker address (item 2wv)
 	SendFrameRate = broker.SendFrameRate
 
 	DirectionAgentToDevice = broker.DirectionAgentToDevice

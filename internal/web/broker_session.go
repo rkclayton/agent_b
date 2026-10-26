@@ -158,7 +158,9 @@ func deviceTextPatch(patch projection.Patch) bool {
 }
 
 // deviceTextBatch merges consecutive token patches into one patch of the same
-// shape: string appends joined, /activity's last value, each /timeline append kept.
+// shape: string appends joined, /activity's last value, other /timeline appends kept.
+// A token's own model.delta timeline entry is left out: neither phone reads one, and
+// they were most of a streamed reply's bytes (item 2wv).
 type deviceTextBatch struct {
 	patch projection.Patch
 	runID string
@@ -179,6 +181,10 @@ func (b *deviceTextBatch) add(patch projection.Patch, runID string) bool {
 		at, merged := b.index[operation.Path]
 		switch {
 		case operation.Path == "/timeline":
+			var entry struct{ Type string }
+			if json.Unmarshal(operation.Value, &entry) == nil && entry.Type == events.ModelDelta {
+				continue
+			}
 			b.patch.Operations = append(b.patch.Operations, operation)
 		case merged && operation.Op == "replace":
 			b.patch.Operations[at].Value = operation.Value

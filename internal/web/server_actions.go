@@ -297,7 +297,9 @@ func (s *Server) toggleTool(w http.ResponseWriter, r *http.Request) {
 	for _, affected := range s.registry.List() {
 		if affected.AgentID == body.AgentID {
 			s.bus.Publish(events.New(events.ToolToggled, affected.ID, "", map[string]any{"agent_id": body.AgentID, "name": name, "enabled": body.Enabled}))
-			s.runner.PublishBudget(r.Context(), affected)
+			if s.runner != nil {
+				s.runner.PublishBudget(r.Context(), affected)
+			}
 		}
 	}
 	writeJSON(w, 200, map[string]any{"agent_id": body.AgentID, "name": name, "enabled": body.Enabled})

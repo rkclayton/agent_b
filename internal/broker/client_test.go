@@ -37,6 +37,10 @@ type scriptedBroker struct {
 	acked    []string
 	received []string
 	sessions []string
+
+	// staleOffline sends a PEER connected=false for an older device connection
+	// after SESSION_INIT, as the Android reconnect test saw (item 2wv).
+	staleOffline bool
 }
 
 func TestHandledRequestDeduplicationIsBounded2pd(t *testing.T) {
@@ -172,6 +176,9 @@ func (b *scriptedBroker) peerHandshake(t *testing.T) {
 	var initFrame SessionFrame
 	if err := DecodeInto(init.Payload, &initFrame); err != nil {
 		t.Fatal(err)
+	}
+	if b.staleOffline {
+		b.push(FramePeer, peerPayload{PairingID: hexID(b.pairing.PairingID), Connected: false})
 	}
 	handshakeID, err := hex.DecodeString(initFrame.HandshakeID)
 	if err != nil {
@@ -834,5 +841,41 @@ func TestMissingResendIsDeclinedAndKeepsSession2un(t *testing.T) {
 	}
 	if len(events) != 1 || events[0] != "RESEND_DECLINED for a message no longer held: 00112233" {
 		t.Fatalf("events=%q", events)
+	}
+}
+
+// Item 2wv (a): a PEER connected=false that reached the client before this
+// handshake's SESSION_READY describes an older device connection.
+func TestAStaleOfflinePeerDoesNotEndAFreshSession2wv(t *testing.T) {
+	for run := 0; run < 8; run++ {
+		agent, device, pairing := testPair(t)
+		standIn := newScriptedBroker(t, agent, device, pairing)
+		standIn.staleOffline = true
+		events := make(chan string, 32)
+		client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return standIn, nil },
+			func(messageID, plaintext []byte) []byte { return []byte("answer to " + string(plaintext)) })
+		client.OnSessionEvent(func(event string) { events <- event })
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		go func() { _ = client.Run(ctx) }()
+		standIn.handshake(t)
+		waitConnected(t, client)
+		messageID := make([]byte, 16)
+		if _, err := rand.Read(messageID); err != nil {
+			t.Fatal(err)
+		}
+		standIn.sendToAgent(t, messageID, 0, "after the stale presence")
+		if ack := standIn.next(t); ack.Type != FrameAck {
+			t.Fatalf("run %d: the message was not acknowledged: 0x%02x", run, ack.Type)
+		}
+		cancel()
+		ignored := false
+		for len(events) > 0 {
+			if <-events == "PEER connected=false ignored: it came before this handshake's SESSION_READY" {
+				ignored = true
+			}
+		}
+		if !ignored {
+			t.Fatalf("run %d: the stale PEER was not named", run)
+		}
 	}
 }

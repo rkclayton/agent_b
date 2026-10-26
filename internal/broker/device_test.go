@@ -53,6 +53,8 @@ type standInBroker struct {
 	holds      int
 	closes     []string
 	events     []string // the device's event lines
+	registers  []string // "<role> <raw payload>" for each PUSH_REGISTER (item 2ww)
+	refusePush bool     // answer a device's PUSH_REGISTER with a nonfatal ERROR
 }
 
 type standInEnd struct {
@@ -352,6 +354,20 @@ func (b *standInBroker) serve(ws *websocket.Conn) {
 			}
 			b.mu.Unlock()
 			b.write(name, to, raw)
+		case FramePushRegister:
+			// The real broker (server.go:1064): a device registers for itself; an
+			// agent's registration ends its connection.
+			b.mu.Lock()
+			b.registers = append(b.registers, role+" "+string(frame.Payload))
+			refuse := b.refusePush
+			b.mu.Unlock()
+			if role != "device" {
+				b.close(role, "invalid push registration", ws)
+				return
+			}
+			if refuse {
+				b.send(role, end, FrameError, ErrorPayload{Code: "malformed", Detail: "provider"})
+			}
 		case FrameResendDeclined:
 			// The real broker's handleResendDeclined (server.go:1792): the sender's intent
 			// is dropped and the recipient, when connected, told DELIVERY_EXPIRED.

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -417,6 +418,42 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			return fmt.Errorf("broker: unexpected frame 0x%02x", frame.Type)
 		}
 	}
+}
+
+// RegisterPush registers this device's own push token with the broker (item 2ww), on
+// the live link after READY: "apns" takes the 64-hex token and sends no provider, as
+// the iPhone's registration does; "fcm" takes 1-512 of [A-Za-z0-9_:-], as the broker
+// checks it. It is sent once. A refusal arrives as an "error" event; sending again is
+// the caller's choice.
+func (d *DeviceClient) RegisterPush(provider, token string) error {
+	payload := pushRegisterPayload{PairingID: hexID(d.Pairing().PairingID), DeviceToken: token}
+	switch provider {
+	case "apns":
+		if _, err := hex.DecodeString(token); err != nil || len(token) != 64 {
+			return errors.New("push register: an APNs token is 64 hex characters")
+		}
+		payload.DeviceToken = strings.ToLower(token)
+	case "fcm":
+		valid := len(token) >= 1 && len(token) <= 512
+		for _, r := range token {
+			valid = valid && (r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == ':' || r == '-')
+		}
+		if !valid {
+			return errors.New("push register: an FCM token is 1-512 of A-Z a-z 0-9 _ : -")
+		}
+		payload.Provider = provider
+	default:
+		return fmt.Errorf("push register: provider %q is not apns or fcm", provider)
+	}
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	d.mu.Lock()
+	t := d.link
+	d.mu.Unlock()
+	if t == nil {
+		return errors.New("broker: no link")
+	}
+	return deviceSend(t, FramePushRegister, payload)
 }
 
 // Send seals one message to the agent and retains it until its ACK. With

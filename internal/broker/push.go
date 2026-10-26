@@ -18,6 +18,7 @@ import (
 type pushRegisterPayload struct {
 	PairingID   string `json:"pairing_id"`
 	DeviceToken string `json:"device_token"`
+	Provider    string `json:"provider,omitempty"` // omitted for APNs, as the agent sends it
 }
 
 type pushPayload struct {

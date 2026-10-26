@@ -18,6 +18,7 @@ type (
 	Pairing         = broker.Pairing
 	PairingOffer    = broker.PairingOffer
 	PairPeerPayload = broker.PairPeerPayload
+	PushPayload     = broker.PushPayload
 	Problem         = broker.Problem
 	Session         = broker.Session
 	SessionFrame    = broker.SessionFrame
@@ -40,6 +41,7 @@ const (
 	FramePairPeer       = broker.FramePairPeer
 	FramePairConfirm    = broker.FramePairConfirm
 	FramePairComplete   = broker.FramePairComplete
+	FramePushRegister   = broker.FramePushRegister
 	FrameSessionInit    = broker.FrameSessionInit
 	FrameSessionResp    = broker.FrameSessionResp
 	FrameSessionFinish  = broker.FrameSessionFinish
@@ -57,6 +59,8 @@ const (
 
 var (
 	NewDeviceClient = broker.NewDeviceClient
+	OpenPush        = broker.OpenPush
+	PushKinds       = broker.PushKinds
 	NewClient       = broker.NewClient
 	Dial            = broker.Dial
 	BeginPairing    = broker.BeginPairing

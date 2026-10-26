@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -541,5 +542,62 @@ func TestADeviceMessageFromADeadSessionIsSentInTheNext2wv(t *testing.T) {
 			t.Fatalf("run %d: the device sent ids %v", run, sent)
 		}
 		cancel()
+	}
+}
+
+// Item 2ww: a device registers its own push token, with its provider.
+func TestADeviceRegistersItsOwnPushToken2ww(t *testing.T) {
+	b, _, device := linkThroughStandIn(t, echo, func([]byte) {})
+	registers := func(want int) []string {
+		t.Helper()
+		for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			b.mu.Lock()
+			got := append([]string(nil), b.registers...)
+			b.mu.Unlock()
+			if len(got) >= want || time.Now().After(deadline) {
+				return got
+			}
+		}
+	}
+	pairing := `"pairing_id":"` + b.pairingHex() + `"`
+	if err := device.RegisterPush("fcm", "token-1:abc_DEF"); err != nil {
+		t.Fatal(err)
+	}
+	if got := registers(1); len(got) != 1 || got[0] != `device {`+pairing+`,"device_token":"token-1:abc_DEF","provider":"fcm"}` {
+		t.Fatalf("fcm registration sent %q", got)
+	}
+	apns := strings.Repeat("ab", 32)
+	if err := device.RegisterPush("apns", apns); err != nil {
+		t.Fatal(err)
+	}
+	if got := registers(2); len(got) != 2 || got[1] != `device {`+pairing+`,"device_token":"`+apns+`"}` {
+		t.Fatalf("apns registration sent %q", got)
+	}
+	for _, bad := range [][2]string{{"fcm", "has space"}, {"fcm", ""}, {"fcm", strings.Repeat("a", 513)}, {"apns", "abc"}, {"other", "token"}} {
+		if err := device.RegisterPush(bad[0], bad[1]); err == nil {
+			t.Fatalf("RegisterPush(%q, %q) was not refused", bad[0], bad[1])
+		}
+	}
+	b.mu.Lock()
+	b.refusePush = true
+	b.events = nil
+	b.mu.Unlock()
+	if err := device.RegisterPush("fcm", "refused-token"); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		b.mu.Lock()
+		lines := append([]string(nil), b.events...)
+		b.mu.Unlock()
+		if slices.Contains(lines, "error malformed provider") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the refusal was not reported: %v", lines)
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := registers(4); len(got) != 3 {
+		t.Fatalf("a refused registration was sent %d times", len(got)-2)
 	}
 }

@@ -305,9 +305,16 @@ func TestSuccessfulPairingWritesItsFrameSequenceAndOutcome2op(t *testing.T) {
 	for client.Status().PairedDevice == "" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	logBytes, err := os.ReadFile(filepath.Join(root, "logs", "pairing.log"))
-	if err != nil {
-		t.Fatal(err)
+	// The outcome line is written just after the status changes.
+	var logBytes []byte
+	for {
+		if logBytes, err = os.ReadFile(filepath.Join(root, "logs", "pairing.log")); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(logBytes), "outcome paired") || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	for _, want := range []string{"sent PAIR_BEGIN", "received PAIR_WAITING", "received PAIR_PEER", "sent PAIR_CONFIRM", "received PAIR_COMPLETE", "outcome paired"} {
 		if !strings.Contains(string(logBytes), want) {

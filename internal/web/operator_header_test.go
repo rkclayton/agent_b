@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,10 +81,17 @@ func TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry(t *testing.T) {
 	cfg := config.Defaults(root)
 	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), filepath.Join("..", "..", "web"), RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	server.pageMeasurements.requestWatchdogAfter = 30 * time.Millisecond
-	server.pageMeasurements.requestWatchdogLog = func(value string) { recorded.WriteString(value) }
+	var recordedMu sync.Mutex
+	server.pageMeasurements.requestWatchdogLog = func(value string) {
+		recordedMu.Lock()
+		recorded.WriteString(value)
+		recordedMu.Unlock()
+	}
 
 	for _, path := range []string{"/api/config", "/api/events", "/api/speech/stream"} {
+		recordedMu.Lock()
 		recorded.Reset()
+		recordedMu.Unlock()
 		release, done := make(chan struct{}), make(chan struct{})
 		var next http.Handler = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release })
 		body := "private fixture chat text"
@@ -102,7 +110,9 @@ func TestRequestWatchdogRecordsOneBoundedStackAndSkipsStreams2ry(t *testing.T) {
 			close(release)
 		}
 		<-done
+		recordedMu.Lock()
 		output := recorded.String()
+		recordedMu.Unlock()
 		if path != "/api/config" {
 			if output != "" {
 				t.Fatalf("long-lived route %s was recorded: %s", path, output)

@@ -1059,7 +1059,8 @@ func TestEveryListedToolTogglesOnAnAgent2wt(t *testing.T) {
 
 // Item 2wu: a stand-in reply streamed to a paired device; mid runs after each
 // token. Returns the device's patch units in arrival order, when the last text
-// arrived, and when the last token was published.
+// arrived, and when the PC had the last token: when its patch reached a projection
+// subscriber, as the PC's own page gets it.
 func streamStandInReplyToDevice(t *testing.T, tokens int, every time.Duration, mid func(index int, chat string, bus *events.Bus)) ([]map[string]any, time.Time, time.Time) {
 	t.Helper()
 	server, registry, writers, _, _, root := consoleServer(t)
@@ -1077,21 +1078,40 @@ func streamStandInReplyToDevice(t *testing.T, tokens int, every time.Duration, m
 	t.Cleanup(func() { stop(); <-streamed })
 	go func() { server.streamToDevice(ctx, device); close(streamed) }()
 	device.waitFor(t, "the chat's snapshot", func(unit map[string]any) bool { return unit["kind"] == "snapshot" && unit["session_id"] == chat.ID })
+	_, pcPatches, unsubscribe, err := server.projector.SubscribeSnapshot(server.writers.SessionCursors())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pcMu sync.Mutex
+	var ended time.Time
+	pcDone := make(chan struct{})
+	go func() {
+		defer close(pcDone)
+		for patch := range pcPatches {
+			for _, operation := range patch.Operations {
+				if operation.Op == "append" && strings.HasSuffix(operation.Path, "/text") {
+					pcMu.Lock()
+					ended = time.Now()
+					pcMu.Unlock()
+				}
+			}
+		}
+	}()
 	server.bus.Publish(events.New(events.RunStarted, chat.ID, "r1", map[string]any{}))
 	server.bus.Publish(events.New(events.ModelRequest, chat.ID, "r1", map[string]any{"turn": 1}))
 	var pc strings.Builder
-	var ended time.Time
 	for index := 0; index < tokens; index++ {
 		token := fmt.Sprintf("t%d ", index)
 		pc.WriteString(token)
 		server.bus.Publish(events.New(events.ModelDelta, chat.ID, "r1", map[string]any{"turn": 1, "kind": "content", "text": token}))
-		ended = time.Now()
 		if mid != nil {
 			mid(index, chat.ID, server.bus)
 		}
 		time.Sleep(every)
 	}
 	device.waitFor(t, "the whole text", func(map[string]any) bool { return deviceText(device.units) == pc.String() })
+	unsubscribe()
+	<-pcDone
 	server.bus.Publish(events.New(events.ModelResponse, chat.ID, "r1", map[string]any{"turn": 1, "content": pc.String()}))
 	device.waitFor(t, "the response", func(unit map[string]any) bool {
 		encoded, _ := json.Marshal(unit)

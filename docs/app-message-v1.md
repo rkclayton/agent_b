@@ -57,12 +57,17 @@ the first time it must.
 ```
 
 `data` is the envelope the tailnet client already receives, byte-for-byte after JSON re-encoding.
-A released device's view through the broker remains identical to its view over the tailnet: the same join snapshots and every later patch. After a device uses `chat.open`, the rules below narrow that connection to the newest opened chat while preserving the same cursor semantics.
+A released device's view through the broker remains its view over the tailnet — the same join snapshots and every later patch — except that the join's snapshots are bounded as the next paragraph says. After a device uses `chat.open`, the rules below narrow that connection to the newest opened chat while preserving the same cursor semantics.
 
 Each chat snapshot also carries `folder` (the slash-separated path below the PC's Chats root, or
 `""` at the root) and `last_activity` (RFC3339Nano, the time its newest projected chat entry was
 added). The join begins with one global event whose type is `chat.list.snapshot` and whose data is
-`{folders:[path...]}`. Later PC folder changes use one constant-size global event of type
+`{folders:[path...],total,next}`. The join then sends a snapshot for every chat that is running,
+queued, stopping, paused or waiting for an approval, whatever its age, and for the 200 others with
+the newest `last_activity` (ties by id) — not every chat the PC keeps. `total` is how many chats the
+PC keeps; `next` is the opaque cursor `chat.list.page` takes for the rest, or `null` when the join
+sent them all. The first patch of a chat the join did not send is preceded by
+`{operation:"upsert",session:{…list row…}}`, so a phone that lacks the row inserts it. Later PC folder changes use one constant-size global event of type
 `chat.list.patch`: `{operation:"add",path}`, `{operation:"rename",path,value}`,
 `{operation:"delete",path}`, `{operation:"move",session_id,folder}`, or
 `{operation:"activity",session_id,last_activity}`. While `chat.open` mode is active, creation, rename, open/close and run-state changes also use `{operation:"upsert",session:{…list row…}}`. A rename's `value` is the
@@ -144,6 +149,7 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `chat.create` | `POST /api/sessions` | `{label?,agent_id?,connection_id?}` — connection selection added 2026-09-30; agent selection added 2026-10-09 |
 | `chat.open` | open one chat's phone stream | `{session_id,have?}` — added 2026-10-13 |
 | `chat.history` | `GET /api/sessions/{session_id}/history` | `{session_id,before?}` — 50 older entries at a time |
+| `chat.list.page` | the next chats of the device's list | `{before,n?}` — added 2026-10-26 |
 | `chat.mirror` | append one owner's journal event to its mirror | `MirrorAppend` — added 2026-09-30 |
 | `chat.mirror.since` | ask a mirror for its durable per-chat cursor | `{chat_id}` — added 2026-09-30 |
 | `chat.mirror.take` | transfer ownership to the requesting peer | `{chat_id,after_seq}` — added 2026-09-30 |
@@ -157,7 +163,9 @@ names a chat and the chat's agent is used. A toolset belongs to the agent, so ev
 changes. The read-only agent is refused `400` `{"error":"agent_b tools are read-only","field":"agent_id"}`;
 an unknown agent or tool is `404` (`field` `agent_id` or `name`), and a closed chat is `409`.
 
-A device's `state` carries these keys and no others: `agents`, `connections`, `folders`, `sessions`.
+A device's `state` carries these keys and no others: `agents`, `connections`, `folders`, `next`, `sessions`, `total`.
+Its `sessions` is bounded as the join is (the chat `resync` names is kept besides); `total` and `next`
+are the join's.
 Everything else in the PC's own answer, its chat folder's path first, stays on the PC.
 
 `state.connections` is the PC's ordered Connection sheet. Each entry is exactly
@@ -181,6 +189,12 @@ a client that does not read it re-reads `state`.
 `chat.history` carries a session id and an optional exclusive `before` index. It returns at most
 50 chat entries plus `{start,before,total}`. Omitting `before` returns the newest page; passing the
 returned `start` walks toward the first entry without transferring the rest of the retained store.
+
+`chat.list.page` carries `before`, a `next` cursor from the list snapshot, `state` or an earlier
+page, and an optional `n` (at most 200, the default). It answers `{sessions:{id:snapshot…},next}`:
+the `n` chats after the cursor in the list's order, each snapshot as the join sends it, and the next
+cursor or `null` after the last. Running and waiting chats are never in a page — the join and
+`state` already sent them. A cursor this desktop did not give is `400`.
 
 `chat.open` accepts `have:{generation,offset}` when the phone holds that chat. It answers `200` with either `{session_id,snapshot}` (the newest page) or `{session_id,patches:[…],cursor}` (every change after `have`). Patches are used only for the current generation, a cursor not ahead, and a smaller encoding than the snapshot; otherwise it snapshots. From the answer cursor onward only the newest opened chat's content patches are live; `{session_id:""}` makes none live. Other chats still send list activity, run state, rename, move, delete and creation. A device that never sends `chat.open` keeps the join, resume and all-chat patch stream unchanged.
 

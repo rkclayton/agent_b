@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -123,6 +124,102 @@ var deviceSessionlessEvents = []string{
 	events.ChatDeleted,      // the iOS chat list removes the row
 	events.ChatListPatch,    // the iOS chat list's folders
 	events.ChatListSnapshot, // the iOS chat list's folders
+}
+
+// deviceListPage is how many chats a device's list is sent at once besides the
+// running and waiting ones (item 2wy): a phone's first screen and several scrolls,
+// a few hundred rows where a PC keeps thousands; chat.list.page sends the rest.
+const deviceListPage = 200
+
+type deviceListRow struct {
+	id string
+	at time.Time
+}
+
+// deviceListOrder is the list's order: newest activity first, ties by id.
+func deviceListOrder(a, b deviceListRow) int {
+	return cmp.Or(b.at.Compare(a.at), strings.Compare(b.id, a.id))
+}
+
+// deviceChatPage is one page of a device's chat list. The first (before "") holds
+// every running or waiting chat (the phones' Running and Waiting sections), keep,
+// and the n newest others; a later one the n others after the cursor before. next
+// is the cursor after its last row, "" when none is left; ok is false for a cursor
+// this desktop did not give.
+func deviceChatPage(sessions map[string]projection.Snapshot, keep, before string, n int) (page map[string]projection.Snapshot, next string, ok bool) {
+	var after *deviceListRow
+	if before != "" {
+		at, id, _ := strings.Cut(before, "|")
+		parsed, err := time.Parse(time.RFC3339Nano, at)
+		if err != nil || id == "" {
+			return nil, "", false
+		}
+		after = &deviceListRow{id, parsed}
+	}
+	page = map[string]projection.Snapshot{}
+	rows := make([]deviceListRow, 0, len(sessions))
+	for id, value := range sessions {
+		if value.PendingApproval != nil || slices.Contains([]string{"running", "queued", "stopping", "paused"}, value.Run.Status) || id == keep {
+			if after == nil {
+				page[id] = value
+			}
+			continue
+		}
+		at, _ := time.Parse(time.RFC3339Nano, cmp.Or(latestChatActivity(value), value.CreatedAt))
+		rows = append(rows, deviceListRow{id, at})
+	}
+	slices.SortFunc(rows, deviceListOrder)
+	start := 0
+	if after != nil {
+		at, found := slices.BinarySearchFunc(rows, *after, deviceListOrder)
+		start = at
+		if found {
+			start++
+		}
+	}
+	end := min(len(rows), start+n)
+	for _, row := range rows[start:end] {
+		page[row.id] = sessions[row.id]
+	}
+	if end < len(rows) {
+		next = rows[end-1].at.UTC().Format(time.RFC3339Nano) + "|" + rows[end-1].id
+	}
+	return page, next, true
+}
+
+// deviceListed is which chats a device's list holds: the join's page, the pages it
+// asked for, and each chat an upsert has since sent it (item 2wy).
+type deviceListed struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func (l *deviceListed) set(page map[string]projection.Snapshot) {
+	l.mu.Lock()
+	l.ids = make(map[string]bool, len(page))
+	for id := range page {
+		l.ids[id] = true
+	}
+	l.mu.Unlock()
+}
+
+// add lists id and says whether the device lacked it.
+func (l *deviceListed) add(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ids == nil {
+		l.ids = map[string]bool{}
+	}
+	lacked := !l.ids[id]
+	l.ids[id] = true
+	return lacked
+}
+
+func listOrNone(next string) any {
+	if next == "" {
+		return nil
+	}
+	return next
 }
 
 func (s *Server) noteDeviceDropped(eventType string) {
@@ -298,6 +395,7 @@ type phoneStreamState struct {
 	prepared bool
 	held     []projection.Patch
 	changed  chan struct{}
+	listed   deviceListed
 }
 
 func newPhoneStreamState() *phoneStreamState {
@@ -453,6 +551,10 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		liveChanged = live.changed
 	}
 	activities := map[string]string{}
+	listed := &deviceListed{}
+	if live != nil {
+		listed = &live.listed
+	}
 	if s.projector != nil && s.writers != nil {
 		cursors := s.writers.SessionCursors()
 		sessions, subscribed, unsubscribe, err := s.projector.SubscribeSnapshot(cursors)
@@ -462,9 +564,11 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		}
 		defer unsubscribe()
 		folders := s.decorateChatList(sessions)
-		send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListSnapshot, "", "", map[string]any{"folders": folders})})
-		activities = make(map[string]string, len(sessions))
-		for id, snapshot := range sessions {
+		page, next, _ := deviceChatPage(sessions, "", "", deviceListPage)
+		listed.set(page)
+		send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListSnapshot, "", "", map[string]any{"folders": folders, "total": len(sessions), "next": listOrNone(next)})})
+		activities = make(map[string]string, len(page))
+		for id, snapshot := range page {
 			activities[id] = snapshot.LastActivity
 			bounded := s.firstScreenSessions(map[string]projection.Snapshot{id: snapshot}, "-")[id]
 			previous, reconnect := resume[id]
@@ -504,8 +608,9 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 				return
 			}
 			current, found := s.projector.CurrentSnapshot()[patch.SessionID]
-			if live != nil && live.opened() && found {
-				if row := phoneChatListPatch(current, patch); row != nil {
+			// a chat the device's list lacks arrives as a row before its patch.
+			if lacked := found && listed.add(patch.SessionID); lacked || found && live != nil && live.opened() {
+				if row := phoneChatListPatch(current, patch, lacked); row != nil {
 					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", row)})
 				}
 			}
@@ -563,8 +668,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 	}
 }
 
-func phoneChatListPatch(current projection.Snapshot, patch projection.Patch) map[string]any {
-	listChange := false
+func phoneChatListPatch(current projection.Snapshot, patch projection.Patch, listChange bool) map[string]any {
 	for _, operation := range patch.Operations {
 		switch operation.Path {
 		case "/complete", "/id", "/label", "/agent_id", "/connection_id", "/agent_name", "/b_connection", "/role", "/created_at", "/run", "/queued_messages", "/runnable", "/not_runnable_reason", "/closed":

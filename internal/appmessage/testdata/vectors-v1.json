@@ -24,7 +24,8 @@
     "chat.mirror.take",
     "chat.rename",
     "chat.delete",
-    "chat.open"
+    "chat.open",
+    "chat.list.page"
   ],
   "vectors": [
     {

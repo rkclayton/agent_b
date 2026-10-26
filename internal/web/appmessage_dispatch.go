@@ -53,6 +53,7 @@ var appMessageRoutes = map[string]struct {
 	"chat.rename":       {http.MethodPost, "/api/sessions/"},
 	"chat.delete":       {http.MethodDelete, "/api/sessions/"},
 	"chat.history":      {http.MethodGet, "/api/sessions/"},
+	"chat.list.page":    {http.MethodPost, ""},
 	"chat.mirror":       {http.MethodPost, ""},
 	"chat.mirror.since": {http.MethodPost, ""},
 	"chat.mirror.take":  {http.MethodPost, ""},
@@ -97,6 +98,9 @@ func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStr
 	}
 	if request.Route == "chat.open" {
 		return s.dispatchChatOpen(request, live)
+	}
+	if request.Route == "chat.list.page" {
+		return s.dispatchChatListPage(request, live)
 	}
 	route, known := appMessageRoutes[request.Route]
 	if !known {
@@ -285,6 +289,36 @@ func (s *Server) dispatchChatOpen(request appRequestUnit, live *phoneStreamState
 		live.prepare(epoch, current.Cursor)
 	}
 	return s.appResponse(request.ID, http.StatusOK, answer)
+}
+
+// dispatchChatListPage answers chat.list.page (item 2wy): the n chats after the
+// cursor a list snapshot or page gave, each row as the join sends it.
+func (s *Server) dispatchChatListPage(request appRequestUnit, live *phoneStreamState) []byte {
+	var asked struct {
+		Before string `json:"before"`
+		N      int    `json:"n"`
+	}
+	if json.Unmarshal(request.Body, &asked) != nil || asked.Before == "" {
+		return s.appProblem(request.ID, http.StatusBadRequest, "chat.list.page needs before, the next cursor a list snapshot or page gave")
+	}
+	if asked.N <= 0 || asked.N > deviceListPage {
+		asked.N = deviceListPage
+	}
+	sessions := map[string]projection.Snapshot{}
+	if s.projector != nil {
+		sessions = s.projector.CurrentSnapshot()
+		s.decorateChatList(sessions)
+	}
+	page, next, ok := deviceChatPage(sessions, "", asked.Before, asked.N)
+	if !ok {
+		return s.appProblem(request.ID, http.StatusBadRequest, "chat.list.page before is not a cursor this desktop gave")
+	}
+	if live != nil {
+		for id := range page {
+			live.listed.add(id)
+		}
+	}
+	return s.appResponse(request.ID, http.StatusOK, map[string]any{"sessions": s.firstScreenSessions(page, "-"), "next": listOrNone(next)})
 }
 
 func (s *Server) serveAsPhone(deviceID string, request appRequestUnit, method, path string, body json.RawMessage) []byte {

@@ -1288,3 +1288,168 @@ func TestADevicesStateCarriesOnlyTheListedKeys2wx(t *testing.T) {
 		t.Fatalf("docs/app-message-v1.md does not say %q", listed)
 	}
 }
+
+// 2wy's end to end: 260 chats, because the fixture costs ~19 ms a chat on
+// Windows; the 3,000-chat walk is TestTheDeviceListWalksThreeThousandChats2wy,
+// and the 3,000-chat bytes were measured once with chats raised (NOTES.md).
+func TestADevicesChatListArrivesRecentFirstAndPages2wy(t *testing.T) {
+	chats := 260
+	server := measuredServer(t, chats, 1)
+	for chat := 0; chat < 5; chat++ {
+		id := fmt.Sprintf("chat-%d", chat)
+		if chat < 3 {
+			server.bus.Publish(events.New(events.RunStarted, id, "busy", map[string]any{"run_id": "busy"}))
+		} else {
+			server.bus.Publish(events.New(events.ApprovalRequired, id, "busy", map[string]any{"call_id": "c", "name": "shell"}))
+		}
+	}
+	live, device := newPhoneStreamState(), &recordingDevice{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { server.streamUnitsToDeviceOpening(ctx, device, nil, live); close(done) }()
+	defer func() { cancel(); <-done }()
+	listed := device.waitFor(t, "the list snapshot", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return data["type"] == events.ChatListSnapshot
+	})
+	payload := listed["data"].(map[string]any)["data"].(map[string]any)
+	joined := map[string]bool{}
+	for count := -1; ; time.Sleep(300 * time.Millisecond) {
+		device.mu.Lock()
+		settled := len(device.units) == count
+		count = len(device.units)
+		device.mu.Unlock()
+		if settled {
+			break
+		}
+	}
+	device.mu.Lock()
+	joinBytes := 0
+	for _, unit := range device.units {
+		encoded, _ := appCanonical(unit)
+		joinBytes += len(encoded)
+		if unit["kind"] == "snapshot" {
+			joined[unit["session_id"].(string)] = true
+		}
+	}
+	device.mu.Unlock()
+	t.Logf("2wy join of %d chats: %d rows, %d bytes", chats, len(joined), joinBytes)
+	if payload["total"] != float64(chats) {
+		t.Fatalf("the list snapshot = %v", payload)
+	}
+	for chat := 0; chat < 5; chat++ {
+		if !joined[fmt.Sprintf("chat-%d", chat)] {
+			t.Fatalf("running or waiting chat-%d was not joined", chat)
+		}
+	}
+	if len(joined) != 5+deviceListPage {
+		t.Fatalf("the join sent %d rows", len(joined))
+	}
+
+	var state struct {
+		Sessions map[string]projection.Snapshot `json:"sessions"`
+		Total    int                            `json:"total"`
+		Next     string                         `json:"next"`
+	}
+	answer := dispatch(t, server, `{"v":1,"kind":"request","id":"s","route":"state","body":{}}`)
+	if err := json.Unmarshal(answer.Body, &state); err != nil || len(state.Sessions) != 5+deviceListPage || state.Total != chats || state.Next != payload["next"] {
+		t.Fatalf("a device's state = %d rows, total %d, next %q (%v)", len(state.Sessions), state.Total, state.Next, err)
+	}
+	t.Logf("2wy device state of %d chats: %d rows, %d bytes", chats, len(state.Sessions), len(answer.Body))
+
+	seen := maps.Clone(joined)
+	// A chat outside the loaded page that starts running reaches the device as a row.
+	outside := ""
+	for chat := chats - 1; outside == ""; chat-- {
+		if id := fmt.Sprintf("chat-%d", chat); !joined[id] {
+			outside = id
+		}
+	}
+	server.bus.Publish(events.New(events.RunStarted, outside, "late", map[string]any{"run_id": "late"}))
+	device.waitFor(t, "the outside chat's row", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		payload, _ := data["data"].(map[string]any)
+		row, _ := payload["session"].(map[string]any)
+		return data["type"] == events.ChatListPatch && payload["operation"] == "upsert" && row["id"] == outside
+	})
+	seen[outside] = true
+	server.bus.Publish(events.New(events.SessionRenamed, outside, "", map[string]any{"label": "renamed outside"}))
+	device.waitFor(t, "the outside chat's title", func(unit map[string]any) bool {
+		data, _ := unit["data"].(map[string]any)
+		return unit["kind"] == "patch" && data["session_id"] == outside && strings.Contains(fmt.Sprint(data["operations"]), "renamed outside")
+	})
+
+	before, pages := state.Next, 0
+	for before != "" {
+		body, _ := json.Marshal(map[string]any{"before": before, "n": deviceListPage})
+		var page struct {
+			Sessions map[string]projection.Snapshot `json:"sessions"`
+			Next     *string                        `json:"next"`
+		}
+		raw := server.dispatchAppMessage("device-1", []byte(`{"v":1,"kind":"request","id":"p","route":"chat.list.page","body":`+string(body)+`}`), live)
+		var response appResponseUnit
+		if json.Unmarshal(raw, &response) != nil || response.Status != http.StatusOK || json.Unmarshal(response.Body, &page) != nil {
+			t.Fatalf("chat.list.page = %s", raw)
+		}
+		if pages++; page.Next != nil && len(page.Sessions) != deviceListPage || len(page.Sessions) > deviceListPage {
+			t.Fatalf("page %d carried %d rows", pages, len(page.Sessions))
+		}
+		for id, row := range page.Sessions {
+			if seen[id] {
+				t.Fatalf("page %d repeated %s", pages, id)
+			}
+			if row.Chat != nil {
+				t.Fatalf("page %d carried %s's transcript", pages, id)
+			}
+			seen[id] = true
+		}
+		if before = ""; page.Next != nil {
+			before = *page.Next
+		}
+	}
+	if len(seen) != chats {
+		t.Fatalf("the pages walked %d of %d chats", len(seen), chats)
+	}
+}
+
+func TestTheDeviceListWalksThreeThousandChats2wy(t *testing.T) {
+	sessions := map[string]projection.Snapshot{}
+	base := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	for chat := 0; chat < 3000; chat++ {
+		value := projection.Snapshot{ID: fmt.Sprintf("chat-%d", chat), LastActivity: base.Add(time.Duration(chat%1500) * time.Second).Format(time.RFC3339Nano)}
+		switch chat {
+		case 0, 1, 2:
+			value.Run.Status = "running"
+		case 3, 4:
+			value.PendingApproval = &projection.ChatEntry{Type: "notice"}
+		}
+		sessions[value.ID] = value
+	}
+	page, next, ok := deviceChatPage(sessions, "", "", deviceListPage)
+	if !ok || len(page) != 205 || next == "" {
+		t.Fatalf("the first page = %d rows, next %q", len(page), next)
+	}
+	seen := maps.Clone(page)
+	last := next
+	for pages := 1; next != ""; pages++ {
+		page, next, ok = deviceChatPage(sessions, "", next, deviceListPage)
+		if !ok || pages <= 3 && len(page) != deviceListPage {
+			t.Fatalf("page %d = %d rows", pages, len(page))
+		}
+		for id, value := range page {
+			if _, repeated := seen[id]; repeated || value.LastActivity+"|"+id >= last && value.LastActivity != base.Add(1499*time.Second).Format(time.RFC3339Nano) {
+				t.Fatalf("page %d repeated or reordered %s", pages, id)
+			}
+			seen[id] = value
+		}
+		if next != "" {
+			last = next
+		}
+	}
+	if len(seen) != 3000 {
+		t.Fatalf("the pages walked %d of 3000 chats", len(seen))
+	}
+	if _, _, ok := deviceChatPage(sessions, "", "not a cursor", deviceListPage); ok {
+		t.Fatal("a cursor this desktop did not give was taken")
+	}
+}

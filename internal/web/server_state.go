@@ -166,7 +166,9 @@ var deviceStateKeys = []string{
 	"agents",      // the Android settings sheet
 	"connections", // the Android settings sheet
 	"folders",     // the iOS chat list
-	"sessions",    // the iOS chat list
+	"next",        // the cursor chat.list.page takes, null when none is left (2wy)
+	"sessions",    // the iOS chat list: running, waiting and the newest deviceListPage
+	"total",       // how many chats the PC keeps (2wy)
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
@@ -181,11 +183,16 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	s.OfferReflectionProposals()
 	selected := r.URL.Query().Get("session")
 	var snapshot map[string]any
+	total, next := 0, ""
 	if s.replay != nil {
 		snapshot = s.snapshotWithSessions(s.firstScreenSessions(s.replay.Sessions, selected), true)
 	} else if s.projector != nil && s.writers != nil {
 		sessions := s.projector.CurrentSnapshot()
 		s.decorateChatList(sessions)
+		total = len(sessions)
+		if pairedDeviceAuthenticated(r) {
+			sessions, next, _ = deviceChatPage(sessions, selected, "", deviceListPage)
+		}
 		snapshot = s.snapshotWithSessions(s.firstScreenSessions(sessions, selected), false)
 	} else {
 		snapshot = s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
@@ -195,6 +202,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		// never receives credentials, paths, prompts, or the rest of local config.
 		snapshot["connections"] = s.phoneConnections()
 		snapshot["agents"] = s.phoneAgents()
+		snapshot["total"], snapshot["next"] = total, listOrNone(next)
 		device := make(map[string]any, len(deviceStateKeys))
 		for _, key := range deviceStateKeys {
 			if value, ok := snapshot[key]; ok {

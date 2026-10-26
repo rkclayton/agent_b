@@ -326,7 +326,7 @@ func TestASeededDisagreementFails(t *testing.T) {
 	}
 }
 
-// Items 2my, 2ow, 2qc, and 2qk: the explicitly published chat routes do not widen
+// Items 2my, 2ow, 2qc, 2qk and 2wy: the explicitly published chat routes do not widen
 // the rest of the lifecycle surface.
 //
 // The route set is a security statement, so the thing worth testing is not that
@@ -336,7 +336,7 @@ func TestOnlyPublishedChatRoutesWereAddedAndTheRestStayRefused2my(t *testing.T) 
 	file, document := load(t)
 
 	// The closed set, exactly.
-	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take", "chat.rename", "chat.delete", "chat.open"}
+	want := []string{"message", "stop", "approve", "tool", "state", "resync", "chat.create", "chat.history", "chat.mirror", "chat.mirror.since", "chat.mirror.take", "chat.rename", "chat.delete", "chat.open", "chat.list.page"}
 	if len(file.Routes) != len(want) {
 		t.Fatalf("the route set is %v, want %v", file.Routes, want)
 	}

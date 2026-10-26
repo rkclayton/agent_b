@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"harness/internal/broker"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -108,14 +109,13 @@ func TestPhoneStateCarriesOnlyTheSafeConnectionSheet2ow(t *testing.T) {
 	for _, state := range []string{"not paired", "broker unreachable", "holding", "phone connected"} {
 		server.SetBrokerHost(statusBrokerHost{state: state})
 		response = dispatch(t, server, `{"v":1,"kind":"request","id":"aa","route":"state","body":{}}`)
-		var body struct {
-			Broker broker.Status `json:"broker"`
-		}
+		// 2wx: the broker's status is the PC's; neither phone reads it.
+		var body map[string]json.RawMessage
 		if err := json.Unmarshal(response.Body, &body); err != nil {
 			t.Fatal(err)
 		}
-		if body.Broker.State != state {
-			t.Fatalf("phone state=%q, local state=%q", body.Broker.State, state)
+		if _, sent := body["broker"]; sent {
+			t.Fatalf("phone state carries the broker status while it is %q", state)
 		}
 	}
 	// And the response carries the request's own id, because one response per id is the
@@ -1263,5 +1263,28 @@ func TestEveryCurrentSessionToolToggles2wv(t *testing.T) {
 	}
 	if len(refused) > 0 || !slices.Equal(listed, config.FullToolset()) {
 		t.Fatalf("listed %v; refused %v", listed, refused)
+	}
+}
+
+// Item 2wx (a): a paired device's state answer carries the listed keys and no
+// others; the document states the same list.
+func TestADevicesStateCarriesOnlyTheListedKeys2wx(t *testing.T) {
+	server := dispatchServer(t)
+	answer := dispatch(t, server, `{"v":1,"kind":"request","id":"ab","route":"state","body":{}}`)
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(answer.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	keys := slices.Sorted(maps.Keys(body))
+	if !slices.Equal(keys, slices.Sorted(slices.Values(deviceStateKeys))) {
+		t.Fatalf("a device's state carries %v", keys)
+	}
+	document, err := os.ReadFile(filepath.Join("..", "..", "docs", "app-message-v1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := "A device's `state` carries these keys and no others: `" + strings.Join(deviceStateKeys, "`, `") + "`."
+	if !strings.Contains(string(document), listed) {
+		t.Fatalf("docs/app-message-v1.md does not say %q", listed)
 	}
 }

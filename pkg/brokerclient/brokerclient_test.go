@@ -15,12 +15,8 @@ import (
 // Item 2ww: a phone opens the broker's push vector boxes through the public names
 // alone, and refuses one opened under the wrong pairing id.
 func TestThePushVectorsOpenThroughThePublicNames2ww(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "external", "broker-protocol-v2-vectors.json"))
-	if os.IsNotExist(err) {
-		// The broker's published vectors, placed by the operator and gitignored, as
-		// internal/broker's vector test reads them.
-		t.Skip("SKIPPED: docs/external/broker-protocol-v2-vectors.json is not in this checkout.")
-	}
+	// The server's push vectors and refusals, copied whole (item 2wx) so this runs in CI.
+	raw, err := os.ReadFile(filepath.Join("testdata", "push-vectors.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

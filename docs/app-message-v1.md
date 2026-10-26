@@ -157,6 +157,9 @@ names a chat and the chat's agent is used. A toolset belongs to the agent, so ev
 changes. The read-only agent is refused `400` `{"error":"agent_b tools are read-only","field":"agent_id"}`;
 an unknown agent or tool is `404` (`field` `agent_id` or `name`), and a closed chat is `409`.
 
+A device's `state` carries these keys and no others: `agents`, `connections`, `folders`, `sessions`.
+Everything else in the PC's own answer, its chat folder's path first, stays on the PC.
+
 `state.connections` is the PC's ordered Connection sheet. Each entry is exactly
 `{id,label,model,host,vision,docs,tools,ctx}`: `host` is only the URL host (and optional port),
 `vision` is the probed vision class, `docs` and `tools` are booleans, and `ctx` is the effective

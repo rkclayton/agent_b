@@ -1,0 +1,51 @@
+{
+  "source": "agent_b_server testdata/protocol-v2-vectors.json, sha256 dcce4f225fa7caf0ccf48d7353db98626f21c40f5e5ac082b583d99354e8f1e7",
+  "inputs": {
+    "device_x25519_private_hex": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+    "pairing_id_hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
+  },
+  "push_vectors": [
+    {
+      "aad_hex": "02c0c1c2c3c4c5c6c7c8c9cacbcccdcecf617070726f76616c5f7265717569726564",
+      "box_base64url": "Pz5fbYaSbJwSjPhFgVdPloQNmO5atTsew7duK7JblF4BAgMEBQYHCAkKCwwzYVvTwZAegPEaVet9gKDlT7qPqL8Zk2cBEgMIuhjjNiOvtGE7_AAmwqbQ97BqCLL5Mo-uZ87Yh-GgiZX9coFLLcHj1aOUhl8lk-fd7Id4pgslaEpTdIe23Ebhi7n07ZVf7HLItlrX61k5jC3jOt3OVcDV07KQ",
+      "chat_id": "11111111111111111111111111111111",
+      "ephemeral_private_hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+      "ephemeral_public_base64url": "Pz5fbYaSbJwSjPhFgVdPloQNmO5atTsew7duK7JblF4",
+      "hkdf_salt_hex": "75eade5a91a1e3f2350ed58fadfdb36024cd93b7e96723b6cd0d3a1cd2d55444",
+      "key_hex": "d78bc6c2d4c28d4defda7b2b52367b41bcf0bf3c5dbc514d26955c40d3baf24c",
+      "kind": "approval_required",
+      "nonce_hex": "0102030405060708090a0b0c",
+      "notice": "Approval required",
+      "plaintext_utf8": "{\"kind\":\"approval_required\",\"chat_id\":\"11111111111111111111111111111111\",\"notice\":\"Approval required\"}"
+    },
+    {
+      "aad_hex": "02c0c1c2c3c4c5c6c7c8c9cacbcccdcecf72756e5f73746f70706564",
+      "box_base64url": "az7mdGNYPL49wI_p0HZcJmb_UhDdUnydhwXkSSfIDVUREhMUFRYXGBkaGxw1al_7H7t0lQfXBk1cVNVk4Cv4AIirYm1DQr3U-8M_ftMd5yk3_r_6fgVCoV5lHiQZcxOmc67C4MOji6J29Pw3-BaU7-1rryNhcI5wvKn3QPOX0DcGsBDbgTI_9E5DyqAhuHyhPZj2LIJJ",
+      "chat_id": "22222222222222222222222222222222",
+      "ephemeral_private_hex": "d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+      "ephemeral_public_base64url": "az7mdGNYPL49wI_p0HZcJmb_UhDdUnydhwXkSSfIDVU",
+      "hkdf_salt_hex": "75eade5a91a1e3f2350ed58fadfdb36024cd93b7e96723b6cd0d3a1cd2d55444",
+      "key_hex": "0224601a1100d59d8c3461bb10565be0ab7b4c97223d3d9dedbf4e9242416154",
+      "kind": "run_stopped",
+      "nonce_hex": "1112131415161718191a1b1c",
+      "notice": "Run stopped",
+      "plaintext_utf8": "{\"kind\":\"run_stopped\",\"chat_id\":\"22222222222222222222222222222222\",\"notice\":\"Run stopped\"}"
+    },
+    {
+      "aad_hex": "02c0c1c2c3c4c5c6c7c8c9cacbcccdcecf6974656d5f737475636b",
+      "box_base64url": "PnPOFignoy_5I3j89PNkZNjPCoETY4aQp3Xytpmr1m4hIiMkJSYnKCkqKyyCHya9v9nkGYXbHWPpSTq2yJ4EK8uMwzFHqsm7z25pia5yd5GxWfoX7trVP0tBlfDCez9gfuYMCP8DI3NNmrFcUF2UszZuTPSabowEeTc1CqpEzZN4DKlog2sY4ZN2947mauSAyc534A",
+      "chat_id": "33333333333333333333333333333333",
+      "ephemeral_private_hex": "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f",
+      "ephemeral_public_base64url": "PnPOFignoy_5I3j89PNkZNjPCoETY4aQp3Xytpmr1m4",
+      "hkdf_salt_hex": "75eade5a91a1e3f2350ed58fadfdb36024cd93b7e96723b6cd0d3a1cd2d55444",
+      "key_hex": "d760ec964f328d77c39f8e4dfe4f8b87e850cadfdc3c91ed2ed4f8c2a0cae8ab",
+      "kind": "item_stuck",
+      "nonce_hex": "2122232425262728292a2b2c",
+      "notice": "Item stuck",
+      "plaintext_utf8": "{\"kind\":\"item_stuck\",\"chat_id\":\"33333333333333333333333333333333\",\"notice\":\"Item stuck\"}"
+    }
+  ],
+  "push_refusals": [
+    "push_wrong_pairing_id"
+  ]
+}

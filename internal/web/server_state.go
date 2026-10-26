@@ -159,6 +159,16 @@ func toolInventory(descriptions map[string]string) []map[string]string {
 	return inventory
 }
 
+// deviceStateKeys is the one list of what a paired device's state carries (item
+// 2wx): what the phones read and nothing else. docs/app-message-v1.md quotes it and
+// a test holds them equal.
+var deviceStateKeys = []string{
+	"agents",      // the Android settings sheet
+	"connections", // the Android settings sheet
+	"folders",     // the iOS chat list
+	"sessions",    // the iOS chat list
+}
+
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		method(w)
@@ -185,7 +195,13 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		// never receives credentials, paths, prompts, or the rest of local config.
 		snapshot["connections"] = s.phoneConnections()
 		snapshot["agents"] = s.phoneAgents()
-		delete(snapshot, "config")
+		device := make(map[string]any, len(deviceStateKeys))
+		for _, key := range deviceStateKeys {
+			if value, ok := snapshot[key]; ok {
+				device[key] = value
+			}
+		}
+		snapshot = device
 	}
 	// the state answer's size and time, counted as it is written.
 	counted := &countingWriter{ResponseWriter: w}

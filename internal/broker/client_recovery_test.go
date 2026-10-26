@@ -601,3 +601,42 @@ func TestADeviceRegistersItsOwnPushToken2ww(t *testing.T) {
 		t.Fatalf("a refused registration was sent %d times", len(got)-2)
 	}
 }
+
+// Item 2wx (c): the stand-in refuses an agent's PUSH_REGISTER, as the real broker
+// does: the registration is recorded and the agent's connection ends.
+func TestTheStandInRefusesAnAgentsPushRegistration2wx(t *testing.T) {
+	b := newStandIn(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	transport, err := Dial(b.address)(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.Close(1000, "done")
+	send := func(kind byte, payload any) {
+		t.Helper()
+		frame, err := Encode(kind, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := transport.Send(frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(FrameHello, helloPayload{Role: "agent", ConnectionID: "agent-connection"})
+	send(FrameAuth, authPayload{ConnectionID: "agent-connection", Signature: "AAAA"})
+	agent := NewClient(newIdentity(t), Pairing{PairingID: make([]byte, 16)}, nil, nil)
+	if err := agent.RegisterPush(transport, strings.Repeat("ab", 32)); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := transport.Receive(ctx); err != nil {
+			break
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.registers) != 1 || !strings.HasPrefix(b.registers[0], "agent ") || !slices.Contains(b.closes, "closed role=agent reason=invalid push registration") {
+		t.Fatalf("registers %q closes %q", b.registers, b.closes)
+	}
+}

@@ -7,7 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { preparePublication, publishNext, publishPublication, takeFirstBlock, workerStopped } from "./plan-publish.mjs";
+import { preparePublication, publishNext, publishPublication, recordShipped, takeFirstBlock, workerStopped } from "./plan-publish.mjs";
 import { removeTreeWithinAllowedRoots } from "./removal-guard.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -223,6 +223,28 @@ assert.equal(fs.existsSync(publisher), true);
   assert.equal(takeFirstBlock(["# PUBLISH THEN EXECUTE", "", "## a", "", "==== NEXT ORDER ====", "", "# PUBLISH THEN EXECUTE", "", "## b", ""].join("\n")), "# PUBLISH THEN EXECUTE\n\n## b\n");
   assert.equal(takeFirstBlock("# PUBLISH THEN EXECUTE\n\n## only\n"), "");
 }
+// Item 2x1 (c): record ships the item of a block that ran unpublished, from its NOTES.md report.
+{
+  const root = makeRoot();
+  fs.writeFileSync(path.join(root, "plan", "items", "2b.md"), item("2b"));
+  assert.equal(spawnSync(process.execPath, [linter, "--root", root, "--write-index", "--structural"], { encoding: "utf8" }).status, 0);
+  const git = (...args) => spawnSync("git", ["-C", root, "-c", "user.name=someone", "-c", "user.email=someone@example.org", ...args], { encoding: "utf8" }).stdout.trim();
+  git("init", "-q"); git("commit", "-q", "--allow-empty", "-m", "fixture"); git("tag", "v0.2.0");
+  const sha = git("rev-parse", "--short=7", "HEAD");
+  const notes = path.join(root, "NOTES.md");
+  fs.writeFileSync(notes, ["## ORD — stopped at publish", "", "nothing ran", "", "## ORD", "", `v0.2.0 released; tag \`v0.2.0\` at \`${sha}\`.`, "", "## LATER", "", "v9.9.9 released", ""].join("\n"));
+  assert.throws(() => recordShipped({ root, order: "ORD", item: "2c", notes }), /no live item plan\/items\/2c\.md/);
+  fs.writeFileSync(notes, ["## ORD", "", "v0.2.0 released at 0000000.", ""].join("\n"));
+  assert.throws(() => recordShipped({ root, order: "ORD", item: "2b", notes }), /does not name v0\.2\.0's commit/);
+  fs.writeFileSync(notes, ["## ORD", "", `v0.2.0 released; tag \`v0.2.0\` at \`${sha}\`.`, ""].join("\n"));
+  const result = recordShipped({ root, order: "ORD", item: "2b", notes });
+  assert.equal(result.shipped, `ORD v0.2.0 ${sha}`);
+  assert.equal(fs.existsSync(path.join(root, "plan", "items", "2b.md")), false);
+  assert.match(fs.readFileSync(path.join(root, "plan", "archive", "2b.md"), "utf8"), new RegExp(`^state: shipped\\nmilestone: 0\\.2\\nshipped: ORD v0\\.2\\.0 ${sha}\\n`));
+  const published = fs.readFileSync(path.join(root, "PLAN.md"), "utf8");
+  assert.match(published, /^\| shipped \| feature \| 0\.2 \| \[2b\]\(plan\/archive\/2b\.md\)/m);
+  assert.match(published, /^Order ID: `TEST`$/m, "the published order is unchanged");
+}
 process.stdout.write("plan publication fixtures passed\n");
 
 // Item 2lp (a), (b) and (e). rel-1.17.0/W0 swept the closed orders with the old
@@ -234,9 +256,18 @@ process.stdout.write("plan publication fixtures passed\n");
 {
   const readable = (text, tags) => releaseFindings(text, tags).errors;
 
-  // The form recent orders actually used, which the old pattern ignored.
-  assert.deepEqual(readable("This order authorizes **2li**. RELEASE: **v1.15.0** (MINOR).", ["v1.14.0"]), [],
-    "a bolded mid-paragraph declaration must be read");
+  // Item 2x1 (c) replaced 2lp's mid-paragraph reading: the declaration is the line that begins with
+  // RELEASE: before the first ### heading. One written mid-paragraph is now refused, never silent.
+  assert.match(readable("This order authorizes **2li**. RELEASE: **v1.15.0** (MINOR).", ["v1.14.0"])[0] ?? "",
+    /no declaration could be read/, "a mid-paragraph declaration is refused, not read");
+  assert.deepEqual(readable("**RELEASE:** **v1.15.0** (MINOR, milestone: 1.8).", ["v1.14.0"]), [], "a bolded line declaration is read");
+
+  // Block 231: a RESUME NOTE quoting the keyword was read as the block's own declaration.
+  const resumed = ["Order ID: `rel-1.62.174`", "", "RESUME NOTE: the planner fixed the `RELEASE:` line; it now reads RELEASE: v1.60.91 (blocks 213–230).", "",
+    "RELEASE: v1.60.92 (PATCH) — blocks 213–231.", "", "### W1", "", "RELEASE: v9.0.0 (blocks 1–2) quoted in the work."].join("\n");
+  assert.deepEqual(readable(resumed, ["v1.60.91"]), [], "only the header's column-1 line is the declaration");
+  assert.match(readable(resumed.replace("RELEASE: v1.60.92 (PATCH) — blocks 213–231.", "Nothing declared here."), ["v1.60.91"])[0] ?? "",
+    /no declaration could be read/, "a block with no header declaration is refused as before");
 
   // The documented form still works.
   assert.deepEqual(readable("RELEASE: v1.17.0 (MINOR, milestone: 1.8).", ["v1.16.0"]), []);

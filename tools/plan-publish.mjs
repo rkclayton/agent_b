@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -338,6 +339,39 @@ export function publishNext({ root = defaultRoot, inbox = "" }) {
   return { order_id: orderId, published: result.proposalId, files: result.files, warnings: [...(prepared.warnings ?? []), ...(result.warnings ?? [])] };
 }
 
+// record (item 2x1 (c)): a block that ran without being published (block 231 ran from INBOX when
+// `next` misread its RESUME NOTE) still ships its item. The order's last `## <order>` report in
+// NOTES.md names the version it released; the version's tag names the commit, which the report must
+// name too. The item moves to plan/archive as shipped and the index is regenerated; the published
+// order is not changed.
+export function recordShipped({ root = defaultRoot, order, item, notes = "" }) {
+  root = path.resolve(root);
+  const live = `plan/items/${item}.md`, archived = `plan/archive/${item}.md`;
+  const published = loadPublishedProposal(root);
+  const source = published.itemContents.find(({ relative }) => normalize(relative) === live);
+  if (!source || !/^state:\s*live\s*$/m.test(source.text)) throw new Error(`no live item ${live}`);
+  const text = fs.readFileSync(path.resolve(notes || path.join(root, "NOTES.md")), "utf8").replace(/\r\n/g, "\n");
+  const escaped = order.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const report = [...text.matchAll(new RegExp(`^## ${escaped}[ \\t]*\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, "gm"))].at(-1)?.[1];
+  if (!report) throw new Error(`NOTES.md has no "## ${order}" report`);
+  const version = report.match(/\b(v\d+\.\d+\.\d+) released\b/)?.[1];
+  if (!version) throw new Error(`the ${order} report names no released version`);
+  const commit = execFileSync("git", ["-C", root, "rev-parse", `${version}^{commit}`], { encoding: "utf8" }).trim();
+  const sha = [...report.matchAll(/\b[0-9a-f]{7,40}\b/g)].map(([value]) => value).find((value) => commit.startsWith(value));
+  if (!sha) throw new Error(`the ${order} report does not name ${version}'s commit ${commit.slice(0, 7)}`);
+  const newline = source.text.includes("\r\n") ? "\r\n" : "\n";
+  const shipped = `${order} ${version} ${sha}`;
+  const archivedText = source.text.replace(/^state:\s*live[ \t]*$/m, "state: shipped").replace(/^(milestone:[^\r\n]*)/m, `$1${newline}shipped: ${shipped}`);
+  const itemContents = [...published.itemContents.filter(({ relative }) => normalize(relative) !== live), { relative: archived, text: archivedText }];
+  const first = validateProposal({ planText: published.planText, itemContents, inputErrors: published.inputErrors, structuralOnly: true, packageMap: published.packageMap });
+  const planText = indexedPlan(published.planText, first.indexSection, published.packageMap);
+  const result = validateProposal({ planText, itemContents, inputErrors: published.inputErrors, packageMap: published.packageMap, releaseTags: published.releaseTags });
+  if (result.errors.length) throw validationFailure(result.errors);
+  publishTransaction(root, [{ relative: "PLAN.md", text: planText }, { relative: archived, text: archivedText }]);
+  fs.rmSync(path.join(root, ...live.split("/")));
+  return { order, item, shipped, files: ["PLAN.md", archived], removed: live };
+}
+
 // takeFirstBlock removes the first queued block and its separator from INBOX text read fresh at
 // that moment, and keeps `# PUBLISH THEN EXECUTE` as the first line while any block remains
 // (planner ruling, 2026-10-23 18:15: taking a block had left the file without its heading).
@@ -376,6 +410,9 @@ function parseCLI(argv) {
   let dryRun = false;
   let inbox = "";
   let out = "";
+  let order = "";
+  let item = "";
+  let notes = "";
   for (let index = 3; index < argv.length; index += 1) {
     if (argv[index] === "--root" && argv[index + 1]) root = argv[++index];
     else if (argv[index] === "--candidate" && argv[index + 1]) candidate = argv[++index];
@@ -383,9 +420,16 @@ function parseCLI(argv) {
     else if (argv[index] === "--dry-run") dryRun = true;
     else if (argv[index] === "--inbox" && argv[index + 1]) inbox = argv[++index];
     else if (argv[index] === "--out" && argv[index + 1]) out = argv[++index];
+    else if (argv[index] === "--order" && argv[index + 1]) order = argv[++index];
+    else if (argv[index] === "--item" && argv[index + 1]) item = argv[++index];
+    else if (argv[index] === "--notes" && argv[index + 1]) notes = argv[++index];
     else throw new Error(`unknown argument: ${argv[index]}`);
   }
   if (command === "next") return { command, root, inbox };
+  if (command === "record") {
+    if (!order || !item) throw new Error("record needs --order and --item");
+    return { command, root, order, item, notes };
+  }
   if (command === "take-first") return { command, root, inbox: inbox || path.join(root, "INBOX.md") };
   if (command === "split-inbox") {
     if (!inbox || !out) throw new Error("split-inbox needs --inbox and --out");
@@ -398,14 +442,15 @@ function parseCLI(argv) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { command, root, candidate, body, dryRun, inbox = "", out } = parseCLI(process.argv);
+    const { command, root, candidate, body, dryRun, inbox = "", out, order, item, notes } = parseCLI(process.argv);
     const result = command === "next" ? publishNext({ root, inbox })
+      : command === "record" ? recordShipped({ root, order, item, notes })
       : command === "take-first" ? takeFirst(inbox)
       : command === "split-inbox" ? splitInboxTo(inbox, out)
       : dryRun ? dryRunPublication({ root, body })
       : command === "prepare" ? preparePublication({ root, candidate })
         : command === "publish" ? publishPublication({ root, candidate })
-          : (() => { throw new Error("command must be next, take-first, prepare, publish or split-inbox"); })();
+          : (() => { throw new Error("command must be next, record, take-first, prepare, publish or split-inbox"); })();
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     if (dryRun && !result.ok) process.exitCode = 1;
   } catch (error) {

@@ -36,6 +36,17 @@ $installerWrapper = Join-Path (Split-Path -Parent $PSScriptRoot) 'install-Agent_
 
 Assert-AgentBSuiteLaunch -ApplicationRoot $testApplication -DataRoot $testData -SuiteRoots @($testRoot)
 
+# Item 2x1 (d): every arm registers under its own suffix of $testRegistry and the cleanup removed only
+# the bare key, so hundreds of keys had collected under HKCU. A run removes what earlier runs left
+# before it starts, and every key of its own when it ends.
+function Remove-InstallerTestKeys {
+    param([Parameter(Mandatory=$true)][string]$Like)
+    Get-ChildItem -LiteralPath 'HKCU:\Software' -ErrorAction SilentlyContinue |
+        Where-Object { $_.PSChildName -like $Like } |
+        ForEach-Object { Remove-Item -LiteralPath $_.PSPath -Recurse -Force }
+}
+Remove-InstallerTestKeys -Like 'Agent_b-Installer-Test-*'
+
 function Assert-TemporaryTestPath {
     param([string]$Path)
     $full = [IO.Path]::GetFullPath($Path)
@@ -770,8 +781,10 @@ try {
     # Plan into the Settings nav as its own top-level section, so the SHIPPED strip
     # must name no static surface at all, and the entry is asserted below where it
     # now lives. The assertion moves with the contract each time.
+    # Item 2v1 removed the title-bar timestamp, so the right slot no longer holds sessionActivity;
+    # the literal here was not moved with it and failed every installed run since v1.60.84 (item 2x1).
     if ($shellSource -notmatch 'root\.append\(left, right\)' -or
-        $shellSource -notmatch 'right\.append\(sessionActivity, sessionLamp, sessionHeading, connectionMenu, windowControls\)' -or
+        $shellSource -notmatch 'right\.append\(sessionLamp, sessionHeading, connectionMenu, windowControls\)' -or
         $shellSource -match 'visibleStaticSurfaces' -or
         $shellSource -match 'shell-pages' -or
         $shellSource -match 'shell-operator-status' -or
@@ -815,8 +828,8 @@ try {
     # that is what is asserted.
     # Item 2sy: Settings stays in the chat document, with its Plan entry retained;
     # the panel's X and dimmed-chat backdrop share its in-place close path.
-    if ($settingsScript -notmatch '\["plan", "Plan"\]' -or
-        $settingsScript -notmatch 'shell-page-chip' -or
+    # Item 2w6 renamed the entry Repos and dropped its nav chip; the literals here had not moved (item 2x1).
+    if ($settingsScript -notmatch '\["plan", "Repos"\]' -or
         $settingsScript -notmatch 'backdrop\.addEventListener\("click"' -or
         $settingsScript -notmatch 'data-action="close"[^>]+title="Close"' -or
         $settingsScript -match 'consoleLaunch') {
@@ -1561,7 +1574,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
             Remove-Item -LiteralPath $removalPath -Force
         }
     }
-    if (Test-Path -LiteralPath $testRegistry) { Remove-Item -LiteralPath $testRegistry -Recurse -Force }
+    Remove-InstallerTestKeys -Like ((Split-Path -Leaf $testRegistry) + '*')
     $disposableExecutable = Join-Path $testApplication 'Agent_b.exe'
     foreach ($process in @(Get-AgentBProcessesAtPath -Executable $disposableExecutable)) {
         & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $process.Id /T /F | Out-Null
@@ -1867,6 +1880,7 @@ try {
     foreach ($seedRegistry in $seedRegistries) {
         if (Test-Path -LiteralPath $seedRegistry) { Remove-Item -LiteralPath $seedRegistry -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    Remove-InstallerTestKeys -Like ((Split-Path -Leaf $testRegistry) + '*')
 }
 
 if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {

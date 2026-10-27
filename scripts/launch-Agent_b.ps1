@@ -234,6 +234,30 @@ function Wait-AgentBEndpoint {
     return 'timeout'
 }
 
+# Item 2x1 (b): a -window server that cannot start shows its own failure window and writes its own
+# "Agent_b startup error:" line, then exits when the window closes or stays up past this launcher's
+# wait. That failure is the server's to report; the launcher looks for the line in what the error log
+# gained since this launch and, finding it, adds nothing of its own.
+function Get-AgentBErrorLogLength {
+    try { return (Get-Item -LiteralPath $launcherErrorLog -ErrorAction Stop).Length } catch { return 0 }
+}
+
+function Test-AgentBServerOwnsFailure {
+    param([long]$Mark, [int]$Seconds)
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    do {
+        try {
+            $stream = [IO.File]::Open($launcherErrorLog, 'Open', 'Read', 'ReadWrite')
+            try {
+                if ($stream.Length -ge $Mark) { $null = $stream.Seek($Mark, 'Begin') }
+                if (([IO.StreamReader]::new($stream)).ReadToEnd() -match 'Agent_b startup error: ') { return $true }
+            } finally { $stream.Dispose() }
+        } catch { }
+        if ([DateTime]::UtcNow -ge $deadline) { return $false }
+        Start-Sleep -Milliseconds 250
+    } while ($true)
+}
+
 function New-AgentBStartupCapture {
     $directory = Split-Path -Parent $launcherErrorLog
     $null = New-Item -ItemType Directory -Path $directory -Force
@@ -345,6 +369,7 @@ try {
     if ($startupCapture) {
         $configArgument += ' -startup-log "' + $startupCapture.Replace('"', '\"') + '"'
     }
+    $errorLogMark = Get-AgentBErrorLogLength
     if ($Detached -or -not $Console) {
         # The GUI-subsystem executable cannot acquire a console. Start-Process
         # uses ShellExecute here, so the detached child also inherits no output
@@ -356,6 +381,10 @@ try {
         $process = Start-Process -FilePath $executable -ArgumentList $configArgument -WorkingDirectory $dataRoot -NoNewWindow -PassThru
     }
     $state = Wait-AgentBEndpoint -Url $url -Process $process -Seconds $StartupTimeoutSeconds
+    # The server's own wait for its listener ends at about the same moment as this one.
+    if ($script:hostWindow -and $state -ne 'ready' -and (Test-AgentBServerOwnsFailure -Mark $errorLogMark -Seconds $(if ($state -eq 'timeout') { 15 } else { 0 }))) {
+        exit 1
+    }
     if ($state -eq 'exited') {
         $process.WaitForExit()
         $detail = Get-AgentBStartupFailure -StartupLogPath $startupCapture -Port ([Uri]$url).Port

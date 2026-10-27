@@ -228,7 +228,11 @@ export function releaseFindings(orderText, tags) {
   // read SEVEN OF NINE as having no declaration at all: every release from
   // v1.13.0 to v1.15.0 shipped with this check silently doing nothing, because
   // those orders wrote it mid-paragraph and bolded.
-  const line = text.match(/\**RELEASE:\**\s*([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z ]+:|$(?![\s\S]))/)?.[1]?.replace(/\s+/g, " ").trim();
+  // Item 2x1 (c): that reading also took a RESUME NOTE quoting the keyword as the declaration, and
+  // refused block 231 four times. The declaration is now the line that BEGINS with it, before the
+  // order's first ### heading; one written anywhere else is refused by (b) below, never silent.
+  const header = text.replace(/\r\n/g, "\n").split(/^###/m)[0];
+  const line = header.match(/^\**RELEASE:\**[ \t]*([\s\S]*?)(?=\n\s*\n|\n[A-Z][A-Z ]+:|$(?![\s\S]))/m)?.[1]?.replace(/\s+/g, " ").trim();
   if (line && /^none\b/i.test(line)) return { errors, warnings };
   if (!line) {
     // (b): a gate that matches nothing is a FAILURE, not a pass. Silence was the

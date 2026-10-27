@@ -40,7 +40,15 @@ Connections are entered again; their keys are still in the credential store unde
 A launch from the Start menu has no console. If start-up fails, or the app has not answered within
 120 seconds, a window titled "Agent_b could not start" shows the reason, the last lines of
 `logs\launcher-errors.log` and the app's own last log lines, with one **Copy** button
-(`cmd/harness/startup_failure.go`). It never appears when the start works.
+(`cmd/harness/startup_failure.go`). It never appears when the start works. The window and its one
+line in `launcher-errors.log` are the only report; the launcher adds a line only for an app that never
+started.
+
+To see the window, run this; it stops before reading any folder of yours:
+
+```
+& "$env:LOCALAPPDATA\Programs\Agent_b\Agent_b.exe" -window -startup-log "$env:TEMP\no-such-folder\startup.log"
+```
 
 ## Uninstall
 

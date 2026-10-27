@@ -12,6 +12,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $root 'Application\Agent_b'
 $data = Join-Path $root 'Data\Agent_b'
@@ -149,5 +150,5 @@ try {
 } finally {
     foreach ($process in Get-Running) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $registry -Recurse -Force -ErrorAction SilentlyContinue
-    if ($passed) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue } else { Write-Host "Kept for reading: $root" }
+    if ($passed) { Remove-TreeWithinAllowedRoots -Path $root -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'install-cycle cleanup' } else { Write-Host "Kept for reading: $root" }
 }

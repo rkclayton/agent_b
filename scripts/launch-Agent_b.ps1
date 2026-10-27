@@ -85,12 +85,11 @@ trap {
         if ($script:hostWindow) {
             # Item 2x0: a server started with -window shows its own failure window.
         } elseif ($env:AGENTB_HIDDEN_REENTRY) {
-            # Item 2x0: shown, not hidden — a hidden failure console was a launch that said nothing.
             $arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath.Replace('"', '\"') +
                 '" -ApplicationDirectory "' + $applicationRoot.Replace('"', '\"') +
                 '" -DataDirectory "' + $dataRoot.Replace('"', '\"') +
                 '" -ConfigPath "' + $configPath.Replace('"', '\"') + '" -ShowFailure'
-            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Normal | Out-Null
+            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden | Out-Null
         } else {
             Show-AgentBLaunchFailure -Message $message
         }

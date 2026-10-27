@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     # A built candidate folder: Agent_b.exe and candidate-final.json from tools\build-candidate.ps1.
-    [string]$Candidate = (Split-Path -Parent $PSScriptRoot)
+    [string]$Candidate
 )
 
 # Item 2x0 (e): the path a person takes, on a clean machine, every step asserted:
@@ -11,6 +11,7 @@ param(
 # that is never production's, no window, and the operator's install never touched.
 
 $ErrorActionPreference = 'Stop'
+if (-not $Candidate) { $Candidate = Split-Path -Parent $PSScriptRoot }
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))

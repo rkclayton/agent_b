@@ -68,11 +68,12 @@ jobs:
           @(
             '@echo off',
             "set `"PATH=$env:PATH`"",
+            'set PSModulePath=',
             "cd /d `"$PWD`"",
             "powershell.exe -NoLogo -NoProfile -NonInteractive -File tools\build-candidate.ps1 -GeneralPrivacyOnly > `"$log`" 2>&1",
-            "if errorlevel 1 (echo 1> `"$done`" & exit /b 1)",
+            "if errorlevel 1 (>`"$done`" echo 1 & exit /b 1)",
             "powershell.exe -NoLogo -NoProfile -NonInteractive -File tests\install-cycle.ps1 >> `"$log`" 2>&1",
-            "echo %ERRORLEVEL%> `"$done`""
+            ">`"$done`" echo %ERRORLEVEL%"
           ) | Set-Content -LiteralPath $script -Encoding ascii
           runas.exe /trustlevel:0x20000 "cmd.exe /d /c `"$script`""
           $deadline = (Get-Date).AddMinutes(30)

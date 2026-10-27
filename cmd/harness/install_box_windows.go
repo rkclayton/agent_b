@@ -16,7 +16,12 @@ const (
 	messageBoxSetForeground = 0x00010000
 )
 
-func showInstallFailure(title, message string) {
+func showInstallFailure(title, message string) { showInstallBox(title, message, messageBoxIconError) }
+
+// showInstallNotice is the same box with the information icon, for an outcome he should know.
+func showInstallNotice(title, message string) { showInstallBox(title, message, 0x00000040) }
+
+func showInstallBox(title, message string, icon uintptr) {
 	user32 := syscall.NewLazyDLL("user32.dll")
 	messageBox := user32.NewProc("MessageBoxW")
 	titleUTF16, titleErr := syscall.UTF16PtrFromString(title)
@@ -28,6 +33,6 @@ func showInstallFailure(title, message string) {
 		0,
 		uintptr(unsafe.Pointer(messageUTF16)),
 		uintptr(unsafe.Pointer(titleUTF16)),
-		uintptr(messageBoxOK|messageBoxIconError|messageBoxSetForeground),
+		uintptr(messageBoxOK|icon|messageBoxSetForeground),
 	)
 }

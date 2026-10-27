@@ -33,6 +33,15 @@ export function recordRefusal(record, current) {
   return "";
 }
 
+// Item 2x0 (e): a release is not tagged until hosted CI's install-cycle job — install, launch,
+// over the top with an older configuration, uninstall, fresh install — passed on this commit.
+export function installCycleRefusal(checkRuns) {
+  const runs = (checkRuns ?? []).filter((run) => run.name === "install-cycle");
+  if (!runs.length) return "hosted CI's install-cycle job has not run on this commit";
+  if (!runs.some((run) => run.conclusion === "success")) return `hosted CI's install-cycle job is ${runs[0].conclusion ?? runs[0].status} on this commit`;
+  return "";
+}
+
 export function telemetryVectors(root = repo) {
   const document = fs.readFileSync(path.join(root, "docs", "telemetry-trace.md"), "utf8");
   return [...document.matchAll(/```json vector:[^\r\n]+\r?\n([\s\S]*?)```/g)]
@@ -100,6 +109,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     } catch { refusal = "the privacy gate requires its outside list"; }
   }
   if (!refusal && git("status", "--porcelain", "--untracked-files=normal")) refusal = "the tree is dirty";
+  if (!refusal) {
+    try {
+      const answer = JSON.parse(execFileSync("gh", ["api", `repos/{owner}/{repo}/commits/${git("rev-parse", "HEAD")}/check-runs?per_page=100`], { cwd: repo }).toString());
+      refusal = installCycleRefusal(answer.check_runs);
+    } catch (error) { refusal = `hosted CI's install-cycle result could not be read: ${error.message.split("\n")[0]}`; }
+  }
   if (refusal) {
     console.error(`TAG REFUSED: ${refusal}`);
     process.exit(1);

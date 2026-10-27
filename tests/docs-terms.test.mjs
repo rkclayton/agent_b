@@ -465,6 +465,15 @@ test("the tag gate refuses a tag the tree's build does not report", async () => 
   assert.match(tagRefusal(identity.buildinfo, { ...identity, display: "0.0.1" }), /installer displays/);
 });
 
+// Item 2x0 (e): no tag without hosted CI's install-cycle job green on the commit.
+test("the tag gate refuses a commit whose install-cycle job is missing or not green", async () => {
+  const { installCycleRefusal } = await import("../tools/tag-release.mjs");
+  assert.match(installCycleRefusal([{ name: "windows", conclusion: "success" }]), /has not run/);
+  assert.match(installCycleRefusal([{ name: "install-cycle", conclusion: "failure" }]), /is failure/);
+  assert.match(installCycleRefusal([{ name: "install-cycle", status: "in_progress", conclusion: null }]), /is in_progress/);
+  assert.equal(installCycleRefusal([{ name: "install-cycle", conclusion: "failure" }, { name: "install-cycle", conclusion: "success" }]), "");
+});
+
 test("the telemetry release gate names a refused or dropped event before tagging", async () => {
   const { createServer } = await import("node:http");
   const { releaseAfterTelemetry } = await import("../tools/tag-release.mjs");

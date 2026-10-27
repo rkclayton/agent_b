@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type nativeInstallPlan struct {
@@ -166,7 +167,7 @@ func uninstallPerUserNative(plan nativeInstallPlan, purgeData bool, unregister f
 			return err
 		}
 	}
-	if err := os.RemoveAll(plan.Application); err != nil {
+	if err := whileHeld(func() error { return os.RemoveAll(plan.Application) }); err != nil {
 		return err
 	}
 	if unregister != nil {
@@ -183,14 +184,58 @@ func pathWithin(child, parent string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
 }
+// replaceDirectory copies the new tree beside the old one and swaps it in by
+// rename, so a failure leaves the installed folder as it was. Item 2x0: removing
+// the old tree first met a script still held for a moment after its process
+// stopped, failed half-way, and left an install with no launcher.
 func replaceDirectory(source, destination string) error {
 	info, err := os.Stat(source)
 	if err != nil || !info.IsDir() {
 		return fmt.Errorf("required directory is missing: %s", source)
 	}
-	if err := os.RemoveAll(destination); err != nil {
+	staged, previous := destination+".installing", destination+".previous"
+	if err := whileHeld(func() error { return os.RemoveAll(staged) }); err != nil {
 		return err
 	}
+	if err := copyTree(source, staged); err != nil {
+		_ = os.RemoveAll(staged)
+		return err
+	}
+	_ = whileHeld(func() error { return os.RemoveAll(previous) })
+	if err := whileHeld(func() error { return renameIfPresent(destination, previous) }); err != nil {
+		_ = os.RemoveAll(staged)
+		return err
+	}
+	if err := whileHeld(func() error { return os.Rename(staged, destination) }); err != nil {
+		_ = os.Rename(previous, destination)
+		return err
+	}
+	_ = whileHeld(func() error { return os.RemoveAll(previous) })
+	return nil
+}
+
+// heldRetryLimit bounds the wait for a file another process holds open: a
+// scanner or a process that has just exited lets go within seconds, so forty
+// tries a quarter-second apart (ten seconds) is ample and still ends.
+const heldRetryLimit = 40
+
+func whileHeld(step func() error) error {
+	err := step()
+	for try := 1; err != nil && try < heldRetryLimit; try++ {
+		time.Sleep(250 * time.Millisecond)
+		err = step()
+	}
+	return err
+}
+
+func renameIfPresent(from, to string) error {
+	if err := os.Rename(from, to); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func copyTree(source, destination string) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr

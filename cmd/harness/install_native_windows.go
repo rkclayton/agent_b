@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -181,6 +182,11 @@ func writeShellLink(spec shortcutSpec) error {
 	if err := os.MkdirAll(filepath.Dir(spec.Path), 0o700); err != nil {
 		return err
 	}
+	// Item 2x0: COM initialization belongs to an OS thread. Unpinned, the goroutine
+	// moved between CoInitializeEx and CoCreateInstance and the install failed
+	// with CO_E_NOTINITIALIZED (0x800401f0) part-way, over the top of a copy.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	ole32 := windows.NewLazySystemDLL("ole32.dll")
 	coInitialize := ole32.NewProc("CoInitializeEx")
 	coCreate := ole32.NewProc("CoCreateInstance")
@@ -296,7 +302,23 @@ func describeNativeInstallFailure(err error) error {
 	return fmt.Errorf("%w; owner %s; caller %s", err, owner, caller)
 }
 
-func runNativeUninstall(application, data, startMenu, sendTo, uninstallRegistry string, purge, worker bool, parent int) error {
+// Item 2x0: an uninstall run from Installed apps says once what it kept, and a
+// failure says why; both were silent, so a kept data folder was a surprise later.
+func runNativeUninstall(application, data, startMenu, sendTo, uninstallRegistry string, purge, quiet, worker bool, parent int) (err error) {
+	defer func() {
+		switch {
+		case err != nil && !quiet:
+			showInstallFailure("Agent_b uninstall failed", err.Error())
+		case err == nil && worker && !purge:
+			notice := "Agent_b was removed. Your chats and settings were kept in " + data + "; installing again finds them."
+			log := openInstallLog(data, true)
+			log.printf("UNINSTALL COMPLETE: %s", notice)
+			log.close()
+			if !quiet {
+				showInstallNotice("Agent_b removed", notice)
+			}
+		}
+	}()
 	local := os.Getenv("LOCALAPPDATA")
 	if strings.TrimSpace(application) == "" {
 		application = filepath.Join(local, "Programs", "Agent_b")
@@ -332,6 +354,9 @@ func runNativeUninstall(application, data, startMenu, sendTo, uninstallRegistry 
 		arguments = append(arguments, "--start-menu-root", startMenu, "--send-to-root", sendTo, "--uninstall-registry-path", uninstallRegistry)
 		if purge {
 			arguments = append(arguments, "--purge-data")
+		}
+		if quiet {
+			arguments = append(arguments, "--quiet")
 		}
 		command := exec.Command(helper, arguments...)
 		quietproc.Quiet(command)

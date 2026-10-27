@@ -8,11 +8,16 @@ import (
 	"harness/internal/credential"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const MinimumConfigVersion = 14
-const ConfigurationUpgradeBridgeRelease = "v1.60.73"
-const ConfigurationTooOldMessage = "This configuration is from a release too old to update directly. Install " + ConfigurationUpgradeBridgeRelease + " first, then update."
+
+// ConfigurationSetAsideNotice is said once when a file below the floor was kept
+// aside and the load began again from the template. Item 2x0: refusing it told
+// the operator to install a release he could not get, and every later install met
+// the same file, because an uninstall keeps the data folder.
+const ConfigurationSetAsideNotice = "Settings from a release too old to read were kept as %s; Agent_b started with new settings. Chats and memory are unchanged."
 
 func Load(path string) (*Config, bool, bool, error) {
 	return LoadWithTemplate(path, filepath.Join(filepath.Dir(path), "harness.example.json"))
@@ -59,7 +64,10 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		return nil, false, created, err
 	}
 	if metadata.ConfigVersion == nil || *metadata.ConfigVersion < MinimumConfigVersion {
-		return nil, false, created, errors.New(ConfigurationTooOldMessage)
+		if created {
+			return nil, false, created, errors.New("the configuration template is below the supported schema")
+		}
+		return loadAfterSettingAside(path, examplePath, dataRoot, metadata.ConfigVersion, data)
 	}
 	if metadata.Run.MaxWallClockSeconds != nil && *metadata.Run.MaxWallClockSeconds == 0 {
 		return nil, false, created, fmt.Errorf("run.max_wall_clock_seconds: zero is not unlimited; omit it for the default %d or use a positive backstop", DefaultMaxWallClockSeconds)
@@ -127,6 +135,50 @@ func LoadWithRoots(path, examplePath, dataRoot string) (*Config, bool, bool, err
 		}
 	}
 	return &cfg, connectionKeyMigrated || schemaMigrated || profilesMigrated || skillsMigrated || textSizeMigrated, created, nil
+}
+
+// loadAfterSettingAside renames a file below the floor, byte for byte, beside
+// itself and loads again from the template, with one notice naming the kept file.
+// The profile catalog is carried over: it is the index to the chats and memory
+// in the data folder, and without it the first start would migrate over them.
+func loadAfterSettingAside(path, examplePath, dataRoot string, version *int, old []byte) (*Config, bool, bool, error) {
+	var carried struct {
+		Profiles ProfileCatalog `json:"profiles"`
+	}
+	_ = json.Unmarshal(old, &carried)
+	if carried.Profiles.Active == "" {
+		// A file without a catalog beside profile folders already made: name them,
+		// rather than migrate the data root over the first one.
+		entries, _ := os.ReadDir(filepath.Join(dataRoot, "profiles"))
+		for _, entry := range entries {
+			if entry.IsDir() {
+				carried.Profiles.Names = append(carried.Profiles.Names, entry.Name())
+			}
+		}
+		if len(carried.Profiles.Names) > 0 {
+			carried.Profiles.Active = carried.Profiles.Names[0]
+		}
+	}
+	schema := "unversioned"
+	if version != nil {
+		schema = fmt.Sprintf("schema%d", *version)
+	}
+	kept := fmt.Sprintf("%s.%s-%s", filepath.Base(path), schema, time.Now().Format("20060102-150405"))
+	if err := os.Rename(path, filepath.Join(filepath.Dir(path), kept)); err != nil {
+		return nil, false, false, fmt.Errorf("set aside a configuration too old to read: %w", err)
+	}
+	cfg, migrated, created, err := LoadWithRoots(path, examplePath, dataRoot)
+	if err != nil {
+		return nil, false, created, err
+	}
+	if carried.Profiles.Active != "" {
+		cfg.Profiles = carried.Profiles
+		if err := cfg.Save(path); err != nil {
+			return nil, false, created, err
+		}
+	}
+	cfg.LoadNotices = append(cfg.LoadNotices, fmt.Sprintf(ConfigurationSetAsideNotice, kept))
+	return cfg, migrated, created, nil
 }
 
 func cloneSkillSettings(source map[string]SkillSetting) map[string]SkillSetting {

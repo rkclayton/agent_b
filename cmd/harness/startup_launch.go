@@ -62,7 +62,7 @@ func parseLaunchFlags() launchFlags {
 	f.serviceResult = flag.String("service-result", "", "elevated native service-identity result")
 	f.passthrough = installPassthrough(os.Args[1:])
 	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	return f
 }
@@ -89,20 +89,20 @@ func runOneShotMode(f launchFlags) bool {
 		}, f.passthrough))
 	}
 	if *f.uninstall || *f.uninstallWorker {
-		if err := runNativeUninstall(*f.applicationOverride, *f.dataOverride, *f.startMenuRoot, *f.sendToRoot, *f.uninstallRegistry, *f.purgeData, *f.uninstallWorker, *f.uninstallParent); err != nil {
-			log.Fatal(err)
+		if err := runNativeUninstall(*f.applicationOverride, *f.dataOverride, *f.startMenuRoot, *f.sendToRoot, *f.uninstallRegistry, *f.purgeData, *f.installQuiet, *f.uninstallWorker, *f.uninstallParent); err != nil {
+			startupFatal(err)
 		}
 		return true
 	}
 	if *f.serviceHelper != "" {
 		if err := runServiceHelper(*f.serviceHelper, *f.serviceResult); err != nil {
-			log.Fatal(err)
+			startupFatal(err)
 		}
 		return true
 	}
 	if *f.version {
 		if err := json.NewEncoder(os.Stdout).Encode(buildinfo.Current()); err != nil {
-			log.Fatal(err)
+			startupFatal(err)
 		}
 		return true
 	}
@@ -112,21 +112,27 @@ func runOneShotMode(f launchFlags) bool {
 // prepareLaunch opens the startup log, resolves the paths and records the crash context; it
 // reports false when an existing instance was activated and this process should end.
 func (a *harnessApp) prepareLaunch() bool {
+	// Item 2x0: a window launch that cannot start shows why, with this process's last log lines.
+	startupFailure.window = *a.flags.window && strings.TrimSpace(*a.flags.replayPaths) == ""
+	log.SetOutput(io.MultiWriter(startupLogTail, os.Stderr))
 	if strings.TrimSpace(*a.flags.startupLog) != "" {
 		file, openErr := os.OpenFile(filepath.Clean(*a.flags.startupLog), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if openErr != nil {
-			log.Fatalf("open startup diagnostic log %s: %v", *a.flags.startupLog, openErr)
+			startupFatalf("open startup diagnostic log %s: %v", *a.flags.startupLog, openErr)
 		}
 		// A GUI-subsystem launch has no stderr handle. Put the durable file first:
 		// io.MultiWriter stops at the first failed writer, and stderr-first made a
 		// startup failure's diagnostic file empty when no console existed.
-		log.SetOutput(io.MultiWriter(file, os.Stderr))
+		log.SetOutput(io.MultiWriter(file, startupLogTail, os.Stderr))
 	}
 	paths, err := resolveStartupPaths(*a.flags.configOverride, *a.flags.applicationOverride, *a.flags.dataOverride)
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.paths = paths
+	startupFailure.Lock()
+	startupFailure.dataRoot = paths.Data
+	startupFailure.Unlock()
 	// before anything that can fault. The data root is the first
 	// thing a crash record needs and this is the first line that knows it.
 	build := buildinfo.Current()
@@ -142,6 +148,9 @@ func (a *harnessApp) prepareLaunch() bool {
 			log.Print(message)
 			return false
 		}
+	}
+	if startupFailure.window {
+		watchStartup()
 	}
 	// an install that did not finish says so, once, at the next
 	// launch — the user asked "should i re-run?" and nothing could answer

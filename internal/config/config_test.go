@@ -1094,29 +1094,48 @@ func TestGlobalSkillChoicesMigrateOnceToEveryAgentProfile2u7(t *testing.T) {
 	}
 }
 
-func TestConfigurationBelowCompatibilityFloorIsRefusedUnchanged2uk(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "harness.json")
-	cfg := Defaults(t.TempDir())
-	cfg.ConfigVersion = 13
-	before, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	before = append(before, '\n')
-	if err := os.WriteFile(path, before, 0o600); err != nil {
-		t.Fatal(err)
-	}
+// Item 2x0: a file below the floor is kept aside byte for byte and the load
+// starts again from the template, with one notice naming the kept file.
+func TestConfigurationBelowCompatibilityFloorIsSetAsideAndStartsFresh2x0(t *testing.T) {
+	for _, version := range []string{`"config_version": 13,`, "", `"config_version": 12, "profiles": {"active": "stand-in", "names": ["stand-in"]},`} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "harness.json")
+		template, err := os.ReadFile(filepath.Join("..", "..", "harness.example.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "harness.example.json"), template, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before := []byte("{" + version + "\n  \"listen\": \"127.0.0.1:8790\"\n}\n")
+		if err := os.WriteFile(path, before, 0o600); err != nil {
+			t.Fatal(err)
+		}
 
-	loaded, migrated, created, err := Load(path)
-	const message = "This configuration is from a release too old to update directly. Install v1.60.73 first, then update."
-	if loaded != nil || migrated || created || err == nil || err.Error() != message {
-		t.Fatalf("load = (%+v, %t, %t, %v), want (nil, false, false, %q)", loaded, migrated, created, err, message)
-	}
-	after, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if !bytes.Equal(after, before) {
-		t.Fatalf("refused configuration changed\nbefore: %s\nafter: %s", before, after)
+		loaded, _, created, err := Load(path)
+		if err != nil || loaded == nil || !created {
+			t.Fatalf("load = (%v, created %t, %v), want a fresh configuration", loaded != nil, created, err)
+		}
+		kept, _ := filepath.Glob(filepath.Join(dir, "harness.json.*"))
+		if len(kept) != 1 {
+			t.Fatalf("kept files = %v, want one", kept)
+		}
+		after, readErr := os.ReadFile(kept[0])
+		if readErr != nil || !bytes.Equal(after, before) {
+			t.Fatalf("kept file changed (%v)\nbefore: %s\nafter: %s", readErr, before, after)
+		}
+		if len(loaded.LoadNotices) != 1 || !strings.Contains(loaded.LoadNotices[0], filepath.Base(kept[0])) {
+			t.Fatalf("notices = %q, want one naming %s", loaded.LoadNotices, filepath.Base(kept[0]))
+		}
+		if loaded.ConfigVersion != CurrentConfigVersion {
+			t.Fatalf("config_version = %d", loaded.ConfigVersion)
+		}
+		// The profile catalog is the index to the kept chats, so it is carried.
+		if wantProfile := strings.Contains(version, "stand-in"); wantProfile != (loaded.Profiles.Active == "stand-in") {
+			t.Fatalf("profiles = %+v for %q", loaded.Profiles, version)
+		}
+		if reloaded, _, _, err := Load(path); err != nil || !reflect.DeepEqual(reloaded.Profiles, loaded.Profiles) {
+			t.Fatalf("reload = %+v, %v", reloaded, err)
+		}
 	}
 }

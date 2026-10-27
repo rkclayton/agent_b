@@ -33,7 +33,7 @@ func (a *harnessApp) openJournal() {
 	}
 	writers, err := events.NewWriters(a.logDir)
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.writers = writers
 	a.cleanup(func() {
@@ -106,7 +106,7 @@ func (a *harnessApp) wireServices() {
 	}
 	notificationStore, err := credential.NewNamed(a.profileRoot, a.cfg.Notifications.DiscordCredential)
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.notificationStore = notificationStore
 	a.notificationManager = notifications.New(a.bus, a.registry.Label, "http://"+a.cfg.Listen)
@@ -153,7 +153,7 @@ func (a *harnessApp) wireServices() {
 	}
 	a.operatorFiles.SetEventPublisher(func(event events.Event) { a.bus.Publish(event) })
 	if err := a.operatorFiles.Ensure(); err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	if _, err := a.operatorFiles.ApplyRetention(); err != nil {
 		log.Printf("apply log retention: %v", err)
@@ -192,11 +192,11 @@ func (a *harnessApp) wireServices() {
 	a.web.SetStats(a.statsManager)
 	renderer, err := agent.LoadTemplate(filepath.Join(a.paths.Application, "prompts", "system.md"))
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.renderer = renderer
 	if err := a.renderer.LoadPlanner(filepath.Join(a.paths.Application, "prompts", "planner.md")); err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 
 	// The worker brief is optional in the same way the planner's is: an install

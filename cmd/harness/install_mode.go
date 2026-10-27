@@ -283,6 +283,11 @@ func runInstall(options installOptions, args []string) int {
 	if !nativeInstall {
 		relaunch = installRelaunchRequired(log.location())
 	}
+	// Item 2x0: an install he ran by hand ends with the app open in its window,
+	// fresh or over the top; one that started nothing looked like nothing happened.
+	if !options.quiet {
+		relaunch, options.reopenWindow = true, true
+	}
 	close(installDone)
 	<-followed
 	code := 0

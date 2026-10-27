@@ -43,6 +43,26 @@ jobs:
       - name: Race internal/web
         run: go test -race -timeout 30m ./internal/web -count=1
       - run: node tests/run-node-tests.mjs
+  # Item 2x0 (e): install, launch, over the top with an older configuration,
+  # uninstall keeping the data, fresh install over it — on a clean runner.
+  install-cycle:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build the candidate
+        shell: pwsh
+        run: powershell.exe -NoLogo -NoProfile -NonInteractive -File tools/build-candidate.ps1 -GeneralPrivacyOnly
+      - name: Install, upgrade, uninstall and reinstall
+        shell: pwsh
+        run: powershell.exe -NoLogo -NoProfile -NonInteractive -File tests/install-cycle.ps1
   ubuntu:
     runs-on: ubuntu-latest
     steps:

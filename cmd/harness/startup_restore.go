@@ -101,7 +101,7 @@ func (a *harnessApp) restoreAtStartup() {
 	if len(a.cfg.Connections) == 0 {
 		paths, cleanupErr := a.writers.DurableChatPaths()
 		if cleanupErr != nil {
-			log.Fatal(cleanupErr)
+			startupFatal(cleanupErr)
 		}
 		slimRetainedChats(a.writers, paths)
 		journals := make(map[string]bool, len(paths))
@@ -110,7 +110,7 @@ func (a *harnessApp) restoreAtStartup() {
 		}
 		cleanup, cleanupErr := chatstore.New(a.writers.ChatDir()).Cleanup(journals)
 		if cleanupErr != nil {
-			log.Fatal(cleanupErr)
+			startupFatal(cleanupErr)
 		}
 		a.registry.ReserveChatIDs(cleanup.IDs)
 		log.Printf("startup chat cleanup: removed %d leftover folder(s)", cleanup.Removed)
@@ -132,7 +132,7 @@ func (a *harnessApp) restoreAtStartup() {
 	// restores.
 	restored, floor, restoreErr := restoreRetainedChats(a.writers, a.registry, a.bus, 0)
 	if restoreErr != nil {
-		log.Fatal(restoreErr)
+		startupFatal(restoreErr)
 	}
 	a.phases.mark("restore retained chats")
 	a.runner.ReserveIDs(floor)

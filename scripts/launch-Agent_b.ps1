@@ -38,11 +38,7 @@ function Show-AgentBLaunchFailure {
         $Message = [string](Get-Content -LiteralPath $launcherErrorLog -Tail 1)
     }
     if ([string]::IsNullOrWhiteSpace($Message)) { $Message = 'No failure detail was recorded.' }
-    if ($Message -match '^This configuration is from a release too old to update directly\. Install v\d+\.\d+\.\d+ first, then update\.$') {
-        Write-Host $Message
-    } else {
-        Write-Host "Agent_b launch failed: $Message"
-    }
+    Write-Host "Agent_b launch failed: $Message"
     Write-Host 'Press any key to close.'
     if (-not $NoPause) { $null = [Console]::ReadKey($true) }
 }
@@ -86,12 +82,15 @@ trap {
         [Console]::Error.WriteLine("Details were appended to $launcherErrorLog")
     }
     if (-not $NoPause -and -not $Detached) {
-        if ($env:AGENTB_HIDDEN_REENTRY) {
+        if ($script:hostWindow) {
+            # Item 2x0: a server started with -window shows its own failure window.
+        } elseif ($env:AGENTB_HIDDEN_REENTRY) {
+            # Item 2x0: shown, not hidden — a hidden failure console was a launch that said nothing.
             $arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath.Replace('"', '\"') +
                 '" -ApplicationDirectory "' + $applicationRoot.Replace('"', '\"') +
                 '" -DataDirectory "' + $dataRoot.Replace('"', '\"') +
                 '" -ConfigPath "' + $configPath.Replace('"', '\"') + '" -ShowFailure'
-            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden | Out-Null
+            Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Normal | Out-Null
         } else {
             Show-AgentBLaunchFailure -Message $message
         }
@@ -250,9 +249,6 @@ function Get-AgentBStartupFailure {
         $lines = @(Get-Content -LiteralPath $StartupLogPath -ErrorAction SilentlyContinue | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     }
     $detail = if ($lines.Count) { ([string]$lines[-1]).Trim() } else { 'the process produced no startup diagnostic' }
-    if ($detail -match '(This configuration is from a release too old to update directly\. Install v\d+\.\d+\.\d+ first, then update\.)') {
-        return $Matches[1]
-    }
     if ($detail -match '(?i)bind:|address already in use|only one usage of each socket address') {
         return "listen port $Port is already in use: $detail"
     }

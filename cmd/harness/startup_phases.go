@@ -75,6 +75,16 @@ func (p *startupPhases) listening() string {
 	return fmt.Sprintf("startup phases: %s; total to listen %d ms", strings.Join(parts, " · "), total.Milliseconds())
 }
 
+// listened says whether the listener has opened.
+func (p *startupPhases) listened() bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.done
+}
+
 // report writes the summary to the log.
 func (p *startupPhases) report() {
 	if line := p.listening(); line != "" {

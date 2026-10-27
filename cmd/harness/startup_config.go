@@ -20,7 +20,7 @@ func (a *harnessApp) loadConfig() {
 	a.phases.mark("config")
 	cfg, migrated, created, err := config.LoadWithRoots(a.paths.Config, filepath.Join(a.paths.Application, "harness.example.json"), a.paths.Data)
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.cfg = cfg
 	// every static_bearer connector moves into the credential store here,
@@ -37,7 +37,7 @@ func (a *harnessApp) loadConfig() {
 	}
 	profileManager, profileMigrated, err := profiles.Open(a.paths.Data, a.paths.Config, a.cfg)
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.profileManager = profileManager
 	a.profileRoot = a.profileManager.Root(a.profileManager.Active())
@@ -47,7 +47,7 @@ func (a *harnessApp) loadConfig() {
 	}
 	workspaceRoot, err := filepath.Abs(workspacePath)
 	if err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	a.paths.Workspace = filepath.Clean(workspaceRoot)
 	a.roots = webserver.RuntimeRoots{Application: a.paths.Application, Data: a.paths.Data, Profile: a.profileRoot, Workspace: a.paths.Workspace}
@@ -96,7 +96,7 @@ func (a *harnessApp) serveReplay() bool {
 	}
 	replay, loadErr := projection.LoadReplay(strings.Split(*a.flags.replayPaths, ","))
 	if loadErr != nil {
-		log.Fatal(loadErr)
+		startupFatal(loadErr)
 	}
 	web := webserver.New(a.cfg, a.paths.Config, filepath.Join(a.paths.Application, "web"), a.roots, events.NewBus())
 	web.SetProfiles(a.profileManager)
@@ -108,7 +108,7 @@ func (a *harnessApp) serveReplay() bool {
 	}
 	cancelSigning()
 	if err := serve(a.cfg, web.Handler(), nil, "", web.BrowserBootstrapToken()); err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 	return true
 }

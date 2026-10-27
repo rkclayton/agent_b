@@ -71,7 +71,7 @@ func main() {
 	a.restoreAtStartup()
 	publishPendingSigning(a.paths.Data, a.registry, a.bus)
 	if err := serve(a.cfg, a.web.Handler(), newLifetime(a.paths.Data, time.Now), a.paths.Application, a.web.BrowserBootstrapToken()); err != nil {
-		log.Fatal(err)
+		startupFatal(err)
 	}
 }
 

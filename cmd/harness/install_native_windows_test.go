@@ -28,7 +28,7 @@ func TestNativeUninstallRemovesExactDisposableRegistration(t *testing.T) {
 	if err := writeUninstallRegistration(registration, map[string]any{"DisplayName": "Agent_b"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runNativeUninstall(application, data, start, send, registration, true, true, 0); err != nil {
+	if err := runNativeUninstall(application, data, start, send, registration, true, true, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := registry.OpenKey(registry.CURRENT_USER, registration[len(`HKCU:\`):], registry.QUERY_VALUE); err != registry.ErrNotExist {

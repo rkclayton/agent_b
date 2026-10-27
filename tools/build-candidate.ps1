@@ -18,9 +18,13 @@ param(
     # Item 2lt: the certificate agentb.exe is signed with, before the bundle
     # captures it. A release build supplies it; the test path does not and signs
     # its own disposable payload instead.
-    [string]$SigningThumbprint
+    [string]$SigningThumbprint,
+    # Item 2x0: the hosted install job has no outside list; it scans by the general rules only
+    # and its candidate is never released.
+    [switch]$GeneralPrivacyOnly
 )
 
+$privacyScope = if ($GeneralPrivacyOnly) { @('--general-only') } else { @() }
 if ($TestSignatureWithoutTimestamp -and -not $SignForTest) { throw '-TestSignatureWithoutTimestamp requires -SignForTest.' }
 
 # Item 2eu: the release step builds the exe once, into the candidate, and records
@@ -173,7 +177,7 @@ if ($UseExistingSignedBinary) {
     $cliLdflags = "-X harness/internal/buildinfo.Tag=$sourceTag -X harness/internal/buildinfo.Commit=$Commit -X harness/internal/buildinfo.Dirty=$Dirty -X harness/internal/buildinfo.ReleaseIdentity=$identityMarker"
     try { & $go build -trimpath -ldflags $cliLdflags -o $cliBinary ./cmd/agentb } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw "go build of cmd/agentb exited $LASTEXITCODE." }
-    & node (Join-Path $sourceRoot 'tools\privacy-gate.mjs') --binary $binary $cliBinary
+    & node (Join-Path $sourceRoot 'tools\privacy-gate.mjs') @($privacyScope) --binary $binary $cliBinary
     if ($LASTEXITCODE -ne 0) { throw "Privacy scan of unsigned executable bytes exited $LASTEXITCODE." }
     # Item 2lt: agentb.exe is signed HERE, between its build and the bundle
     # capture below, because the bundle is what reaches an installed machine and
@@ -223,7 +227,7 @@ if ($UseExistingSignedBinary) {
             Remove-Item -LiteralPath $resolvedPayload -Recurse -Force
         }
     }
-    & node (Join-Path $sourceRoot 'tools\privacy-gate.mjs') --binary $binary
+    & node (Join-Path $sourceRoot 'tools\privacy-gate.mjs') @($privacyScope) --binary $binary
     if ($LASTEXITCODE -ne 0) { throw "Privacy scan of bundled executable bytes exited $LASTEXITCODE." }
 
     # A test build must be signed before anything executes it, including the

@@ -308,6 +308,47 @@ func (s *Server) deviceEventsDropped() map[string]int64 {
 	return maps.Clone(s.deviceDropped)
 }
 
+// deviceActivity is the /activity each chat last sent a device, with its run, so
+// a frame repeats it only when it changed (item 2x3). A streamed token rewrites the
+// stream's counters and clocks in /activity every frame and neither phone reads
+// them, so they are left out of the comparison; the stream's key, has_chunk and
+// done stay in it. A value that is sent goes whole.
+type deviceActivity map[string][2]string
+
+func activityCompared(raw json.RawMessage) string {
+	var value map[string]json.RawMessage
+	if json.Unmarshal(raw, &value) != nil {
+		return string(raw)
+	}
+	if stream, ok := value["stream"]; ok {
+		var state struct {
+			Key      string `json:"key"`
+			HasChunk bool   `json:"has_chunk"`
+			Done     bool   `json:"done"`
+		}
+		_ = json.Unmarshal(stream, &state)
+		value["stream"], _ = json.Marshal(state)
+	}
+	compared, _ := json.Marshal(value)
+	return string(compared)
+}
+
+func (sent deviceActivity) filter(patch projection.Patch, runID string) projection.Patch {
+	for at, operation := range patch.Operations {
+		if operation.Op != "replace" || operation.Path != "/activity" {
+			continue
+		}
+		last := [2]string{runID, activityCompared(operation.Value)}
+		if sent[patch.SessionID] == last {
+			patch.Operations = slices.Delete(slices.Clone(patch.Operations), at, at+1)
+		} else {
+			sent[patch.SessionID] = last
+		}
+		return patch
+	}
+	return patch
+}
+
 // deviceTextPatch says a patch is one streamed token: text appended to one
 // chat entry, with only the stream's running state beside it.
 func deviceTextPatch(patch projection.Patch) bool {
@@ -595,6 +636,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 	// Streamed text waits at most one tick to be merged with the tokens after
 	// it; anything else sent flushes it first, so nothing reorders (item 2wu).
 	var batch deviceTextBatch
+	sentActivity := deviceActivity{}
 	var tick *time.Timer
 	var ticked <-chan time.Time
 	flush := func() {
@@ -602,7 +644,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			return
 		}
 		runID := batch.runID
-		patch := batch.take()
+		patch := sentActivity.filter(batch.take(), runID)
 		s.noteDeviceStream(patch.SessionID, runID, 0, deliver(map[string]any{"v": 1, "kind": "patch", "data": patch}))
 		tick.Stop()
 		ticked = nil
@@ -706,7 +748,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 					}
 				} else {
 					flush()
-					s.noteDeviceStream(patch.SessionID, current.Run.RunID, 0, deliver(map[string]any{"v": 1, "kind": "patch", "data": patch}))
+					s.noteDeviceStream(patch.SessionID, current.Run.RunID, 0, deliver(map[string]any{"v": 1, "kind": "patch", "data": sentActivity.filter(patch, current.Run.RunID)}))
 				}
 			}
 			if found {

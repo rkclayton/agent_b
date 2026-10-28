@@ -1179,7 +1179,32 @@ func TestAStreamedReplyReachesADeviceInTicks2wu(t *testing.T) {
 	if deltas > 0 {
 		t.Fatalf("%d model.delta timeline entries reached the device", deltas)
 	}
-	t.Logf("%d tokens over %s: %d patch frames (%d with text), %d bytes; last text %s after the last token", tokens, duration.Round(time.Millisecond), len(units), text, deviceUnitBytes(units), last.Sub(ended).Round(time.Millisecond))
+	// 2x3: /activity goes to the device when it changes, not on every frame.
+	activities, changes, previous := 0, 0, ""
+	for _, unit := range units {
+		data, _ := unit["data"].(map[string]any)
+		operations, _ := data["operations"].([]any)
+		for _, operation := range operations {
+			if op, _ := operation.(map[string]any); op["op"] == "replace" && op["path"] == "/activity" {
+				encoded, _ := json.Marshal(op["value"])
+				activities++
+				if string(encoded) != previous {
+					changes++
+				}
+				previous = string(encoded)
+			}
+		}
+	}
+	bytes := deviceUnitBytes(units)
+	t.Logf("%d tokens over %s: %d patch frames (%d with text, %d with /activity, %d changes), %d bytes; last text %s after the last token", tokens, duration.Round(time.Millisecond), len(units), text, activities, changes, bytes, last.Sub(ended).Round(time.Millisecond))
+	if activities != changes {
+		t.Fatalf("%d /activity values reached the device for %d changes", activities, changes)
+	}
+	// 191,680 before; about 100,100 after. What remains is each frame's two cursors
+	// and envelope and the text twice (/run/partial and the chat entry).
+	if bytes >= 110_000 {
+		t.Fatalf("%d bytes reached the device for %d tokens; under 110000", bytes, tokens)
+	}
 	if limit := int(duration/deviceStreamTick) + 2; text > limit {
 		t.Fatalf("%d text frames for %d tokens; at most %d", text, tokens, limit)
 	}

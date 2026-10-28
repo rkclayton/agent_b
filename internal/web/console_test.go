@@ -416,11 +416,14 @@ func TestAPairedPhoneIsToldADeletion2py(t *testing.T) {
 	if err := registry.Close(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	phone := &deletionPhone{}
+	phone := &deletionPhone{delivered: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go server.streamUnitsToDevice(ctx, phone)
-	time.Sleep(100 * time.Millisecond)
+	// Delivery of the initial snapshot is the actual readiness boundary. A
+	// 100ms sleep raced the snapshot's journal read on loaded Windows and left
+	// chat.json open when deletion began.
+	phone.wait(t)
 	if response := deleteConsole(t, server, "/api/sessions/"+item.ID); response.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", response.Code, response.Body)
 	}
@@ -429,10 +432,10 @@ func TestAPairedPhoneIsToldADeletion2py(t *testing.T) {
 			t.Fatalf("the phone was not told: %s", phone.text())
 		}
 	}
-	again := &deletionPhone{}
+	again := &deletionPhone{delivered: make(chan struct{}, 1)}
 	reconnect, stop := context.WithCancel(context.Background())
 	go server.streamUnitsToDevice(reconnect, again)
-	time.Sleep(100 * time.Millisecond)
+	again.wait(t)
 	stop()
 	if again.saw(item.ID) {
 		t.Fatal("a reconnecting phone was sent the deleted chat")
@@ -440,14 +443,19 @@ func TestAPairedPhoneIsToldADeletion2py(t *testing.T) {
 }
 
 type deletionPhone struct {
-	mu    sync.Mutex
-	units []string
+	mu        sync.Mutex
+	units     []string
+	delivered chan struct{}
 }
 
 func (d *deletionPhone) Deliver(plaintext []byte) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.units = append(d.units, string(plaintext))
+	select {
+	case d.delivered <- struct{}{}:
+	default:
+	}
 	return nil
 }
 func (d *deletionPhone) Notify(string, string, string) error { return nil }
@@ -457,3 +465,11 @@ func (d *deletionPhone) text() string {
 	return strings.Join(d.units, "\n")
 }
 func (d *deletionPhone) saw(fragment string) bool { return strings.Contains(d.text(), fragment) }
+func (d *deletionPhone) wait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-d.delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("phone stream did not deliver its initial unit")
+	}
+}

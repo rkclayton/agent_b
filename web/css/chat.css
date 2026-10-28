@@ -453,7 +453,8 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-work-files-toggle[aria-expanded="true"] { color:var(--trace); }
 .chat-file-list { display:grid; gap:var(--s2); margin:0 0 var(--s2) clamp(4px,1.5vw,12px); min-width:0; }
 .chat-file-item { display:grid; gap:2px; min-width:0; }
-.chat-file-row { display:flex; align-items:center; gap:var(--s2); min-width:0; }
+.chat-file-row { display:flex; flex-wrap:wrap; align-items:center; gap:var(--s2); min-width:0; }
+.chat-file-row > .file-chips { margin:0; }
 .chat-file-open { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); background:transparent; text-align:left; }
 .chat-file-undo { flex:0 0 auto; color:var(--trace); background:transparent; }
 .chat-file-changed { color:var(--alarm); }
@@ -524,6 +525,7 @@ html[data-chat-list-wrap="true"] .chat-list-row .chat-list-more { height:100%; }
 .chat-response-step {
   min-width: 0;
 }
+.chat-response-step > .file-chips { margin:2px 0 0; }
 .chat-response-answer {
   margin-top: 12px;
   padding-top: 0;

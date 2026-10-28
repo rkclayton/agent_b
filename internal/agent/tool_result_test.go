@@ -168,7 +168,10 @@ func TestBeforeToolHookRefusesOrAllowsShell2rn(t *testing.T) {
 			if runtime.GOOS != "windows" {
 				cfg.Shell.Command = []string{"sh", "-c"}
 			}
-			cfg.Hooks = []config.Hook{{Event: "before_tool", Tool: "shell", Command: hookFixtureCommand(mode), TimeoutS: 3}, {Event: "run_end", Command: hookFixtureCommand("allow"), TimeoutS: 3}}
+			// A hidden PowerShell plus this test binary exceeded twenty seconds to
+			// start under eight CPU burners. Sixty seconds keeps this a hook-result
+			// test while the separate timeout fixture still proves cancellation.
+			cfg.Hooks = []config.Hook{{Event: "before_tool", Tool: "shell", Command: hookFixtureCommand(mode), TimeoutS: 60}, {Event: "run_end", Command: hookFixtureCommand("allow"), TimeoutS: 60}}
 			command := fmt.Sprintf(`Set-Content -LiteralPath '%s' -Value ran`, strings.ReplaceAll(marker, "'", "''"))
 			if runtime.GOOS != "windows" {
 				command = fmt.Sprintf(`printf ran > %q`, marker)

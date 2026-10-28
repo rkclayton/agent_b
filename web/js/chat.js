@@ -5,7 +5,7 @@ import { setWaitProgress, waitElement } from "./wait.js";
 import { operatorLogEntry } from "./operator-log.js";
 import { createThinkingRenderer } from "./reasoning.js";
 import { formatDuration } from "./duration.js";
-import { createAttachmentBubble, createFileChip, fileURL, probeFile } from "./deliverables.js";
+import { createAttachmentBubble, createFileChip, fileURL, filesFromResponse, probeFile } from "./deliverables.js";
 import { createApprovalCard } from "./approval.js";
 import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, uploadAttachment } from "./attachment-upload.js";
@@ -700,6 +700,8 @@ function renderFlatWorkRows(session, view, blocks, active) {
   const nodes = [];
   for (const block of blocks) {
     const blockView = ensureResponseBlockView(view, block.key);
+    const filesByCall = new Map();
+    for (const file of filesFromResponse(block.steps)) filesByCall.set(file.callID, [...(filesByCall.get(file.callID) || []), file]);
     if (!active && block.interstitial && block.prose) {
       let line = view.work.lines.get(block.key);
       if (!line) {
@@ -714,7 +716,7 @@ function renderFlatWorkRows(session, view, blocks, active) {
     for (const [index, item] of block.steps.entries()) {
       const itemKey = item?.key || `invalid:${index}`;
       usedItems.add(itemKey);
-      try { nodes.push(renderResponseItem(session, blockView, item, itemKey, false, false)); }
+      try { nodes.push(renderResponseItem(session, blockView, item, itemKey, false, false, filesByCall.get(item?.callID) || [])); }
       catch (error) { nodes.push(renderFailure(item, error, index, true)); }
     }
     for (const itemKey of blockView.items.keys()) if (!usedItems.has(itemKey)) blockView.items.delete(itemKey);
@@ -727,7 +729,9 @@ function renderFileUndoList(session, work) {
   for (const file of work.files || []) {
     const item = document.createElement("div"); item.className = "chat-file-item";
     const row = document.createElement("div"); row.className = "chat-file-row";
-    const open = document.createElement("button"); open.type = "button"; open.className = "chat-file-open"; open.textContent = `${file.path} · ${file.kind}`; open.setAttribute("aria-expanded", String(!!work.diffs?.[file.id]));
+    const chips = document.createElement("div"); chips.className = "file-chips";
+    chips.append(renderFileChip(session, { path: file.path, callID: file.id, openPath: file.path, openScope: "workspace" }));
+    const open = document.createElement("button"); open.type = "button"; open.className = "chat-file-open"; open.textContent = file.kind === "created" ? "Created file" : "Changes"; open.setAttribute("aria-expanded", String(!!work.diffs?.[file.id]));
     open.onclick = async () => {
       if (work.diffs?.[file.id]) { delete work.diffs[file.id]; render(); return; }
       const query = `?session_id=${encodeURIComponent(session.id)}&run_id=${encodeURIComponent(work.runID)}&file_id=${encodeURIComponent(file.id)}`;
@@ -745,7 +749,7 @@ function renderFileUndoList(session, work) {
       } catch (error) { work.result = error.message; }
       render();
     };
-    row.append(open, undo); item.append(row);
+    row.append(chips, open, undo); item.append(row);
     const diff = work.diffs?.[file.id];
     if (diff) {
       if (diff.file?.changed_since) { const warning = document.createElement("div"); warning.className = "chat-file-changed"; warning.textContent = "Changed again since this run; Undo this file will leave it unchanged."; item.append(warning); }
@@ -803,7 +807,7 @@ function renderResponseProse(view, item) {
   return view.prose;
 }
 
-function renderResponseItem(session, view, item, key, forceToolOpen = false, recovered = false) {
+function renderResponseItem(session, view, item, key, forceToolOpen = false, recovered = false, files = []) {
   if (!item || typeof item !== "object") throw new Error("entry is missing or is not an object");
   if (!item.key) throw new Error("entry key is missing");
 	if (item.type === "tool" && item.name === "todo") {
@@ -860,7 +864,12 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false, rec
       setText(itemView.tick, `${item.name || "tool call"} · ${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens · ${formatDuration(elapsed) || "0s"}`);
       stepNodes.push(itemView.tick);
     } else if (item.type === "tool") {
-      stepNodes.push(toolTick(item, forceToolOpen, recovered && itemFailed(item)));
+      stepNodes.push(toolTick(item, forceToolOpen, recovered && itemFailed(item), files.length > 0));
+      if (files.length) {
+        if (!itemView.chips) { itemView.chips = document.createElement("div"); itemView.chips.className = "file-chips"; }
+        reconcileChildren(itemView.chips, files.map((file) => renderFileChip(session, file)));
+        stepNodes.push(itemView.chips);
+      }
     } else {
       throw new Error(`unsupported entry type ${String(item.type || "(missing)")}`);
     }
@@ -965,7 +974,7 @@ function thinking(entry, tokens) {
   return thinkingRenderer.render(entry, tokens);
 }
 
-function toolTick(entry, forceOpen = false, recovered = false) {
+function toolTick(entry, forceOpen = false, recovered = false, fileNamed = false) {
   if (!entry.args || typeof entry.args !== "object" || Array.isArray(entry.args)) throw new Error("tool arguments are missing or are not an object");
   usedToolViews.add(entry.key);
   let view = toolViews.get(entry.key);
@@ -1008,7 +1017,7 @@ function toolTick(entry, forceOpen = false, recovered = false) {
   const shortened = entry.result?.model_shortened ? ` · model kept ${formatBytes(entry.result.model_kept_bytes || 0)}` : "";
   const stateText = (recovered ? "retried" : delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state) + shortened;
   setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name} ·`);
-  setText(view.button.children[1], delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args));
+  setText(view.button.children[1], fileNamed ? "" : delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args));
   setText(view.button.children[2], stateText);
   setAttribute(view.button.children[2], "class", `tool-state ${state === "error" && !recovered ? "error" : ""}`);
   setText(view.button.children[3], formatDuration(entry.result?.ms));

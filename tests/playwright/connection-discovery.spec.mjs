@@ -776,11 +776,19 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
       labels: await page.locator('.settings-content .panel-role-name').evaluateAll(styles),
       fields: await page.locator('.settings-content .panel-role-row > input:not([type="checkbox"]), .settings-content .panel-role-row > select, .settings-content .panel-role-row > textarea').evaluateAll(styles),
     });
-    const builtIn = await agentMetrics();
+    const stableAgentMetrics = async () => {
+      let measured;
+      await expect.poll(async () => {
+        measured = await agentMetrics();
+        return [...measured.labels, ...measured.fields].length > 0 && [...measured.labels, ...measured.fields].every(({ family }) => family.includes('IBM Plex'));
+      }, { timeout: 5000 }).toBe(true);
+      return measured;
+    };
+    const builtIn = await stableAgentMetrics();
     await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
     await expect(page.locator('.settings-content [data-field="private"]')).toBeVisible();
     await settle(page);
-    const added = await agentMetrics();
+    const added = await stableAgentMetrics();
     await page.locator('.settings-nav [data-id="shell"]').click();
     const settingsSwitch = page.locator('.settings-content button.switch').first();
     const switchPaint = async (node) => { const value = getComputedStyle(node), track = getComputedStyle(node, '::before'); return { background: value.backgroundColor, width: value.width, height: value.height, track: [track.width, track.height, track.top] }; };
@@ -791,6 +799,13 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     await page.locator('[data-action="connection-toggle"]').first().click();
     await settle(page);
     const reference = await page.locator('.connection-primary .setting-row > label').first().evaluate((node) => { const value=getComputedStyle(node); return { background:value.backgroundColor,color:value.color,border:value.border,family:value.fontFamily,size:value.fontSize,height:value.lineHeight,weight:value.fontWeight }; });
+    // Under eight CPU burners settings redraws briefly yielded detached nodes
+    // (empty computed styles) or an editor one paint before its page CSS settled
+    // (white/system font). Poll the rendered state, not the node's arrival.
+    await expect.poll(async () => page.locator('.connection-editor input:not([type="checkbox"]), .connection-editor select, .connection-editor textarea').evaluateAll((nodes) => nodes.every((node) => {
+      const value = getComputedStyle(node);
+      return value.fontFamily.includes('IBM Plex') && value.backgroundColor !== 'rgb(255, 255, 255)';
+    })), { timeout: 5000 }).toBe(true);
     const connectionFields = await page.locator('.connection-editor input:not([type="checkbox"]), .connection-editor select, .connection-editor textarea').evaluateAll(styles);
     const fieldByTag = Object.fromEntries(connectionFields.map((field) => [field.tag, field]));
     for (const metrics of [builtIn, added]) {

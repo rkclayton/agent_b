@@ -772,7 +772,8 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await finished.page.screenshot({ path:"logs/evidence/rel-1.62.58/captures/resting-summary-1280x860.png", fullPage:true });
   await finished.page.setViewportSize({ width:1000, height:760 });
   await finished.page.getByRole("button", { name: "3 files changed" }).click();
-  await expect(finished.page.locator(".chat-file-open")).toHaveText(["first.txt · changed", "second.txt · created", "third.txt · removed"]);
+  await expect(finished.page.locator(".chat-file-item .file-chip-name")).toHaveText(["first.txt", "second.txt", "third.txt"]);
+  await expect(finished.page.locator(".chat-file-open")).toHaveText(["Changes", "Created file", "Changes"]);
   expect(await finished.page.locator(".chat-work-summary").textContent()).toBe(restingSummary);
   await finished.page.locator(".chat-file-open").first().click();
   await expect(finished.page.locator(".chat-file-diff-line")).toHaveCount(8);
@@ -785,12 +786,12 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await finished.page.locator(".chat-file-undo").first().click();
   await expect(finished.page.getByRole("button", { name: "2 files changed" })).toBeVisible();
   await expect(finished.page.locator(".chat-file-open")).toHaveCount(2);
-  const drawMS = await finished.page.evaluate(async () => { const start=performance.now(); [...document.querySelectorAll(".chat-file-open")].find((node)=>node.textContent.includes("second.txt")).click(); for (let index=0; index<120 && document.querySelectorAll(".chat-file-diff-line").length!==2000; index++) await new Promise(requestAnimationFrame); return performance.now()-start; });
+  const drawMS = await finished.page.evaluate(async () => { const start=performance.now(); [...document.querySelectorAll(".chat-file-item")].find((node)=>node.textContent.includes("second.txt")).querySelector(".chat-file-open").click(); for (let index=0; index<120 && document.querySelectorAll(".chat-file-diff-line").length!==2000; index++) await new Promise(requestAnimationFrame); return performance.now()-start; });
   console.log("2sk 512KiB 2000-line draw", `${drawMS.toFixed(3)}ms`);
   expect(drawMS).toBeLessThan(300);
   await expect(finished.page.locator(".chat-file-diff-more")).toHaveText("3,000 more");
-  await finished.page.locator(".chat-file-open").filter({ hasText:"second.txt" }).click();
-  await finished.page.locator(".chat-file-open").filter({ hasText:"third.txt" }).click();
+  await finished.page.locator(".chat-file-item").filter({ hasText:"second.txt" }).locator(".chat-file-open").click();
+  await finished.page.locator(".chat-file-item").filter({ hasText:"third.txt" }).locator(".chat-file-open").click();
   await expect(finished.page.locator(".chat-file-changed")).toHaveText("Changed again since this run; Undo this file will leave it unchanged.");
   finished.page.once("dialog", (dialog) => dialog.accept());
   await finished.page.locator(".chat-file-item").filter({ hasText:"third.txt" }).locator(".chat-file-undo").click();

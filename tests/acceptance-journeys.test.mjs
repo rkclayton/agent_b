@@ -35,5 +35,7 @@ test("the journey runner builds once, isolates profiles, and reruns one failure 
 test("packaged acceptance uses a trusted untimestamped test copy without a timestamp request 2vm", () => {
   assert.match(runner, /-TestSignatureWithoutTimestamp/);
   assert.match(builder, /-NoTimestamp:\$TestSignatureWithoutTimestamp/g);
-  assert.match(signer, /if \(\$NoTimestamp\) \{\s*Set-AuthenticodeSignature[^\n]+-HashAlgorithm SHA256\s*\} else \{\s*Set-AuthenticodeSignature[^\n]+-TimestampServer \$TimestampUrl/s);
+  // Item 2x4 (c): the untimestamped copy returns before the timestamped call and its one retry.
+  assert.match(signer, /if \(\$NoTimestamp\) \{ return Set-AuthenticodeSignature[^\n]+-HashAlgorithm SHA256 \}\n[\s\S]*Set-AuthenticodeSignature[^\n]+-TimestampServer \$TimestampUrl/);
+  assert.doesNotMatch(signer.match(/if \(\$NoTimestamp\) \{ return [^\n]+/)[0], /TimestampServer/);
 });

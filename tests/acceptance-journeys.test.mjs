@@ -36,6 +36,6 @@ test("packaged acceptance uses a trusted untimestamped test copy without a times
   assert.match(runner, /-TestSignatureWithoutTimestamp/);
   assert.match(builder, /-NoTimestamp:\$TestSignatureWithoutTimestamp/g);
   // Item 2x4 (c): the untimestamped copy returns before the timestamped call and its one retry.
-  assert.match(signer, /if \(\$NoTimestamp\) \{ return Set-AuthenticodeSignature[^\n]+-HashAlgorithm SHA256 \}\n[\s\S]*Set-AuthenticodeSignature[^\n]+-TimestampServer \$TimestampUrl/);
+  assert.match(signer, /if \(\$NoTimestamp\) \{ return Set-AuthenticodeSignature[^\n]+-HashAlgorithm SHA256 \}\r?\n[\s\S]*Set-AuthenticodeSignature[^\n]+-TimestampServer \$TimestampUrl/);
   assert.doesNotMatch(signer.match(/if \(\$NoTimestamp\) \{ return [^\n]+/)[0], /TimestampServer/);
 });

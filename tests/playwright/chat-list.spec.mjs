@@ -475,3 +475,51 @@ test("removing the gear leaves no gap and keeps the window controls at the edge 
   expect(controls[1] + controls[3]).toBe(1400);
   expect(title[1] - (lamp[1] + lamp[3])).toBe(8);
 });
+
+// Item 2x2: Send is live before the first snapshot reaches the store. A Send in that window
+// found no chat and opened a new one, even when the link names a chat, so a person who
+// opened a chat by its link and sent at once had two chats.
+test("a Send before the first snapshot goes into the chat the link names 2x2", async ({ browser }) => {
+  test.setTimeout(60000);
+  const base = { schema_version: 1, complete: true, agent_id: "agent_b", role: "b", connection_id: "fixture", b_connection: "fixture", tools: [], messages: [], budget: {}, activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false, run: { status: "idle" } };
+  for (const delay of [0, 50, 200]) {
+    const sessions = {
+      opened: { ...base, id: "opened", label: "Opened by link", created_at: "2026-10-05T00:00:00Z" },
+      earlier: { ...base, id: "earlier", label: "Selected earlier", created_at: "2026-10-04T00:00:00Z" },
+    };
+    const calls = [];
+    const snapshot = () => ({ sessions, connections: [{ id: "fixture", label: "fixture" }], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [{ id: "fixture", label: "fixture" }] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} });
+    const context = await browser.newContext({ viewport: { width: 1400, height: 800 } });
+    await context.addInitScript(({ data }) => {
+      sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "earlier", surface: { kind: "chat", key: "earlier" } }));
+      // the stream opens and sends its snapshot only when the test releases it.
+      class HeldEvents { constructor() { this.listeners = new Map(); globalThis.releaseSnapshot = () => { this.onopen?.(); const event = { data: JSON.stringify({ type: "snapshot", data }) }; for (const listener of this.listeners.get("snapshot") || []) listener(event); }; } addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); } close() {} }
+      globalThis.EventSource = HeldEvents;
+    }, { data: snapshot() });
+    const page = await context.newPage();
+    await page.route("**/*", async (route) => {
+      const request = route.request(), url = new URL(request.url());
+      if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+      if (url.pathname === "/api/state") return route.fulfill({ contentType: "application/json", body: JSON.stringify(snapshot()) });
+      if (url.pathname === "/api/sessions" && request.method() === "POST") {
+        const id = `new${Object.keys(sessions).length}`;
+        calls.push({ create: id });
+        sessions[id] = { ...base, id, label: "New chat", created_at: "2026-10-06T07:00:00Z" };
+        return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ session: sessions[id] }) });
+      }
+      if (url.pathname === "/api/message") { const body = request.postDataJSON(); calls.push({ message: body.session_id, text: body.text }); return route.fulfill({ contentType: "application/json", body: "{}" }); }
+      if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+      return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+    });
+    await page.goto("http://localhost:59999/chat?setup=skip&session=opened", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(delay);
+    await page.locator("#chat-task").fill(`sent ${delay} ms after the page`);
+    await page.locator("#chat-send").click();
+    await page.waitForTimeout(300);
+    await page.evaluate(() => globalThis.releaseSnapshot());
+    await expect.poll(() => calls.length).toBeGreaterThan(0);
+    await page.waitForTimeout(300);
+    expect(calls, `Send ${delay} ms after the page`).toEqual([{ message: "opened", text: `sent ${delay} ms after the page` }]);
+    await context.close();
+  }
+});

@@ -1445,9 +1445,23 @@ async function decidePolicy(session, action) {
 	catch(error){localNotice=error.message||String(error);localAlarm=true;renderComposer(store.sessions[selectedID()])}
 }
 
+// Item 2x2: Send is live before the first snapshot reaches the store. A Send in
+// that window found no chat and opened a new one, even when the link names a
+// chat; it waits for that snapshot, which selects the chat the link names.
+function loadedSession() {
+  if (store.loaded) return Promise.resolve(store.sessions[selectedID()]);
+  return new Promise((resolve) => {
+    const stop = subscribe((_state, event) => {
+      if (event.type !== "snapshot") return;
+      stop();
+      queueMicrotask(() => resolve(store.sessions[selectedID()]));
+    });
+  });
+}
+
 async function submit() {
   if (micState.listening) stopDictation();
-  let session = store.sessions[selectedID()];
+  let session = await loadedSession();
   if (!session && !store.replay) session = await shell?.newChat();
   if (!session || store.replay) return;
   const text = input.value.trim();

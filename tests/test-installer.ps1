@@ -21,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'browser-session.ps1')
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\deploy-candidate-state.ps1')
+$matrixStarted = Get-Date
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-' + [Guid]::NewGuid().ToString('N'))
 # Item 2gd: set at the end of the scenario block; the cleanup below keeps the
 # root when it is still false, so a failing run can be read afterwards.
@@ -1567,6 +1568,11 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     Write-Host 'PASS: fresh install omits legacy workspace; upgrade preservation, preserve-data uninstall, reinstall, and owner-checked purge uninstall'
     # Item 2gd: the disposable root is removed only when the scenarios passed.
     $scenariosPassed = $true
+} catch {
+    # Item 2x4 (c): a Defender quarantine of a disposable file is named as such.
+    $quarantine = Get-DefenderQuarantineLine -Text @($_.Exception.Message) -Since $matrixStarted
+    if ($quarantine) { throw $quarantine }
+    throw
 } finally {
     if ($whatIfTranscript -and (Test-Path -LiteralPath $whatIfTranscript -PathType Leaf)) {
         $resolvedTranscript = [IO.Path]::GetFullPath($whatIfTranscript)

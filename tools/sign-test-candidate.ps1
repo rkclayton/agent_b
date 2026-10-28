@@ -15,6 +15,7 @@ param(
 # never elevates.
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\signing-key-policy.ps1')
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
 $root = [IO.Path]::GetFullPath($SourceDirectory)
 $binary = Join-Path $root 'Agent_b.exe'
 $manifestPath = Join-Path $root 'candidate-final.json'
@@ -63,13 +64,32 @@ if (-not $PayloadOnly) {
 # installer matrix caught it twice before I looked here.
 $cli = Join-Path $root 'agentb.exe'
 if (Test-Path -LiteralPath $cli -PathType Leaf) { $targets += $cli }
-foreach ($target in $targets) {
-    $signature = if ($NoTimestamp) {
-        Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256
-    } else {
-        Set-AuthenticodeSignature -LiteralPath $target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl
+# Item 2x4 (c): the timestamp server is outside this machine. A signature it did
+# not stamp is tried once more after 30 s, then the run stops with the server
+# named, rather than as a bare signing error.
+function Set-TestSignature([string]$Target) {
+    if ($NoTimestamp) { return Set-AuthenticodeSignature -LiteralPath $Target -Certificate $certificate -HashAlgorithm SHA256 }
+    $failure = ''
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        $result = $null
+        try { $result = Set-AuthenticodeSignature -LiteralPath $Target -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $TimestampUrl -ErrorAction Stop } catch { $failure = $_.Exception.Message }
+        if ($result -and $result.Status -eq 'Valid' -and $result.TimeStamperCertificate) { return $result }
+        if ($result) { $failure = "$($result.Status) $($result.StatusMessage)" }
+        $quarantine = Get-DefenderQuarantineLine -Path $Target -Text @($failure)
+        if ($quarantine) { throw $quarantine }
+        if ($attempt -eq 1) {
+            Write-Host "signing: timestamp server $TimestampUrl did not stamp $(Split-Path -Leaf $Target) ($failure); one retry in 30 s"
+            Start-Sleep -Seconds 30
+        }
     }
+    throw "signing: timestamp server $TimestampUrl did not stamp $(Split-Path -Leaf $Target) twice, 30 s apart ($failure); this run stops here"
+}
+
+foreach ($target in $targets) {
+    $signature = Set-TestSignature $target
     if (-not $signature.SignerCertificate -or $signature.Status -ne 'Valid' -or ((-not $NoTimestamp) -and -not $signature.TimeStamperCertificate)) { throw "Test candidate signing failed for ${target}: $($signature.Status) $($signature.StatusMessage)" }
+    $quarantine = Get-DefenderQuarantineLine -Path $target
+    if ($quarantine) { throw $quarantine }
     $verified = Get-AuthenticodeSignature -LiteralPath $target
     if ($verified.Status -ne 'Valid' -or $verified.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or ((-not $NoTimestamp) -and -not $verified.TimeStamperCertificate)) { throw "Test candidate signature did not verify after signing: $target" }
 }

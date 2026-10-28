@@ -89,3 +89,30 @@ function Start-QuietMinimized {
     if ($WorkingDirectory) { $parameters.WorkingDirectory = $WorkingDirectory }
     return Start-Process @parameters
 }
+
+# Item 2x4 (c): Defender's machine-learning check can quarantine a freshly
+# test-signed Agent_b binary in a disposable root. That is named, with the one
+# exclusion the operator can add, instead of reading as an install or signing
+# failure. Only he adds it; nothing here changes Defender. A file that was there
+# and is gone, Defender's own refusal text, or its detection event on an
+# Agent_b- disposable path since the run began is the evidence.
+function Get-DefenderQuarantineLine {
+    [CmdletBinding()]
+    param(
+        [string[]]$Text = @(),
+        [string]$Path = '',
+        [datetime]$Since = [datetime]::MinValue
+    )
+    $evidence = ''
+    if ($Path -and -not (Test-Path -LiteralPath $Path)) { $evidence = "$(Split-Path -Leaf $Path) is gone" }
+    if (-not $evidence -and ($Text -join "`n") -match 'contains a virus or potentially unwanted software') { $evidence = 'Defender refused to open a disposable file' }
+    if (-not $evidence -and $Since -ne [datetime]::MinValue) {
+        try {
+            $detection = Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116, 1117; StartTime = $Since } -MaxEvents 20 -ErrorAction Stop |
+                Where-Object { $_.Message -like '*\Agent_b-*' } | Select-Object -First 1
+            if ($detection) { $evidence = "Defender event $($detection.Id): $(([regex]::Match($detection.Message, 'Name:\s*(\S+)')).Groups[1].Value)" }
+        } catch {}
+    }
+    if (-not $evidence) { return '' }
+    return 'signing: quarantined by Defender (' + $evidence + '); to let the disposable runs through, add once, elevated: Add-MpPreference -ExclusionPath "$env:TEMP\Agent_b-*"'
+}

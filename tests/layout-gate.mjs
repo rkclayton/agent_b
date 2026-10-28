@@ -158,8 +158,14 @@ async function capture(exe, evidence) {
           await page.locator("#panel-agent").selectOption({ label: "Private fixture" });
           await page.locator('.settings-content [data-field="private"]').waitFor();
           await captureState(page, pageName, "open-profile", size);
+          // Item 2x3: the profile's tool list is folded; the gate opens it.
+          await page.locator("#panel-tools-fold > summary").click();
+          await page.locator("#panel-tools .panel-tool-line").first().waitFor({ state: "visible" });
+          await captureState(page, pageName, "tools-open", size);
         } else if (pageName === "Security") {
-          await page.locator('[data-path="sandbox.enabled"]').scrollIntoViewIfNeeded();
+          // one step in the page: the sheet may redraw this row while Playwright waits for it to settle (item 2x3).
+          await page.locator('[data-path="sandbox.enabled"]').waitFor();
+          await page.evaluate(() => document.querySelector('[data-path="sandbox.enabled"]').scrollIntoView({ block: "nearest" }));
           await captureState(page, pageName, "sandbox-unavailable", size, true);
           await page.evaluate(async () => {
             const busURL = performance.getEntriesByType("resource").map((entry) => entry.name).find((name) => name.endsWith("/js/bus.js"));
@@ -172,6 +178,17 @@ async function capture(exe, evidence) {
           await captureState(page, pageName, "sandbox-available", size, true);
         } else await captureState(page, pageName, "rest", size);
       }
+      // Item 2x3: the chat's own tool list ("Current session") has no entry in the nav,
+      // so the gate opens its section through the sheet's own section action.
+      await page.evaluate(() => {
+        const entry = Object.assign(document.createElement("button"), { type: "button" });
+        entry.dataset.action = "settings-section";
+        entry.dataset.id = "tools";
+        document.querySelector(".settings-nav").append(entry);
+        entry.click();
+      });
+      await page.locator(".settings-content .session-tool-control").first().waitFor({ state: "visible" });
+      await captureState(page, "Current session", "tools", size, true);
       await page.locator('.settings-nav [data-id="connections"]').click();
       await captureState(page, "Connections", "rest", size);
       await page.locator('[data-action="connection-toggle"]').first().click();

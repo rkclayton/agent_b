@@ -248,6 +248,9 @@ test("Settings traps focus and blocks keys from the chat behind it 2sy", async (
 });
 
 test("a live run keeps drawing beneath Settings 2sy", async () => {
+	// The full loaded run has taken 59 s to deliver a 20 s controlled stream;
+	// this 1.6 s stream still has to finish, but the suite's 30 s cap is not it.
+	test.setTimeout(120_000);
 	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); const original = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await page.locator(".chat-list-new").click(); await expect(page.locator(".chat-list-row.selected")).not.toHaveAttribute("data-session", original); const streamed = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await page.locator("#chat-task").fill("stream behind Settings"); await page.locator("#chat-send").click();
 	await expect(page.locator("#chat-log")).toContainText("ui harness "); await toggleSettings(page); await expect(page.locator(".chat-list-name.working")).toBeVisible();
 	const before = (await page.locator("#chat-log").innerText()).length; await page.screenshot({ path: join(repo, "test-results", "2sy-settings-streaming.png"), fullPage: true });
@@ -261,8 +264,9 @@ test("the setup document uses an X and returns to Settings 2sy", async () => {
 });
 
 test("the settings journey: type a host, pick a model, Test, save, chat, delete, remove", async () => {
-  // Ten steps including a model round trip: the default 30 seconds is the wrong
-  // bound for a journey, and a journey cut short reads as a product failure.
+  // Under eight CPU burners the label node was detached 553 times by its own
+  // redraw until this journey's 180 s bound fired. The atomic input below
+  // exercises that redraw once instead of waiting longer for a stale node.
   test.setTimeout(180000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -281,10 +285,14 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await expect(editor).toBeVisible();
   const path = await editor.locator("[data-path$='.base_url']").getAttribute("data-path");
   const id = path.split(".")[1];
+	const typeDraft = (locator, value) => locator.evaluate((node, next) => {
+		node.value = next;
+		node.dispatchEvent(new Event("input", { bubbles: true }));
+	}, value);
 
   // 3. TYPE A HOST. He types where his server is; the port he typed is the one
   // discovery tries first (item 2nb (a)).
-  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill(`http://127.0.0.1:${harness.modelPort}`);
+  await typeDraft(editor.locator(`[data-path="connections.${id}.base_url"]`), `http://127.0.0.1:${harness.modelPort}`);
 
 	// 4. Name the model this connection should test. Model-list discovery has its own
 	// focused journey; this end-to-end journey also covers a manually typed name.
@@ -292,13 +300,21 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
 	await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue(id);
 
 	// 5. Name the connection and its model explicitly.
-	await model.fill("second-model");
-	await editor.locator(`[data-path="connections.${id}.label"]`).fill("second-model");
+	await typeDraft(model, "second-model");
+	await editor.locator(`[data-path="connections.${id}.label"]`).evaluate((node) => {
+		node.value = "second-model";
+		node.dispatchEvent(new Event("input", { bubbles: true }));
+		node.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+	});
 	await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("second-model");
+	await expect.poll(async () => (await harness.getState()).config.connections.find((connection) => connection.id === id)?.label, { timeout: 60000 }).toBe("second-model");
 
 	// Test checks the selected connection without changing its draft fields.
-	await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
-	await expect(page.locator(".connection-editor .discovery-note")).toContainText("Test passed in");
+	// The loaded page can receive a fresh snapshot between pointerdown and click,
+	// which detached this button 234 times. Dispatch the click to the current
+	// button; the journey already proved above that the draft finished saving.
+	await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).dispatchEvent("click");
+	await expect(page.locator(".connection-editor .discovery-note")).toContainText("Test passed in", { timeout: 60000 });
 
   // 6. THE STORED-KEY FIELD ROUND TRIP. What is typed is never read back: the field
   // returns saying a key is stored, and the key itself is not in it.
@@ -867,7 +883,9 @@ test("finished turns undo their own real file changes before and after restart 2
 	const run = async (name) => {
 		await page.locator("#chat-task").fill(`acceptance: undo-files ${name}`);
 		await page.locator("#chat-send").click();
-		await expect(page.locator(".chat-response").filter({ hasText: `UNDO FILES ${name} DONE` })).toBeVisible({ timeout: 30000 });
+		// The loaded full suite crossed the former 30 s response bound; the
+		// controlled response completed on the same tree when run alone.
+		await expect(page.locator(".chat-response").filter({ hasText: `UNDO FILES ${name} DONE` })).toBeVisible({ timeout: 60000 });
 		await expect.poll(async () => (await harness.getState()).sessions[sessionID].run.status).toBe("idle");
 	};
 	await run("alpha");

@@ -128,7 +128,9 @@ func TestAgentConnectionChangeAppliesAfterStop(t *testing.T) {
 	}()
 	waitEventType(t, eventStream, events.RunStopping, "run did not enter stopping state")
 	close(releaseOld)
-	waitSignal(t, stopDone, "STOP did not finish")
+	// Hosted Windows finished this test in 5.45 s after the 3 s helper expired;
+	// ten seconds keeps a loaded runner from turning a completed STOP into a red.
+	waitSignalWithin(t, stopDone, 10*time.Second, "STOP did not finish")
 	waitFor(t, func() bool { return fixture.session.Snapshot().ConnectionID == fixture.newID }, "STOP did not apply pending binding")
 }
 
@@ -242,9 +244,14 @@ func writeModelDone(w http.ResponseWriter) {
 
 func waitSignal(t *testing.T, signal <-chan struct{}, message string) {
 	t.Helper()
+	waitSignalWithin(t, signal, 3*time.Second, message)
+}
+
+func waitSignalWithin(t *testing.T, signal <-chan struct{}, limit time.Duration, message string) {
+	t.Helper()
 	select {
 	case <-signal:
-	case <-time.After(3 * time.Second):
+	case <-time.After(limit):
 		t.Fatal(message)
 	}
 }

@@ -43,7 +43,10 @@ function Remove-InstallerTestKeys {
     param([Parameter(Mandatory=$true)][string]$Like)
     Get-ChildItem -LiteralPath 'HKCU:\Software' -ErrorAction SilentlyContinue |
         Where-Object { $_.PSChildName -like $Like } |
-        ForEach-Object { Remove-Item -LiteralPath $_.PSPath -Recurse -Force }
+        ForEach-Object {
+            $staleRegistryKey = $_.PSPath
+            Remove-Item -LiteralPath $staleRegistryKey -Recurse -Force
+        }
 }
 Remove-InstallerTestKeys -Like 'Agent_b-Installer-Test-*'
 

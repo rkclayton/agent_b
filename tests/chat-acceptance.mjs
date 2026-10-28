@@ -484,15 +484,16 @@ const state = (sessionID = "") => json(`http://127.0.0.1:${appPort}/api/state${s
 // Item 2eo: a Steps fold with at most one tool call and one thought has no
 // header and is always open; a fold that has a header is opened by clicking it.
 // Item 2ql: finished work has an outer one-line fold, which must be opened
-// before an inner step disclosure can be found.
+// before a step can be found. Item 2w2 (v1.60.88): that fold is the only one; it
+// opens to one flat list of every step, so there is no inner disclosure (item 2x4).
 async function openStepFoldIfDrawn() {
-	const clickLastClosed = (selector) => page.evaluate((value) => {
+	// the reply a fixture just set is drawn on the next frames; the toggle is read after them.
+	await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+	await page.evaluate(() => {
 		const response = [...document.querySelectorAll(".chat-response")].at(-1);
-		const control = [...(response?.querySelectorAll(value) || [])].at(-1);
+		const control = [...(response?.querySelectorAll(".chat-work-summary-toggle") || [])].at(-1);
 		if (control?.getAttribute("aria-expanded") === "false") control.click();
-	}, selector);
-	await clickLastClosed(".chat-work-summary-toggle");
-	await clickLastClosed(".chat-step-summary");
+	});
 }
 
 async function openEveryFold(selector) {
@@ -1741,7 +1742,12 @@ if (realModel) {
   }
   const toolButton = page.locator('[data-entry-key*="menu-stream-0"] button.tool-tick');
   await toolButton.waitFor({ state: "visible" });
-  assert.equal(await toolButton.evaluate((node) => node.closest('.chat-response')?.querySelector('.chat-step-summary')?.hidden), true, "the active pinned rows have no inert Steps disclosure");
+  // Item 2w1 (v1.60.88): a running turn has ONE head, updated in place, and the step
+  // shown mid-run sits in the open list under it; there is no second, inert disclosure (item 2x4).
+  assert.deepEqual(await toolButton.evaluate((node) => {
+    const response = node.closest(".chat-response");
+    return { heads: response?.querySelectorAll(".chat-work-summary").length, inRows: !!node.closest(".chat-work-fold > .chat-work-rows"), open: response?.querySelector(".chat-work-summary-toggle")?.getAttribute("aria-expanded") };
+  }), { heads: 1, inRows: true, open: "true" }, "the mid-run step sits in the open list under the run's one head");
   await toolButton.hover();
   const toolButtonHandle = await toolButton.elementHandle();
   assert.ok(toolButtonHandle, "tool-tick must have an actionable node");
@@ -1851,13 +1857,13 @@ if (realModel) {
     ];
     bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
     await new Promise(resolve => setTimeout(resolve, 120));
-    const summary = document.querySelector('.chat-step-summary');
+    // Item 2w2 (v1.60.88): the finished head is the reply's one work head (item 2x4).
+    const summary = [...document.querySelectorAll('.chat-response')].at(-1)?.querySelector('.chat-work-summary');
     return { collapsed: summary?.innerText || '' };
   })()`);
   await openStepFoldIfDrawn();
   await page.waitForFunction(() => document.querySelectorAll('[data-entry-key^="hotfix:"]').length === 3);
   const missingArgsFixture = await page.evaluate(() => {
-    const summary = document.querySelector('.chat-step-summary');
     return {
       rows: document.querySelectorAll('[data-entry-key^="hotfix:"]').length,
       responseAlarm: document.querySelector('.chat-response')?.classList.contains('alarm') || false,
@@ -1865,6 +1871,7 @@ if (realModel) {
       text: document.querySelector('#chat-log')?.innerText || ''
     };
   });
+  assert.match(missingArgsInitial.collapsed, /^Worked /);
   assert.doesNotMatch(missingArgsInitial.collapsed, /failed/);
   assert.equal(missingArgsFixture.rows, 3);
   assert.equal(missingArgsFixture.responseAlarm, false);
@@ -1963,33 +1970,37 @@ if (realModel) {
     ];
     bus.setSelection('agent_b', ${JSON.stringify(sessionID)});
     await new Promise(resolve => setTimeout(resolve, 120));
-    const summary = document.querySelector('.chat-step-summary');
-    return { collapsed: summary?.innerText || '', collapsedRows: document.querySelectorAll('.chat-step-rows > *').length };
+    // Item 2w2 (v1.60.88): one head over one flat list; the tool group and its
+    // second level left with the per-turn folds (item 2x4).
+    const response = [...document.querySelectorAll('.chat-response')].at(-1);
+    return { collapsed: response?.querySelector('.chat-work-summary')?.innerText || '', collapsedRows: response?.querySelectorAll('.chat-work-rows > *').length ?? -1 };
   })()`);
   await openStepFoldIfDrawn();
   const groupingOpen = await page.evaluate(() => {
-    const group = document.querySelector('.chat-tool-group-head');
-    return { rows: document.querySelectorAll('.chat-step-rows > *').length, groupText: group?.innerText || '' };
+    const response = [...document.querySelectorAll('.chat-response')].at(-1);
+    const rows = [...response.querySelectorAll('.chat-work-rows > *')];
+    return { keys: rows.map((row) => row.dataset.entryKey || row.className), nested: response.querySelectorAll('.chat-work-rows [data-entry-key] [data-entry-key]').length };
   });
-  await page.locator(".chat-tool-group-head").click();
   // Item 2mu (a): a thought's entry key carries the `thought:` prefix now, in the
   // grouped path as well as the standalone one, so the fold the operator opens
   // survives the switch between the two branches. The selector moved with it; the
   // tool tick on the next line is not a thought and is unchanged.
   await page.locator('[data-entry-key="thought:group:thin"] .thinking-line').click();
   await page.locator('[data-entry-key="thought:group:long"] .thinking-line').click();
-  await page.locator('[data-entry-key="group:read-3"] .tool-tick').click();
+  for (const key of ["group:read-1", "group:read-2", "group:read-3"]) await page.locator(`[data-entry-key="${key}"] .tool-tick`).click();
   const groupingFixture = await page.evaluate(() => ({
-      calls: document.querySelectorAll('.chat-tool-group-calls .tool-tick').length,
-      details: document.querySelectorAll('.chat-tool-group-calls .tool-detail').length,
+      calls: [...document.querySelectorAll('.chat-response')].at(-1).querySelectorAll('.chat-work-rows .tool-tick').length,
+      details: [...document.querySelectorAll('.chat-response')].at(-1).querySelectorAll('.chat-work-rows .tool-detail').length,
       text: document.querySelector('#chat-log')?.innerText || ''
   }));
-  assert.match(groupingInitial.collapsed, /Read 3 files and thought 2 times\s*· 25 ms/);
+  // the recorded steps took 4 + 3 + 5 + 7 + 6 ms; collapsed, nothing below the head.
+  assert.match(groupingInitial.collapsed, /^Worked 25 ms · \d+ steps?\s*▸$/);
   assert.equal(groupingInitial.collapsedRows, 0);
-  assert.equal(groupingOpen.rows, 3);
-  assert.match(groupingOpen.groupText, /read_file ×2 · \+1 thought · 1 retried · 12 ms/);
-  assert.equal(groupingFixture.calls, 2);
-  assert.equal(groupingFixture.details, 2);
+  // open: the five recorded rows, in the order they were recorded, each a row of the one list.
+  assert.deepEqual(groupingOpen.keys, ["group:read-1", "thought:group:thin", "group:read-2", "thought:group:long", "group:read-3"]);
+  assert.equal(groupingOpen.nested, 0);
+  assert.equal(groupingFixture.calls, 3);
+  assert.equal(groupingFixture.details, 3);
   for (const text of ["ONE COMPLETE", "thin recorded thought", "TWO COMPLETE FAILURE", "long recorded thought", "THREE COMPLETE"]) assert.match(groupingFixture.text, new RegExp(text));
   record("three-level-chat-fold-adjacent-thin-failure-complete");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
@@ -2011,9 +2022,11 @@ if (realModel) {
     return true;
   })()`);
   await openStepFoldIfDrawn();
-  for (const toolTick of await page.locator(".tool-tick").all()) await toolTick.click();
+  // Item 2w2 (v1.60.88): an earlier reply's list stays open and one level deep, so its
+  // arrows are on the page too; this journey counts its own reply's (item 2x4).
+  for (const toolTick of await page.locator(".chat-response").last().locator(".tool-tick").all()) await toolTick.click();
   const twoArrowFixture = await page.evaluate(() => {
-    const nodes = [...document.querySelectorAll('button.collapse-arrow')].filter(node => !node.hidden);
+    const nodes = [...[...document.querySelectorAll('.chat-response')].at(-1).querySelectorAll('button.collapse-arrow')].filter(node => !node.hidden);
     return {
       arrows: nodes.map(node => ({
         arrow: node.getBoundingClientRect().toJSON(),
@@ -2076,7 +2089,7 @@ if (realModel) {
       linkLabel: chip?.querySelector('a')?.getAttribute('aria-label') || '',
       glyph: !!chip?.querySelector('a svg'),
       nameOpenable: !!chip?.querySelector('.file-chip-name.openable'),
-      stepsHeaders: chip?.closest('.chat-response-block')?.querySelectorAll('.chat-step-summary:not([hidden])').length || 0,
+      stepsHeaders: chip?.closest('.chat-response')?.querySelectorAll('.chat-work-summary').length || 0,
       gap: chip ? getComputedStyle(chip).gap : '',
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
     };
@@ -2094,7 +2107,8 @@ if (realModel) {
   assert.equal(deliveredChip.gap, "8px");
   assert.equal(deliveredChip.horizontalOverflow, false);
   await captureWithMasks(page, join(baselineDirectory, "chat-delivered-folder-link.png"));
-  assert.equal(deliveredChip.stepsHeaders, 1, "narration carries the one inline step chip (item 2ql)");
+  // Item 2w1 (v1.60.88): the reply's one tool call is under the reply's one work head (item 2x4).
+  assert.equal(deliveredChip.stepsHeaders, 1, "the reply carries one work head (items 2ql, 2w1)");
   record("delivered-file-chip-folder-link-only");
   await browser.evaluate(`(async () => { const bus = await import(new URL("bus.js", document.querySelector("script[src*='/js/build-check.js']").src).href); bus.reduce({ type: 'snapshot', data: await fetch('/api/state', { cache: 'no-store' }).then(response => response.json()) }); return true; })()`);
   await browser.wait(`document.querySelector('#chat-log') && !document.querySelector('#chat-log').innerText.includes('DELIVERY READY')`, "delivery fixture restored");
@@ -2119,51 +2133,59 @@ if (realModel) {
     await new Promise(resolve => setTimeout(resolve, 120));
     return true;
   })()`);
-  const finalProseHandle = await page.locator(".chat-response-prose").first().elementHandle();
-  assert.ok(finalProseHandle, "final prose block must be actionable");
-  const initial = await page.evaluate(() => ({
-    prose: [...document.querySelectorAll('.chat-response .chat-response-prose')].map(node => node.innerText),
-    worked: document.querySelector('.chat-work-summary')?.innerText || '',
-    foldCount: document.querySelectorAll('.chat-response .chat-step-summary').length
-  }));
-  assert.deepEqual(initial.prose, ["SECOND PROSE BLOCK"]);
-  assert.match(initial.worked, /^Worked .* · \d+ steps?\s*▸$/);
-  assert.equal(initial.foldCount, 0);
-  await page.locator(".chat-work-summary-toggle").click();
-  const folds = page.locator(".chat-response .chat-step-summary");
-  assert.equal(await folds.count(), 2);
-  await openEveryFold(".chat-response .chat-step-summary");
-  const expandedProse = await page.evaluate((finalProse) => {
-    const response = document.querySelector('.chat-response');
+  // Item 2w2 (v1.60.88): text from a turn that made a tool call is interstitial. Both
+  // turns here made one, so the reply has no final prose: the head stands alone, and
+  // opened, its one flat list holds each turn's line followed by that turn's steps,
+  // in the order recorded. The head is one element throughout (item 2w1) (item 2x4).
+  const workHead = await page.locator(".chat-response").last().locator(".chat-work-summary").elementHandle();
+  assert.ok(workHead, "the reply's work head must be actionable");
+  const initial = await page.evaluate(() => {
+    const response = [...document.querySelectorAll('.chat-response')].at(-1);
     return {
       prose: [...response.querySelectorAll('.chat-response-prose')].map(node => node.innerText),
-      keys: [...response.querySelectorAll('.chat-step-rows')].map(node => [...node.querySelectorAll('[data-entry-key]')].map(row => row.dataset.entryKey)),
-      finalStable: finalProse === response.querySelector('.chat-response-final .chat-response-prose') && finalProse.isConnected,
+      worked: response.querySelector('.chat-work-summary')?.innerText || '',
+      rows: response.querySelectorAll('.chat-work-rows > *').length
+    };
+  });
+  assert.deepEqual(initial.prose, []);
+  // two tool turns; the recorded steps took 4 + 5 + 3 ms.
+  assert.match(initial.worked, /^Worked 12 ms · 2 steps\s*▸$/);
+  assert.equal(initial.rows, 0);
+  await page.locator(".chat-response").last().locator(".chat-work-summary-toggle").click();
+  const expandedProse = await page.evaluate((head) => {
+    const response = [...document.querySelectorAll('.chat-response')].at(-1);
+    return {
+      prose: [...response.querySelectorAll('.chat-response-prose')].map(node => node.innerText),
+      rows: [...response.querySelectorAll('.chat-work-rows > *')].map(row => row.dataset.entryKey || (row.classList.contains('chat-work-narration') ? `line:${row.innerText}` : row.className)),
+      nested: response.querySelectorAll('.chat-work-rows [data-entry-key] [data-entry-key]').length,
+      headStable: head === response.querySelector('.chat-work-summary') && head.isConnected,
       text: response.innerText
     };
-  }, finalProseHandle);
-  assert.deepEqual(expandedProse.prose, ["FIRST PROSE BLOCK", "SECOND PROSE BLOCK"]);
-  assert.deepEqual(expandedProse.keys, [
-    ["thought:prose:first", "prose:first-tool", "prose:first-notice"],
-    ["thought:prose:second", "prose:second-tool", "prose:second-tool-2"]
+  }, workHead);
+  assert.deepEqual(expandedProse.prose, []);
+  assert.deepEqual(expandedProse.rows, [
+    "line:FIRST PROSE BLOCK", "thought:prose:first", "prose:first-tool", "prose:first-notice",
+    "line:SECOND PROSE BLOCK", "thought:prose:second", "prose:second-tool", "prose:second-tool-2"
   ]);
-  assert.equal(expandedProse.finalStable, true);
+  assert.equal(expandedProse.nested, 0);
+  assert.equal(expandedProse.headStable, true);
   assert.match(expandedProse.text, /compacted −10 tokens/);
   await page.setViewportSize({ width: 320, height: 720 });
   const narrowProse = await browser.evaluate(`(() => {
-    const response = document.querySelector('.chat-response');
-    const prose = response.querySelector('.chat-response-prose').getBoundingClientRect();
-    const fold = response.querySelector('.chat-step-fold').getBoundingClientRect();
+    const response = [...document.querySelectorAll('.chat-response')].at(-1);
+    const content = response.querySelector('.chat-response-content').getBoundingClientRect();
+    const fold = response.querySelector('.chat-work-fold').getBoundingClientRect();
     const log = document.querySelector('#chat-log');
     return {
-      inset: fold.left - prose.left,
+      foldLeft: fold.left,
       foldRight: fold.right,
-      proseRight: prose.right,
+      contentLeft: content.left,
+      contentRight: content.right,
       logOverflow: log.scrollWidth - log.clientWidth,
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     };
   })()`);
-  assert.ok(narrowProse.inset >= 4, JSON.stringify(narrowProse));
+  assert.ok(narrowProse.foldLeft >= narrowProse.contentLeft && narrowProse.foldRight <= narrowProse.contentRight + 0.5, JSON.stringify(narrowProse));
   assert.ok(narrowProse.logOverflow <= 0 && narrowProse.pageOverflow <= 0, JSON.stringify(narrowProse));
   await page.setViewportSize({ width: 1250, height: 975 });
   record("finished-work-fold-restores-prose-and-steps-no-horizontal-scroll");
@@ -2268,15 +2290,22 @@ if (realModel) {
 
   events = await sessionEvents(sessionID);
   const beforePlanRegistration = events.at(-1)?.seq || 0;
+  // Item 2w6 (v1.60.89): planning is opt-in and a repo is added on the Repos page; the
+  // chat's own registration path left with internal/agent/plan_registration.go. The same
+  // words are now an ordinary message: answered, and nothing registered (item 2x4).
   await setTask(`Add ${bound} as a plan`);
-	const planRegistrationNotice = await waitEvent(sessionID, (event) => event.seq > beforePlanRegistration && event.type === "message.appended" && event.data?.message?.content === "registered acceptance-bound as a plan", "default plan registration notice");
-	assert.equal(planRegistrationNotice.data.message.role, "harness");
-	const planRegistrationStopped = await waitEvent(sessionID, (event) => event.seq > planRegistrationNotice.seq && event.type === "run.stopped", "plan registration completed");
-	assert.equal(planRegistrationStopped.data.detail, "plan registered: acceptance-bound");
+	const planRegistrationStopped = await waitEvent(sessionID, (event) => event.seq > beforePlanRegistration && event.type === "run.stopped", "the plan message's run stopped");
+	assert.equal(planRegistrationStopped.data.reason, "done");
+	await waitProjectedChatText(sessionID, "Acceptance response.", "the plan message answered as an ordinary message");
 	events = await sessionEvents(sessionID);
-	assert.equal(events.some((event) => event.seq > beforePlanRegistration && event.type === "approval.required" && event.data?.name === "plan registration"), false);
+	assert.equal(events.some((event) => event.seq > beforePlanRegistration && event.type === "message.appended" && event.data?.message?.role === "harness"), false);
+	assert.equal(events.some((event) => event.seq > beforePlanRegistration && event.type === "approval.required"), false);
 	assert.equal(await page.locator(".approval-card").count(), 0);
-	record("default-plan-registration-notice-without-card");
+	assert.equal(((await state()).plans || []).some((plan) => plan.name === "acceptance-bound"), false);
+	record("plan-message-registers-nothing-2w6");
+	// the operator adds the repo on the Repos page, as 2w6 has it; the inspection below runs in it.
+	await json(`http://127.0.0.1:${appPort}/api/plans`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ repo: bound }) });
+	assert.equal(((await state()).plans || []).some((plan) => plan.name === "acceptance-bound"), true);
 	events = await sessionEvents(sessionID);
 	const beforeInspectionApproval = events.at(-1)?.seq || 0;
 	await setTask(`Please inspect acceptance directory "${bound}" and report.`);
@@ -2893,12 +2922,14 @@ if (realModel) {
     await walk(root, 0);
     return found;
   };
+  // Item 2w6 (v1.60.89): a repo is the unit and the harness keeps no plans/<id> folder
+  // for it, so what outlives the chat is the repo in the Repos list (item 2x4).
   const durable = {
-    plans: (await anyFileUnder(join(profileData, "plans"))).length,
+    repos: ((await state()).plans || []).filter((plan) => plan.name === "acceptance-bound").length,
     memory: (await anyFileUnder(join(profileData, "memory"))).length,
   };
-  // The plans it registered and the memory it noted outlived the chat.
-  assert.ok(durable.plans > 0, JSON.stringify(durable));
+  // The repo it worked in and the memory it noted outlived the chat.
+  assert.ok(durable.repos === 1 && durable.memory > 0, JSON.stringify(durable));
   record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
   // Fifty chats is the realistic-size list for 2rv and exceeds the engineering floor.
@@ -3037,11 +3068,14 @@ if (realModel) {
   assert.equal(afterPlus.sessions[plusID].budget?.categories?.files || 0, 0, "New chat must carry no files");
   record("chats-transcripts-and-names-survive-application-restart");
 
-  const browserPlanDir = join(profileData, "plans", "browser-plan");
+  // Item 2w6 (v1.60.89): the plan is the repo. The repo registered above enters
+  // planning by plan.md at its root, and its items live in the repo; the harness
+  // keeps no plans/<id> copy (item 2x4).
+  const browserPlanDir = bound;
   await mkdir(join(browserPlanDir, "plan", "items"), { recursive: true });
   await writeFile(join(browserPlanDir, "plan.md"), "# Browser plan\n");
-  await writeFile(join(browserPlanDir, "NOTES.md"), "");
-  await writeFile(join(browserPlanDir, "plan.json"), JSON.stringify({ repo: bound }, null, 2));
+  const browserPlan = ((await state()).plans || []).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("acceptance-bound"));
+  assert.ok(browserPlan?.planning, `the repo is in planning: ${JSON.stringify(browserPlan)}`);
   const beforeD = await state();
   const selectedAgentID = beforeD.sessions[plusID].agent_id;
   const agentID = (agent) => String(agent?.name || "").trim().toLowerCase() === "agent_b"
@@ -3110,12 +3144,12 @@ if (realModel) {
   const boundCreated = await json(`http://127.0.0.1:${appPort}/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": dState.mutation_token },
-    body: JSON.stringify({ agent_id: "agent_b", role: "d", plan_id: "browser-plan" }),
+    body: JSON.stringify({ agent_id: "agent_b", role: "d", plan_id: browserPlan.id }),
   });
   const boundD = boundCreated.session;
   // Item 2fc: the Plan page lists plans and shows one raw; the planning chat is
   // its own tab, and its proposals sit in its thread above the composer.
-  const planPageURL = `http://127.0.0.1:${appPort}/plan?plan=browser-plan`;
+  const planPageURL = `http://127.0.0.1:${appPort}/plan?plan=${encodeURIComponent(browserPlan.id)}`;
   const chatURL = (id) => `http://127.0.0.1:${appPort}/chat?session=${encodeURIComponent(id)}`;
   await page.goto(planPageURL);
   await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('# Browser plan')`, "the raw plan on the Plan page");
@@ -3175,7 +3209,7 @@ if (realModel) {
   await page.screenshot({ path: join(evidenceRun, "plan-worker-running.png") });
   const workerSession = Object.values((await state()).sessions).find((entry) => entry.role === "c");
   assert.ok(workerSession, "the worker did not get its own session");
-  assert.equal(workerSession.plan_id, "browser-plan");
+  assert.equal(workerSession.plan_id, browserPlan.id);
   // The worker has no chat: its card is drawn in the planning chat's thread,
   // marked as the worker's, and answered there.
   await page.goto(chatURL(boundD.id));
@@ -3261,95 +3295,49 @@ if (realModel) {
   assert.ok(!markedPlan.includes("[~]"), markedPlan);
   record("plan-go-worker-post-and-done-card");
   record("no-verifier-item-stuck-and-proposed-in-tray");
-  // A plan whose repository is inside the plans folder shows why on its panel,
-  // and Go is refused rather than starting a worker that could only be refused.
-  const planManifest = join(browserPlanDir, "plan.json");
-  const originalManifest = await readFile(planManifest, "utf8");
-  const insideRepo = join(browserPlanDir, "repo-inside-plans");
+  // Item 2w6 (v1.60.89): a plan is a registered repo with no plan.json to point
+  // elsewhere, so a repository inside the plans folder is refused where it would be
+  // added, with the same reason, and nothing is registered (item 2x4).
+  const insideRepo = join(profileData, "plans", "repo-inside-plans");
   await mkdir(insideRepo, { recursive: true });
-  await writeFile(planManifest, JSON.stringify({ repo: insideRepo }, null, 2));
-  await writeFile(planPath, markedPlan + "- [ ] 2w would be refused\n");
-  await page.reload();
-  await browser.wait(`document.querySelector('#plan-refusal')?.innerText.includes('inside the plans folder')`, "the refusal line on the plan panel", 20000);
-  await browser.wait(`document.querySelector('#plan-go') && document.querySelector('#plan-go').disabled`, "Go refused for a repo inside the plans folder", 20000);
-  await page.screenshot({ path: join(evidenceRun, "plan-refusal.png") });
-  await writeFile(planManifest, originalManifest);
-  await writeFile(planPath, markedPlan);
-  record("repo-inside-plans-refusal-line-and-go-refused");
+  const insideRefusal = await json(`http://127.0.0.1:${appPort}/api/plans`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ repo: insideRepo }) }).then(() => "", (error) => error.message);
+  assert.match(insideRefusal, /inside the plans folder/);
+  assert.equal(((await state()).plans || []).some((plan) => plan.repo && plan.repo.toLowerCase().endsWith("repo-inside-plans")), false);
+  record("repo-inside-plans-refused-at-registration-2w6");
 
-  // 2gp: a filled three-question brief enters the planning request as scoped
-  // data, and the fake planner's accepted plan.md draft carries every field.
+  // Item 2w6 (v1.60.89): the planning wizard left; a repo is added on the Repos page
+  // through the folder picker and enters planning only when he asks, which writes the
+  // template to <repo>/plan.md (and its items folder) and nothing else (item 2x4).
   const briefRepo = join(args.data, "..", "brief-repo");
   await mkdir(briefRepo, { recursive: true });
   await page.goto(planPageURL);
+  await page.route("**/api/folder-picker", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: briefRepo }) }));
   await page.locator("#plan-add").click();
-  await page.locator("#plan-add-path").fill(briefRepo);
-  await page.locator("#plan-add-path").press("Enter");
-  await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now for the filled brief");
+  await page.locator("#plan-add-preview").waitFor({ state: "visible" });
+  await page.locator("#plan-add-confirm").click();
+  await page.locator("#plan-enable:not([hidden])").waitFor();
   const briefPlan = (await json(`http://127.0.0.1:${appPort}/api/plans`)).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("brief-repo"));
-  assert.ok(briefPlan, "the filled-brief plan was not registered");
-  const briefPlanPath = join(profileData, "plans", briefPlan.id, "plan.md");
-  planningBriefOriginal = await readFile(briefPlanPath, "utf8");
-  await page.locator("#plan-build-yes").click();
-  await page.locator("#plan-wizard").waitFor({ state: "visible" });
-  await page.screenshot({ path: join(evidenceRun, "planning-1-purpose.png") });
-  await page.locator("#plan-wizard-value").fill("Acceptance project purpose");
-  await page.locator("#plan-wizard-next").click();
-  await page.screenshot({ path: join(evidenceRun, "planning-2-done.png") });
-  await page.locator("#plan-wizard-value").fill("Milestone one\nMilestone two\nMilestone three");
-  await page.locator("#plan-wizard-next").click();
-  await page.screenshot({ path: join(evidenceRun, "planning-3-do-not-touch.png") });
-  await page.locator("#plan-wizard-value").fill("Do not touch billing");
-  await page.locator("#plan-wizard-next").click();
-  await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
-  // The URL changes before the new document is up. Item 2no put the wizard inside the
-  // chat's own document, so the navigation it ends with lands in the same frame and an
-  // evaluate that ran between the two was destroyed mid-flight. Wait for the chat.
-  await page.locator("#chat-task").waitFor({ state: "visible" });
-  await browser.wait(`document.querySelectorAll('#chat-proposals .plan-proposal').length === 1`, "the filled brief's plan.md draft", 20000);
-  const briefProposal = page.locator("#chat-proposals .plan-proposal").first();
-  await briefProposal.getByRole("button", { name: "Accept" }).click();
-  await waitFileContains(briefPlanPath, "Acceptance project purpose");
-  const draftedBriefPlan = await readFile(briefPlanPath, "utf8");
-  for (const text of ["Acceptance project purpose", "Milestone one", "Milestone two", "Milestone three", "Do not touch billing"]) assert.match(draftedBriefPlan, new RegExp(text));
-  record("planning-wizard-three-fields-carried-into-accepted-plan-draft");
+  assert.ok(briefPlan && !briefPlan.planning, `the added repo is registered and not in planning: ${JSON.stringify(briefPlan)}`);
+  assert.deepEqual(await readdir(briefRepo), [], "adding a repo writes nothing into it");
+  await page.locator("#plan-enable").click();
+  await waitFileContains(join(briefRepo, "plan.md"), "## ");
+  assert.deepEqual((await readdir(briefRepo)).sort(), ["plan", "plan.md"]);
+  assert.equal((await json(`http://127.0.0.1:${appPort}/api/plans`)).find((plan) => plan.id === briefPlan.id)?.planning, true);
+  await page.unroute("**/api/folder-picker");
+  record("repos-add-then-planning-writes-only-the-template-2w6");
 
-  // Item 2fc: + asks for a folder, registers its plan from the template, and
-  // asks "Build plan now?"; Yes opens the planning chat bound to it with the
-  // request in its composer — sent by the operator, never by the harness.
-  const newRepo = join(args.data, "..", "flyout-repo");
-  await mkdir(newRepo, { recursive: true });
+  // Item 2fc: Add repo asks for a folder and a folder that is not there is refused with
+  // its reason. Item 2w6 (v1.60.89) took "Build plan now?" and the opening request away
+  // with the wizard; what remains is the refusal, and nothing registered (item 2x4).
+  const missingRepo = join(args.data, "..", "no-such-folder");
   await page.goto(planPageURL);
+  await page.route("**/api/folder-picker", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: missingRepo }) }));
   await page.locator("#plan-add").click();
-  await page.locator("#plan-add-path").fill(join(args.data, "..", "no-such-folder"));
-  await page.locator("#plan-add-path").press("Enter");
   await browser.wait(`document.querySelector('#plan-add-error') && !document.querySelector('#plan-add-error').hidden`, "a missing folder is refused with the reason");
-  await page.locator("#plan-add-path").fill(newRepo);
-  await page.locator("#plan-add-path").press("Enter");
-  await browser.wait(`document.querySelector('#plan-build') && !document.querySelector('#plan-build').hidden`, "Build plan now?");
-  await browser.wait(`document.querySelector('#plan-raw')?.textContent.includes('## ')`, "the new plan's template on the right");
-  const createdPlan = (await json(`http://127.0.0.1:${appPort}/api/plans`)).find((plan) => plan.repo && plan.repo.toLowerCase().endsWith("flyout-repo"));
-  assert.ok(createdPlan, "the plan was not registered");
-  await page.screenshot({ path: join(evidenceRun, "plan-build-prompt.png") });
-  await page.locator("#plan-build-yes").click();
-  await page.locator("#plan-wizard").waitFor({ state: "visible" });
-  // 2gp keeps an empty/skipped planning wizard identical to the established
-  // Build-plan behavior exercised by this regression scenario.
-  for (let step = 0; step < 3; step += 1) await page.locator("#plan-wizard-skip").click();
-  await page.waitForURL((url) => url.pathname === "/chat" && !!url.searchParams.get("session"));
-  await page.locator("#chat-task").waitFor({ state: "visible" });
-  // v0.70.1 overrule: Yes sends the fixed opening request — one user message,
-  // that request, and nothing else in the operator's name; the composer is empty.
-  await waitEvent(null, (event) => event.type === "message.appended" && event.data?.message?.role === "user" && String(event.data?.message?.content || "").includes("draft its plan"), "the opening request sent on Yes", 20000);
-  const planner = Object.values((await state()).sessions).find((entry) => entry.role === "d" && entry.plan_id === createdPlan.id);
-  assert.ok(planner, "Yes did not open a planning chat bound to the plan");
-  const opening = (planner.messages || []).filter((message) => message.role === "user");
-  assert.equal(opening.length, 1, "Yes sends exactly one message");
-  assert.match(opening[0].content, /draft its plan/);
-  assert.equal(await page.locator("#chat-task").inputValue(), "", "the request was sent, not left in the composer");
-  // Its run holds the shared connection; the queue scenario below starts after it.
-  await waitEvent(planner.id, (event) => event.type === "run.stopped", "the planning chat's opening run finished", 60000);
-  record("plan-flyout-add-folder-build-prompt-yes-sends");
+  assert.match(await page.locator("#plan-add-error").innerText(), /choose an existing folder/);
+  assert.equal((await json(`http://127.0.0.1:${appPort}/api/plans`)).some((plan) => plan.repo && plan.repo.toLowerCase().endsWith("no-such-folder")), false);
+  await page.unroute("**/api/folder-picker");
+  record("repos-add-refuses-a-missing-folder-2w6");
 
   // Item 2fc: runs queue per model connection. While one chat holds the connection,
   // another waits with the role it is behind and answers after the holder releases it.
@@ -3381,12 +3369,9 @@ if (realModel) {
   });
   const carded = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
   const beside = (await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ agent_id: "agent_b" }) })).session;
-	const pausedPlanDir = join(args.data, "paused-card-plan");
-	await mkdir(join(pausedPlanDir, "plan", "items"), { recursive: true });
-	await writeFile(join(pausedPlanDir, "plan.md"), "# Paused card plan\n");
-	await writeFile(join(pausedPlanDir, "NOTES.md"), "");
-	await writeFile(join(pausedPlanDir, "plan.json"), JSON.stringify({ repo: bound }, null, 2));
-  await post(carded.id, `Add ${pausedPlanDir} as a plan`);
+  // Item 2w6 (v1.60.89) took the chat's registration card away; in mutating mode a
+  // shell call raises a card the same way (item 2x4).
+  await post(carded.id, `Please inspect acceptance directory "${bound}" and report.`);
   const unanswered = await waitEvent(carded.id, (event) => event.type === "approval.required", "chat A's card");
   await page.goto(chatURL(beside.id));
   await page.locator("#chat-task").waitFor({ state: "visible" });

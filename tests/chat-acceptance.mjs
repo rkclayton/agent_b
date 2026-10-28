@@ -744,6 +744,8 @@ record("open-chat");
 async function loopSteer(sessionID) {
   const beforeLoop = (await sessionEvents(sessionID)).at(-1)?.seq || 0;
   await setTask("acceptance: loop steer"); await waitProjectedChatText(sessionID, "LOOP STEER ANSWER", "loop steer answered");
+  // the answer is drawn before its run records its stop; the events were read in between (item 2x2).
+  await waitEvent(sessionID, (event) => event.seq > beforeLoop && event.type === "run.stopped", "loop steer run stopped");
   const loopEvents = (await sessionEvents(sessionID)).filter((event) => event.seq > beforeLoop), steers = loopEvents.filter((event) => event.type === "cycle.detected" && event.data?.stage === "steer");
   const third = loopEvents.find((event) => event.type === "tool.result" && event.data?.call_id === "loop-steer-2");
   assert.equal(steers.length, 1); assert.ok(third && steers[0].seq > third.seq, "the steer follows the third listing");
@@ -1293,11 +1295,12 @@ if (realModel) {
   // Item 2ni: the Plan is an entry in this nav, third, carrying the operator's own
   // prepared mark — the same asset the tab carried, at the same drawn size.
   const planEntry = page.locator('.settings-nav [data-id="plan"]');
+  // Item 2w6 renamed the entry Repos and dropped its chip; these literals had not moved (item 2x2).
   assert.equal(await planEntry.count(), 1);
-  assert.equal(await planEntry.locator("img.shell-page-chip").count(), 1);
+  assert.equal(await planEntry.locator("img.shell-page-chip").count(), 0);
   assert.deepEqual(
     (await page.locator(".settings-nav button").allInnerTexts()).map((line) => line.trim()).slice(0, 3),
-    ["Activity", "Plan", "Connections"],
+    ["Activity", "Repos", "Connections"],
   );
   const panelGeometry = await captureShellGeometry();
   assert.deepEqual(panelGeometry.shell, chatGeometry.shell, JSON.stringify({ chatGeometry, panelGeometry }));
@@ -2328,7 +2331,7 @@ if (realModel) {
     // Item 2ni: the Plan's entry opens its own DOCUMENT, so it draws no rows in this
     // sheet and clicking it here would leave Settings mid-enumeration. It is proved
     // on its own below, including the way back.
-    if (section.trim() === "Plan") continue;
+    if (section.trim() === "Repos") continue;
     assert.equal(await clickText(".settings-nav button", section), true);
     await sleep(150);
     const rows = await browser.evaluate(`[...document.querySelectorAll('.settings-content .setting-row')].map((row) => ({ label: row.querySelector('label')?.textContent.trim() || '', title: (row.getAttribute('title') || '').trim() }))`);
@@ -2342,9 +2345,10 @@ if (realModel) {
   // DRAWN IN THE PANE now, like every other section — no navigation, so the address
   // stays the Settings pattern and the gear is the sheet's own close, which it always
   // was for every other section.
-  assert.deepEqual(settingsSections.map((name) => name.trim()).slice(0, 3), ["Activity", "Plan", "Connections"]);
-  assert.equal(await page.locator('.settings-nav [data-id="plan"] img.shell-page-chip').count(), 1);
-  assert.equal(await clickText(".settings-nav button", "Plan"), true);
+  // Item 2w6 renamed the entry Repos and dropped its chip; these literals had not moved (item 2x2).
+  assert.deepEqual(settingsSections.map((name) => name.trim()).slice(0, 3), ["Activity", "Repos", "Connections"]);
+  assert.equal(await page.locator('.settings-nav [data-id="plan"] img.shell-page-chip').count(), 0);
+  assert.equal(await clickText(".settings-nav button", "Repos"), true);
   await browser.wait(`location.hash === '#settings/plan' && document.querySelector('#settings-page #plan-panel')`, "the Plan entry draws the Plan in the pane");
   await browser.wait(`location.pathname !== '/plan'`, "the Plan entry navigated instead of drawing");
   await browser.wait(`document.querySelector('#settings-page [data-action="close"]')?.title === 'Close'`, "the Settings X is ready while the Plan is open");

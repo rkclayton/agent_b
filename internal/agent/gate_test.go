@@ -670,14 +670,14 @@ func TestCycleDecisionPausesAndAcceptsOnlyContinueOrStop(t *testing.T) {
 	}
 }
 
-func TestBoundaryOnlyRunRecordsCycleNoticeAndContinues2pi(t *testing.T) {
+func TestBoundaryOnlyRunStopsAtSixthRepeatedLoopKey2x7(t *testing.T) {
 	var requests atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		turn := requests.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		delta := map[string]any{"content": "done"}
 		finish := "stop"
-		if turn <= 2 {
+		if turn <= 7 {
 			delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("repeat-%d", turn), "type": "function", "function": map[string]any{"name": "list_dir", "arguments": `{"path":"same"}`}}}}
 			finish = "tool_calls"
 		}
@@ -687,9 +687,9 @@ func TestBoundaryOnlyRunRecordsCycleNoticeAndContinues2pi(t *testing.T) {
 	defer model.Close()
 
 	cfg := config.Defaults(t.TempDir())
-	// This test isolates the boundary-only automatic-continue path; threshold
-	// behavior is covered independently at the default five and stored values.
-	cfg.Run.CycleWindow = 2
+	// Keep the older identical-call window out of the way: this proves the
+	// per-tool loop key's fixed steer-at-three, stop-at-six contract.
+	cfg.Run.CycleWindow = 100
 	cfg.Context.Accounting = "estimated"
 	connection := cfg.Connections[0]
 	connection.ID, connection.BaseURL = "main", model.URL
@@ -705,19 +705,29 @@ func TestBoundaryOnlyRunRecordsCycleNoticeAndContinues2pi(t *testing.T) {
 		t.Fatal(err)
 	}
 	reason, detail, _ := runner.Run(context.Background(), item, "run-cycle")
-	if reason != "done" {
+	if reason != "cycle" {
 		t.Fatalf("reason=%q detail=%q", reason, detail)
 	}
-	found := false
-	for _, message := range item.MessagesCopy() {
-		found = found || message.Content == "stopped a loop after 2 turns, continuing differently"
+	if requests.Load() != 6 {
+		t.Fatalf("model requests=%d, want stop on sixth repeated result", requests.Load())
 	}
-	if !found {
-		t.Fatal("cycle notice missing")
+	foundSteer := false
+	for _, message := range item.MessagesCopy() {
+		foundSteer = foundSteer || message.Content == "list_dir on same has given the same result 3 times; say what you need from the user, or finish."
+	}
+	if !foundSteer {
+		t.Fatal("third-repeat steer missing")
+	}
+	if !strings.Contains(detail, "list_dir on same") {
+		t.Fatalf("cycle detail does not name tool and key: %q", detail)
 	}
 	for draining := true; draining; {
 		select {
-		case event := <-eventCh:
+		case event, open := <-eventCh:
+			if !open {
+				draining = false
+				continue
+			}
 			if event.Type == events.ApprovalRequired {
 				t.Fatalf("card=%+v", event)
 			}

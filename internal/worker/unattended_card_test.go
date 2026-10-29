@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,14 +31,16 @@ func (s schedulerSeam) Stop(sessionID string, all bool) int {
 }
 
 // With the service split disabled, a process-readable outside path stays a
-// plain workspace refusal and never raises the obsolete identity card. The
-// repeating model continues without a card until the worker's own wall clock.
-func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
+// plain workspace refusal and never raises the obsolete identity card. In
+// boundary-only mode the repeating worker ends at six and releases its slot.
+func TestBoundaryOnlyRepeatingWorkerEndsCycleWithoutIdentityCard2x7(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	var requests atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		call := map[string]any{"index": 0, "id": "read-outside", "type": "function", "function": map[string]any{"name": "read_file", "arguments": fmt.Sprintf(`{"path":%q}`, outside)}}
 		encoded, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{call}}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 20, "completion_tokens": 5}})
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -48,6 +51,7 @@ func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	repo, data := t.TempDir(), t.TempDir()
 	cfg := config.Defaults(repo)
 	cfg.Context.Accounting = "estimated"
+	cfg.Run.CycleWindow = 100
 	cfg.Approval.Mode = config.ApprovalModeBoundaryOnly
 	cfg.Shell.ServiceAccount.Enabled = false
 	connection := cfg.Connections[0]
@@ -112,10 +116,13 @@ func TestUnattendedDisabledSplitDoesNotRaiseIdentityCard(t *testing.T) {
 	}()
 
 	driver := New(bus, schedulerSeam{scheduler}, nil)
-	driver.deadline = 600 * time.Millisecond
+	driver.deadline = 2 * time.Second
 	outcome := driver.runItem(context.Background(), worker, Item{Text: "read the notes", ID: "1"})
-	if outcome.Marker != "!" || outcome.Reason != "worker wall clock" {
-		t.Fatalf("outcome = %+v, want [!] worker wall clock", outcome)
+	if outcome.Marker != "!" || outcome.Reason != "cycle" {
+		t.Fatalf("outcome = %+v, want [!] cycle", outcome)
+	}
+	if requests.Load() != 6 {
+		t.Fatalf("model requests=%d, want sixth-repeat stop", requests.Load())
 	}
 	select {
 	case name := <-carded:

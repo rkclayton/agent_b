@@ -205,7 +205,7 @@ func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID,
 		return g.refuseUnattended(s, runID, callID, boundaryCycle, "run.cycle", args), nil
 	}
 	if g.noticeOnly(s) {
-		return "continue", nil
+		return "stop", nil
 	}
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle, StandingGrant{})

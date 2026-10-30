@@ -458,11 +458,78 @@ func probeReasoning(ctx context.Context, client *llm.Client, connection *config.
 			}
 		}
 	}
+	probeReasoningBudget(ctx, client, connection, caps, base, findings)
 	emissionFinding := "reasoning emission: " + shape
 	if shape == "inline" {
 		emissionFinding += "; server fix: set llama-server --reasoning-format deepseek so thoughts are returned as reasoning_content"
 	}
 	*findings = append(*findings, emissionFinding, "reasoning control: "+caps.ReasoningControl, "valid efforts: "+strings.Join(caps.ValidEfforts, ", "))
+}
+
+func probeReasoningBudget(ctx context.Context, client *llm.Client, connection *config.Connection, caps *config.Capabilities, base map[string]any, findings *[]string) {
+	key := ""
+	switch caps.Server {
+	case "llama.cpp":
+		key = "reasoning_budget_tokens"
+	case "vllm":
+		key = "thinking_token_budget"
+	case "ollama":
+		// Ollama documents `think`, but explicitly does not accept a number.
+		// The probe therefore records rejection even if an OpenAI-compatible
+		// endpoint returns 200 while ignoring this numeric value.
+		key = "think"
+	}
+	if key == "" {
+		*findings = append(*findings, "server reasoning budget: rejected; key: none")
+		return
+	}
+	body := clone(base)
+	body["messages"] = []any{map[string]any{"role": "user", "content": "Think through enough numbered steps to exceed 32 tokens, then answer with one word."}}
+	body["max_tokens"] = 96
+	body[key] = 32
+	if caps.ReasoningControl == "chat_template_kwargs" {
+		body["chat_template_kwargs"] = map[string]any{"enable_thinking": true}
+	} else if caps.ReasoningControl == "top_level" {
+		body["reasoning_effort"] = "low"
+	}
+	check, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	raw, status, err := client.DoJSON(check, http.MethodPost, "/v1/chat/completions", body)
+	accepted := false
+	if err == nil && status == http.StatusOK && caps.Server != "ollama" {
+		var parsed struct {
+			Choices []struct {
+				Message struct {
+					ReasoningContent string `json:"reasoning_content"`
+					Reasoning        string `json:"reasoning"`
+					Content          string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal(raw, &parsed) == nil && len(parsed.Choices) > 0 {
+			message := parsed.Choices[0].Message
+			reasoning := message.ReasoningContent
+			if reasoning == "" {
+				reasoning = message.Reasoning
+			}
+			if reasoning == "" {
+				trimmed := strings.TrimSpace(message.Content)
+				if strings.HasPrefix(trimmed, "<think>") {
+					if end := strings.Index(trimmed, "</think>"); end > len("<think>") {
+						reasoning = trimmed[len("<think>"):end]
+						message.Content = trimmed[end+len("</think>"):]
+					}
+				}
+			}
+			estimatedTokens := (len([]rune(reasoning)) + 3) / 4
+			accepted = estimatedTokens > 0 && estimatedTokens <= 48 && strings.TrimSpace(message.Content) != ""
+		}
+	}
+	result := "rejected"
+	if accepted {
+		result = "accepted"
+	}
+	*findings = append(*findings, "server reasoning budget: "+result+"; key: "+key)
 }
 
 func probeOverflow(ctx context.Context, client *llm.Client, connection *config.Connection, caps *config.Capabilities, findings *[]string, evaluateCeiling bool) {

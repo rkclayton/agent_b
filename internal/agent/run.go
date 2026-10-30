@@ -1576,19 +1576,29 @@ func preview(value string) string {
 // and distinguishes thinking having used the budget from the answer being cut
 // short. "The run stopped because of length" told the
 // operator nothing, least of all that the limit was his own setting.
-func truncationDetail(connection *config.Connection, response llm.Response) string {
+func truncationDetail(connection *config.Connection, response llm.Response, reasoningFallbackUsed bool) string {
 	reserve := connection.Context.ReserveOutput
 	if reserve <= 0 {
 		reserve = config.DefaultReserveOutput
 	}
 	where := fmt.Sprintf("the %s connection's output reserve (Settings → Connections → reserve output, context.reserve_output = %d tokens)", connection.Label, reserve)
-	// Thinking used the budget when the model produced reasoning and no answer at
-	// all — the shape of the user's own case — rather than a token comparison
-	// this function has no numbers for.
-	if connection.Reasoning.Enabled && connection.Reasoning.MaxTokens == 0 && strings.TrimSpace(response.Content) == "" && strings.TrimSpace(response.Reasoning) != "" {
-		return fmt.Sprintf("thinking used the output allowance of %d tokens and no answer was left; thinking now gets its own share of %d tokens. The limit is %s", reserve, config.ReasoningShareFor(reserve), where)
+	reasoningPath := "reasoning was off, so neither a server reasoning budget nor the two-pass fallback applied"
+	if connection.Reasoning.Enabled {
+		status, key := llm.ReasoningBudgetFinding(connection)
+		switch {
+		case connection.Reasoning.MaxTokens > 0:
+			reasoningPath = fmt.Sprintf("the saved reasoning cap of %d tokens applied; the automatic share and fallback did not replace it", connection.Reasoning.MaxTokens)
+		case status == "accepted":
+			reasoningPath = fmt.Sprintf("the server accepted %s for thinking's %d-token share", key, config.ReasoningShareFor(reserve))
+		case reasoningFallbackUsed:
+			reasoningPath = fmt.Sprintf("the server did not accept a separate thinking budget, so the first pass used thinking's %d-token share and the harness used a second request with thinking disabled", config.ReasoningShareFor(reserve))
+		case strings.TrimSpace(response.Content) != "":
+			reasoningPath = "the server did not accept a separate thinking budget; the first bounded pass produced answer content, so no second request ran"
+		default:
+			reasoningPath = "the server did not accept a separate thinking budget; the two-pass fallback could not produce an answer"
+		}
 	}
-	return fmt.Sprintf("the answer reached the output limit of %d tokens and was cut short; what it produced is kept above, marked truncated. The limit is %s", reserve, where)
+	return fmt.Sprintf("the answer reached the output limit of %d tokens and was cut short; what it produced is kept above, marked truncated. Reasoning path: %s. The limit is %s", reserve, reasoningPath, where)
 }
 
 // keepTruncatedAnswer appends what the model did produce, marked truncated, so

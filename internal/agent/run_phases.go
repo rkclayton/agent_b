@@ -21,60 +21,63 @@ import (
 )
 
 type runState struct {
-	r                                                 *Runner
-	ctx                                               context.Context
-	s                                                 *session.Session
-	runID                                             string
-	runCfg                                            config.RunConfig
-	wallExceeded                                      atomic.Bool
-	cancelWall                                        context.CancelFunc
-	wallTimer                                         *time.Timer
-	produced                                          map[string]delivery.Source
-	workspaceBefore                                   map[string]workspaceFileState
-	publishFinalBudget                                bool
-	turn                                              int
-	lengthSeen, malformedToolRetried, answeredThisRun bool
-	announcedActionContinued, autoContinue            bool
-	truncatedToolRetry, retryInstruction              string
-	refusalSentence                                   string
-	refusalAttempt                                    int
-	refusedTurn                                       int
-	attachmentsAsTextTurn                             int
-	accountingRepairTried, templateRetryTried         bool
-	fallbackActive                                    bool
-	fallbackID                                        string
-	primaryLabel                                      string
-	primaryWindow                                     int
-	compacted                                         bool
-	runMessageLimit, runByteLimit, runWindow          int
-	guards                                            *runGuards
-	currentReasoning                                  map[string]bool
-	connection                                        *config.Connection
-	windowSource                                      string
-	contextStop                                       func(int, string) (string, string, int)
-	client                                            *llm.Client
-	enabled                                           map[string]bool
-	request                                           llm.Request
-	budget                                            events.Budget
-	requestEvent                                      events.Event
-	response                                          llm.Response
-	callErr                                           error
-	partial                                           string
-	answerBegan                                       bool
-	callCtx                                           context.Context
-	answerStarted                                     time.Time
-	toolCalls, durableToolCalls                       []events.ToolCall
-	assistant                                         events.Message
-	results                                           []runToolResult
-	hooks                                             []config.Hook
-	toolNames                                         []string
-	schemas                                           []any
-	body                                              map[string]any
-	system                                            string
-	budgetErr                                         error
-	budgetBusy                                        bool
-	pinReady, flightReady, wallReady, deliveryReady   bool
-	shellReady, fileReady, budgetReady                bool
+	r                                                  *Runner
+	ctx                                                context.Context
+	s                                                  *session.Session
+	runID                                              string
+	runCfg                                             config.RunConfig
+	wallExceeded                                       atomic.Bool
+	cancelWall                                         context.CancelFunc
+	wallTimer                                          *time.Timer
+	produced                                           map[string]delivery.Source
+	workspaceBefore                                    map[string]workspaceFileState
+	publishFinalBudget                                 bool
+	turn                                               int
+	lengthSeen, malformedToolRetried, answeredThisRun  bool
+	announcedActionContinued, autoContinue             bool
+	truncatedToolRetry, retryInstruction               string
+	refusalSentence                                    string
+	refusalAttempt                                     int
+	refusedTurn                                        int
+	attachmentsAsTextTurn                              int
+	accountingRepairTried, templateRetryTried          bool
+	fallbackActive                                     bool
+	fallbackID                                         string
+	primaryLabel                                       string
+	primaryWindow                                      int
+	compacted                                          bool
+	runMessageLimit, runByteLimit, runWindow           int
+	guards                                             *runGuards
+	currentReasoning                                   map[string]bool
+	connection                                         *config.Connection
+	windowSource                                       string
+	contextStop                                        func(int, string) (string, string, int)
+	client                                             *llm.Client
+	enabled                                            map[string]bool
+	request                                            llm.Request
+	reasoningFallbackPrior                             string
+	reasoningFallbackAllowance, reasoningFallbackShare int
+	reasoningFallbackPending, reasoningFallbackUsed    bool
+	budget                                             events.Budget
+	requestEvent                                       events.Event
+	response                                           llm.Response
+	callErr                                            error
+	partial                                            string
+	answerBegan                                        bool
+	callCtx                                            context.Context
+	answerStarted                                      time.Time
+	toolCalls, durableToolCalls                        []events.ToolCall
+	assistant                                          events.Message
+	results                                            []runToolResult
+	hooks                                              []config.Hook
+	toolNames                                          []string
+	schemas                                            []any
+	body                                               map[string]any
+	system                                             string
+	budgetErr                                          error
+	budgetBusy                                         bool
+	pinReady, flightReady, wallReady, deliveryReady    bool
+	shellReady, fileReady, budgetReady                 bool
 }
 
 type runToolResult struct {
@@ -271,6 +274,11 @@ func (x *runState) turnBoundary() runOutcome {
 		r.takeQueued(x.s, x.runID)
 	}
 	x.turn++
+	if !x.reasoningFallbackPending {
+		x.reasoningFallbackPrior = ""
+		x.reasoningFallbackAllowance, x.reasoningFallbackShare = 0, 0
+		x.reasoningFallbackUsed = false
+	}
 	connectionID := x.s.Snapshot().ConnectionID
 	if x.fallbackActive {
 		connectionID = x.fallbackID
@@ -392,7 +400,15 @@ func (x *runState) buildRequest() runOutcome {
 			messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "[harness note]\n" + x.retryInstruction})
 			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: x.retryInstruction})
 		}
-		x.request = llm.Request{Messages: messages, Tools: x.schemas, ToolChoice: "auto", Thinking: x.connection.Reasoning.Enabled}
+		if x.reasoningFallbackPending {
+			prior := llm.Message{Role: llm.RoleAssistant, ReasoningContent: x.reasoningFallbackPrior}
+			if x.connection.Capabilities.Server == "vllm" || x.connection.Capabilities.Server == "ollama" {
+				prior.Reasoning, prior.ReasoningContent = x.reasoningFallbackPrior, ""
+			}
+			messages = append(messages, prior)
+			requestRecords = append(requestRecords, events.Message{Role: llm.RoleAssistant, Reasoning: x.reasoningFallbackPrior, Category: "history"})
+		}
+		x.request = llm.Request{Messages: messages, Tools: x.schemas, ToolChoice: "auto", Thinking: x.connection.Reasoning.Enabled && !x.reasoningFallbackPending}
 		x.budget, x.budgetErr = r.budget.MeasureWithBusy(x.ctx, x.connection, x.s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: x.system, WithoutToolSystems: r.withoutToolSystems(x.connection, x.s, x.enabled, workspaceMemory), Schemas: x.schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 			x.budgetBusy = true
 			r.bus.Publish(events.New(events.ModelBusy, x.s.ID, x.runID, map[string]any{"host": modelHost(x.connection), "detail": err.Error()}))
@@ -402,14 +418,20 @@ func (x *runState) buildRequest() runOutcome {
 		}
 		guardUsed := guardedPromptTokens(x.budget)
 		x.request.MaxTokens = requestTokenLimit(x.connection, x.budget, guardUsed)
-		if x.request.Thinking && x.connection.Reasoning.MaxTokens > 0 && !containsFinding(x.connection, "server reasoning budget: accepted") {
+		budgetStatus, _ := llm.ReasoningBudgetFinding(x.connection)
+		if x.request.Thinking && x.connection.Reasoning.MaxTokens > 0 && budgetStatus != "accepted" {
 			x.request.MaxTokens = min(x.request.MaxTokens, x.connection.Reasoning.MaxTokens)
 		}
-		// with reasoning on and no reasoning cap set, thinking and
-		// the answer share one allowance, and a long thinking pass can take all
-		// of it and leave nothing. Thinking gets its own share.
-		if x.request.Thinking && x.connection.Reasoning.MaxTokens == 0 {
-			x.request.ReasoningMaxTokens = config.ReasoningShareFor(x.request.MaxTokens)
+		if x.reasoningFallbackPending {
+			x.request.MaxTokens = max(1, x.reasoningFallbackAllowance-x.reasoningFallbackShare)
+		} else if x.request.Thinking && x.connection.Reasoning.MaxTokens == 0 {
+			share := config.ReasoningShareFor(x.request.MaxTokens)
+			if budgetStatus == "accepted" {
+				x.request.ReasoningMaxTokens = share
+			} else {
+				x.reasoningFallbackAllowance, x.reasoningFallbackShare = x.request.MaxTokens, share
+				x.request.MaxTokens = share
+			}
 		}
 		diagnosticRequest := x.request
 		diagnosticRequest.Messages = diagnosticMessages(x.request.Messages)
@@ -516,6 +538,9 @@ func (x *runState) fitWindow() runOutcome {
 		}
 		x.turn--
 		return runAgainOutcome
+	}
+	if x.reasoningFallbackPending {
+		x.reasoningFallbackPending, x.reasoningFallbackUsed = false, true
 	}
 	x.r.bus.Publish(x.requestEvent)
 	x.r.budget.MarkRequest(x.s.ID, x.budget.UsedEst)
@@ -752,6 +777,20 @@ func (x *runState) readAnswer() runOutcome {
 		r.bus.Publish(events.New(events.DelegatedUsage, x.s.ParentSessionID, x.runID, map[string]any{"connection_id": x.connection.ID, "usage": responseData["usage"], "tool_calls": x.durableToolCalls}))
 	}
 	r.stage(x.s, x.runID, x.turn, "parse", func() {})
+	if x.response.FinishReason == "length" && len(x.response.ToolCalls) == 0 && strings.TrimSpace(x.response.Content) == "" && strings.TrimSpace(visibleReasoning) != "" && x.reasoningFallbackAllowance > 0 && !x.reasoningFallbackUsed {
+		x.reasoningFallbackPrior = strings.TrimSpace(visibleReasoning)
+		x.reasoningFallbackPending = true
+		x.turn--
+		return runAgainOutcome
+	}
+	if x.reasoningFallbackUsed && strings.TrimSpace(x.reasoningFallbackPrior) != "" {
+		if strings.TrimSpace(x.response.Reasoning) == "" {
+			x.response.Reasoning = x.reasoningFallbackPrior
+		} else {
+			x.response.Reasoning = x.reasoningFallbackPrior + "\n\n" + strings.TrimSpace(x.response.Reasoning)
+		}
+		visibleReasoning = llm.VisibleReasoning(x.response.Reasoning)
+	}
 	if x.response.FinishReason == "length" && len(x.toolCalls) > 0 {
 		if x.lengthSeen {
 			return x.stop("length", fmt.Sprintf("truncated %s call hit the output limit twice", firstToolName(x.durableToolCalls)), x.turn)
@@ -779,7 +818,7 @@ func (x *runState) readAnswer() runOutcome {
 			// is set, and what the model did produce is kept in the transcript
 			// marked truncated, so the Continue action on the stop card has
 			// something to continue from instead of the run being thrown away.
-			detail := truncationDetail(x.connection, x.response)
+			detail := truncationDetail(x.connection, x.response, x.reasoningFallbackUsed)
 			r.keepTruncatedAnswer(x.ctx, x.s, x.runID, x.connection, x.response, x.turn, x.currentReasoning)
 			return x.stop("length", detail, x.turn)
 		}

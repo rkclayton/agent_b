@@ -51,10 +51,21 @@ func TestBuildRequestCarriesConnectionReasoningCap(t *testing.T) {
 	if _, ok := body["reasoning_budget"]; ok {
 		t.Fatalf("unprobed server reasoning budget leaked: %v", body)
 	}
-	connection.Capabilities.Findings = append(connection.Capabilities.Findings, "server reasoning budget: accepted")
+	connection.Capabilities.Findings = append(connection.Capabilities.Findings, "server reasoning budget: accepted; key: reasoning_budget_tokens")
 	body = buildRequest(connection, Request{Thinking: true}, false)
-	if body["reasoning_budget"] != 1000 {
+	if body["reasoning_budget_tokens"] != 1000 {
 		t.Fatalf("body=%v", body)
+	}
+	connection.Capabilities.Findings = []string{"server reasoning budget: rejected; key: reasoning_budget_tokens"}
+	body = buildRequest(connection, Request{Thinking: true, ReasoningMaxTokens: 500}, false)
+	if _, ok := body["reasoning_budget_tokens"]; ok {
+		t.Fatalf("rejected reasoning budget leaked: %v", body)
+	}
+	connection.Capabilities.Findings = []string{"server reasoning budget: accepted; key: chat_template_kwargs.reasoning_budget"}
+	body = buildRequest(connection, Request{Thinking: true, ReasoningMaxTokens: 500}, false)
+	kwargs = body["chat_template_kwargs"].(map[string]any)
+	if kwargs["reasoning_budget"] != 1000 {
+		t.Fatalf("named nested budget missing: %v", body)
 	}
 }
 

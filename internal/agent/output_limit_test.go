@@ -15,7 +15,7 @@ import (
 // cap, its value and where it is set.
 func TestATruncatedAnswerNamesTheCapAndWhereItIsSet2l9(t *testing.T) {
 	connection := &config.Connection{ID: "server", Label: "Acmeholding", Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
-	detail := truncationDetail(connection, llm.Response{Content: "a partial answer", FinishReason: "length"})
+	detail := truncationDetail(connection, llm.Response{Content: "a partial answer", FinishReason: "length"}, false)
 	for _, want := range []string{"10240", "reserve_output", "Acmeholding", "cut short"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("the stop line does not say %q: %s", want, detail)
@@ -30,8 +30,8 @@ func TestATruncatedAnswerNamesTheCapAndWhereItIsSet2l9(t *testing.T) {
 // answer being cut short, because the operator fixes them differently.
 func TestThinkingUsingTheBudgetSaysSo2l9(t *testing.T) {
 	connection := &config.Connection{ID: "server", Label: "Acmeholding", Reasoning: config.Reasoning{Enabled: true}, Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
-	detail := truncationDetail(connection, llm.Response{Reasoning: "a very long think", FinishReason: "length"})
-	if !strings.Contains(detail, "thinking used the output allowance") {
+	detail := truncationDetail(connection, llm.Response{Reasoning: "a very long think", FinishReason: "length"}, true)
+	if !strings.Contains(detail, "second request with thinking disabled") {
 		t.Fatalf("thinking exhausting the budget is not distinguished: %s", detail)
 	}
 	if !strings.Contains(detail, "5120") {
@@ -106,19 +106,39 @@ func TestThinkingShareIsHalfTheAllowance2l9(t *testing.T) {
 	if got := config.ReasoningShareFor(0); got != 0 {
 		t.Fatalf("share %d, want 0 when there is no allowance", got)
 	}
-	connection := &config.Connection{ID: "c", Model: "m", Reasoning: config.Reasoning{Control: "top_level", Enabled: true}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: accepted"}}}
+	connection := &config.Connection{ID: "c", Model: "m", Reasoning: config.Reasoning{Control: "top_level", Enabled: true}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: accepted; key: reasoning_budget_tokens"}}}
 	body := llm.BuildRequest(connection, llm.Request{Thinking: true, MaxTokens: 10240, ReasoningMaxTokens: 5120, Messages: []llm.Message{{Role: "user", Content: "x"}}}, true)
-	if body["reasoning_budget"] != 5120 {
-		t.Fatalf("thinking's share was not sent: %v", body["reasoning_budget"])
+	if body["reasoning_budget_tokens"] != 5120 {
+		t.Fatalf("thinking's share was not sent: %v", body["reasoning_budget_tokens"])
 	}
 	plain := &config.Connection{ID: "c", Model: "m", Reasoning: config.Reasoning{Control: "top_level", Enabled: true}}
-	if body := llm.BuildRequest(plain, llm.Request{Thinking: true, MaxTokens: 10240, ReasoningMaxTokens: 5120, Messages: []llm.Message{{Role: "user", Content: "x"}}}, true); body["reasoning_budget"] != nil {
-		t.Fatalf("a share was sent to a server that never accepted one: %v", body["reasoning_budget"])
+	if body := llm.BuildRequest(plain, llm.Request{Thinking: true, MaxTokens: 10240, ReasoningMaxTokens: 5120, Messages: []llm.Message{{Role: "user", Content: "x"}}}, true); body["reasoning_budget_tokens"] != nil {
+		t.Fatalf("a share was sent to a server that never accepted one: %v", body["reasoning_budget_tokens"])
+	}
+}
+
+func TestTruncationDetailNamesTheReasoningPath2xa(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		connection config.Connection
+		fallback   bool
+		want       string
+	}{
+		{name: "accepted", connection: config.Connection{Label: "server", Reasoning: config.Reasoning{Enabled: true}, Context: config.Context{ReserveOutput: 10240}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: accepted; key: reasoning_budget_tokens"}}}, want: "server accepted reasoning_budget_tokens"},
+		{name: "fallback", connection: config.Connection{Label: "server", Reasoning: config.Reasoning{Enabled: true}, Context: config.Context{ReserveOutput: 10240}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: rejected; key: reasoning_budget_tokens"}}}, fallback: true, want: "second request with thinking disabled"},
+		{name: "user cap", connection: config.Connection{Label: "server", Reasoning: config.Reasoning{Enabled: true, MaxTokens: 700}, Context: config.Context{ReserveOutput: 10240}}, want: "saved reasoning cap of 700"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			detail := truncationDetail(&test.connection, llm.Response{Content: "partial", FinishReason: "length"}, test.fallback)
+			if !strings.Contains(detail, test.want) {
+				t.Fatalf("detail=%q, want %q", detail, test.want)
+			}
+		})
 	}
 }
 
 func TestProfileThinkingDecidesEachRequestForm2tp(t *testing.T) {
-	base := config.Connection{Reasoning: config.Reasoning{Control: "chat_template_kwargs", Effort: "high", ValidEfforts: []string{"high"}, MaxTokens: 400}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: accepted"}}}
+	base := config.Connection{Reasoning: config.Reasoning{Control: "chat_template_kwargs", Effort: "high", ValidEfforts: []string{"high"}, MaxTokens: 400}, Capabilities: config.Capabilities{Findings: []string{"server reasoning budget: accepted; key: reasoning_budget_tokens"}}}
 	for _, on := range []bool{false, true} {
 		connection := connectionWithProfileThinking(base, config.Agent{Thinking: on})
 		body := llm.BuildRequest(&connection, llm.Request{Thinking: connection.Reasoning.Enabled, MaxTokens: 800}, false)
@@ -128,7 +148,7 @@ func TestProfileThinkingDecidesEachRequestForm2tp(t *testing.T) {
 		}
 		connection.Reasoning.Control = "top_level"
 		body = llm.BuildRequest(&connection, llm.Request{Thinking: connection.Reasoning.Enabled, MaxTokens: 800}, false)
-		if (body["reasoning_effort"] != nil) != on || (body["reasoning_budget"] != nil) != on {
+		if (body["reasoning_effort"] != nil) != on || (body["reasoning_budget_tokens"] != nil) != on {
 			t.Fatalf("top-level on=%v body=%v", on, body)
 		}
 	}

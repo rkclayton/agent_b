@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"harness/internal/config"
 )
@@ -55,13 +56,54 @@ func buildRequest(connection *config.Connection, request Request, stream bool) m
 		if request.Thinking && effortAllowed {
 			body["reasoning_effort"] = connection.Reasoning.Effort
 		}
-		if request.Thinking && connection.Reasoning.MaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
-			body["reasoning_budget"] = connection.Reasoning.MaxTokens
-		} else if request.Thinking && request.ReasoningMaxTokens > 0 && contains(connection.Capabilities.Findings, "server reasoning budget: accepted") {
-			body["reasoning_budget"] = request.ReasoningMaxTokens
+	}
+	status, key := ReasoningBudgetFinding(connection)
+	if request.Thinking && status == "accepted" {
+		budget := connection.Reasoning.MaxTokens
+		if budget <= 0 {
+			budget = request.ReasoningMaxTokens
+		}
+		if budget > 0 {
+			setReasoningBudget(body, key, budget)
 		}
 	}
 	return body
+}
+
+// ReasoningBudgetFinding returns only the budget key Eval actually tested.
+// An HTTP 200 without a bounded reasoning trace is recorded as rejected, so a
+// run never guesses a field from the server family alone.
+func ReasoningBudgetFinding(connection *config.Connection) (status, key string) {
+	const prefix = "server reasoning budget: "
+	for _, finding := range connection.Capabilities.Findings {
+		if !strings.HasPrefix(finding, prefix) {
+			continue
+		}
+		parts := strings.SplitN(strings.TrimPrefix(finding, prefix), "; key: ", 2)
+		status = strings.TrimSpace(parts[0])
+		if len(parts) == 2 {
+			key = strings.TrimSpace(parts[1])
+		}
+		return status, key
+	}
+	return "", ""
+}
+
+func setReasoningBudget(body map[string]any, key string, budget int) {
+	if key == "" || budget <= 0 {
+		return
+	}
+	if strings.HasPrefix(key, "chat_template_kwargs.") {
+		name := strings.TrimPrefix(key, "chat_template_kwargs.")
+		kwargs, _ := body["chat_template_kwargs"].(map[string]any)
+		if kwargs == nil {
+			kwargs = map[string]any{}
+			body["chat_template_kwargs"] = kwargs
+		}
+		kwargs[name] = budget
+		return
+	}
+	body[key] = budget
 }
 
 // normalizeSystemRoles keeps the request contract accepted by strict chat

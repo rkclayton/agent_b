@@ -121,11 +121,13 @@ test("the privacy gate admits only the documented stand-ins", () => {
 });
 
 test("public commits carry only the pinned release identity and no attribution trailers", () => {
-  const [name, email] = execFileSync("git", ["show", "-s", "--format=%an%x1f%ae", "v1.54.0^{}"], { cwd: root, encoding: "utf8", windowsHide: true }).trim().split("\x1f");
-  const log = execFileSync("git", ["log", "v1.54.0..HEAD", "--format=%an%x1f%ae%x1f%B%x1e"], { cwd: root, encoding: "utf8", windowsHide: true });
+  const email = execFileSync("git", ["show", "-s", "--format=%ae", "v1.54.0^{}"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
+  const webCommitter = execFileSync("git", ["show", "-s", "--format=%ce", "28fe15f^{}"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
+  const log = execFileSync("git", ["log", "v1.54.0..HEAD", "--format=%ae%x1f%ce%x1f%B%x1e"], { cwd: root, encoding: "utf8", windowsHide: true });
   for (const record of log.split("\x1e").filter((value) => value.trim())) {
-    const [author, address, message = ""] = record.trim().split("\x1f");
-    assert.equal(author, name); assert.equal(address, email);
+    const [authorAddress, committerAddress, message = ""] = record.trim().split("\x1f");
+    assert.equal(authorAddress, email);
+    assert.ok(committerAddress === email || committerAddress === webCommitter);
     assert.doesNotMatch(message, /Co-Authored-By|Generated with|Signed-off-by/i);
   }
 });

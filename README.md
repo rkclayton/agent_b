@@ -53,4 +53,4 @@ npm run test:ui
 
 Node and Playwright are test-only dependencies. See the [hardening runbook](docs/HARDENING.md), [security model](SECURITY.md), [runtime contracts](INTERFACES.md), and [test gates](tests/README.md).
 
-Apache-2.0. See [NOTICE](NOTICE) and [third-party notices](docs/THIRD_PARTY_NOTICES.md).
+PolyForm Noncommercial 1.0.0 — free to use, not for commercial use or resale. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [third-party notices](docs/THIRD_PARTY_NOTICES.md).

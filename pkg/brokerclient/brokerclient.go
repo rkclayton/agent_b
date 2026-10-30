@@ -1,6 +1,7 @@
 // Package brokerclient is the one import another repository uses to speak to the broker
-// (item 2wp). It re-exports internal/broker's device client, the agent client's public
-// surface and the payload types the phone's core builds; everything else stays internal.
+// (item 2wp). It re-exports internal/broker's DeviceClient, including RegisterPush
+// and RegisterPushFID, the agent client's public surface and the payload types the
+// phone's core builds; everything else stays internal.
 package brokerclient
 
 import "harness/internal/broker"

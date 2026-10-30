@@ -335,3 +335,8 @@ pairs again.
 Not yet: **pushes**. The live broker refuses the sealed push frame the desktop builds as
 `malformed`, and that refusal ends the whole session, so no push is sent until the frame's shape is
 confirmed with the broker repository.
+
+The reusable device client registers push delivery on its live link after `READY`. `RegisterPush`
+keeps the token forms: APNs sends its 64-hex `device_token` without a provider, while FCM sends
+`provider: "fcm"` and its bounded `device_token`. `RegisterPushFID` sends `provider: "fcm"` and
+the Firebase Installation ID as `fid`, with no `device_token` field.

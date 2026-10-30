@@ -434,11 +434,7 @@ func (d *DeviceClient) RegisterPush(provider, token string) error {
 		}
 		payload.DeviceToken = strings.ToLower(token)
 	case "fcm":
-		valid := len(token) >= 1 && len(token) <= 512
-		for _, r := range token {
-			valid = valid && (r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == ':' || r == '-')
-		}
-		if !valid {
+		if !validFCMPushIdentifier(token) {
 			return errors.New("push register: an FCM token is 1-512 of A-Z a-z 0-9 _ : -")
 		}
 		payload.Provider = provider
@@ -454,6 +450,37 @@ func (d *DeviceClient) RegisterPush(provider, token string) error {
 		return errors.New("broker: no link")
 	}
 	return deviceSend(t, FramePushRegister, payload)
+}
+
+// RegisterPushFID registers this device's Firebase Installation ID. The broker
+// accepts the same bounded character set as an FCM registration token, but the
+// two values occupy different wire fields.
+func (d *DeviceClient) RegisterPushFID(fid string) error {
+	if !validFCMPushIdentifier(fid) {
+		return errors.New("push register: a Firebase Installation ID is 1-512 of A-Z a-z 0-9 _ : -")
+	}
+	payload := pushRegisterPayload{PairingID: hexID(d.Pairing().PairingID), Provider: "fcm", FID: fid}
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	d.mu.Lock()
+	t := d.link
+	d.mu.Unlock()
+	if t == nil {
+		return errors.New("broker: no link")
+	}
+	return deviceSend(t, FramePushRegister, payload)
+}
+
+func validFCMPushIdentifier(value string) bool {
+	if len(value) < 1 || len(value) > 512 {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == ':' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // Send seals one message to the agent and retains it until its ACK. With

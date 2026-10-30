@@ -563,6 +563,8 @@ func TestADeviceRegistersItsOwnPushToken2ww(t *testing.T) {
 	if err := device.RegisterPush("fcm", "token-1:abc_DEF"); err != nil {
 		t.Fatal(err)
 	}
+	// Golden bytes captured from 18a0e6a before FID support. Existing token forms
+	// must remain byte-for-byte stable.
 	if got := registers(1); len(got) != 1 || got[0] != `device {`+pairing+`,"device_token":"token-1:abc_DEF","provider":"fcm"}` {
 		t.Fatalf("fcm registration sent %q", got)
 	}
@@ -572,6 +574,24 @@ func TestADeviceRegistersItsOwnPushToken2ww(t *testing.T) {
 	}
 	if got := registers(2); len(got) != 2 || got[1] != `device {`+pairing+`,"device_token":"`+apns+`"}` {
 		t.Fatalf("apns registration sent %q", got)
+	}
+	if err := device.RegisterPushFID("fid-1:abc_DEF"); err != nil {
+		t.Fatal(err)
+	}
+	if got := registers(3); len(got) != 3 || got[2] != `device {`+pairing+`,"provider":"fcm","fid":"fid-1:abc_DEF"}` {
+		t.Fatalf("fid registration sent %q", got)
+	}
+	for _, bad := range []string{"has space", "", strings.Repeat("a", 513)} {
+		if err := device.RegisterPushFID(bad); err == nil || !strings.Contains(err.Error(), "Firebase Installation ID") {
+			t.Fatalf("RegisterPushFID(%q) error = %v", bad, err)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	b.mu.Lock()
+	gotAfterInvalidFID := append([]string(nil), b.registers...)
+	b.mu.Unlock()
+	if got := gotAfterInvalidFID; len(got) != 3 {
+		t.Fatalf("an invalid FID registration was sent: %q", got)
 	}
 	for _, bad := range [][2]string{{"fcm", "has space"}, {"fcm", ""}, {"fcm", strings.Repeat("a", 513)}, {"apns", "abc"}, {"other", "token"}} {
 		if err := device.RegisterPush(bad[0], bad[1]); err == nil {
@@ -597,8 +617,8 @@ func TestADeviceRegistersItsOwnPushToken2ww(t *testing.T) {
 		}
 	}
 	time.Sleep(300 * time.Millisecond)
-	if got := registers(4); len(got) != 3 {
-		t.Fatalf("a refused registration was sent %d times", len(got)-2)
+	if got := registers(4); len(got) != 4 {
+		t.Fatalf("a refused registration was sent %d times", len(got)-3)
 	}
 }
 

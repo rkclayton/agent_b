@@ -55,6 +55,7 @@ func TestThePushVectorsOpenThroughThePublicNames2ww(t *testing.T) {
 	}
 	// The device's own registration is reached through the public alias.
 	var _ func(*broker.DeviceClient, string, string) error = (*broker.DeviceClient).RegisterPush
+	var _ func(*broker.DeviceClient, string) error = (*broker.DeviceClient).RegisterPushFID
 	if broker.FramePushRegister != 0x23 {
 		t.Fatalf("FramePushRegister = %#x", broker.FramePushRegister)
 	}

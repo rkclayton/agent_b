@@ -70,3 +70,23 @@ test("installed launcher refuses a foreign HTTP responder", { skip: process.plat
 		removeTreeWithinAllowedRoots(rootDir, [tmpdir()], "foreign-launcher fixture cleanup");
 	}
 });
+
+test("installer matrix names a failure after candidate identity", { skip: process.platform !== "win32" }, async () => {
+	const script = new URL("tests/test-installer.ps1", root).pathname.slice(1);
+	const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File", script, "-FailureDiagnosticSelfTest"], { stdio: ["ignore", "pipe", "pipe"] });
+	let output = "";
+	child.stdout.on("data", (chunk) => output += chunk);
+	child.stderr.on("data", (chunk) => output += chunk);
+	const status = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+	assert.equal(status, 1, output);
+	assert.match(output, /MATRIX FAILURE: stage=first-run-onboarding; last proof=PROOF candidate identity; site=test-installer\.ps1:\d+; stand-in after candidate identity/);
+});
+
+test("installer matrix has one diagnosed nonzero exit", () => {
+	const trap = installer.indexOf("trap {");
+	const firstThrow = installer.indexOf("throw ");
+	assert.ok(trap >= 0 && trap < firstThrow, "the top-level trap must precede every executable throw");
+	assert.match(installer, /Write-Host "MATRIX FAILURE: stage=\$script:matrixStage; last proof=\$script:matrixLastProof; site=test-installer\.ps1:\$line; \$message"\s+exit 1/);
+	assert.equal([...installer.matchAll(/\bexit\s+1\b/g)].length, 1, "every nonzero exit must be the diagnosed trap exit");
+	assert.doesNotMatch(installer, /\[Environment\]::Exit|\breturn\s+1\b/);
+});

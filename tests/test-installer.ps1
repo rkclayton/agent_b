@@ -10,10 +10,30 @@ param(
     # The installed native-window arm activates a real window. Workers use this
     # switch while the operator owns the interactive desktop.
     [switch]$SkipWindowAcceptance,
-    [string]$EvidenceDirectory
+    [string]$EvidenceDirectory,
+    [switch]$FailureDiagnosticSelfTest
 )
 
 $ErrorActionPreference = 'Stop'
+$script:matrixStage = 'initialization'
+$script:matrixLastProof = 'none'
+function Write-MatrixProof {
+    param([Parameter(Mandatory=$true)][string]$Text)
+    $script:matrixLastProof = $Text
+    Write-Host $Text
+}
+trap {
+    $failure = $_
+    $line = [int]$failure.InvocationInfo.ScriptLineNumber
+    $message = ([string]$failure.Exception.Message -replace '\s+', ' ').Trim()
+    Write-Host "MATRIX FAILURE: stage=$script:matrixStage; last proof=$script:matrixLastProof; site=test-installer.ps1:$line; $message"
+    exit 1
+}
+if ($FailureDiagnosticSelfTest) {
+    $script:matrixStage = 'first-run-onboarding'
+    $script:matrixLastProof = 'PROOF candidate identity'
+    throw 'stand-in after candidate identity'
+}
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\agentb-stop.ps1')
@@ -76,7 +96,7 @@ function Assert-InstalledSignatures {
         $signature = Get-AuthenticodeSignature -LiteralPath $target
         if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw "$Phase installed signable is $($signature.Status) or lacks a timestamp: $target" }
     }
-    Write-Host "PROOF installed signatures ($Phase): $($targets.Count)/$($targets.Count) Valid and timestamped"
+    Write-MatrixProof "PROOF installed signatures ($Phase): $($targets.Count)/$($targets.Count) Valid and timestamped"
 }
 
 # Item 2gu (v1.2.5): production listens on 8790, and a disposable root must
@@ -216,6 +236,7 @@ function Copy-TrackedTree {
 # Item 2eu: the installer never builds. The release step's build runs once
 # here, and every install below takes the exe and manifest it wrote.
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$script:matrixStage = 'candidate-build'
 if ($UseExistingSignedCandidate) {
     # Item 2wk: an existing candidate is checked against its own identity, not the checkout's HEAD,
     # which moves on after a release (the record commit, the next block's work).
@@ -228,6 +249,7 @@ if ($UseExistingSignedCandidate) {
 if ($LASTEXITCODE -ne 0) { throw "Candidate build exited $LASTEXITCODE." }
 $candidateManifest = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'candidate-final.json') | ConvertFrom-Json
 
+$script:matrixStage = 'install-scenarios'
 $whatIfTranscript = ''
 try {
 	# Item 2hi: the deployable is one file. Copy only the signed bundled binary
@@ -268,7 +290,7 @@ try {
 		$questionBefore -cne $questionAfter -or @(Get-AgentBProcessesAtPath -Executable (Join-Path $repositoryRoot 'Agent_b.exe')).Count -ne $questionProcesses) {
 		throw "The installer question did not answer the candidate's signer without acting: exit=$questionExit answer=$questionOutput"
 	}
-	Write-Host "PROOF installer question: $questionOutput; no install root or process changed"
+	Write-MatrixProof "PROOF installer question: $questionOutput; no install root or process changed"
 	# Item 2p8: unlike the interactive window-control arm below, this proof owns
 	# an invisible desktop and is mandatory on every installer run.
 	& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $PSScriptRoot 'test-one-window-invariant.ps1') -Exe (Join-Path $repositoryRoot 'Agent_b.exe') -Setup $singleSetup -ApplicationRoot $repositoryRoot
@@ -289,7 +311,7 @@ try {
 	if ($singleExit -ne 0 -or $singleBefore -cne $singleAfter -or $singleLogText -notmatch 'PREFLIGHT COMPLETE' -or $singleLogText -notmatch 'Mode: WhatIf' -or $singleLogText -notmatch 'AUTOSTART SKIPPED: -NoStart') {
 		throw "Single-file setup did not complete TestMode/WhatIf preflight.`n$singleOutput"
 	}
-	Write-Host 'PROOF single-file setup: browser-renamed Agent_b-setup (1).exe extracted, regenerated its manifest, and completed TestMode/WhatIf preflight'
+	Write-MatrixProof 'PROOF single-file setup: browser-renamed Agent_b-setup (1).exe extracted, regenerated its manifest, and completed TestMode/WhatIf preflight'
 
     # Item 2jn: exercise the real non-TestMode defaults without installing.
     # The environment redirects the all-users defaults to this disposable root;
@@ -340,7 +362,7 @@ try {
     }
     $defaultAfter = Get-RootFingerprint -Roots $defaultTargets
     if ($defaultBefore -cne $defaultAfter) { throw 'Default-root non-TestMode/WhatIf preflight changed a target root.' }
-    Write-Host 'PROOF default roots: per-user LocalAppData and all-users ProgramData defaults complete non-TestMode/WhatIf preflight without touching targets'
+    Write-MatrixProof 'PROOF default roots: per-user LocalAppData and all-users ProgramData defaults complete non-TestMode/WhatIf preflight without touching targets'
 
     $mismatchLogRoot = Join-Path $defaultRoot 'Logs\per-user-mismatch'
     $savedErrorAction = $ErrorActionPreference
@@ -358,7 +380,7 @@ try {
     if ($mismatchExit -eq 0 -or $mismatchRecord -notmatch 'WorkspaceDirectory must be the canonical per-user LocalAppData location') {
         throw "Per-user workspace mismatch did not name LocalAppData.`n$mismatchRecord"
     }
-    Write-Host 'PROOF per-user mismatch: WorkspaceDirectory names the canonical per-user LocalAppData location'
+    Write-MatrixProof 'PROOF per-user mismatch: WorkspaceDirectory names the canonical per-user LocalAppData location'
 
     # Item 2jn(d): model the updater's installed per-user layout, but keep the
     # entire install beneath the disposable suite root. Omit the three roots so
@@ -389,7 +411,7 @@ try {
         throw "Updater-shaped default-root install did not complete on its first attempt or preserve operator data.`n$updateOutput"
     }
     Assert-InstalledSignatures -Application $updateApplication -PolicyRoot $repositoryRoot -Phase 'update'
-    Write-Host 'PROOF updater default: a v1.6.5-shaped per-user layout installed on the first attempt with default application/data/workspace roots and preserved chat data'
+    Write-MatrixProof 'PROOF updater default: a v1.6.5-shaped per-user layout installed on the first attempt with default application/data/workspace roots and preserved chat data'
 
     $directOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File $installer 2>&1 | Out-String).Trim()
     $directExit = $LASTEXITCODE
@@ -397,7 +419,7 @@ try {
     if ($directExit -eq 0 -or $directOutput -cne $directSentence) {
         throw "Direct source-tree installer did not refuse with its one release-page sentence.`n$directOutput"
     }
-    Write-Host "PROOF direct source-tree refusal: $directSentence"
+    Write-MatrixProof "PROOF direct source-tree refusal: $directSentence"
 
     # Item 2nf (a): A HAND RUN KEEPS TODAY'S STRICTNESS. The workspace argument is
     # advisory only for the shape an installed updater sends - all three roots at once,
@@ -421,7 +443,7 @@ try {
     if ($handOutput -match 'workspace argument ignored') {
         throw "A hand run's workspace was treated as advisory; only an updater's is.`n$handOutput"
     }
-    Write-Host 'PROOF hand-run strictness: a workspace inside the data root is still refused as three overlapping trees, and is never silently ignored'
+    Write-MatrixProof 'PROOF hand-run strictness: a workspace inside the data root is still refused as three overlapping trees, and is never silently ignored'
 
 
 
@@ -447,7 +469,7 @@ try {
     if ($registeredExit -eq 0 -or $registeredRecord -notmatch [regex]::Escape('Agent_b Alpha') -or $registeredRecord -notmatch [regex]::Escape($exactUninstall) -or -not (Test-Path -LiteralPath (Join-Path $registeredRoot 'Agent_b.exe'))) {
         throw "Registered alternate copy was not refused with its display name and exact uninstall command.`n$registeredOutput"
     }
-    Write-Host "PROOF registered alternate refusal: Agent_b Alpha; uninstall command $exactUninstall"
+    Write-MatrixProof "PROOF registered alternate refusal: Agent_b Alpha; uninstall command $exactUninstall"
     $testRegistryPath = $registrationRoot
     Remove-Item -LiteralPath $testRegistryPath -Recurse -Force
 
@@ -467,7 +489,7 @@ try {
         if ($runningExit -eq 0 -or $runningRecord -notmatch [regex]::Escape("PID(s) $($runningAlternate.Id)") -or $runningAlternate.HasExited) {
             throw "Running alternate copy was not refused with its PID.`n$runningOutput"
         }
-        Write-Host "PROOF running alternate refusal: PID $($runningAlternate.Id) remained running"
+        Write-MatrixProof "PROOF running alternate refusal: PID $($runningAlternate.Id) remained running"
     } finally {
         if (-not $runningAlternate.HasExited) { Stop-Process -Id $runningAlternate.Id -Force }
         $runningAlternate.WaitForExit()
@@ -515,7 +537,7 @@ try {
     }
     $launcherFailure = Get-Content -LiteralPath (Join-Path $launchFailData 'logs\launcher-errors.log') -Tail 1
     if ($launcherFailure -notmatch 'Configuration error') { throw "Relaunch failure was not named in launcher-errors.log: $launcherFailure" }
-    Write-Host "PROOF failed autostart last line: $launchFailLast"
+    Write-MatrixProof "PROOF failed autostart last line: $launchFailLast"
     if (Test-Path -LiteralPath ($testRegistry + '-LaunchFail')) { Remove-Item -LiteralPath ($testRegistry + '-LaunchFail') -Recurse -Force }
 
     $whatIfApplication = Join-Path $testRoot 'WhatIf\Application\Agent_b'
@@ -597,18 +619,18 @@ try {
         (Get-Content -Raw -LiteralPath $dataSentinel) -cne 'operator data survives migration') {
         throw "Denied migration cleanup did not leave and name the explicit fake legacy root, or changed operator data.`n$freshTranscript"
     }
-    Write-Host 'PROOF denied migration: new copy ready and installer exit 0; locked legacy tree retained and named in transcript/progress; per-user launcher owns future starts'
+    Write-MatrixProof 'PROOF denied migration: new copy ready and installer exit 0; locked legacy tree retained and named in transcript/progress; per-user launcher owns future starts'
     $cleanupOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\complete-install-migration.ps1') -DataDirectory $testData -TestMode 2>&1 | Out-String)
     $cleanupExit = $LASTEXITCODE
     if ($cleanupExit -ne 0 -or (Test-Path -LiteralPath $legacyRoot) -or (Test-Path -LiteralPath $legacyRegistry)) {
         throw "Legacy cleanup did not retain its successful removal path after the lock was released.`n$cleanupOutput"
     }
-    Write-Host 'PROOF migration cleanup: the same guarded cleanup removes the legacy tree and registration when access is available'
+    Write-MatrixProof 'PROOF migration cleanup: the same guarded cleanup removes the legacy tree and registration when access is available'
     $archiveMatch = [regex]::Match($freshTranscript, '(?m)^ARCHIVED ORPHAN: .+ -> (.+); removed original after archive verification\.$')
     if ((Test-Path -LiteralPath $orphanRoot) -or -not $archiveMatch.Success -or -not (Test-Path -LiteralPath (Join-Path $archiveMatch.Groups[1].Value.Trim() 'orphan-proof.txt') -PathType Leaf)) {
         throw "Orphaned alternate copy was not archived and removed with a transcript path.`n$freshTranscript"
     }
-    Write-Host "PROOF orphan archive: $($archiveMatch.Groups[1].Value.Trim()); original removed"
+    Write-MatrixProof "PROOF orphan archive: $($archiveMatch.Groups[1].Value.Trim()); original removed"
     $freshProcesses = @(Get-AgentBProcessesAtPath -Executable (Join-Path $testApplication 'Agent_b.exe'))
     if ($freshProcesses.Count -ne 0 -or $freshTranscript -notmatch 'AUTOSTART SKIPPED: the installed copy was not running') {
         throw "Install over a stopped copy did not leave it stopped.`n$freshTranscript"
@@ -627,7 +649,7 @@ try {
     if ($freshTranscript -match 'OPENED: Agent_b (?:host|browser) window') {
         throw "A DISPOSABLE INSTALL OPENED A WINDOW on the operator's desktop (item 2m6).`n$freshTranscript"
     }
-    Write-Host "PROOF fresh autostart token: PID $($freshTokenProof.pid), identity $($freshTokenProof.identity), elevated=$($freshTokenProof.elevated), commit $($freshState.build.commit)"
+    Write-MatrixProof "PROOF fresh autostart token: PID $($freshTokenProof.pid), identity $($freshTokenProof.identity), elevated=$($freshTokenProof.elevated), commit $($freshState.build.commit)"
     $activeProfile = [string]$freshState.profiles.active
     $profileRoot = Join-Path $testData (Join-Path 'profiles' $activeProfile)
     $profilesUri = "http://127.0.0.1:$testPort/api/profiles"
@@ -643,13 +665,14 @@ try {
         throw 'The second profile did not start isolated with its own exchange folder.'
     }
     $null = Invoke-RestMethod -Method Post -Uri $profilesUri -WebSession $freshClient.Session -Headers $profileHeaders -ContentType 'application/json' -Body (ConvertTo-Json @{ action = 'switch'; name = $activeProfile } -Compress) -TimeoutSec 5
-    Write-Host "PROOF profiles: existing chat and memory moved into $activeProfile; Second stayed isolated; connections remained shared"
+    Write-MatrixProof "PROOF profiles: existing chat and memory moved into $activeProfile; Second stayed isolated; connections remained shared"
     $null = Request-AgentbGracefulStop -ApplicationRoot $testApplication -ProcessId $freshProcesses[0].Id -ProcessRecordsReason
     $freshProcesses[0].WaitForExit(15000) | Out-Null
     if (-not $freshProcesses[0].HasExited) { throw 'Fresh autostart process did not stop before onboarding acceptance.' }
     $installedSha = (Get-FileHash -LiteralPath (Join-Path $testApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($installedSha -ne $candidateManifest.exe_sha256) { throw "First install did not install the manifest's exe: $installedSha, manifest $($candidateManifest.exe_sha256)." }
-    Write-Host "PROOF candidate identity: installed Agent_b.exe sha256 $installedSha equals candidate-final.json"
+    Write-MatrixProof "PROOF candidate identity: installed Agent_b.exe sha256 $installedSha equals candidate-final.json"
+    $script:matrixStage = 'installed-layout'
 
     $configPath = Join-Path $testData 'harness.json'
     $installedConfig = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
@@ -687,11 +710,13 @@ try {
     [IO.File]::WriteAllText($retainedChatLog, ($retainedSeed | ConvertTo-Json -Depth 20 -Compress) + "`n", [Text.UTF8Encoding]::new($false))
     $expiredAt = [DateTime]::UtcNow.AddDays(-2)
     foreach ($path in @($expiredWorkingLog, $expiredEvidenceLog, $retainedChatLog)) { [IO.File]::SetLastWriteTimeUtc($path, $expiredAt) }
+    $script:matrixStage = 'first-run-onboarding'
     $node = (Get-Command node.exe -ErrorAction Stop).Source
     $onboardingArguments = @((Join-Path $PSScriptRoot 'onboarding-acceptance.mjs'), '--app', $testApplication, '--data', $testData, '--config', $configPath, '--port', $testPort)
     if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) { $onboardingArguments += @('--evidence', (Join-Path $EvidenceDirectory 'setup')) }
     & $node @onboardingArguments
     if ($LASTEXITCODE -ne 0) { throw "First-run onboarding acceptance exited $LASTEXITCODE." }
+    $script:matrixStage = 'installed-layout'
 
     foreach ($path in @(
         (Join-Path $testApplication 'Agent_b.exe'),
@@ -994,7 +1019,7 @@ function New-EntryPointDataRoot {
 # Test mode never mutates the operator's real sign-in registration.
 if (Test-Path -LiteralPath (Join-Path $testStart 'Startup\Agent_b.lnk')) { throw 'the install placed a sign-in shortcut (item 2o9: nothing starts at sign-in unless switched on)' }
 if ((Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Agent_b' -ErrorAction SilentlyContinue).Agent_b -match [regex]::Escape($testApplication)) { throw 'the install wrote a Run entry for this install' }
-Write-Host 'PROOF test mode left the operator Run entry untouched'
+Write-MatrixProof 'PROOF test mode left the operator Run entry untouched'
 $entryPoints = @(
     @{ Label = 'Start Menu shortcut'; Path = (Join-Path $testStart 'Agent_b.lnk') }
 )
@@ -1046,7 +1071,7 @@ foreach ($result in $entryResults) {
     if ($result.Consoles -gt 0) {
         throw "ENTRY POINT OPENED A CONSOLE: $($result.Label) produced $($result.Consoles) visible console window(s): $($result.Detail)"
     }
-    Write-Host "PROOF no console: $($result.Label) opened none"
+    Write-MatrixProof "PROOF no console: $($result.Label) opened none"
 }
 
 # And the gate catches the shape that shipped: a shortcut pointing straight at the exe.
@@ -1061,7 +1086,7 @@ try {
     if ($check.TargetPath -match '(?i)Agent_b\.exe$') { $seededCaught = $true }
 } finally { Remove-Item -LiteralPath $seeded -Force -ErrorAction SilentlyContinue }
 if (-not $seededCaught) { throw 'the entry-point check would not have caught a shortcut aimed straight at the executable' }
-Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe is refused'
+Write-MatrixProof 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe is refused'
 
 
     # Item 2mv (e): the Send-to link runs hidden, through the installed copy of the
@@ -1223,7 +1248,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
             # clauses had failed to be worked out by hand.
             throw "Failed host-window fixture: $($windowFailMissing -join '; ') (exit $windowFailExit).`n$windowFailOutput`n$windowFailErrors"
         }
-        Write-Host "PROOF host-window failure: reason and http://127.0.0.1:$windowFailPort/chat were visible and durable"
+        Write-MatrixProof "PROOF host-window failure: reason and http://127.0.0.1:$windowFailPort/chat were visible and durable"
     } finally {
         if ($windowFailPID) { Stop-Process -Id $windowFailPID -Force -ErrorAction SilentlyContinue }
     }
@@ -1280,7 +1305,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     # it now checks presence explicitly rather than failing obscurely.
     $preItemCli = Join-Path $testApplication 'agentb.exe'
     if (Test-Path -LiteralPath $preItemCli -PathType Leaf) { Remove-Item -LiteralPath $preItemCli -Force }
-    Write-Host "PROOF pre-2lt state: agentb.exe removed before the update, to prove the update installs it"
+    Write-MatrixProof "PROOF pre-2lt state: agentb.exe removed before the update, to prove the update installs it"
     $staleShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
     $staleShortcut.TargetPath = 'powershell.exe'
     $staleShortcut.Arguments = '-NoExit -File C:\stale\launch-Agent_b.ps1'
@@ -1310,7 +1335,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
         throw ('Fresh install: Settings > Security did not load: ' + $_.Exception.Message + ' ' + $_.ErrorDetails.Message)
     }
     if ($security.StatusCode -ne 200) { throw ('Fresh install: Settings > Security returned ' + $security.StatusCode) }
-    Write-Host 'PASS: fresh install, workspace <data>\profiles\<name>\scratch: Settings > Security loads its status'
+    Write-MatrixProof 'PASS: fresh install, workspace <data>\profiles\<name>\scratch: Settings > Security loads its status'
     $configFingerprint = Get-StableConfigFingerprint -Path $configPath
 
     $dataBefore = @(Get-ChildItem -LiteralPath $testData -File -Recurse | Where-Object {
@@ -1375,7 +1400,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     if ($staleState.build.commit -ne $beforeState.build.commit -or (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash -ne $installedShaBeforeStale) {
         throw 'The stale-candidate refusal changed the running version.'
     }
-    Write-Host "PROOF stale candidate: $expectedStaleLine ... found $($candidateManifest.tag) $($staleCommit.Trim()); exit $staleExit; PID $($beforeProcess.Id) still serving $($staleState.build.display)"
+    Write-MatrixProof "PROOF stale candidate: $expectedStaleLine ... found $($candidateManifest.tag) $($staleCommit.Trim()); exit $staleExit; PID $($beforeProcess.Id) still serving $($staleState.build.display)"
 
     $upgradeTranscriptPath = Join-Path $testData 'logs\running-upgrade-transcript.log'
     $savedInstallLog = $env:AGENT_B_INSTALL_LOG
@@ -1400,7 +1425,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     }
     if ($upgradeExit -ne 0) { throw "Running-instance wrapper upgrade exited $upgradeExit.`n$upgradeOutput" }
     Assert-InstalledSignatures -Application $testApplication -PolicyRoot $repositoryRoot -Phase 'update'
-    Write-Host 'PASS: an update from a build without agentb.exe installs it, signed and timestamped'
+    Write-MatrixProof 'PASS: an update from a build without agentb.exe installs it, signed and timestamped'
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
     $upgradeTranscript = $strictUtf8.GetString([IO.File]::ReadAllBytes($upgradeTranscriptPath))
     if ((Get-FileHash -LiteralPath $expectedIcon -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path $repositoryRoot 'plan\designs\2u5\Agent_b.ico') -Algorithm SHA256).Hash -or
@@ -1439,7 +1464,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     }
     $upgradeTokenProof = Get-ProcessTokenProof -ProcessId $afterProcesses[0].Id
     if ($upgradeTokenProof.elevated) { throw "Upgrade started elevated PID $($upgradeTokenProof.pid)." }
-    Write-Host "PROOF upgrade autostart token: old PID $($beforeProcess.Id) gone; new PID $($upgradeTokenProof.pid), identity $($upgradeTokenProof.identity), elevated=$($upgradeTokenProof.elevated)"
+    Write-MatrixProof "PROOF upgrade autostart token: old PID $($beforeProcess.Id) gone; new PID $($upgradeTokenProof.pid), identity $($upgradeTokenProof.identity), elevated=$($upgradeTokenProof.elevated)"
     $afterState = Get-AgentBBrowserState (New-AgentBBrowserClient "http://127.0.0.1:$testPort")
     if ([bool]$afterState.build.dirty -ne [bool]$beforeState.build.dirty -or $afterState.build.commit -ne $beforeState.build.commit) {
         throw 'Restarted Agent_b identity does not match the installed build.'
@@ -1508,7 +1533,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
         "RESTARTED: $expectedRollbackVersion after verification failure."
     )) {
         if ($forcedTranscript -notmatch [regex]::Escape($requiredLine)) { throw "Forced-failure transcript is missing: $requiredLine`n$forcedTranscript" }
-        Write-Host "PROOF forced-failure transcript: $requiredLine"
+        Write-MatrixProof "PROOF forced-failure transcript: $requiredLine"
     }
     if (-not (Test-Path -LiteralPath $rollbackSentinel -PathType Leaf)) { throw 'Forced-failure rollback did not restore the previous application tree.' }
     $stoppedForFailure = $afterProcesses[0]
@@ -1565,7 +1590,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
         (Test-Path -LiteralPath $testRegistry)) {
         throw 'Uninstall left a program, shortcut, or registration artifact.'
     }
-    Write-Host 'PASS: fresh install omits legacy workspace; upgrade preservation, preserve-data uninstall, reinstall, and owner-checked purge uninstall'
+    Write-MatrixProof 'PASS: fresh install omits legacy workspace; upgrade preservation, preserve-data uninstall, reinstall, and owner-checked purge uninstall'
     # Item 2gd: the disposable root is removed only when the scenarios passed.
     $scenariosPassed = $true
 } catch {
@@ -1602,6 +1627,7 @@ Write-Host 'PROOF the check catches it: a shortcut aimed straight at Agent_b.exe
     }
 }
 
+$script:matrixStage = 'clean-archive'
 # --- Scenario: the first clone. A plain extracted tree with no .git, under
 # Windows PowerShell 5.1, is what anyone who clones someone/agent_b has. The
 # release tooling used to assume a checkout and PowerShell 7, so this path was
@@ -1658,7 +1684,7 @@ try {
         (Test-Path -LiteralPath (Join-Path $tree 'candidate-final.json'))) {
         throw "The release step did not refuse an exe reporting the wrong tag.`n$mismatchOutput"
     }
-    Write-Host "PROOF release step: an exe reporting $($treeManifest.tag) is refused for release v9.9.9 and no manifest is left"
+    Write-MatrixProof "PROOF release step: an exe reporting $($treeManifest.tag) is refused for release v9.9.9 and no manifest is left"
     if ($UseExistingSignedCandidate) {
         & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
     } else {
@@ -1689,11 +1715,11 @@ try {
     }
     $cloneSha = (Get-FileHash -LiteralPath (Join-Path $cloneApplication 'Agent_b.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($cloneSha -ne $treeManifest.exe_sha256) { throw "Go-absent install installed $cloneSha, manifest $($treeManifest.exe_sha256)." }
-    Write-Host "PROOF Go absent: installed sha256 $cloneSha equals candidate-final.json, no BUILD line, as with Go present"
+    Write-MatrixProof "PROOF Go absent: installed sha256 $cloneSha equals candidate-final.json, no BUILD line, as with Go present"
     if ($cloneOutput -match 'not a git repository') { throw "clean-archive install hit the git-checkout assumption.`n$cloneOutput" }
     if ($cloneOutput -match 'NativeCommandError') { throw "clean-archive install raised NativeCommandError under 5.1.`n$cloneOutput" }
     if (-not (Test-Path -LiteralPath (Join-Path $cloneApplication 'Agent_b.exe'))) { throw 'clean-archive install produced no application binary.' }
-    Write-Host 'PASS: clean archive with no .git installs under Windows PowerShell 5.1'
+    Write-MatrixProof 'PASS: clean archive with no .git installs under Windows PowerShell 5.1'
 
     # Item 2gl (v1.3.0/W3): the install writes NO Edge policy at all any more.
     # v1.2.7 wrote one so Edge would install the app silently; the operator
@@ -1705,7 +1731,7 @@ try {
         }
     }
     if ($cloneOutput -match 'WebAppInstallForceList') { throw "the installer still names the Edge policy.`n$cloneOutput" }
-    Write-Host 'PASS: a disposable install writes and mentions no Edge policy'
+    Write-MatrixProof 'PASS: a disposable install writes and mentions no Edge policy'
 
     & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-pwa-policy.ps1')
     if ($LASTEXITCODE -ne 0) { throw "The Edge app-window policy suite exited $LASTEXITCODE." }
@@ -1716,6 +1742,7 @@ try {
     Remove-Item -LiteralPath ($testRegistry + '-Clone') -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$script:matrixStage = 'exit-code-gate'
 # --- Scenario: the pre-stop gate fails closed on a missing exit code.
 # A child script can fall off its success path, leaving $LASTEXITCODE null;
 # the gate must treat that as failure and preserve real nonzero codes.
@@ -1752,7 +1779,7 @@ try {
     Write-Host "KEPT for evidence: $testRoot"
     throw
 }
-Write-Host 'PASS: the pre-stop gate fails closed on a null exit code, keeps a real one, and every invoked script exits explicitly'
+Write-MatrixProof 'PASS: the pre-stop gate fails closed on a null exit code, keeps a real one, and every invoked script exits explicitly'
 # Item 2ft: the probe recreated the disposable root after its cleanup above; a
 # passing scenario removes it again (a failing one threw first and keeps it).
 Assert-TemporaryTestPath $testRoot
@@ -1768,6 +1795,7 @@ Remove-TreeWithinAllowedRoots -Path $testRoot -AllowedRoots @([IO.Path]::GetTemp
 # carded rather than half-built. The all-users BRANCH is exercised beneath a
 # disposable root by the default-roots arm above; a real one needs an elevated
 # machine.
+$script:matrixStage = 'seed-configuration'
 $seedRoots = [System.Collections.ArrayList]::new()
 $seedRegistries = [System.Collections.ArrayList]::new()
 $seedFailures = [System.Collections.ArrayList]::new()
@@ -1875,7 +1903,7 @@ try {
     Assert-Seed '(e) a missing seed fails the install' ($refusedMissing.exit -ne 0) "exit $($refusedMissing.exit)"
 
     if ($seedFailures.Count) { throw ("Seed arm failures: " + ($seedFailures -join '; ')) }
-    Write-Host 'PASS: a seed lands on a first install, a redeploy leaves the operator configuration untouched, and a seed carrying a credential or malformed JSON is refused with its reason'
+    Write-MatrixProof 'PASS: a seed lands on a first install, a redeploy leaves the operator configuration untouched, and a seed carrying a credential or malformed JSON is refused with its reason'
 } finally {
     foreach ($seedRoot in $seedRoots) {
         if ($seedRoot -and (Test-Path -LiteralPath $seedRoot)) {
@@ -1892,6 +1920,7 @@ try {
     Remove-InstallerTestKeys -Like ((Split-Path -Leaf $testRegistry) + '*')
 }
 
+$script:matrixStage = 'chat-acceptance'
 if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
     & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-chat-acceptance.ps1') -SkipBuild
 } else {
@@ -1899,7 +1928,8 @@ if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
 }
 if ($LASTEXITCODE -ne 0) { throw "Chat acceptance release gate exited $LASTEXITCODE." }
 
+$script:matrixStage = 'install-registration'
 & (Get-WindowsPowerShell) -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-install-registration.ps1')
 if ($LASTEXITCODE -ne 0) { throw "The singleton Installed apps registration suite exited $LASTEXITCODE." }
 
-Write-Host 'SKIPPED native service-account mutation gate: it requires an elevated signed candidate and is exercised only by the staged release acceptance.'
+Write-MatrixProof 'SKIPPED native service-account mutation gate: it requires an elevated signed candidate and is exercised only by the staged release acceptance.'

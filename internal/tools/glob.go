@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	pathpkg "path"
@@ -9,12 +10,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/session"
 )
 
 const globMaxResults = 200
+const nameSearchTimeout = 30 * time.Second
 
 var globIgnoredDirs = map[string]bool{
 	".git":         true,
@@ -26,11 +29,33 @@ var globIgnoredDirs = map[string]bool{
 type Glob struct {
 	mu      sync.RWMutex
 	cfg     config.FindFilesTool
-	walkDir func(string, fs.WalkDirFunc) error
+	timeout time.Duration
+	walkDir func(context.Context, string, fs.WalkDirFunc) error
 }
 
 func NewGlob(cfg config.FindFilesTool) *Glob {
-	return &Glob{cfg: cfg, walkDir: filepath.WalkDir}
+	return NewGlobWithDeadline(cfg, nameSearchTimeout, walkGlobDir)
+}
+
+// NewGlobWithDeadline keeps the walk and its clock injectable for the full-run
+// acceptance test. Production uses NewGlob's fixed model-facing bound.
+func NewGlobWithDeadline(cfg config.FindFilesTool, timeout time.Duration, walk func(context.Context, string, fs.WalkDirFunc) error) *Glob {
+	if timeout <= 0 {
+		timeout = nameSearchTimeout
+	}
+	if walk == nil {
+		walk = walkGlobDir
+	}
+	return &Glob{cfg: cfg, timeout: timeout, walkDir: walk}
+}
+
+func walkGlobDir(ctx context.Context, root string, visit fs.WalkDirFunc) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return visit(path, entry, err)
+	})
 }
 func (*Glob) Name() string { return "find_files" }
 func (*Glob) Description() string {
@@ -40,15 +65,20 @@ func (*Glob) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"pattern": map[string]any{"type": "string"}, "path": map[string]any{"type": "string", "default": "."}}, "required": []string{"pattern"}}
 }
 func (g *Glob) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
+	detail := g.CallDetailed(ctx, s, args)
+	return detail.Content, detail.Err
+}
+
+func (g *Glob) CallDetailed(ctx context.Context, s *session.Session, args map[string]any) CallDetail {
 	cfg := g.config()
 	cfg.SkipRoots = append(cfg.SkipRoots, s.Policy().FindFiles.SkipRootsAdd...)
 	pattern, ok := args["pattern"].(string)
 	if !ok || pattern == "" {
-		return "", fmt.Errorf("pattern is required")
+		return CallDetail{Err: fmt.Errorf("pattern is required")}
 	}
 	pattern = strings.ReplaceAll(pattern, `\`, "/")
 	if err := validateGlobPattern(pattern); err != nil {
-		return "", fmt.Errorf("invalid pattern: %v", err)
+		return CallDetail{Err: fmt.Errorf("invalid pattern: %v", err)}
 	}
 	path, _ := args["path"].(string)
 	if path == "" {
@@ -56,25 +86,29 @@ func (g *Glob) Call(ctx context.Context, s *session.Session, args map[string]any
 	}
 	readRoot, rootErr := s.ReadRoot(path)
 	if rootErr != nil {
-		return "", rootErr
+		return CallDetail{Err: rootErr}
 	}
 	root, err := resolveForSessionTool(ctx, s, readRoot, path)
 	if err != nil {
-		return "", err
+		return CallDetail{Err: err}
 	}
 	workspaceRoot, err := resolveForSessionTool(ctx, s, readRoot, ".")
 	if err != nil {
-		return "", err
+		return CallDetail{Err: err}
 	}
 	rootRel := workspaceRel(workspaceRoot, root)
 	if containsIgnoredDir(rootRel) {
-		return "no matches", nil
+		return CallDetail{Content: "no matches"}
 	}
 
 	matches := make([]string, 0, globMaxResults)
 	total := 0
 	skipped := 0
-	err = g.walkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
+	lastDirectory := rootRel
+	started := time.Now()
+	walkCtx, cancel := context.WithTimeout(ctx, g.timeout)
+	defer cancel()
+	err = g.walkDir(walkCtx, root, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if filePath != root && isInaccessible(walkErr) {
 				skipped++
@@ -82,10 +116,11 @@ func (g *Glob) Call(ctx context.Context, s *session.Session, args map[string]any
 			}
 			return walkErr
 		}
-		if err := ctx.Err(); err != nil {
+		if err := walkCtx.Err(); err != nil {
 			return err
 		}
 		if entry.IsDir() {
+			lastDirectory = workspaceRel(workspaceRoot, filePath)
 			if filePath != root && globIgnoredDirs[entry.Name()] {
 				return filepath.SkipDir
 			}
@@ -109,19 +144,36 @@ func (g *Glob) Call(ctx context.Context, s *session.Session, args map[string]any
 		}
 		return nil
 	})
+	timedOut := errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
 	if err != nil {
-		return "", err
+		if !timedOut {
+			return CallDetail{Err: err}
+		}
 	}
 	s.TouchProject(path)
+	if timedOut {
+		elapsed := time.Since(started).Round(time.Millisecond)
+		metadata := map[string]any{"truncated": true, "matches": total, "last_directory": lastDirectory, "duration_ms": elapsed.Milliseconds()}
+		if total == 0 {
+			return CallDetail{Err: fmt.Errorf("name search timed out: stopped after %s with 0 matches; last directory: %s; narrow the path or pattern", elapsed, lastDirectory), Metadata: metadata}
+		}
+		sort.Strings(matches)
+		result := strings.Join(matches, "\n")
+		if total > len(matches) {
+			result += fmt.Sprintf("\n[truncated: %d of %d paths shown]", len(matches), total)
+		}
+		result += fmt.Sprintf("\n[truncated: true; name search stopped after %s with %d matches; last directory: %s; narrow the path or pattern]", elapsed, total, lastDirectory)
+		return CallDetail{Content: withSkippedInaccessible(result, skipped), Metadata: metadata}
+	}
 	if total == 0 {
-		return withSkippedInaccessible("no matches", skipped), nil
+		return CallDetail{Content: withSkippedInaccessible("no matches", skipped)}
 	}
 	sort.Strings(matches)
 	result := strings.Join(matches, "\n")
 	if total > len(matches) {
 		result += fmt.Sprintf("\n[truncated: %d of %d paths shown]", len(matches), total)
 	}
-	return withSkippedInaccessible(result, skipped), nil
+	return CallDetail{Content: withSkippedInaccessible(result, skipped)}
 }
 
 func (g *Glob) Configure(value config.Config) {

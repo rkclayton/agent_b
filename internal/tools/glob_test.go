@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/session"
@@ -93,6 +95,64 @@ func TestConfiguredProtectedRootsMatchVolumeRelativePrefixes(t *testing.T) {
 	}
 	if configuredSkipRoot(filepath.Join(volumeRoot, "ProgramData", "ordinary", "file.txt"), patterns) {
 		t.Fatal("ordinary root matched protected patterns")
+	}
+}
+
+func TestNameSearchDeadlineReturnsPartialOrTimeoutAndLeavesFastResultsAlone2xd(t *testing.T) {
+	root := t.TempDir()
+	writeGlobFixture(t, root, "nested/hit.txt")
+	walk := func(includeMatch, block bool) func(context.Context, string, fs.WalkDirFunc) error {
+		return func(ctx context.Context, walkRoot string, visit fs.WalkDirFunc) error {
+			rootInfo, err := os.Stat(walkRoot)
+			if err != nil {
+				return err
+			}
+			if err := visit(walkRoot, fs.FileInfoToDirEntry(rootInfo), nil); err != nil {
+				return err
+			}
+			if includeMatch {
+				path := filepath.Join(walkRoot, "nested", "hit.txt")
+				info, err := os.Stat(path)
+				if err != nil {
+					return err
+				}
+				if err := visit(path, fs.FileInfoToDirEntry(info), nil); err != nil {
+					return err
+				}
+			}
+			if block {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return nil
+		}
+	}
+
+	for _, test := range []struct {
+		name, want           string
+		match, block, failed bool
+	}{{"partial", "nested/hit.txt", true, true, false}, {"empty", "timed out", false, true, true}, {"fast", "nested/hit.txt", true, false, false}} {
+		t.Run(test.name, func(t *testing.T) {
+			tool := NewGlobWithDeadline(config.Defaults(root).Tools.FindFiles, 20*time.Millisecond, walk(test.match, test.block))
+			started := time.Now()
+			detail := tool.CallDetailed(context.Background(), &session.Session{Workspace: root}, map[string]any{"pattern": "*.txt"})
+			if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+				t.Fatalf("elapsed=%s", elapsed)
+			}
+			if test.failed != (detail.Err != nil) || !strings.Contains(detail.Content+fmt.Sprint(detail.Err), test.want) {
+				t.Fatalf("detail=%+v", detail)
+			}
+			truncated, present := detail.Metadata["truncated"].(bool)
+			if test.block != (present && truncated) {
+				t.Fatalf("metadata=%#v", detail.Metadata)
+			}
+			if test.block && (!strings.Contains(detail.Content+fmt.Sprint(detail.Err), "stopped after") || !strings.Contains(detail.Content+fmt.Sprint(detail.Err), "last directory")) {
+				t.Fatalf("missing truthful deadline sentence: %+v", detail)
+			}
+		})
+	}
+	if description := NewSearch(NewGlob(config.Defaults(root).Tools.FindFiles), NewGlob(config.Defaults(root).Tools.FindFiles)).Description(); !strings.Contains(description, "30 seconds") {
+		t.Fatalf("description=%q", description)
 	}
 }
 

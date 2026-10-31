@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -277,6 +278,80 @@ func TestNonzeroShellExitProducesFailedToolResultEvent(t *testing.T) {
 	data := toolResultEventData(1, "call", "shell", outcome.Content, outcome.OK, outcome.OperatorContext, outcome.Untrusted, 1, 1, outcome.Metadata)
 	if data["ok"] != false || !strings.Contains(data["preview"].(string), "exit=9") {
 		t.Fatalf("UI event data=%#v", data)
+	}
+}
+
+func TestBoundedNameSearchJournalsOneResultAndContinues2xd(t *testing.T) {
+	for _, matches := range []bool{false, true} {
+		t.Run(fmt.Sprintf("matches_%t", matches), func(t *testing.T) {
+			root := t.TempDir()
+			if matches {
+				if err := os.WriteFile(filepath.Join(root, "found.txt"), []byte("found"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			walk := func(ctx context.Context, walkRoot string, visit fs.WalkDirFunc) error {
+				rootInfo, err := os.Stat(walkRoot)
+				if err != nil {
+					return err
+				}
+				if err := visit(walkRoot, fs.FileInfoToDirEntry(rootInfo), nil); err != nil {
+					return err
+				}
+				if matches {
+					path := filepath.Join(walkRoot, "found.txt")
+					info, err := os.Stat(path)
+					if err != nil {
+						return err
+					}
+					if err := visit(path, fs.FileInfoToDirEntry(info), nil); err != nil {
+						return err
+					}
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			}
+
+			cfg := config.Defaults(root)
+			calls := 0
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				calls++
+				if calls == 1 {
+					arguments, _ := json.Marshal(map[string]any{"target": "name", "path": root, "pattern": "*.txt"})
+					writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "search-1", "type": "function", "function": map[string]any{"name": "search", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
+					return
+				}
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "answered after search"}, "finish_reason": "stop"}}})
+			}))
+			defer model.Close()
+			connection := cfg.Connections[0]
+			connection.ID, connection.BaseURL, connection.Model = "main", model.URL, "fake"
+			connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 8192
+			connection.Capabilities.Streaming, connection.Capabilities.ToolCalls = true, true
+			cfg.Connections = []config.Connection{connection}
+			bus := events.NewBus()
+			var resultEvents []events.Event
+			bus.SetSink(func(event events.Event) error {
+				if event.Type == events.ToolResult {
+					resultEvents = append(resultEvents, event)
+				}
+				return nil
+			})
+			glob := tools.NewGlobWithDeadline(cfg.Tools.FindFiles, 20*time.Millisecond, walk)
+			runner := NewRunner(bus, tools.New(tools.NewSearch(glob, glob)), &PromptRenderer{text: "system"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
+			item := &session.Session{ID: "bounded-search", ConnectionID: "main", Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{"search": true}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+			item.Append(events.Message{ID: "u", Role: "user", Category: "history", Content: "search"})
+			if reason, _, _ := runner.Run(context.Background(), item, "run"); reason != "done" || calls != 2 {
+				t.Fatalf("reason=%s calls=%d", reason, calls)
+			}
+			if len(resultEvents) != 1 {
+				t.Fatalf("tool results=%d", len(resultEvents))
+			}
+			data, _ := resultEvents[0].Data.(map[string]any)
+			if data["truncated"] != true || (matches && data["class"] != nil) || (!matches && data["class"] != "timeout") {
+				t.Fatalf("result=%#v", data)
+			}
+		})
 	}
 }
 

@@ -33,7 +33,7 @@ func (*Search) Name() string { return "search" }
 
 // Under 60 tokens, and it no longer has to distinguish itself from a sibling.
 func (*Search) Description() string {
-	return "Search local files under path: target=content returns matching text lines, target=name returns files whose names match pattern."
+	return "Search local files under path: target=content returns matching text lines; target=name returns matching file names and stops after 30 seconds with partial results."
 }
 
 func (*Search) Schema() map[string]any {

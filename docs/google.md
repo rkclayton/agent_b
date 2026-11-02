@@ -14,4 +14,6 @@ Agent_b needs only those OAuth values. The client secret and refresh token are p
 
 Use `google:<credential-name>` as the connector auth value. The connector address must have the same HTTPS scheme, host, and port as the stored origin. For Gmail, use `https://gmail.googleapis.com`.
 
+The complete read-only Gmail connector is in [CONNECTORS.md](CONNECTORS.md#gmail-read-only). Add the Google credential in **Settings → Security → Credentials**, then approve the connector once; it appears under **Settings → Connections → Connectors**.
+
 **Switch account** replaces the stored account. **Sign out** asks Google to revoke the refresh token and then clears the protected local sign-in. Google does not offer device-code sign-in here.

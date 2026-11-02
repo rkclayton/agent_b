@@ -47,6 +47,14 @@ let watchPhrase = "waiting";
 let priceAlerted = false;
 let ledgerDailyCase = "due";
 let ledgerDailyRuns = 0;
+let ledgerMailRuns = 0;
+const ledgerMailRows = [
+	{ item: "Fixture oats", qty: 1, unit: "bag", price: 6, store: "Fixture Pantry", bought: "2026-11-02", category: "food", use_by: "2027-11-02", source: "mail", message_id: "mail-order" },
+	{ item: "Fixture beans", qty: 2, unit: "can", price: 4, store: "Fixture Pantry", bought: "2026-11-02", category: "food", use_by: "2027-11-02", source: "mail", message_id: "mail-order" },
+	{ item: "Fixture soap", qty: 1, unit: "bottle", price: 5, store: "Fixture Pantry", bought: "2026-11-02", category: "household", use_by: null, source: "mail", message_id: "mail-order" },
+	{ item: "Fixture towels", qty: 2, unit: "roll", price: 7, store: "Fixture Pantry", bought: "2026-11-02", category: "household", use_by: null, source: "mail", message_id: "mail-order" },
+	{ item: "Fixture tea", qty: 1, unit: "box", price: 8, store: "Fixture Pantry", bought: "2026-11-02", category: "food", use_by: "2027-11-02", source: "mail", message_id: "mail-order" },
+];
 const ledgerGroceryRows = [
 	{ item: "Fixture milk", qty: 1, unit: "carton", price: 4, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-08", source: "paste" },
 	{ item: "Fixture chicken", qty: 1, unit: "pack", price: 9, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-04", source: "paste" },
@@ -65,6 +73,7 @@ const ledgerHardwareRows = [
 const ledgerJSONL = (rows) => `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
 const csvCell = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 const ledgerCSVRows = (rows) => rows.map((row) => [row.item, row.qty, row.unit, row.price, row.store, row.bought, row.category, row.use_by, ""].map(csvCell).join(",")).join("\n");
+const gmailBody = (value) => Buffer.from(value).toString("base64url");
 const terminateChildren = () => {
   try { model?.closeAllConnections?.(); } catch {}
   for (const child of [...children].reverse()) { try { child.kill(); } catch {} }
@@ -107,6 +116,21 @@ const toolCountAfterLatestUser = (body) => {
   return messages.slice(index + 1).filter((message) => message.role === "tool").length;
 };
 const fakeHandler = async (request, response) => {
+	const requestURL = new URL(request.url, `http://${request.headers.host}`);
+	if (requestURL.pathname === "/gmail/v1/users/me/messages") {
+		response.setHeader("Content-Type", "application/json");
+		return void response.end(JSON.stringify({ messages: [{ id: "mail-order" }, { id: "mail-bill" }, { id: "mail-other" }] }));
+	}
+	if (requestURL.pathname.startsWith("/gmail/v1/users/me/messages/")) {
+		const id = requestURL.pathname.split("/").at(-1);
+		const bodies = {
+			"mail-order": "Order confirmation\nFixture Pantry\n2026-11-02\nFixture oats 1 bag 6\nFixture beans 2 can 4\nFixture soap 1 bottle 5\nFixture towels 2 roll 7\nFixture tea 1 box 8",
+			"mail-bill": "Payment due\nFixture utility\nAmount 42\nDue 2026-11-15",
+			"mail-other": "Fixture neighborhood bulletin\nMeeting next week",
+		};
+		response.setHeader("Content-Type", "application/json");
+		return void response.end(JSON.stringify({ id, payload: { mimeType: "text/plain", body: { data: gmailBody(bodies[id] || "") } } }));
+	}
 	if (request.url === "/watch-price") return void response.end(`<main><h1>Fixture chair</h1><div itemprop="offers"><meta itemprop="priceCurrency" content="USD"><span itemprop="price">${watchPrice}</span></div></main>`);
 	if (request.url === "/watch-page") return void response.end(`<main><h1>Fixture release</h1><p>Status: ${watchPhrase}</p></main>`);
 	if (request.url === "/watch-no-price") return void response.end("<main><h1>Fixture chair</h1><p>Contact us</p></main>");
@@ -219,6 +243,20 @@ const fakeHandler = async (request, response) => {
 		const question = ledgerDailyRuns === 1 ? "\nstill have the Fixture tofu? yes/no" : "";
 		return stream(response, { content: `ledger: 1 expiring, 1 untouched, 1 bills due\nFixture chicken — 2026-11-04\nFixture rice — untouched\nFixture rent due 2026-11-04${question}` });
 	}
+	if (user.includes("acceptance: ledger mail")) {
+		const count = toolCountAfterLatestUser(body), folder = `${stateRoot}/ledger`, last = ledgerGroceryRows.at(-1);
+		if (count === 0) { ledgerMailRuns++; return watchCall("ledger-mail-skill", "read_file", { path: `${root}/.included/ledger/SKILL.md` }); }
+		if (count === 1) return watchCall("ledger-mail-list", "call_service", { service: "gmail", method: "GET", path: "gmail/v1/users/me/messages", query: { q: 'newer_than:2d (receipt OR "order confirmation" OR invoice OR "your order" OR statement OR "payment due")' } });
+		if (count >= 2 && count <= 4) return watchCall(`ledger-mail-get-${count}`, "call_service", { service: "gmail", method: "GET", path: `gmail/v1/users/me/messages/${["mail-order", "mail-bill", "mail-other"][count - 2]}`, query: { format: "full" } });
+		if (count === 5) return watchCall("ledger-mail-existing", "read_file", { path: `${folder}/ledger.jsonl` });
+		if (count === 6) return watchCall("ledger-mail-existing-csv", "read_file", { path: `${folder}/ledger.csv` });
+		if (ledgerMailRuns > 1) return stream(response, { content: "[SILENT]" });
+		if (count === 7) return watchCall("ledger-mail-append", "edit_file", { path: `${folder}/ledger.jsonl`, old_string: `${JSON.stringify(last)}\n`, new_string: `${JSON.stringify(last)}\n${ledgerJSONL(ledgerMailRows)}` });
+		if (count === 8) return watchCall("ledger-mail-csv", "edit_file", { path: `${folder}/ledger.csv`, old_string: `${ledgerCSVRows([last])}\n`, new_string: `${ledgerCSVRows([last])}\n${ledgerCSVRows(ledgerMailRows)}\n` });
+		if (count === 9) return watchCall("ledger-mail-bill", "write_file", { path: `${folder}/bills.json`, content: JSON.stringify({ "Fixture utility": { amount: 42, due_day: 15, notes: "mail:mail-bill" } }) });
+		return stream(response, { content: "ledger: filed 5 from mail\nledger: 1 expiring, 1 untouched, 1 bills due\nFixture utility due 2026-11-15" });
+	}
+	if (user.includes("acceptance: ledger no gmail")) return stream(response, { content: "ledger: 1 expiring, 1 untouched, 1 bills due\nFixture chicken — 2026-11-04" });
 	if (user.includes("acceptance: ledger meals")) return stream(response, { content: "Fixture rice + Fixture chicken + Fixture sauce + Fixture peas" });
 	if (user.includes("acceptance: ledger price")) return stream(response, { content: "Fixture milk — 2026-11-01: 4 (change +1)\n2026-10-01: 3" });
 	if (user.includes("acceptance: ledger spend")) return stream(response, { content: "Fixture Hardware total: 25\nFixture brush 12\nFixture screws 7\nFixture bracket 6" });
@@ -671,7 +709,7 @@ const config = {
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
     reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false }, context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
     capabilities: { connection: "agentb-fake", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: ["acceptance fake"] } }],
-  services: {}, agents: [{ name: "agent_b", b: "acceptance", toolset }],
+  services: { gmail: { kind: "http", base_url: `http://127.0.0.1:${modelPort}`, auth: "none", allowed_methods: ["GET"], timeout_s: 5, max_body_kb: 64, require_confirmation: false } }, agents: [{ name: "agent_b", b: "acceptance", toolset }],
 	updates: { auto_check: !realModel },
   run: { max_turns: 12, cycle_window: 8, max_concurrent: 2, queue_depth: 0 }, approval: { mode: "boundary-only" },
   // The exchange folder is its own tree, as on an install (item 2fo: inside the
@@ -981,6 +1019,33 @@ if (cronOnly) {
 	assert.equal((await runJob("ledger daily")).trim(), "[SILENT]");
 	assert.match(await readFile(ledgerCSV, "utf8"), /2026-10-25,gone/);
 	record("included-ledger-daily-scripted-2xg");
+	await writeFile(ledgerCSV, `item,qty,unit,price,store,bought,category,use_by,status\n${ledgerCSVRows(ledgerGroceryRows)}\n`);
+	const installedLedgerSkill = await readFile(join(profileData, "skills", ".included", "ledger", "SKILL.md"), "utf8");
+	assert.match(installedLedgerSkill, /^## Mail$/m);
+	await send("acceptance: ledger mail");
+	const mailRows = (await readFile(ledgerPath, "utf8")).trim().split("\n").map(JSON.parse).filter((row) => row.source === "mail");
+	assert.equal(mailRows.length, 5);
+	assert.deepEqual(new Set(mailRows.map((row) => row.message_id)), new Set(["mail-order"]));
+	assert.deepEqual(JSON.parse(await readFile(join(ledgerState, "bills.json"), "utf8"))["Fixture utility"], { amount: 42, due_day: 15, notes: "mail:mail-bill" });
+	assert.equal((await readFile(ledgerCSV, "utf8")).trim().split("\n").length, 14);
+	await send("acceptance: ledger mail");
+	assert.equal((await readFile(ledgerPath, "utf8")).trim().split("\n").filter((line) => JSON.parse(line).source === "mail").length, 5);
+	const mailEvents = await sessionEvents(created.id);
+	assert.match(JSON.stringify(mailEvents), /ledger: filed 5 from mail/);
+	assert.equal(mailEvents.filter((event) => event.type === "tool.result" && event.data?.call_id === "ledger-mail-append").length, 1);
+	await send("acceptance: ledger no gmail");
+	const absentEvents = await sessionEvents(created.id);
+	const absentStart = absentEvents.findLastIndex((event) => event.type === "message.appended" && JSON.stringify(event.data).includes("acceptance: ledger no gmail"));
+	assert.equal(absentEvents.slice(absentStart).filter((event) => event.type === "tool.result" && event.data?.name === "call_service").length, 0);
+	await openSettings();
+	await page.locator('.settings-nav [data-id="connections"]').click();
+	const gmailConnector = page.locator('[data-connector="gmail"]');
+	await gmailConnector.waitFor({ state: "visible" });
+	assert.match(await gmailConnector.innerText(), /gmail[\s\S]*GET/);
+	await page.setViewportSize({ width: 1024, height: 768 });
+	await captureWithMasks(page, join(args.evidence, "captures", "gmail-connector-get-only.png"));
+	await page.setViewportSize({ width: 1250, height: 975 });
+	record("included-ledger-mail-scripted-2xi");
 	for (const [request, expected] of [["meals", /rice.*chicken.*sauce.*peas/i], ["price", /milk.*change/i], ["spend", /total: 25/i], ["have", /food:.*household:.*other:/s], ["bill", /rent due/i]]) {
 		await send(`acceptance: ledger ${request}`);
 		assert.match(JSON.stringify(await sessionEvents(created.id)), expected);

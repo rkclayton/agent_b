@@ -48,6 +48,11 @@ function failedTestLine(discovery, id) {
 
 function connections() {
   const connections = connectionList();
+  const connectors = Object.entries(store.config?.services || {}).sort(([left], [right]) => left.localeCompare(right));
+  const connectorRows = connectors.map(([name, connector]) => {
+    const methods = Array.isArray(connector.allowed_methods) ? connector.allowed_methods.join(", ") : "";
+    return `<div class="connection-row connector-row" data-connector="${attr(name)}"><span class="connection-summary"><span class="lamp"></span><span>${html(name)}</span><span class="connection-url">${html(connector.base_url || "")} · ${html(methods || "no methods")}</span><span class="connection-state"></span></span></div>`;
+  }).join("");
   const rows = connections
     .map((connection) => {
       const isOpen = expanded.has(connection.id);
@@ -81,7 +86,7 @@ function connections() {
   const modelOptions = [`<option value="" ${selectedModel ? "" : "selected"}>server default</option>`]
     .concat((imageConnection?.models || []).map((item) => `<option value="${attr(item.model)}" ${selectedModel === item.model ? "selected" : ""}>${html(item.model)}</option>`));
   const imageRow = row("images", `<span class="choice-row"><select class="setting-input" data-path="${connectionPath}" data-kind="text">${connectionOptions.join("")}</select><select class="setting-input" data-path="${modelPath}" data-kind="text">${modelOptions.join("")}</select></span>`);
-  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${imageRow}`;
+  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${imageRow}${subhead("Connectors")}<div class="connection-list connector-list">${connectorRows || '<p class="settings-note inline">No connectors configured.</p>'}</div>`;
 }
 
 // One line on the existing findings row: each memory layer's current size

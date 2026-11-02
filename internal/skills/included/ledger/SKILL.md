@@ -1,13 +1,13 @@
 ---
 name: ledger
-description: File purchases and bills, answer price and spending questions, and give one daily notice for expiring or untouched food. Use for receipts, orders, purchases, inventory, bills, or meal ideas.
+description: File purchases and bills from pasted text or Gmail, answer price and spending questions, and give one daily notice for expiring or untouched food. Use for receipts, orders, purchases, inventory, bills, or meal ideas.
 state: true
 ---
 # Ledger
 
 Keep all files in this skill's STATE FOLDER. Dates are the PC's local `YYYY-MM-DD`; never store times.
 
-- `ledger.jsonl`: one compact line per purchase: `{"item":"","qty":1,"unit":"","price":0,"store":"","bought":"","category":"food|household|other","use_by":null,"source":"paste"}`. Append new rows; never rewrite earlier rows.
+- `ledger.jsonl`: one compact line per purchase: `{"item":"","qty":1,"unit":"","price":0,"store":"","bought":"","category":"food|household|other","use_by":null,"source":"paste"}`. Mail rows use `source:"mail"` and add `message_id`. Append new rows; never rewrite earlier rows.
 - `ledger.csv`: the same rows and order, headed `item,qty,unit,price,store,bought,category,use_by,status`. Append intake rows and replace only a changed row; keep RFC 4180 quoting. The first intake reply names this path once.
 - `items.json`: one key per normalized item name with `{category,shelf_days?,burn_days?,last_seen_used?,like?,notes?,season?}`.
 - `asked.json`: one key `<item>|<question>` with the date last asked.
@@ -31,7 +31,7 @@ For pasted receipt or order text:
 
 ## Daily check — scheduled; nobody is here
 
-Read all five files. Never use `ask` in a scheduled run.
+Read all five files, then perform Mail intake when its connector exists. Never use `ask` in a scheduled run.
 
 - EXPIRING: food rows not used or gone whose `use_by` is within three days.
 - UNTOUCHED: food bought at least 21 days ago, not past `use_by`, with no `last_seen_used`.
@@ -42,6 +42,16 @@ Past `use_by` plus seven days with no answer marks the row `gone` and asks nothi
 
 If every list is empty, answer exactly `[SILENT]`. Otherwise answer at most eight lines. Line one is `ledger: <n> expiring, <m> untouched, <b> bills due`; then one `<item> — <date>` per expiring or untouched row, bill lines, and up to five questions. Non-food never appears except as a due bill.
 
+## Mail
+
+When a connector named `gmail` exists, start every daily check—and run the same intake for `ledger mail`—with `call_service` on that connector, GET only. If it does not exist, make no call and continue the ordinary daily check without an error.
+
+1. List `gmail/v1/users/me/messages` with query `newer_than:2d (receipt OR "order confirmation" OR invoice OR "your order" OR statement OR "payment due")` in `q`. This is the one editable search line.
+2. GET each returned `gmail/v1/users/me/messages/<id>` with `format=full`. Read the `text/plain` MIME part; when absent, strip tags from the HTML part. Do not retain a body after this run.
+3. Skip an id already present as `message_id` in `ledger.jsonl`. Treat every other matching body as Intake: append each line item to JSONL and CSV with `source:"mail"` and its message id. Ignore messages that yield neither line items nor a bill.
+4. A message with an amount and due date but no line items creates or updates its entry in `bills.json`; keep its message id in `notes` so a later run updates instead of duplicating it.
+5. When rows were filed, put `ledger: filed N from mail` before the normal daily summary. Add no mail line when none were filed. The scheduled `[SILENT]` rule is otherwise unchanged.
+
 ## Requests — the user is here
 
 - `what did I pay for <item>` or `price of <item>`: matching purchases newest first, each with change from the previous buy.
@@ -51,4 +61,4 @@ If every list is empty, answer exactly `[SILENT]`. Otherwise answer at most eigh
 - `I like/don't like <item>` or `<item> is a <season> thing`: update that item's entry and reply on one line.
 - `remind me <bill> on the <n>th`: create or update its bill, amount optional, and reply on one line. `paid <bill>` sets `last_paid` to today. `what's due` lists bills by next due date with amounts when known.
 
-Never buy, sign in, or make a network call. Never name a store that was not in the user's text.
+Never buy or sign in. Make no network call except `call_service` on the connector named `gmail`, GET only. Never name a store that was not in the user's text.

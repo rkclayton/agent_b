@@ -13,7 +13,7 @@ Fresh profiles include and enable these skills:
 
 - `action-items` — turn source material into decisions, actions, open questions, and parked work.
 - `debug` — reproduce and locate a bug before making the smallest fix.
-- `ledger` — file purchases and bills, answer spending questions, and report expiring or untouched food once daily.
+- `ledger` — file purchases and bills from pasted text or a read-only Gmail connector, answer spending questions, and report expiring or untouched food once daily.
 - `page-watch` — report only a watched page or feed change.
 - `price-watch` — report only when a watched price meets its target.
 - `research` — answer current questions from several numbered sources.

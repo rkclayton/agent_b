@@ -395,13 +395,37 @@ test("Entra credentials show account controls and configuration without defaults
 	await expect(page.locator('[data-action="credential-sign-in"][data-id="work-api"]')).toHaveText("Switch account");
 	await expect(page.locator('[data-action="credential-device-code"][data-id="work-api"]')).toBeVisible();
 	await expect(page.locator('[data-action="credential-sign-out"][data-id="work-api"]')).toBeVisible();
-	await page.getByText("Add Microsoft Entra").click();
+	await page.getByText("Add signed-in credential").click();
 	for (const selector of ["#credential-entra-name", "#credential-entra-origin", "#credential-tenant", "#credential-client-id", "#credential-scopes"]) {
 		await expect(page.locator(selector)).toHaveValue("");
 	}
 	const evidence = join(repo, "candidate", "rel-1.44.0-w7-entra", "settings-credentials.png");
 	await mkdir(join(repo, "candidate", "rel-1.44.0-w7-entra"), { recursive: true });
 	await page.screenshot({ path: evidence, fullPage: true });
+	await page.close();
+});
+
+test("Google credentials expose browser sign-in without device code 2xh", async () => {
+	const page = await harness.context.newPage();
+	await page.route("**/api/credentials", async (route) => route.fulfill({
+		status: 200, contentType: "application/json",
+		body: JSON.stringify({ credentials: [{ name: "google-mail", kind: "google", origin: "https://gmail.googleapis.com:443", stored_at: "2026-11-02T00:00:00Z", account: "someone@example.org", sign_in_needed: false }] }),
+	}));
+	await page.goto(`${harness.base}/chat`);
+	await toggleSettings(page); await page.locator('.settings-nav [data-id="shell"]').click();
+	await expect(page.getByText("signed in as someone@example.org")).toBeVisible();
+	await expect(page.locator('[data-action="credential-sign-in"][data-id="google-mail"]')).toHaveText("Switch account");
+	await expect(page.locator('[data-action="credential-device-code"][data-id="google-mail"]')).toHaveCount(0);
+	await page.getByText("Add signed-in credential").click();
+	await page.locator("#credential-provider").selectOption("google");
+	for (const selector of ["#credential-google-name", "#credential-google-origin", "#credential-google-client-id", "#credential-google-client-secret", "#credential-google-scopes"]) await expect(page.locator(selector)).toBeVisible();
+	const evidence = join(repo, "logs", "evidence", "rel-1.62.191", "captures"); await mkdir(evidence, { recursive: true });
+	for (const width of [1024, 1440]) {
+		await page.setViewportSize({ width, height: 900 });
+		await page.locator("#credential-google-scopes").scrollIntoViewIfNeeded();
+		expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+		await page.screenshot({ path: join(evidence, `google-credentials-${width}.png`), fullPage: true });
+	}
 	await page.close();
 });
 

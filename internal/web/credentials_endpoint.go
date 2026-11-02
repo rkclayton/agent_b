@@ -109,14 +109,15 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"credentials": credentialListing(r.Context(), entries)})
 	case http.MethodPost:
 		var body struct {
-			Action   string `json:"action"`
-			Name     string `json:"name"`
-			Origin   string `json:"origin"`
-			Header   string `json:"header"`
-			Secret   string `json:"secret"`
-			Tenant   string `json:"tenant"`
-			ClientID string `json:"client_id"`
-			Scopes   string `json:"scopes"`
+			Action       string `json:"action"`
+			Name         string `json:"name"`
+			Origin       string `json:"origin"`
+			Header       string `json:"header"`
+			Secret       string `json:"secret"`
+			Tenant       string `json:"tenant"`
+			ClientID     string `json:"client_id"`
+			Scopes       string `json:"scopes"`
+			ClientSecret string `json:"client_secret"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "the request is not readable", "credentials")
@@ -135,6 +136,16 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if provider := identityProvider("entra"); provider != nil {
+				_ = provider.SignOut(name)
+			}
+		case "add_google":
+			if err := vault.PutGoogle(name, body.Origin, body.ClientID, body.ClientSecret, strings.Fields(body.Scopes)); err != nil {
+				body.ClientSecret = ""
+				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+				return
+			}
+			body.ClientSecret = ""
+			if provider := identityProvider("google"); provider != nil {
 				_ = provider.SignOut(name)
 			}
 		case "remove":

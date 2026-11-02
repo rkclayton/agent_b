@@ -6,6 +6,7 @@ let credentialList = [];
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
+let credentialProvider = "entra";
 let store, armed, drafts, errors, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
@@ -16,6 +17,7 @@ function useSettingsContext(context) {
   credentialMessage = context.credentialMessage || "";
   credentialAlarm = !!context.credentialAlarm;
   credentialDevice = context.credentialDevice || {};
+  credentialProvider = context.credentialProvider === "google" ? "google" : "entra";
   ({ store, armed, drafts, errors, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
@@ -161,20 +163,29 @@ function credentialRows() {
 	const listed = entries.length
 		? `<span class="settings-actions vertical">${entries.map((entry) => {
 			const remove = `<button type="button" data-action="credential-remove" data-id="${attr(entry.name)}" data-confirm="the credential ${attr(entry.name)}">Remove</button>`;
-			if (entry.kind !== "entra") return `<span>${html(entry.name)} · ${html(entry.origin)}${entry.header ? ` · ${html(entry.header)}` : " · bearer"} · stored ${html((entry.stored_at || "").slice(0, 10))} ${remove}</span>`;
+			if (entry.kind !== "entra" && entry.kind !== "google") return `<span>${html(entry.name)} · ${html(entry.origin)}${entry.header ? ` · ${html(entry.header)}` : " · bearer"} · stored ${html((entry.stored_at || "").slice(0, 10))} ${remove}</span>`;
 			const account = entry.account ? `signed in as ${html(entry.account)}` : "sign-in needed";
-			const device = credentialDevice.name === entry.name && credentialDevice.user_code
+			const device = entry.kind === "entra" && credentialDevice.name === entry.name && credentialDevice.user_code
 				? `<span class="account-status">Open <a href="${attr(credentialDevice.verification_url)}" target="_blank" rel="noreferrer">${html(credentialDevice.verification_url)}</a> and enter <span class="mono">${html(credentialDevice.user_code)}</span>.</span>` : "";
-			return `<span class="settings-actions vertical"><span>${html(entry.name)} · Microsoft Entra · ${html(entry.origin)} · ${account}</span><span class="settings-actions"><button type="button" data-action="credential-sign-in" data-id="${attr(entry.name)}">${entry.account ? "Switch account" : "Sign in with browser"}</button><button type="button" data-action="credential-device-code" data-id="${attr(entry.name)}">Use a device code</button>${entry.account ? `<button type="button" data-action="credential-sign-out" data-id="${attr(entry.name)}">Sign out</button>` : ""}${remove}</span>${device}</span>`;
+			const provider = entry.kind === "google" ? "Google" : "Microsoft Entra";
+			const deviceButton = entry.kind === "entra" ? `<button type="button" data-action="credential-device-code" data-id="${attr(entry.name)}">Use a device code</button>` : "";
+			return `<span class="settings-actions vertical"><span>${html(entry.name)} · ${provider} · ${html(entry.origin)} · ${account}</span><span class="settings-actions"><button type="button" data-action="credential-sign-in" data-id="${attr(entry.name)}">${entry.account ? "Switch account" : "Sign in with browser"}</button>${deviceButton}${entry.account ? `<button type="button" data-action="credential-sign-out" data-id="${attr(entry.name)}">Sign out</button>` : ""}${remove}</span>${device}</span>`;
 		}).join("")}</span>`
 		: '<span class="account-status">none stored</span>';
 	return `${subhead("Credentials", "Keys and signed-in accounts this machine holds for the services you connect to. Each one goes only to the address you approve for it — scheme, host and port — and to nothing else. A connector names a credential; it never carries its value.")}
 	${row("stored", listed)}
 	${row("add key", `<span class="settings-actions"><input id="credential-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-origin" type="text" placeholder="https://host:port" autocomplete="off" spellcheck="false"><input id="credential-header" type="text" placeholder="header (blank = bearer)" autocomplete="off" spellcheck="false"><input id="credential-secret" type="password" placeholder="the key" autocomplete="new-password" spellcheck="false"><button type="button" data-action="credential-add">Add</button></span>`, "", "The key is never shown again once stored, and never leaves this machine except to the address above. Windows protects it for your account: that is protection at rest and from other users, not from programs running as you.")}
-	<details class="settings-advanced"><summary>Add Microsoft Entra</summary>
+	<details class="settings-advanced"><summary>Add signed-in credential</summary>
+	${row("provider", `<select id="credential-provider"><option value="entra"${credentialProvider === "entra" ? " selected" : ""}>Microsoft Entra</option><option value="google"${credentialProvider === "google" ? " selected" : ""}>Google</option></select>`)}
+	${credentialProvider === "entra" ? `
 	${row("identity", `<span class="settings-actions"><input id="credential-entra-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-entra-origin" type="text" placeholder="https://API-host:port" autocomplete="off" spellcheck="false"></span>`)}
 	${row("app registration", `<span class="settings-actions"><input id="credential-tenant" type="text" placeholder="tenant ID" autocomplete="off" spellcheck="false"><input id="credential-client-id" type="text" placeholder="client ID" autocomplete="off" spellcheck="false"></span>`)}
 	${row("scopes", `<span class="settings-actions"><input id="credential-scopes" type="text" placeholder="space-separated scopes" autocomplete="off" spellcheck="false"><button type="button" data-action="credential-entra-add">Add Entra credential</button></span>`, "", "Use the API's public-client registration and delegated scopes. Agent_b supplies no tenant, client ID or scope defaults; sign-in is a separate explicit step.")}
+	` : `
+	${row("identity", `<span class="settings-actions"><input id="credential-google-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-google-origin" type="text" placeholder="https://API-host:port" autocomplete="off" spellcheck="false"></span>`)}
+	${row("OAuth client", `<span class="settings-actions"><input id="credential-google-client-id" type="text" placeholder="client ID" autocomplete="off" spellcheck="false"><input id="credential-google-client-secret" type="password" placeholder="client secret" autocomplete="new-password" spellcheck="false"></span>`)}
+	${row("scopes", `<span class="settings-actions"><input id="credential-google-scopes" type="text" placeholder="space-separated scopes" autocomplete="off" spellcheck="false"><button type="button" data-action="credential-google-add">Add</button></span>`)}
+	` }
 	</details>
 	${feedback(credentialMessage, credentialAlarm)}`;
 }
@@ -267,7 +278,7 @@ export const securityActions = actionTable([
   "test-shell-credential", "clear-shell-credential", "setup-service-account",
   "service-identity-toggle", "disable-service-account", "refresh-service-account",
   "broker-pair", "broker-confirm", "broker-revoke", "broker-cancel",
-  "credential-add", "credential-entra-add", "credential-sign-in",
+  "credential-add", "credential-entra-add", "credential-google-add", "credential-sign-in",
   "credential-device-code", "credential-sign-out", "credential-remove",
   "apply-hardening", "verify-hardening", "refresh-hardening", "remove-hardening",
 ]);

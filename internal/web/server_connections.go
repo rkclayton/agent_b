@@ -915,10 +915,12 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 	auth := strings.TrimSpace(change.Service.Auth)
 	var stagedEntraName string
 	var stagedEntraVault *credential.Vault
-	if strings.HasPrefix(auth, "stored:") || strings.HasPrefix(auth, "entra:") {
+	if strings.HasPrefix(auth, "stored:") || strings.HasPrefix(auth, "entra:") || strings.HasPrefix(auth, "google:") {
 		kind := "stored"
 		if strings.HasPrefix(auth, "entra:") {
 			kind = "entra"
+		} else if strings.HasPrefix(auth, "google:") {
+			kind = "google"
 		}
 		name := strings.TrimSpace(strings.TrimPrefix(auth, kind+":"))
 		origin, err := credential.NormalizeOrigin(change.Service.BaseURL)
@@ -939,10 +941,16 @@ func (s *Server) ApplyConnector(change tools.ConnectorChange) error {
 			stagedEntraName, stagedEntraVault = name, vault
 		} else if !vault.Has(name) {
 			return fmt.Errorf("no credential named %q is stored; add it in Settings → Security first", name)
-		} else if kind == "entra" {
-			_, entry, entraErr := vault.Entra(name)
-			if entraErr != nil {
-				return entraErr
+		} else if kind == "entra" || kind == "google" {
+			var entry credential.Entry
+			var identityErr error
+			if kind == "entra" {
+				_, entry, identityErr = vault.Entra(name)
+			} else {
+				_, entry, identityErr = vault.Google(name)
+			}
+			if identityErr != nil {
+				return identityErr
 			}
 			if !strings.EqualFold(entry.Origin, origin) {
 				return fmt.Errorf("credential %q is approved for %s, not %s", name, entry.Origin, origin)

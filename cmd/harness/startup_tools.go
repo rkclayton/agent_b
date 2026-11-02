@@ -12,6 +12,7 @@ import (
 	"harness/internal/delivery"
 	"harness/internal/entra"
 	"harness/internal/events"
+	googleidentity "harness/internal/google"
 	"harness/internal/hardening"
 	"harness/internal/serviceaccount"
 	"harness/internal/session"
@@ -96,6 +97,8 @@ func (a *harnessApp) wireTools() {
 	callServiceTool.SetVault(vault)
 	entraManager := entra.New(vault)
 	callServiceTool.SetTokenProvider("entra", entraManager)
+	googleManager := googleidentity.New(vault)
+	callServiceTool.SetTokenProvider("google", googleManager)
 	a.cronManager = cron.New(a.profileRoot, nil, nil)
 	imageTool := tools.NewImage()
 	imageTool.Configure(*a.cfg)
@@ -135,6 +138,7 @@ func (a *harnessApp) wireTools() {
 	callServiceTool.SetConnectorWriter(a.web.ApplyConnector)
 	webserver.SetCredentialVault(vault)
 	webserver.SetIdentityProvider("entra", entraManager)
+	webserver.SetIdentityProvider("google", googleManager)
 	a.runner.BindDelegate(delegateTool)
 	a.runner.SetSessionRenamer(a.registry.RenameBy)
 	deliveryManager := delivery.New(a.bus, a.web.ConfigSnapshot)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -42,6 +43,12 @@ type EntraDefinition struct {
 	Tenant   string   `json:"tenant"`
 	ClientID string   `json:"client_id"`
 	Scopes   []string `json:"scopes"`
+}
+
+type GoogleDefinition struct {
+	ClientID     string   `json:"client_id"`
+	ClientSecret string   `json:"client_secret"`
+	Scopes       []string `json:"scopes"`
 }
 
 // Vault is the named-credential store under one data root.
@@ -240,6 +247,83 @@ func (v *Vault) EntraCache(name string) (*Store, error) {
 	return NewNamed(v.root, "entra-"+name+"-cache")
 }
 
+func (v *Vault) PutGoogle(name, origin, clientID, clientSecret string, scopes []string) error {
+	origin, err := NormalizeOrigin(origin)
+	if err != nil {
+		return err
+	}
+	parsedOrigin, _ := url.Parse(origin)
+	host := strings.ToLower(parsedOrigin.Hostname())
+	if host != "www.googleapis.com" && !strings.HasSuffix(host, ".googleapis.com") {
+		return errors.New("a Google credential origin must be www.googleapis.com or a narrower googleapis.com API host")
+	}
+	definition := GoogleDefinition{ClientID: strings.TrimSpace(clientID), ClientSecret: strings.TrimSpace(clientSecret)}
+	for _, scope := range scopes {
+		if scope = strings.TrimSpace(scope); scope != "" {
+			definition.Scopes = append(definition.Scopes, scope)
+		}
+	}
+	if definition.ClientID == "" || definition.ClientSecret == "" || len(definition.Scopes) == 0 {
+		return errors.New("client id, client secret and at least one scope are required")
+	}
+	encoded, err := json.Marshal(definition)
+	if err != nil {
+		return err
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	store, err := v.store(name)
+	if err != nil {
+		return err
+	}
+	if err := store.Write(encoded); err != nil {
+		return err
+	}
+	readBack, err := store.Read()
+	if err != nil {
+		return fmt.Errorf("the Google definition was stored but did not read back: %w", err)
+	}
+	if string(readBack) != string(encoded) {
+		_ = store.Clear()
+		return errors.New("the Google definition did not read back as it was written")
+	}
+	records, err := v.readRecords()
+	if err != nil {
+		return err
+	}
+	records[name] = Entry{Name: name, Kind: "google", Origin: origin, StoredAt: time.Now().UTC().Format(time.RFC3339)}
+	if err := v.writeRecords(records); err != nil {
+		return err
+	}
+	cache, err := v.GoogleCache(name)
+	if err != nil {
+		return err
+	}
+	if err := cache.Clear(); err != nil && !errors.Is(err, ErrNotStored) {
+		return err
+	}
+	return nil
+}
+
+func (v *Vault) Google(name string) (GoogleDefinition, Entry, error) {
+	secret, entry, err := v.Secret(name)
+	if err != nil {
+		return GoogleDefinition{}, Entry{}, err
+	}
+	if entry.Kind != "google" {
+		return GoogleDefinition{}, Entry{}, fmt.Errorf("credential %q is not a Google credential", name)
+	}
+	var definition GoogleDefinition
+	if json.Unmarshal([]byte(secret), &definition) != nil {
+		return GoogleDefinition{}, Entry{}, fmt.Errorf("Google credential %q is unreadable", name)
+	}
+	return definition, entry, nil
+}
+
+func (v *Vault) GoogleCache(name string) (*Store, error) {
+	return NewNamed(v.root, "google-"+name+"-cache")
+}
+
 // Rebind changes where a credential may go, without touching the secret. (e) means the
 // operator has approved this before it is called.
 func (v *Vault) Rebind(name, origin, header string) error {
@@ -283,6 +367,11 @@ func (v *Vault) Delete(name string) error {
 	}
 	if records[name].Kind == "entra" {
 		if cache, cacheErr := v.EntraCache(name); cacheErr == nil {
+			_ = cache.Clear()
+		}
+	}
+	if records[name].Kind == "google" {
+		if cache, cacheErr := v.GoogleCache(name); cacheErr == nil {
 			_ = cache.Clear()
 		}
 	}

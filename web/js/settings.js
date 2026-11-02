@@ -55,6 +55,7 @@ let credentialList = [];
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
+let credentialProvider = "entra";
 let brokerMessage = "";
 let brokerAlarm = false;
 let serviceAccountAlarm = false;
@@ -525,7 +526,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
-    credentialList, credentialMessage, credentialAlarm, credentialDevice,
+    credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList, agentProfiles: () => store.config.agents || [],
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
@@ -1455,6 +1456,21 @@ async function runAction(event, button, action, id) {
 		}
 		return render();
 	}
+	if (action === "credential-google-add") {
+		const field = (selector) => sheet.querySelector(selector)?.value?.trim() || "";
+		credentialMessage = ""; credentialAlarm = false;
+		try {
+			credentialList = (await api("/api/credentials", {
+				action: "add_google", name: field("#credential-google-name"), origin: field("#credential-google-origin"),
+				client_id: field("#credential-google-client-id"), client_secret: field("#credential-google-client-secret"), scopes: field("#credential-google-scopes"),
+			})).credentials || [];
+			for (const selector of ["#credential-google-name", "#credential-google-origin", "#credential-google-client-id", "#credential-google-client-secret", "#credential-google-scopes"]) {
+				const input = sheet.querySelector(selector); if (input) input.value = ""; actionDrafts.delete(selector.slice(1));
+			}
+			credentialMessage = "Google credential added — sign in when ready";
+		} catch (error) { credentialMessage = error.message; credentialAlarm = true; }
+		return render();
+	}
 	if (action === "credential-sign-in" || action === "credential-device-code" || action === "credential-sign-out") {
 		const verb = { "credential-sign-in": "sign_in", "credential-device-code": "device_code", "credential-sign-out": "sign_out" }[action];
 		credentialMessage = verb === "sign_in" ? "Finish sign-in in the browser…" : verb === "device_code" ? "Requesting a device code…" : "Signing out…";
@@ -1858,6 +1874,13 @@ async function blur(event) {
 }
 
 async function change(event) {
+  if (event.target.matches("#credential-provider")) {
+    credentialProvider = event.target.value === "google" ? "google" : "entra";
+    render();
+    const provider = sheet.querySelector("#credential-provider");
+    if (provider) provider.closest("details").open = true;
+    return;
+  }
   if (event.target.matches("[data-skills-profile]")) { skillAgent = event.target.value; return render(); }
 	if (event.target.matches('.setting-input[data-path="images.connection"]')) {
 		drafts.set("images.connection", event.target.value);

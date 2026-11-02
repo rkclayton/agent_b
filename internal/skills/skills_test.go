@@ -69,7 +69,7 @@ func TestIncludedSkillsOverrideUpdateAndIndexBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	list, block := Scan(root, stateRoot, nil)
-	if len(list) != 9 {
+	if len(list) != 10 {
 		t.Fatalf("included count=%d", len(list))
 	}
 	stateful := 0
@@ -84,7 +84,7 @@ func TestIncludedSkillsOverrideUpdateAndIndexBudget(t *testing.T) {
 			}
 		}
 	}
-	if stateful != 2 {
+	if stateful != 3 {
 		t.Fatalf("stateful=%d", stateful)
 	}
 	stateFile := filepath.Join(stateRoot, "price-watch", "watch.json")
@@ -94,8 +94,10 @@ func TestIncludedSkillsOverrideUpdateAndIndexBudget(t *testing.T) {
 	if err := os.WriteFile(stateFile, []byte("kept"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if cost := estimateTokens(block); cost > 360 {
+	if cost := estimateTokens(block); cost > 400 {
 		t.Fatalf("included index cost=%d\n%s", cost, block)
+	} else {
+		t.Logf("ten included index lines cost %d tokens", cost)
 	}
 
 	fixture(t, root, "action-items", "---\nname: action-items\ndescription: User override.\n---\nOverride body.\n")

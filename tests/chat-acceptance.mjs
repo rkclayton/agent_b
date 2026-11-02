@@ -45,6 +45,26 @@ const notificationPosts = [];
 let watchPrice = 950;
 let watchPhrase = "waiting";
 let priceAlerted = false;
+let ledgerDailyCase = "due";
+let ledgerDailyRuns = 0;
+const ledgerGroceryRows = [
+	{ item: "Fixture milk", qty: 1, unit: "carton", price: 4, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-08", source: "paste" },
+	{ item: "Fixture chicken", qty: 1, unit: "pack", price: 9, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-04", source: "paste" },
+	{ item: "Fixture apples", qty: 6, unit: "each", price: 6, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-10", source: "paste" },
+	{ item: "Fixture peas", qty: 1, unit: "bag", price: 3, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2027-01-30", source: "paste" },
+	{ item: "Fixture sauce", qty: 1, unit: "jar", price: 5, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-12-01", source: "paste" },
+	{ item: "Fixture rice", qty: 1, unit: "bag", price: 8, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2027-11-01", source: "paste" },
+	{ item: "Fixture tofu", qty: 1, unit: "pack", price: 4, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: null, source: "paste" },
+	{ item: "Fixture bread", qty: 1, unit: "loaf", price: 4, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-06", source: "paste" },
+];
+const ledgerHardwareRows = [
+	{ item: "Fixture screws", qty: 1, unit: "box", price: 7, store: "Fixture Hardware", bought: "2026-11-02", category: "household", use_by: null, source: "paste" },
+	{ item: "Fixture brush", qty: 2, unit: "each", price: 12, store: "Fixture Hardware", bought: "2026-11-02", category: "household", use_by: null, source: "paste" },
+	{ item: "Fixture bracket", qty: 1, unit: "each", price: 6, store: "Fixture Hardware", bought: "2026-11-02", category: "other", use_by: null, source: "paste" },
+];
+const ledgerJSONL = (rows) => `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+const csvCell = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+const ledgerCSVRows = (rows) => rows.map((row) => [row.item, row.qty, row.unit, row.price, row.store, row.bought, row.category, row.use_by, ""].map(csvCell).join(",")).join("\n");
 const terminateChildren = () => {
   try { model?.closeAllConnections?.(); } catch {}
   for (const child of [...children].reverse()) { try { child.kill(); } catch {} }
@@ -172,6 +192,38 @@ const fakeHandler = async (request, response) => {
 	const root = /ROOT=([^\n]+)/.exec(joined)?.[1];
 	const stateRoot = /STATE=([^\n]+)/.exec(joined)?.[1];
 	const watchCall = (id, name, args) => stream(response, { tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } }] }, "tool_calls");
+	if (user.includes("acceptance: ledger grocery")) {
+		const count = toolCountAfterLatestUser(body), folder = `${stateRoot}/ledger`, grocery = ledgerJSONL(ledgerGroceryRows);
+		if (count === 0) return watchCall("ledger-skill", "read_file", { path: `${root}/.included/ledger/SKILL.md` });
+		if (count === 1) return watchCall("ledger-jsonl", "write_file", { path: `${folder}/ledger.jsonl`, content: grocery });
+		if (count === 2) return watchCall("ledger-items", "write_file", { path: `${folder}/items.json`, content: JSON.stringify({ "Fixture tofu": { category: "food" } }) });
+		if (count === 3) return watchCall("ledger-asked", "write_file", { path: `${folder}/asked.json`, content: "{}" });
+		if (count === 4) return watchCall("ledger-bills", "write_file", { path: `${folder}/bills.json`, content: "{}" });
+		if (count === 5) return watchCall("ledger-csv", "write_file", { path: `${folder}/ledger.csv`, content: `item,qty,unit,price,store,bought,category,use_by,status\n${ledgerCSVRows(ledgerGroceryRows)}\n` });
+		if (count === 6) return watchCall("ledger-job", "cronjob", { action: "create", name: "ledger daily", schedule: "every day at 8am", skills: ["ledger"], prompt: "Ledger daily check." });
+		return stream(response, { content: `filed 8 items from Fixture Market on 2026-11-01, 43; first to go: Fixture chicken on 2026-11-04; CSV: ${folder}/ledger.csv` });
+	}
+	if (user.includes("acceptance: ledger hardware")) {
+		const count = toolCountAfterLatestUser(body), folder = `${stateRoot}/ledger`, last = ledgerGroceryRows.at(-1), additions = ledgerJSONL(ledgerHardwareRows);
+		if (count === 0) return watchCall("ledger-read", "read_file", { path: `${folder}/ledger.jsonl` });
+		if (count === 1) return watchCall("ledger-append", "edit_file", { path: `${folder}/ledger.jsonl`, old_string: `${JSON.stringify(last)}\n`, new_string: `${JSON.stringify(last)}\n${additions}` });
+		if (count === 2) return watchCall("ledger-csv-append", "edit_file", { path: `${folder}/ledger.csv`, old_string: `${ledgerCSVRows([last])}\n`, new_string: `${ledgerCSVRows([last])}\n${ledgerCSVRows(ledgerHardwareRows)}\n` });
+		return stream(response, { content: "filed 3 items from Fixture Hardware on 2026-11-02, 25" });
+	}
+	if (user.includes("Ledger daily check.")) {
+		const count = toolCountAfterLatestUser(body), folder = `${stateRoot}/ledger`;
+		if (count === 0) { ledgerDailyRuns++; return watchCall("ledger-daily-read", "read_file", { path: `${folder}/${ledgerDailyCase === "gone" ? "ledger.csv" : "ledger.jsonl"}` }); }
+		if (ledgerDailyCase === "due" && ledgerDailyRuns === 1 && count === 1) return watchCall("ledger-question-date", "write_file", { path: `${folder}/asked.json`, content: JSON.stringify({ "Fixture tofu|shelf life": "2026-11-02" }) });
+		if (ledgerDailyCase === "gone" && count === 1) return watchCall("ledger-mark-gone", "write_file", { path: `${folder}/ledger.csv`, content: "item,qty,unit,price,store,bought,category,use_by,status\nFixture expired,1,each,2,Fixture Market,2026-10-20,food,2026-10-25,gone\n" });
+		if (ledgerDailyCase === "silent" || ledgerDailyCase === "gone") return stream(response, { content: "[SILENT]" });
+		const question = ledgerDailyRuns === 1 ? "\nstill have the Fixture tofu? yes/no" : "";
+		return stream(response, { content: `ledger: 1 expiring, 1 untouched, 1 bills due\nFixture chicken — 2026-11-04\nFixture rice — untouched\nFixture rent due 2026-11-04${question}` });
+	}
+	if (user.includes("acceptance: ledger meals")) return stream(response, { content: "Fixture rice + Fixture chicken + Fixture sauce + Fixture peas" });
+	if (user.includes("acceptance: ledger price")) return stream(response, { content: "Fixture milk — 2026-11-01: 4 (change +1)\n2026-10-01: 3" });
+	if (user.includes("acceptance: ledger spend")) return stream(response, { content: "Fixture Hardware total: 25\nFixture brush 12\nFixture screws 7\nFixture bracket 6" });
+	if (user.includes("acceptance: ledger have")) return stream(response, { content: "food: Fixture rice, Fixture chicken, Fixture sauce, Fixture peas\nhousehold: Fixture screws, Fixture brush\nother: Fixture bracket" });
+	if (user.includes("acceptance: ledger bill")) return stream(response, { content: "Fixture rent due 2026-12-01" });
 	if (user.includes("acceptance: price-watch start")) {
 		const count = toolCountAfterLatestUser(body), url = `http://127.0.0.1:${modelPort}/watch-price`;
 		if (count === 0) return watchCall("price-skill", "read_file", { path: `${root}/.included/price-watch/SKILL.md` });
@@ -885,6 +937,55 @@ if (cronOnly) {
 		}
 		throw new Error(`${name} did not run`);
 	};
+	await send("acceptance: ledger grocery");
+	const ledgerState = join(profileData, "skill-state", "ledger"), ledgerPath = join(ledgerState, "ledger.jsonl"), ledgerCSV = join(ledgerState, "ledger.csv");
+	await waitFileContains(ledgerPath, '"Fixture tofu"');
+	await send("acceptance: ledger hardware");
+	const rows = (await readFile(ledgerPath, "utf8")).trim().split("\n").map(JSON.parse);
+	assert.equal(rows.length, 11);
+	assert.equal(rows.filter((row) => row.category === "food" && row.use_by).length, 7);
+	assert.equal(rows.filter((row) => row.category !== "food" && row.use_by === null).length, 3);
+	assert.deepEqual(Object.keys(JSON.parse(await readFile(join(ledgerState, "items.json"), "utf8"))), ["Fixture tofu"]);
+	const ledgerJobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).filter((job) => job.name === "ledger daily");
+	assert.equal(ledgerJobs.length, 1);
+	assert.equal(ledgerJobs[0].schedule, "every day at 8am");
+	assert.equal(ledgerJobs[0].repeating, true);
+	assert.equal((await readFile(ledgerCSV, "utf8")).trim().split("\n").length, 12);
+	record("included-ledger-intake-scripted-2xg");
+	const dailyRows = [
+		...ledgerGroceryRows,
+		{ item: "Fixture untouched", qty: 1, unit: "bag", price: 5, store: "Fixture Market", bought: "2026-10-08", category: "food", use_by: "2026-11-20", source: "paste" },
+		{ item: "Fixture fine", qty: 1, unit: "bag", price: 5, store: "Fixture Market", bought: "2026-11-01", category: "food", use_by: "2026-11-20", source: "paste" },
+		{ item: "Fixture old brush", qty: 1, unit: "each", price: 5, store: "Fixture Hardware", bought: "2026-09-20", category: "household", use_by: null, source: "paste" },
+	];
+	await writeFile(ledgerPath, ledgerJSONL(dailyRows));
+	await writeFile(join(ledgerState, "bills.json"), JSON.stringify({ "Fixture rent": { due_day: 4 }, "Fixture paid": { due_day: 4, last_paid: "2026-11-01" } }));
+	ledgerDailyCase = "due"; ledgerDailyRuns = 0;
+	const noticesBefore = notificationPosts.length, firstDaily = await runJob("ledger daily");
+	assert.match(firstDaily, /^ledger: 1 expiring, 1 untouched, 1 bills due/m);
+	assert.match(firstDaily, /Fixture chicken.*Fixture rent due/s);
+	assert.doesNotMatch(firstDaily, /Fixture old brush|Fixture paid/);
+	assert.ok(firstDaily.trim().split("\n").length <= 8);
+	const secondDaily = await runJob("ledger daily");
+	assert.doesNotMatch(secondDaily, /still have/);
+	for (const deadline = Date.now() + 5000; Date.now() < deadline && notificationPosts.length < noticesBefore + 2;) await sleep(50);
+	assert.equal(notificationPosts.length, noticesBefore + 2);
+	assert.match(JSON.stringify(notificationPosts.at(-2)), /ledger: 1 expiring.*Fixture chicken/s);
+	const ledgerPhone = (await sessionEvents()).findLast((event) => event.type === "run.stopped" && JSON.stringify(event.data?.human || {}).includes("ledger: 1 expiring"));
+	assert.match(JSON.stringify(ledgerPhone?.data?.human || {}), /Fixture chicken/);
+	ledgerDailyCase = "silent";
+	assert.equal((await runJob("ledger daily")).trim(), "[SILENT]");
+	assert.equal(notificationPosts.length, noticesBefore + 2);
+	await writeFile(ledgerCSV, "item,qty,unit,price,store,bought,category,use_by,status\nFixture expired,1,each,2,Fixture Market,2026-10-20,food,2026-10-25,\n");
+	ledgerDailyCase = "gone";
+	assert.equal((await runJob("ledger daily")).trim(), "[SILENT]");
+	assert.match(await readFile(ledgerCSV, "utf8"), /2026-10-25,gone/);
+	record("included-ledger-daily-scripted-2xg");
+	for (const [request, expected] of [["meals", /rice.*chicken.*sauce.*peas/i], ["price", /milk.*change/i], ["spend", /total: 25/i], ["have", /food:.*household:.*other:/s], ["bill", /rent due/i]]) {
+		await send(`acceptance: ledger ${request}`);
+		assert.match(JSON.stringify(await sessionEvents(created.id)), expected);
+	}
+	record("included-ledger-queries-and-csv-scripted-2xg");
 	await send("acceptance: price-watch start");
 	const priceState = join(profileData, "skill-state", "price-watch", "chair.json");
 	await waitFileContains(priceState, '"target":900');

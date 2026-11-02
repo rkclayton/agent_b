@@ -25,6 +25,7 @@ import (
 	"harness/internal/detection"
 	"harness/internal/events"
 	"harness/internal/hardening"
+	"harness/internal/llm"
 	"harness/internal/memory"
 	"harness/internal/modelinstall"
 	"harness/internal/operatorfiles"
@@ -111,6 +112,8 @@ type Server struct {
 	deviceDroppedMu sync.Mutex
 	deviceDropped   map[string]int64
 	deviceStream    []deviceStreamCount
+	skillAuthorMu   sync.Mutex
+	skillAuthorChat func(context.Context, *config.Connection, llm.Request) (llm.Response, error)
 }
 
 const appRequestWatchdogDelay = 30 * time.Second

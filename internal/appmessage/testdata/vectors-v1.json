@@ -25,7 +25,8 @@
     "chat.rename",
     "chat.delete",
     "chat.open",
-    "chat.list.page"
+    "chat.list.page",
+    "skill.author"
   ],
   "vectors": [
     {

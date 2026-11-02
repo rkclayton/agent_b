@@ -57,6 +57,7 @@ var appMessageRoutes = map[string]struct {
 	"chat.mirror":       {http.MethodPost, ""},
 	"chat.mirror.since": {http.MethodPost, ""},
 	"chat.mirror.take":  {http.MethodPost, ""},
+	"skill.author":      {http.MethodPost, ""},
 }
 
 type appRequestUnit struct {
@@ -107,6 +108,9 @@ func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStr
 		// The document's own rule: a route this desktop did not publish is 501, which
 		// is what makes adding one compatible.
 		return s.appProblem(request.ID, http.StatusNotImplemented, "this desktop does not publish the route "+request.Route)
+	}
+	if request.Route == "skill.author" {
+		return s.dispatchSkillAuthor(request)
 	}
 
 	body := request.Body

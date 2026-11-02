@@ -22,6 +22,7 @@ import (
 	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/llm"
 	"harness/internal/projection"
 	"harness/internal/session"
 )
@@ -68,6 +69,57 @@ func dispatch(t *testing.T, server *Server, unit string) appResponseUnit {
 		t.Fatalf("the answer is not an app-message v1 response: %s", raw)
 	}
 	return response
+}
+
+func TestSkillAuthorRouteExists2xf(t *testing.T) {
+	server, registry, writers, _, _, root := consoleServer(t)
+	defer writers.Close()
+	if err := os.MkdirAll(filepath.Join(root, "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const prompt = "FIELDS ONLY; NEVER STEPS"
+	if err := os.WriteFile(filepath.Join(root, "prompts", "skill-author.md"), []byte(prompt), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	server.skillAuthorChat = func(_ context.Context, _ *config.Connection, request llm.Request) (llm.Response, error) {
+		calls++
+		if len(request.Tools) != 0 || len(request.Messages) != 2 || request.Messages[0].Content != prompt {
+			t.Fatalf("request tools=%d messages=%#v", len(request.Tools), request.Messages)
+		}
+		if calls == 3 {
+			return llm.Response{Content: `{"fields":[{"name":"Mystery","type":"text","examples":["x","y"],"everywhere":true}]}`}, nil
+		}
+		return llm.Response{Content: `{"fields":[{"name":"Protein","type":"number","unit":"g","examples":["8","12"],"everywhere":true}]}`}, nil
+	}
+	request := `{"v":1,"kind":"request","id":"author-1","route":"skill.author","body":{"id":"author-1","kind":"fields","texts":["Protein 8 g","Protein 12 g"]}}`
+	response := dispatch(t, server, request)
+	if response.Status != http.StatusOK || response.ID != "author-1" || !strings.Contains(string(response.Body), `"name":"Protein"`) {
+		t.Fatalf("first response=%d id=%q body=%s", response.Status, response.ID, response.Body)
+	}
+	items := registry.List()
+	if len(items) != 1 || items[0].Snapshot().Label != "Phone requests" || len(items[0].Snapshot().Messages) != 2 {
+		t.Fatalf("first chat=%+v", items)
+	}
+	firstID := items[0].ID
+	transcript := fmt.Sprint(items[0].Snapshot().Messages)
+	if !strings.Contains(transcript, `Protein 8 g`) || !strings.Contains(transcript, `"fields"`) {
+		t.Fatalf("transcript=%s", transcript)
+	}
+	second := dispatch(t, server, strings.ReplaceAll(request, "author-1", "author-2"))
+	if second.Status != http.StatusOK || len(registry.List()) != 1 || registry.List()[0].ID != firstID || len(registry.List()[0].Snapshot().Messages) != 4 {
+		t.Fatalf("second=%d chats=%d snapshot=%+v", second.Status, len(registry.List()), registry.List()[0].Snapshot())
+	}
+	unknown := dispatch(t, server, strings.ReplaceAll(request, "author-1", "author-3"))
+	if unknown.Status != http.StatusUnprocessableEntity || !strings.Contains(string(unknown.Body), `"error"`) {
+		t.Fatalf("unknown=%d %s", unknown.Status, unknown.Body)
+	}
+	tooLong := strings.Repeat("x", skillAuthorTextLimit+1)
+	raw, _ := json.Marshal(map[string]any{"v": 1, "kind": "request", "id": "author-4", "route": "skill.author", "body": map[string]any{"id": "author-4", "kind": "fields", "texts": []string{tooLong}}})
+	oversized := dispatch(t, server, string(raw))
+	if oversized.Status != http.StatusRequestEntityTooLarge || calls != 3 {
+		t.Fatalf("oversized=%d calls=%d", oversized.Status, calls)
+	}
 }
 
 func TestPhoneStateCarriesOnlyTheSafeConnectionSheet2ow(t *testing.T) {

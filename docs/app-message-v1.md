@@ -141,6 +141,7 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `route` | HTTP route it stands for | `body` |
 |---|---|---|
 | `message` | `POST /api/message` | `{session_id,text,attachments?}` |
+| `skill.author` | one field-authoring model request on the desktop | `{id,texts:[string],kind:"fields"}` — one to five texts, each at most 16 KiB; added 2026-11-02 |
 | `stop` | `POST /api/stop` | `{session_id?,all?}` |
 | `approve` | `POST /api/approve` | `{session_id,call_id,decision}` |
 | `tool` | `POST /api/tools/{name}` | `{name,enabled}` and `agent_id` or `session_id` |
@@ -157,6 +158,12 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 | `chat.delete` | `DELETE /api/sessions/{session_id}` | `{session_id}` — added 2026-10-05 |
 
 `tool` carries the path segment as a `name` field for the same reason: the route set is closed.
+
+`skill.author` answers `{id,fields:[{name,type,unit?,examples,everywhere}]}` or `{id,error}` on the
+same broker session. `type` is `number`, `text`, or `date`; `examples` has one value per input text.
+The desktop makes one request, with no tools, to the agent's role-`b` connection and never retries.
+A field absent from every supplied text is refused. The ordinary `Phone requests` chat records the
+request and reply as one run, and later requests append later runs to that same visible chat.
 
 `tool` turns one tool of one agent on or off. `agent_id` names the agent; without it, `session_id`
 names a chat and the chat's agent is used. A toolset belongs to the agent, so every chat on it

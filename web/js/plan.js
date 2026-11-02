@@ -208,6 +208,7 @@ function renderRaw() {
 
 function renderStats() {
   const stats = loaded?.stats || {};
+  roots.stats.textContent = stats.last_result ? `${stats.last_result.done || 0} done · ${stats.last_result.stuck || 0} stuck` : "";
   const facts = loaded?.facts || {};
   const repo = facts.repository || {};
   const rows = [

@@ -82,6 +82,31 @@ test("installer matrix names a failure after candidate identity", { skip: proces
 	assert.match(output, /MATRIX FAILURE: stage=first-run-onboarding; last proof=PROOF candidate identity; site=test-installer\.ps1:\d+; stand-in after candidate identity/);
 });
 
+const runApartDiagnosticSelfTest = async (mode) => {
+	const script = new URL("tools/run-apart.ps1", root).pathname.slice(1);
+	const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File", script, "-Tag", "v0.0.0", "-FailureDiagnosticSelfTest", mode], { stdio: ["ignore", "pipe", "pipe"] });
+	let output = "";
+	child.stdout.on("data", (chunk) => output += chunk);
+	child.stderr.on("data", (chunk) => output += chunk);
+	const status = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+	return { output, status };
+};
+
+test("apart preserves child stderr until the matrix diagnoses its nonzero exit", { skip: process.platform !== "win32" }, async () => {
+	const { output, status } = await runApartDiagnosticSelfTest("matrix-child");
+	assert.equal(status, 1, output);
+	assert.match(output, /stand-in child stderr/);
+	assert.match(output, /MATRIX FAILURE: stage=first-run-onboarding; last proof=PROOF candidate identity; site=test-installer\.ps1:\d+; stand-in child exited 7/);
+	assert.doesNotMatch(output, /stage=unknown/);
+});
+
+test("apart diagnoses a silent nonzero script with its output tail", { skip: process.platform !== "win32" }, async () => {
+	const { output, status } = await runApartDiagnosticSelfTest("silent");
+	assert.equal(status, 1, output);
+	assert.match(output, /MATRIX FAILURE: stage=unknown; the script exited 1 without a diagnostic/);
+	assert.match(output, /MATRIX OUTPUT: \(no output\)/);
+});
+
 test("installer matrix has one diagnosed nonzero exit", () => {
 	const trap = installer.indexOf("trap {");
 	const firstThrow = installer.indexOf("throw ");

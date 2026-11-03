@@ -11,7 +11,8 @@ param(
     # switch while the operator owns the interactive desktop.
     [switch]$SkipWindowAcceptance,
     [string]$EvidenceDirectory,
-    [switch]$FailureDiagnosticSelfTest
+    [switch]$FailureDiagnosticSelfTest,
+    [switch]$FailureDiagnosticChildPathSelfTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +34,13 @@ if ($FailureDiagnosticSelfTest) {
     $script:matrixStage = 'first-run-onboarding'
     $script:matrixLastProof = 'PROOF candidate identity'
     throw 'stand-in after candidate identity'
+}
+if ($FailureDiagnosticChildPathSelfTest) {
+    $script:matrixStage = 'first-run-onboarding'
+    $script:matrixLastProof = 'PROOF candidate identity'
+    & $env:ComSpec /d /s /c 'echo stand-in child stderr 1>&2 & exit /b 7'
+    if ($LASTEXITCODE -ne 0) { throw "stand-in child exited $LASTEXITCODE" }
+    throw 'stand-in child unexpectedly succeeded'
 }
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')

@@ -791,6 +791,8 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 	for _, name := range agent.Toolset {
 		enabled[name] = true
 	}
+	enabled["powershell_session"] = agent.PowerShell == "read" || agent.PowerShell == "full"
+	enabled["powershell_session:full"] = agent.PowerShell == "full"
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	connectionID := connection.ID
@@ -804,6 +806,9 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 			policy[name] = true
 		}
 		for name, value := range enabled {
+			if name == "powershell_session:full" {
+				continue
+			}
 			enabled[name] = value && policy[name]
 		}
 	}

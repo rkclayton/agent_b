@@ -126,25 +126,26 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
 		"flow":          map[string]any{"stages": events.Stages, "edges": [][2]string{{"assemble", "call_model"}, {"call_model", "parse"}, {"parse", "dispatch"}, {"dispatch", "execute"}, {"execute", "append"}, {"append", "assemble"}}},
 		"tools": toolInventory(map[string]string{
-			"read_file":    "Read numbered local UTF-8 text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike fetch_url, it reads the filesystem.",
-			"list_dir":     "List entries under local directory path to depth. Unlike search, it enumerates contents without a pattern.",
-			"write_file":   (&tools.WriteFile{}).Description(),
-			"edit_file":    "Replace one exact, unique old_string in path with new_string. Unlike write_file, it avoids reproducing the whole file.",
-			"search":       (&tools.Search{}).Description(),
-			"shell":        shellDescription,
-			"remember":     "Save note as durable folder memory for future sessions. Call recall first to avoid duplicates; unlike recall, remember writes.",
-			"recall":       "Read all durable folder notes; takes no arguments. Use before remember to avoid duplicates; unlike recall, remember never writes.",
-			"fetch_url":    "Fetch untrusted public HTTP(S) text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike read_file, it uses the network.",
-			"web_search":   (&tools.WebSearch{}).Description(),
-			"run_script":   tools.NewRunScript(tools.NewShell(masked.Shell)).Description(),
-			"call_service": tools.NewCallService(masked.Services).Description(),
-			"delegate":     (&tools.Delegate{}).Description(),
-			"cronjob":      (&tools.Cronjob{}).Description(),
-			"image":        (&tools.Image{}).Description(),
-			"todo":         (&tools.Todo{}).Description(),
-			"ask":          (&tools.Ask{}).Description(),
-			"process":      (&tools.Process{}).Description(),
-			"code":         (&tools.Code{}).Description(),
+			"read_file":          "Read numbered local UTF-8 text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike fetch_url, it reads the filesystem.",
+			"list_dir":           "List entries under local directory path to depth. Unlike search, it enumerates contents without a pattern.",
+			"write_file":         (&tools.WriteFile{}).Description(),
+			"edit_file":          "Replace one exact, unique old_string in path with new_string. Unlike write_file, it avoids reproducing the whole file.",
+			"search":             (&tools.Search{}).Description(),
+			"shell":              shellDescription,
+			"remember":           "Save note as durable folder memory for future sessions. Call recall first to avoid duplicates; unlike recall, remember writes.",
+			"recall":             "Read all durable folder notes; takes no arguments. Use before remember to avoid duplicates; unlike recall, remember never writes.",
+			"fetch_url":          "Fetch untrusted public HTTP(S) text by byte offset and limit. When more is true, pass returned next_offset as offset to advance. Unlike read_file, it uses the network.",
+			"web_search":         (&tools.WebSearch{}).Description(),
+			"run_script":         tools.NewRunScript(tools.NewShell(masked.Shell)).Description(),
+			"call_service":       tools.NewCallService(masked.Services).Description(),
+			"delegate":           (&tools.Delegate{}).Description(),
+			"cronjob":            (&tools.Cronjob{}).Description(),
+			"image":              (&tools.Image{}).Description(),
+			"todo":               (&tools.Todo{}).Description(),
+			"ask":                (&tools.Ask{}).Description(),
+			"process":            (&tools.Process{}).Description(),
+			"code":               (&tools.Code{}).Description(),
+			"powershell_session": "Run a command in a named persistent PowerShell session; its agent profile selects Off, Read only, or Full.",
 		}),
 	}
 }
@@ -243,7 +244,7 @@ func phoneAgent(cfg config.Config, agent config.Agent) map[string]any {
 	}
 	tools := []map[string]any{}
 	for _, name := range config.FullToolset() {
-		if name != "web_search" && name != "delegate" {
+		if name != "web_search" && name != "delegate" && name != "powershell_session" {
 			tools = append(tools, map[string]any{"name": name, "enabled": enabled[name]})
 		}
 	}

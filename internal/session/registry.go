@@ -409,6 +409,8 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			tools[name] = true
 		}
 	}
+	tools["powershell_session"] = agent.PowerShell == "read" || agent.PowerShell == "full"
+	tools["powershell_session:full"] = agent.PowerShell == "full"
 	if role == "d" {
 		tools["shell"] = false
 		tools["run_script"] = false

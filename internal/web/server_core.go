@@ -218,6 +218,7 @@ func (s *Server) profileRoot() string {
 	}
 	return s.roots.Data
 }
+func (s *Server) ProfileRoot() string { return s.profileRoot() }
 func (s *Server) SetWorkspaceState(manager *workspaceinfo.Manager, memories *memory.Manager) {
 	s.workspaceState, s.memoryState = manager, memories
 }

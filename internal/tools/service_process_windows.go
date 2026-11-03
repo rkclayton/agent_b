@@ -70,6 +70,7 @@ var (
 
 type serviceShellProcess struct {
 	process  syscall.Handle
+	pid      int
 	job      syscall.Handle
 	input    *os.File
 	output   *os.File
@@ -255,7 +256,7 @@ func startServiceAccountProcessMode(executable string, argv []string, workspace 
 	go func() {
 		done <- copyServiceOutput(output, outputFile)
 	}()
-	return &serviceShellProcess{process: process.Process, job: syscall.Handle(job), input: inputFile, output: outputFile, copyDone: done}, nil
+	return &serviceShellProcess{process: process.Process, pid: int(process.ProcessId), job: syscall.Handle(job), input: inputFile, output: outputFile, copyDone: done}, nil
 }
 
 func copyServiceOutput(output io.Writer, input io.Reader) error {
@@ -294,6 +295,7 @@ func (p *serviceShellProcess) KillTree() {
 		_ = syscall.TerminateProcess(p.process, 1)
 	}
 }
+func (p *serviceShellProcess) PID() int { return p.pid }
 
 func (p *serviceShellProcess) WriteInput(value []byte) error {
 	if p.input == nil {

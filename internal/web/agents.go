@@ -9,14 +9,15 @@ import (
 )
 
 type agentRequest struct {
-	Action   string   `json:"action"`
-	ID       string   `json:"id"`
-	SourceID string   `json:"source_id"`
-	Name     string   `json:"name"`
-	Prompt   string   `json:"prompt"`
-	Tools    []string `json:"tools"`
-	Private  bool     `json:"private"`
-	Thinking *bool    `json:"thinking"`
+	Action     string   `json:"action"`
+	ID         string   `json:"id"`
+	SourceID   string   `json:"source_id"`
+	Name       string   `json:"name"`
+	Prompt     string   `json:"prompt"`
+	Tools      []string `json:"tools"`
+	Private    bool     `json:"private"`
+	Thinking   *bool    `json:"thinking"`
+	PowerShell *string  `json:"powershell"`
 }
 
 func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +66,7 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		next.Name = body.Name
 		if body.Action == "add" {
 			next.Thinking = true
+			next.PowerShell = ""
 		}
 		next.B, next.Model = "", ""
 		s.cfg.Agents = append(s.cfg.Agents, next)
@@ -80,6 +82,9 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Agents[index].B, s.cfg.Agents[index].Model = "", ""
 		if body.Thinking != nil {
 			s.cfg.Agents[index].Thinking = *body.Thinking
+		}
+		if body.PowerShell != nil {
+			s.cfg.Agents[index].PowerShell = strings.TrimSpace(*body.PowerShell)
 		}
 		if !builtIn {
 			if body.Name == "" {

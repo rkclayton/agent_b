@@ -18,6 +18,8 @@ The installed app is a singleton. Its own WebView2 window falls back to an Edge 
 
 [Where the work lives](docs/REPOSITORIES.md) — the four repositories, what each owns, and what the VPS is for.
 
+[Persistent PowerShell](docs/POWERSHELL.md) — named long-lived sessions, bootstrap files, credential handoff, and Read only versus Full.
+
 ## From a prompt
 
 `agentb` runs one task in the current directory without the app:

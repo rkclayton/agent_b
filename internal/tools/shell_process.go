@@ -99,6 +99,7 @@ func (p *execShellProcess) Wait() (int, error) {
 }
 
 func (p *execShellProcess) KillTree() { killProcessTree(p.cmd.Process.Pid) }
+func (p *execShellProcess) PID() int  { return p.cmd.Process.Pid }
 func (p *execShellProcess) WriteInput(value []byte) error {
 	if p.input == nil {
 		return errors.New("process input is closed")

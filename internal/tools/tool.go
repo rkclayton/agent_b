@@ -68,6 +68,7 @@ type Registry struct {
 	byName  map[string]Tool
 }
 type configurable interface{ Configure(config.Config) }
+type enabledDescription interface{ DescriptionFor(map[string]bool) string }
 type serviceIdentityPreflighter interface{ PreflightServiceIdentity() error }
 type alwaysAvailable interface{ AlwaysAvailable() bool }
 type policyApprovalTool interface {
@@ -175,7 +176,11 @@ func (r *Registry) Schemas(enabled map[string]bool) []any {
 	out := []any{}
 	for _, tool := range r.ordered {
 		if toolAvailable(tool, enabled) {
-			out = append(out, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": tool.Description(), "parameters": tool.Schema()}})
+			description := tool.Description()
+			if dynamic, ok := tool.(enabledDescription); ok {
+				description = dynamic.DescriptionFor(enabled)
+			}
+			out = append(out, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": description, "parameters": tool.Schema()}})
 		}
 	}
 	return out

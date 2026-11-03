@@ -69,16 +69,17 @@ type ProfileCatalog struct {
 }
 
 type Agent struct {
-	Name     string                  `json:"name"`
-	Thinking bool                    `json:"thinking"`
-	B        string                  `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
-	C        string                  `json:"c,omitempty"`
-	D        string                  `json:"d,omitempty"`
-	Toolset  []string                `json:"toolset"`
-	Model    string                  `json:"model,omitempty"` // legacy model override; migrated into the connection
-	Prompt   string                  `json:"prompt,omitempty"`
-	Private  bool                    `json:"private,omitempty"`
-	Skills   map[string]SkillSetting `json:"skills,omitempty"`
+	Name       string                  `json:"name"`
+	Thinking   bool                    `json:"thinking"`
+	B          string                  `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
+	C          string                  `json:"c,omitempty"`
+	D          string                  `json:"d,omitempty"`
+	Toolset    []string                `json:"toolset"`
+	Model      string                  `json:"model,omitempty"` // legacy model override; migrated into the connection
+	Prompt     string                  `json:"prompt,omitempty"`
+	Private    bool                    `json:"private,omitempty"`
+	PowerShell string                  `json:"powershell,omitempty"`
+	Skills     map[string]SkillSetting `json:"skills,omitempty"`
 }
 
 func (a *Agent) UnmarshalJSON(data []byte) error {
@@ -110,7 +111,7 @@ func AgentID(name string) string {
 
 // New tools append; every older tool keeps its relative position.
 func FullToolset() []string {
-	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image", "todo", "ask", "process", "code"}
+	return []string{"read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate", "cronjob", "image", "todo", "ask", "process", "code", "powershell_session"}
 }
 
 // MergedSearchNames are the two tools `search` replaced. A configuration

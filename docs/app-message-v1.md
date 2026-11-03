@@ -188,7 +188,7 @@ same ordinary PC chat as choosing that agent in the top strip. An unknown id ret
 names the chat as it names any unlabelled one.
 
 An agents row's `tools` is `[{name,enabled}]` in the toolset's own order: the tools the PC's
-PROFILES page offers for that agent (`web_search` and `delegate` are not offered there and are not
+PROFILES page offers for that agent (`web_search`, `delegate`, and `powershell_session` are not offered there and are not
 listed). `read_only: true` is present only on a row whose tools cannot be changed (`agent_b`). When a
 `tool` changes a toolset, every device receives the event `agent.tools` with `{agent:<the new row>}`;
 a client that does not read it re-reads `state`.

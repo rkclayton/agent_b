@@ -195,8 +195,8 @@ Reapply and verify Host protections on an existing hardened installation before 
 
 The registry sends enabled tools in this stable order (registered in `cmd/harness/main.go`, dispatched by `internal/tools/registry.go`): `read_file`,
 `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`, `call_service`, `delegate`,
-`cronjob`, `image`, `todo`, `ask`, `process`, `code`. The internal-service caller remains position 12; `delegate` remains at 13;
-`cronjob` follows at 14, `image` at 15, `todo` and `ask` at 16 and 17, `process` at 18, and `code` at 19, while every older tool retains its relative position.
+`cronjob`, `image`, `todo`, `ask`, `process`, `code`, `powershell_session`. The internal-service caller remains position 12; `delegate` remains at 13;
+`cronjob` follows at 14, `image` at 15, `todo` and `ask` at 16 and 17, `process` at 18, `code` at 19, and `powershell_session` at 20, while every older tool retains its relative position. `powershell_session` is omitted for an Off agent profile and on a non-Windows host without PowerShell; its active schema description names Read only or Full.
 Tool errors normally enter model context with an `error:` prefix and always produce `tool.result.ok:false`;
 a stale-view or routing refusal may instead start with `note:` while remaining an unsuccessful, unexecuted outcome.
 Documented empty/no-match results are successful outcomes.
@@ -308,6 +308,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   windowing, the listener refusal and the result shape — is the same code path. This identity-bearing internal-service surface remains distinct from anonymous,
   GET-only, untrusted-open-web `fetch_url`.
 - `delegate {task,thoroughness?:quick|thorough,write?:bool,connection?:label}` keeps absent/false `write` as the prior read-only child. A writer receives read, file-write, shell and script tools in a bounded isolated copy (1 GiB and 50,000 files), never service, memory, schedule or delegation tools. Its files apply as one undoable return only when every real file still matches the starting copy; otherwise none apply and every helper version is kept in chat collision scratch. Results name applied or collided files and retain the transcript. At most four helpers run per chat; each connection's `max_concurrent` counts children but not their waiting parent. Another connection's first use requires chat-held approval and a delegated run inherits its parent's unattended choice. Parent cancellation removes every copy.
+- `powershell_session {command,session?}` keeps one hidden, non-interactive PowerShell host per chat and session name. `default` needs no bootstrap; other names come from `<profile>/powershell/<name>.ps1`. A first-line `# credentials:` declaration hands named stored keys or silent Entra tokens to `$AgentB.<name>` before that bootstrap runs, without placing either in the journal or result. Read only parses the full text in the runspace, walks nested commands, resolves aliases, and refuses anything outside its documented read verbs/exceptions before execution. Full skips that parse check. Calls serialize per session; 120 seconds ends that host, 30 idle minutes or chat close ends it, and an expired-token result reopens and retries once.
 - `recall {query?,offset?,limit?}` reads saved notes and the active chat's append-only retained journal; it never writes.
   With no argument it returns every retained note as above. With any argument it returns `{entries,total}`: each entry is `{source:"chat",message}`
   or `{source:"note",layer,note}`, this chat's matching messages first and then matching notes, each newest first; `query` matches case-insensitively,
@@ -607,8 +608,8 @@ approval registers exactly as the operator's sentence does, a decline registers 
   then receives the session scratch/retained root followed by only plan repositories selected by file operations in that run.
   An absent or signed-out `sbx` keeps the stored switch off and exposes the reason in state. If an enabled sandbox stops,
   the switch is saved off before ordinary shell falls back and the result begins with that disclosure;
-  `run_script` bash refuses because it has no host fallback. The registry is eighteen tools; `delegate` follows the twelve-tool 2ho order,
-  `cronjob` follows `delegate`, `image` follows it, `todo` then `ask` follow, and `process` is last.
+  `run_script` bash refuses because it has no host fallback. The registry is twenty tools; `delegate` follows the twelve-tool 2ho order,
+  `cronjob` follows `delegate`, `image` follows it, `todo` then `ask` follow, then `process`, `code`, and `powershell_session`.
 - `POST /api/shell-credential {action:store,password}` writes a user-scoped DPAPI blob; `{action:test}` attempts a no-op service-account process;
   `{action:clear}` removes it. Responses and events expose status only, never the password.
 - `GET /api/service-account` inspects the configured local account without elevation through the Windows account APIs. With `connection_id`, it also returns
@@ -675,7 +676,7 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
   file tools impersonate that account and Windows ACLs decide reach. With it disabled, file tools use the non-elevated operator's OS reach;
   plan ownership and repository-policy immutability remain enforced in both postures.
 - Tool order is `read_file`, `list_dir`, `write_file`, `edit_file`, `search`, `shell`, `remember`, `recall`, `fetch_url`, `web_search`, `run_script`,
-  `call_service`, `delegate`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`. `process {action,...}` starts a command immediately, lists it, reads its one-mebibyte rolling output window by byte offset, writes stdin, waits, or kills its tree. It uses `shell`'s identity, approval, deny-list, sandbox, and working-folder decisions; at most four run in a chat, and every process is killed at run or app end. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
+  `call_service`, `delegate`, `cronjob`, `image`, `todo`, `ask`, `process`, `code`, `powershell_session`. `process {action,...}` starts a command immediately, lists it, reads its one-mebibyte rolling output window by byte offset, writes stdin, waits, or kills its tree. It uses `shell`'s identity, approval, deny-list, sandbox, and working-folder decisions; at most four run in a chat, and every process is killed at run or app end. `read_file`, `fetch_url`, and `call_service` use one-based response byte offsets and limits;
   their model-visible descriptions tell callers to pass a returned `next_offset` as `offset`. Before any tool result is appended,
   the room remaining before the output reserve is divided among every result still in that call batch.
   A result larger than its share is cut to a UTF-8-safe head and tail, remains successful or failed as the tool reported it, and names the byte size,

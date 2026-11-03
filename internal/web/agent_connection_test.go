@@ -383,16 +383,19 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	if agent, _ := fixture.server.ConfigSnapshot().Agent("research"); agent == nil || !agent.Thinking {
 		t.Fatalf("new agent thinking=%#v", agent)
 	}
+	if agent, _ := fixture.server.ConfigSnapshot().Agent("research"); agent == nil || agent.PowerShell != "" {
+		t.Fatalf("new agent persistent PowerShell=%#v, want off", agent)
+	}
 	if result := post(`{"action":"add","name":"agent_a"}`); result.Code != http.StatusBadRequest {
 		t.Fatalf("reserved name=%d", result.Code)
 	}
 	if result := post(`{"action":"duplicate","source_id":"research","name":"Copy"}`); result.Code != http.StatusOK {
 		t.Fatalf("duplicate=%d %s", result.Code, result.Body)
 	}
-	if result := post(`{"action":"update","id":"copy","name":"Analyst","prompt":"begin here","tools":["read_file"],"private":true}`); result.Code != http.StatusOK {
+	if result := post(`{"action":"update","id":"copy","name":"Analyst","prompt":"begin here","tools":["read_file"],"private":true,"powershell":"read"}`); result.Code != http.StatusOK {
 		t.Fatalf("rename=%d %s", result.Code, result.Body)
 	}
-	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Prompt != "begin here" || !agent.Private || len(agent.Toolset) != 1 {
+	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Prompt != "begin here" || !agent.Private || agent.PowerShell != "read" || len(agent.Toolset) != 1 {
 		t.Fatalf("renamed agent=%#v, %v", agent, ok)
 	}
 	if result := postConfigPatch(t, fixture.server, `{"connections":[{"id":"old","agent_profile":"research"}]}`); result.Code != http.StatusOK {
@@ -409,6 +412,30 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	}
 	if agent, _ := fixture.server.ConfigSnapshot().Agent("agent_b"); agent == nil || agent.Thinking {
 		t.Fatalf("built-in thinking switch did not save: %#v", agent)
+	}
+	if err := fixture.server.registry.SetAgent(fixture.session.ID, "agent_b"); err != nil {
+		t.Fatal(err)
+	}
+	if result := post(`{"action":"update","id":"agent_b","powershell":"full"}`); result.Code != http.StatusOK {
+		t.Fatalf("persistent PowerShell=%d %s", result.Code, result.Body)
+	}
+	if err := fixture.server.registry.ApplyAgentBinding("agent_b"); err != nil {
+		t.Fatal(err)
+	}
+	if agent, _ := fixture.server.ConfigSnapshot().Agent("agent_b"); agent == nil || agent.PowerShell != "full" || !fixture.session.ToolEnabled("powershell_session") || !fixture.session.ToolEnabled("powershell_session:full") {
+		t.Fatalf("built-in persistent PowerShell did not save or offer the tool: agent=%#v enabled=%v full=%v session_agent=%q closed=%v turns=%d", agent, fixture.session.ToolEnabled("powershell_session"), fixture.session.ToolEnabled("powershell_session:full"), fixture.session.Snapshot().AgentID, fixture.session.Snapshot().Closed, fixture.session.Snapshot().ModelTurns)
+	}
+	if result := post(`{"action":"update","id":"agent_b","powershell":""}`); result.Code != http.StatusOK {
+		t.Fatalf("persistent PowerShell off=%d %s", result.Code, result.Body)
+	}
+	if err := fixture.server.registry.ApplyAgentBinding("agent_b"); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.session.ToolEnabled("powershell_session") {
+		t.Fatal("persistent PowerShell tool remained offered while off")
+	}
+	if err := fixture.server.registry.SetAgent(fixture.session.ID, "research"); err != nil {
+		t.Fatal(err)
 	}
 	if result := post(`{"action":"delete","id":"agent_b"}`); result.Code != http.StatusBadRequest {
 		t.Fatalf("delete built-in=%d", result.Code)

@@ -58,6 +58,7 @@ activityProfile.addEventListener("change", () => {
 // the table delegates rather than binding a listener per render.
 roleTable.addEventListener("change", (event) => {
   if (event.target instanceof HTMLSelectElement && event.target.dataset.role) void changeAgentConnection(event.target.value, event.target.dataset.role);
+  else if (event.target instanceof HTMLSelectElement && event.target.dataset.field === "powershell") void editAgent("powershell");
 });
 roleTable.addEventListener("click", (event) => {
   const action = event.target instanceof HTMLElement ? event.target.dataset.action : "";
@@ -263,7 +264,9 @@ function renderAgentConnection(agent) {
     return field(roleNames[role], select);
   };
   const thinking = button("", "thinking"); thinking.type = "button"; thinking.dataset.action = "thinking"; thinking.setAttribute("role", "switch"); thinking.setAttribute("aria-checked", String(!!agent.thinking)); thinking.className = `switch ${agent.thinking ? "on" : ""}`;
-  const rows = [field("name", name), field("thinking", thinking), field("opening prompt", prompt), helper("c"), helper("d")];
+  const powershell = document.createElement("select"); powershell.dataset.field = "powershell";
+  powershell.append(option("", "Off", !agent.powershell), option("read", "Read only", agent.powershell === "read"), option("full", "Full", agent.powershell === "full"));
+  const rows = [field("name", name), field("thinking", thinking), field("persistent PowerShell", powershell), field("opening prompt", prompt), helper("c"), helper("d")];
   if (!builtIn) {
     const privateToggle = document.createElement("input"); privateToggle.type = "checkbox"; privateToggle.checked = !!agent.private; privateToggle.dataset.field = "private";
     privateToggle.title = "this agent only writes to its own memory but can still read shared";
@@ -284,6 +287,8 @@ async function editAgent(action) {
   let body;
   if (action === "thinking") {
     body = { action: "update", id: selectedAgent, thinking: !agent.thinking };
+  } else if (action === "powershell") {
+    body = { action: "update", id: selectedAgent, powershell: read("powershell")?.value || "" };
   } else if (action === "add") {
     const name = prompt("Agent name"); if (!name) return;
     body = { action: "add", name };
@@ -339,7 +344,7 @@ function renderTools(agent) {
 	const enabled = new Set(agent.toolset || []);
 	// web_search is configured only in harness.json for this release. Keep it
 	// observable in Activity, but do not invent a Settings control for it.
-	const configurable = (store.tools || []).filter((tool) => !["web_search", "delegate"].includes(tool.name));
+	const configurable = (store.tools || []).filter((tool) => !["web_search", "delegate", "powershell_session"].includes(tool.name));
 	const configurableEnabled = configurable.filter((tool) => enabled.has(tool.name));
 	document.getElementById("panel-tools-count").textContent = `${configurableEnabled.length} tools active`;
 	const counters = ledger?.agent?.tools || {};

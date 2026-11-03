@@ -269,6 +269,8 @@ a chat and a paired phone are each refused. A revoked refresh clears that creden
 and connector execution never starts an interactive flow. A non-rendered service response is size-bounded before its atomic workspace name becomes visible;
 a response containing the attached credential is refused and deleted, and the model sees only file metadata.
 
+Persistent PowerShell is the operator-authorized exception for a profile whose mode is Read only or Full. At session open, Agent_b may hand the named bootstrap credentials directly to that hidden PowerShell process through its stdin pipe; the bootstrap, token and key are not journaled or returned to the model. That process runs under the same service-account or operator identity seam as `shell`, so the OS account, ACLs and outbound firewall remain the boundary. A bootstrap chooses the module and destination that consume its token: connector origin pinning does not apply inside PowerShell, and a token for one resource is not converted for another. Off, the default, does not register the tool for that profile.
+
 An MCP connector proposal may carry a server-published Entra tenant, public client ID, and scopes. Those values are not credentials or tokens.
 The local approval card displays them with the exact credential name and destination origin;
 only approval writes the protected definition and connector reference. The model cannot start sign-in, grant consent, obtain the resulting account cache,

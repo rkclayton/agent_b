@@ -214,6 +214,9 @@ func (c Config) validateAgents(seen map[string]bool) error {
 			return fmt.Errorf("%s.name: duplicate agent id %s", prefix, id)
 		}
 		agentIDs[id] = true
+		if agent.PowerShell != "" && agent.PowerShell != "read" && agent.PowerShell != "full" {
+			return fmt.Errorf("%s.powershell: must be off, read or full", prefix)
+		}
 		if agent.B != "" && !seen[agent.B] {
 			return fmt.Errorf("%s.b: must name an existing connection", prefix)
 		}

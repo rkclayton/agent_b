@@ -104,7 +104,7 @@ func (a *harnessApp) wireTools() {
 	imageTool.Configure(*a.cfg)
 	processTool := tools.NewProcess(shellTool)
 	a.cleanup(func() { processTool.KillAll() })
-	toolRegistry := tools.New(
+	registeredTools := []tools.Tool{
 		fileIdentity.Wrap(tools.NewReadFile(a.cfg.Tools.ReadFile)),
 		fileIdentity.Wrap(tools.NewListDir(a.cfg.Tools.ListDir)),
 		fileIdentity.Wrap(tools.NewWriteFile(coordinator)),
@@ -127,7 +127,27 @@ func (a *harnessApp) wireTools() {
 		tools.NewAsk(),
 		processTool,
 		fileIdentity.Wrap(tools.NewCode(diagnostics)),
-	)
+	}
+	powerShellTool := tools.NewPowerShellSession(shellTool, vault, entraManager, a.web.ProfileRoot)
+	if powerShellTool != nil {
+		registeredTools = append(registeredTools, powerShellTool)
+		powerShellContext, stopPowerShellEvents := context.WithCancel(context.Background())
+		powerShellEvents := a.bus.Listen(powerShellContext, "persistent-powershell")
+		go func() {
+			for event := range powerShellEvents {
+				if event.Type == events.SessionClosed {
+					powerShellTool.CloseSession(event.SessionID)
+				} else if event.Type == events.ConfigChanged {
+					if data, ok := event.Data.(map[string]any); ok && data["profiles"] != nil {
+						powerShellTool.ProfileChanged()
+					}
+				}
+			}
+		}()
+		a.cleanup(stopPowerShellEvents)
+		a.cleanup(powerShellTool.Close)
+	}
+	toolRegistry := tools.New(registeredTools...)
 	// the threshold under which a PDF is sent inline rather
 	// than read from its extracted text.
 	agent.SetInlineDocumentLimit(a.cfg.Tools.Attachments.InlineDocumentLimit())

@@ -45,6 +45,32 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
+test("persistent PowerShell mode round-trips on the Profiles editor 2xj", async () => {
+  const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.goto(`${harness.base}/chat`);
+  await openSettings(page);
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  const mode = page.locator('[data-field="powershell"]');
+  await expect(mode).toHaveValue("");
+  await expect(mode.locator("option")).toHaveText(["Off", "Read only", "Full"]);
+  await mode.selectOption("read");
+  await expect(page.locator('[data-field="powershell"]')).toHaveValue("read");
+  const captures = join(repo, "logs", "evidence", "rel-1.62.193", "captures");
+  await mkdir(captures, { recursive: true });
+  await page.goto(`${harness.base}/chat`);
+  await openSettings(page);
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  await expect(page.locator('[data-field="powershell"]')).toHaveValue("read");
+  await page.screenshot({ path: join(captures, "profiles-persistent-powershell.png") });
+  await page.locator('[data-field="powershell"]').selectOption("full");
+  await expect(page.locator('[data-field="powershell"]')).toHaveValue("full");
+  await page.locator('[data-field="powershell"]').selectOption("");
+  await expect(page.locator('[data-field="powershell"]')).toHaveValue("");
+  await page.close();
+});
+
 test("the images row has two picks and saves them 2s3", async () => {
   const captures = join(repo, "logs", "evidence", "rel-1.62.51", "captures");
   await mkdir(captures, { recursive: true });

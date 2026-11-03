@@ -49,6 +49,7 @@ This page describes the build of 2026-10-16.
 | Project choice required | A repository note could belong to more than one active project. | `error: repository note refused: name one project: ` | always | built-in |
 | Project missing | A repository note has no active project. | `error: repository note refused: no project is in scope` | always | built-in |
 | Tool unavailable | The requested tool is absent or disabled for this agent. | `error: tool %s is not available` | Settings → profiles → tools | built-in |
+| Persistent PowerShell read only | A `powershell_session` command contains a command outside the read verbs and named exceptions, a dynamic command, native executable, .NET method call, file redirection, or environment assignment. | `error: read-only profile: <command>: <reason>` | Settings → Profiles → persistent PowerShell | operator 2026-11-02 |
 | **The model's context** |  |  |  |  |
 | Call error | A tool returns an error to the model. | `error: ` | always | built-in |
 | **The web** |  |  |  |  |

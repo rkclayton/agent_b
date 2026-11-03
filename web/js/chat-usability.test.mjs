@@ -26,7 +26,7 @@ const serverSources = Object.fromEntries(await Promise.all(serverFiles.map(async
 test("every page request body stays inside its route contract", () => {
   const rows = [
     "sessions/:id/messages/drop-last|||app|server_sessions.go", "stop|session_id|session_id|app,chat|server_actions.go", "sessions/:id/result-label|label,run_id|label,run_id|app|server_sessions.go",
-    "agents|action,id,source_id,name,connection_id,model,prompt,tools,private|action,id,source_id,name,connection_id,model,prompt,tools,private|app|agents.go", "agents/:id/connection|action,role,connection_id|action,role,connection_id|app|agent_connection.go",
+    "agents|action,id,source_id,name,connection_id,model,prompt,tools,private,powershell|action,id,source_id,name,connection_id,model,prompt,tools,private,powershell|app|agents.go", "agents/:id/connection|action,role,connection_id|action,role,connection_id|app|agent_connection.go",
     "tools/:id|agent_id,enabled|agent_id,enabled|app,settings|server_actions.go", "stats/:id/clear|confirm|confirm|app|server_actions.go", "agents/:id/memory/flush|workspace,confirm|workspace,confirm|app|server_actions.go",
     "approve|session_id,call_id,decision|session_id,call_id,decision|app,chat|server_actions.go", "plan/accept|session_id,proposal|session_id,proposal|proposals|plan.go", "sessions/:id/rebind|||chat|server_sessions.go",
     "open-folder|session_id,path,scope|session_id,path,scope|chat,timeline|files.go", "open-file|session_id,path,scope|session_id,path,scope|chat|files.go", "service-account|action,connection_id,allow_local_network,local_subnets|action,connection_id,allow_local_network,local_subnets|chat,settings|service_account.go",
@@ -260,8 +260,8 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
   assert.match(consoleHTML, /id="panel-tools-count"[^>]*>0 tools active<\/span>/);
 });
 
-test("web_search and delegate remain file-configured without new Settings controls", () => {
-	assert.match(app, /\["web_search", "delegate"\]\.includes\(tool\.name\)/);
+test("file-configured and profile-owned tools have no duplicate Settings controls", () => {
+	assert.match(app, /\["web_search", "delegate", "powershell_session"\]\.includes\(tool\.name\)/);
 	assert.match(app, /root\.replaceChildren\(\.\.\.configurable\.map/);
 	assert.match(app, /counts\.replaceChildren\(\.\.\.toolUseRows\(store\.tools \|\| \[\], counters\)\.map/);
 });

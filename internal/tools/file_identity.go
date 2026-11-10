@@ -219,6 +219,7 @@ func outsideTarget(s *session.Session, name string, args map[string]any) string 
 		return ""
 	}
 	path = filepath.FromSlash(path)
+	path = filepath.FromSlash(s.ResolveOperatorPath(path))
 	if !filepath.IsAbs(path) && s != nil {
 		rootFor := s.ReadRoot
 		if name == "write_file" || name == "edit_file" {

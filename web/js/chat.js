@@ -1440,7 +1440,7 @@ function createPolicyCard(session) {
 	const title = document.createElement("span"); title.textContent = "Allow this";
 	const heading = document.createElement("strong"); heading.textContent = "Trust this repo's policy?";
 	const reason = document.createElement("span"); reason.textContent = "This repository wants to change defaults for this chat.";
-	const detail = document.createElement("details"); const summary=document.createElement("summary");summary.textContent="Technical detail";
+	const detail = document.createElement("details"); const summary=document.createElement("summary");summary.textContent="Approval required";
 	const path = document.createElement("span"); path.textContent = `${policy.path}${policy.changed ? " · changed" : ""}`;
 	const pre = document.createElement("pre"); pre.textContent = policy.error || `${policy.content}${policy.diff ? `\n\n${policy.diff}` : ""}`; detail.append(summary,path,pre);
 	const actions = document.createElement("div"); actions.className = "approval-actions";

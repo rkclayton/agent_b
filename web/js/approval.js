@@ -183,7 +183,7 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	}
 	const technical = document.createElement("details");
 	const summary = document.createElement("summary");
-	summary.textContent = "Technical detail";
+	summary.textContent = "Approval required";
 	const pre = document.createElement("pre");
 	pre.textContent = wording.detail;
 	technical.append(summary, pre);

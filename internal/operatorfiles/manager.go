@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/session"
@@ -611,6 +612,78 @@ func SweepChatExports(profileRoots []string) (int, error) {
 		swept++
 	}
 	return removed, nil
+}
+
+// MigrateSkillDrafts moves the pre-2xo per-chat drafts into the operator's
+// Agent_b folder once. A collision is evidence, never permission to overwrite.
+func (m *Manager) MigrateSkillDrafts(profileRoot, operatorRoot string) (int, int, error) {
+	marker := filepath.Join(profileRoot, "skill-drafts-v1.done")
+	if _, err := os.Stat(marker); err == nil {
+		return 0, 0, nil
+	} else if !os.IsNotExist(err) {
+		return 0, 0, err
+	}
+	entries, err := chatstore.New(filepath.Join(profileRoot, "chats")).Scan()
+	if err != nil {
+		return 0, 0, err
+	}
+	destinationRoot := filepath.Join(operatorRoot, "skills")
+	if err := os.MkdirAll(destinationRoot, 0o700); err != nil {
+		return 0, 0, err
+	}
+	moved, left := []string{}, []string{}
+	for _, entry := range entries {
+		proposalRoot := filepath.Join(entry.Path, "skill-proposals")
+		drafts, readErr := os.ReadDir(proposalRoot)
+		if os.IsNotExist(readErr) {
+			continue
+		}
+		if readErr != nil {
+			left = append(left, proposalRoot+" (unreadable)")
+			continue
+		}
+		for _, draft := range drafts {
+			if !draft.IsDir() {
+				continue
+			}
+			source := filepath.Join(proposalRoot, draft.Name())
+			destination := filepath.Join(destinationRoot, draft.Name())
+			if _, statErr := os.Stat(filepath.Join(profileRoot, "skills", draft.Name())); statErr == nil {
+				left = append(left, source+" (already imported)")
+				continue
+			}
+			if _, statErr := os.Stat(destination); statErr == nil || !os.IsNotExist(statErr) {
+				left = append(left, source+" (destination exists)")
+				continue
+			}
+			if _, statErr := os.Stat(filepath.Join(source, "SKILL.md")); statErr != nil {
+				left = append(left, source+" (SKILL.md unreadable)")
+				continue
+			}
+			if renameErr := os.Rename(source, destination); renameErr != nil {
+				left = append(left, source+" ("+oneLine(renameErr.Error())+")")
+				continue
+			}
+			moved = append(moved, source+" -> "+destination)
+		}
+		_ = os.Remove(proposalRoot)
+	}
+	if len(moved)+len(left) > 0 {
+		parts := []string{}
+		if len(moved) > 0 {
+			parts = append(parts, "moved "+strings.Join(moved, "; "))
+		}
+		if len(left) > 0 {
+			parts = append(parts, "left "+strings.Join(left, "; "))
+		}
+		if err := m.AppendOutbox("", "done: skill drafts — "+strings.Join(parts, "; ")); err != nil {
+			return len(moved), len(left), err
+		}
+	}
+	if err := os.WriteFile(marker, []byte("skill drafts migrated by item 2xo\n"), 0o600); err != nil {
+		return len(moved), len(left), err
+	}
+	return len(moved), len(left), nil
 }
 
 // chatExport reports whether a file starts with the header the old export wrote.

@@ -53,7 +53,7 @@ func resolveForSessionTool(ctx context.Context, s *session.Session, root, path s
 	// filesystem allow-list. Absolute paths are therefore decided by the OS
 	// identity running the tool. Relative paths still start at root. The
 	// plan-tree ownership check remains separately enforced for writes below.
-	return resolvePath(root, path, false)
+	return resolvePath(root, s.ResolveOperatorPath(path), false)
 }
 
 // resolveForWorkerWrite is the write resolution for every file tool. Plan text

@@ -2,8 +2,8 @@ package operatorfiles
 
 import (
 	"bytes"
-	"log"
 	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/session"
@@ -325,5 +326,66 @@ func TestTheExportSweepRemovesOnlyOldExports2py(t *testing.T) {
 	}
 	if again, _ := SweepChatExports([]string{root}); again != 0 {
 		t.Errorf("a second start swept %d", again)
+	}
+}
+
+func TestSkillDraftMigrationMovesOnceAndReportsCollisions2xo(t *testing.T) {
+	profile, operatorRoot := t.TempDir(), t.TempDir()
+	manager := New(profile, filepath.Join(profile, "logs"), func() config.Config { return config.Defaults(t.TempDir()) })
+	if err := manager.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	store := chatstore.New(filepath.Join(profile, "chats"))
+	chatA, err := store.Create("s1", "one", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatB, err := store.Create("s2", "two", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(path string) {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("---\nname: "+filepath.Base(path)+"\ndescription: Draft.\n---\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(chatA, "skill-proposals", "a"))
+	write(filepath.Join(chatB, "skill-proposals", "b"))
+	write(filepath.Join(operatorRoot, "skills", "b"))
+	moved, left, err := manager.MigrateSkillDrafts(profile, operatorRoot)
+	if err != nil || moved != 1 || left != 1 {
+		t.Fatalf("moved=%d left=%d err=%v", moved, left, err)
+	}
+	if _, err := os.Stat(filepath.Join(operatorRoot, "skills", "a", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(chatA, "skill-proposals")); !os.IsNotExist(err) {
+		t.Fatalf("empty proposal root remained: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(chatB, "skill-proposals", "b", "SKILL.md")); err != nil {
+		t.Fatalf("collision moved: %v", err)
+	}
+	outbox, _ := os.ReadFile(manager.OutboxPath())
+	if !strings.Contains(string(outbox), filepath.Join(operatorRoot, "skills", "a")) || !strings.Contains(string(outbox), filepath.Join(chatB, "skill-proposals", "b")) {
+		t.Fatalf("outbox=%q", outbox)
+	}
+	before := string(outbox)
+	if moved, left, err := manager.MigrateSkillDrafts(profile, operatorRoot); err != nil || moved != 0 || left != 0 {
+		t.Fatalf("second start=%d/%d %v", moved, left, err)
+	}
+	after, _ := os.ReadFile(manager.OutboxPath())
+	if string(after) != before {
+		t.Fatalf("second start wrote outbox: %q", after)
+	}
+	emptyProfile, emptyOperatorRoot := t.TempDir(), t.TempDir()
+	emptyManager := New(emptyProfile, filepath.Join(emptyProfile, "logs"), func() config.Config { return config.Defaults(t.TempDir()) })
+	if moved, left, err := emptyManager.MigrateSkillDrafts(emptyProfile, emptyOperatorRoot); err != nil || moved != 0 || left != 0 {
+		t.Fatalf("empty profile=%d/%d %v", moved, left, err)
+	}
+	if _, err := os.Stat(emptyManager.OutboxPath()); !os.IsNotExist(err) {
+		t.Fatalf("empty profile wrote outbox: %v", err)
 	}
 }

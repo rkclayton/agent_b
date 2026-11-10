@@ -1515,7 +1515,7 @@
   font-weight: 500;
 }
 .sampling-grid input.number {
-  width: 8ch;
+  width: 10ch;
   min-width: 0;
   padding: 2px 5px;
   color: var(--ink);

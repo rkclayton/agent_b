@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/session"
 )
 
@@ -102,6 +103,28 @@ func TestFileIdentityDisabledUsesOperatorOSReachWithoutIdentityCard(t *testing.T
 	)
 	if detail.Err != nil || detail.OperatorOverrideReason != "" {
 		t.Fatalf("detail=%+v", detail)
+	}
+}
+
+func TestSkillDraftAliasWritesToOperatorFolderWithoutOutsideCard2xo(t *testing.T) {
+	root, workspace, operatorRoot := t.TempDir(), t.TempDir(), t.TempDir()
+	identity := NewFileIdentity(nil)
+	cfg := config.Defaults(workspace)
+	cfg.Shell.ServiceAccount.Enabled = false
+	identity.Configure(cfg)
+	coordinator := NewFileCoordinator(session.NewWorkspaceRegistry(), func(string) string { return "chat" }, events.NewBus())
+	tool := identity.Wrap(NewWriteFile(coordinator)).(DetailedTool)
+	chat := &session.Session{ID: "chat", Workspace: workspace, OperatorRoot: operatorRoot, LastSeen: map[string]time.Time{}}
+	detail := tool.CallDetailed(context.Background(), chat, map[string]any{"path": `~\Agent_b\skills\demo\SKILL.md`, "content": "draft\n"})
+	if detail.Err != nil || detail.OperatorOverrideReason != "" {
+		t.Fatalf("detail=%+v", detail)
+	}
+	data, err := os.ReadFile(filepath.Join(operatorRoot, "skills", "demo", "SKILL.md"))
+	if err != nil || string(data) != "draft\n" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "demo", "SKILL.md")); err == nil {
+		t.Fatal("draft landed outside operator root")
 	}
 }
 

@@ -40,6 +40,9 @@ func (a *harnessApp) onProfileChanged(nextRoot string) error {
 		a.web.ApplyTelemetry()
 		return switchErr
 	}
+	if operatorRoot, err := a.cfg.ResolvedExchangeFolder(); err == nil {
+		a.registry.SetOperatorRoot(operatorRoot)
+	}
 	a.web.SetRegistry(a.registry)
 	nextProjector := projection.NewStore()
 	a.bus.SetDurableSink(retainedSink(nextWriters), nextProjector.Apply, nextProjector.MarkStale)
@@ -54,6 +57,11 @@ func (a *harnessApp) onProfileChanged(nextRoot string) error {
 	a.fileUndo.SetRoot(nextRoot)
 	if ensureErr := a.operatorFiles.Ensure(); ensureErr != nil {
 		return ensureErr
+	}
+	if operatorRoot, err := a.cfg.ResolvedExchangeFolder(); err == nil {
+		if _, _, err := a.operatorFiles.MigrateSkillDrafts(nextRoot, operatorRoot); err != nil {
+			return err
+		}
 	}
 	a.statsManager.SetRoot(nextRoot)
 	a.notificationStore = nextNotificationStore

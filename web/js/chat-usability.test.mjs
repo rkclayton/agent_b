@@ -321,7 +321,7 @@ test("Repository policy is a pinned full-content trust decision", () => {
   assert.match(chat, /\["Yes, for this chat","policy-approve"\]/);
   assert.match(chat, /\["Just once","policy-once"\]/);
   assert.match(chat, /\["No","policy-deny"\]/);
-  assert.match(chat, /Technical detail/);
+  assert.match(chat, /Approval required/);
 });
 
 test("chat has no workspace bind offer", () => {

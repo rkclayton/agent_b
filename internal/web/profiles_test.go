@@ -148,6 +148,52 @@ func TestChatSkillRequestRaisesTheExistingCard2pc(t *testing.T) {
 	}
 }
 
+func TestSkillDraftProposalScansOnlyTheOperatorFolder2xo(t *testing.T) {
+	root, operatorRoot, workspace := t.TempDir(), t.TempDir(), t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Deliver.ExchangeFolder = operatorRoot
+	configPath := filepath.Join(root, "harness.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	server := newTestServer(t, &cfg, configPath, t.TempDir(), RuntimeRoots{Data: root, Profile: root}, bus)
+	runner := agent.NewRunner(bus, tools.New(), nil, cfg.Connection, server.ConfigSnapshot)
+	server.SetRuntime(nil, runner, nil)
+	write := func(path string) {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("---\nname: "+filepath.Base(path)+"\ndescription: Draft fixture.\n---\nProcedure.\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(operatorRoot, "skills", "demo"))
+	if err := os.MkdirAll(filepath.Join(operatorRoot, "skills", "empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(workspace, "skill-proposals", "stray"))
+	chat := &session.Session{ID: "chat", Workspace: workspace}
+	eventsCh, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	done := make(chan string, 1)
+	go func() { detail, _ := server.Proposal(context.Background(), chat, "run"); done <- detail }()
+	event := <-eventsCh
+	data := event.Data.(map[string]any)
+	if data["name"] != "Add skill demo?" {
+		t.Fatalf("card=%+v", data)
+	}
+	if err := runner.Gate().Decide(chat.ID, "skill-proposal-demo", "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if detail := <-done; detail != "skill demo added" {
+		t.Fatalf("detail=%q", detail)
+	}
+	if detail, err := server.Proposal(context.Background(), chat, "run"); err != nil || detail != "" {
+		t.Fatalf("imported or stray proposed: %q %v", detail, err)
+	}
+}
+
 func TestChatSkillProposalReplacesAUserSkillButNeverAnIncludedSkill2u9(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)

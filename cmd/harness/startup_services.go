@@ -90,6 +90,9 @@ func (a *harnessApp) wireServices() {
 	a.registry.SetAgentMemoryLoader(a.memoryManager.LoadAgent)
 	a.registry.SetMachineMemoryLoader(a.memoryManager.LoadMachine)
 	a.registry.SetWorkspaceManager(a.workspaceManager)
+	if operatorRoot, err := a.cfg.ResolvedExchangeFolder(); err == nil {
+		a.registry.SetOperatorRoot(operatorRoot)
+	}
 	a.web.SetRegistry(a.registry)
 	// The address is built in, so this is normally
 	// broker.DefaultURL and a phone can be paired on a fresh install. Constructing the
@@ -154,6 +157,11 @@ func (a *harnessApp) wireServices() {
 	a.operatorFiles.SetEventPublisher(func(event events.Event) { a.bus.Publish(event) })
 	if err := a.operatorFiles.Ensure(); err != nil {
 		startupFatal(err)
+	}
+	if operatorRoot, err := a.cfg.ResolvedExchangeFolder(); err == nil {
+		if _, _, err := a.operatorFiles.MigrateSkillDrafts(a.profileRoot, operatorRoot); err != nil {
+			log.Printf("skill draft migration: %v", err)
+		}
 	}
 	if _, err := a.operatorFiles.ApplyRetention(); err != nil {
 		log.Printf("apply log retention: %v", err)

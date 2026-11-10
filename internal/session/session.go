@@ -97,6 +97,7 @@ type Snapshot struct {
 type Session struct {
 	ID, Label, AgentID, ConnectionID, Workspace                                      string
 	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot, SkillStateRoot string
+	OperatorRoot                                                                     string
 	ParentSessionID                                                                  string
 	Unattended                                                                       bool
 	// cards refused while unattended, for this run.
@@ -294,7 +295,7 @@ func (s *Session) IsSkillPath(path string) bool {
 func (s *Session) WriteRoot(path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	candidate := filepath.FromSlash(path)
+	candidate := filepath.FromSlash(resolveOperatorAlias(path, s.OperatorRoot))
 	if filepath.IsAbs(candidate) && s.SkillStateRoot != "" && pathWithin(s.SkillStateRoot, candidate) {
 		return s.SkillStateRoot, nil
 	}
@@ -352,6 +353,21 @@ func (s *Session) WriteRoot(path string) (string, error) {
 		return "", fmt.Errorf("path is outside the folder")
 	}
 	return s.Workspace, nil
+}
+
+func (s *Session) ResolveOperatorPath(path string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return resolveOperatorAlias(path, s.OperatorRoot)
+}
+
+func resolveOperatorAlias(path, root string) string {
+	value := filepath.ToSlash(strings.TrimSpace(path))
+	const prefix = "~/Agent_b"
+	if root == "" || (len(value) != len(prefix) && (len(value) < len(prefix)+1 || value[len(prefix)] != '/')) || !strings.EqualFold(value[:min(len(value), len(prefix))], prefix) {
+		return path
+	}
+	return filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(value[len(prefix):], "/")))
 }
 
 func (s *Session) planRepoRootLocked(candidate string) string {

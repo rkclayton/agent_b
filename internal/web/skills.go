@@ -402,10 +402,23 @@ func (s *Server) Proposal(ctx context.Context, chat *session.Session, runID stri
 			return s.proposeSkill(ctx, chat, runID, source)
 		}
 	}
-	root := filepath.Join(chat.Workspace, "skill-proposals")
+	operatorRoot, err := s.ConfigSnapshot().ResolvedExchangeFolder()
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Join(operatorRoot, "skills")
 	entries, _ := os.ReadDir(root)
 	for _, entry := range entries {
 		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, entry.Name(), "SKILL.md")); err != nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(s.profileRoot(), "skills", entry.Name())); err == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(s.profileRoot(), "skills", ".included", entry.Name())); err == nil {
 			continue
 		}
 		return s.proposeSkill(ctx, chat, runID, filepath.Join(root, entry.Name()))

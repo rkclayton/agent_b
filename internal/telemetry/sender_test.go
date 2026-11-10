@@ -274,6 +274,39 @@ func TestBatchesAreBounded2jg(t *testing.T) {
 	}
 }
 
+func TestLinkSessionAndHandshakeFixtureIsPrivateAndBounded2xl(t *testing.T) {
+	sink := &capture{}
+	sender, _ := newSender(t, sink)
+	private := map[string]any{
+		"content": "private message", "address": "https://private.example.test/link",
+		"token": "abcdefghijklmnopqrstuvwxyz0123456789TOKEN", "pairing_code": "PRIVATE-CODE",
+		"id": "0123456789abcdef0123456789abcdef",
+	}
+	session := map[string]any{"role": "agent", "sent": 3, "acked": 1, "unacked": 2, "received": 1,
+		"received_unacked": 0, "ack_p50_ms": 12, "ack_max_ms": 19, "age_s": 8, "close": "network"}
+	for key, value := range private {
+		session[key] = value
+	}
+	handshake := map[string]any{"step": "hello", "elapsed_ms": 31}
+	for key, value := range private {
+		handshake[key] = value
+	}
+	if !sender.Observe("link.session", "2026-11-03T20:15:00Z", session) ||
+		!sender.Observe("link.handshake", "2026-11-03T20:15:01Z", handshake) {
+		t.Fatal("a documented link event was refused by the allow-list")
+	}
+	sender.Flush()
+	if sink.count() != 1 || len(sink.bodies[0]) > BatchByteCap {
+		t.Fatalf("batches=%d bytes=%d cap=%d", sink.count(), len(sink.bodies[0]), BatchByteCap)
+	}
+	body := string(sink.bodies[0])
+	for _, forbidden := range []string{"private message", "private.example", "TOKEN", "PRIVATE-CODE", "0123456789abcdef"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("private fixture value %q left in %s", forbidden, body)
+		}
+	}
+}
+
 // A new install id cannot be joined to the old one.
 func TestEachInstallIDIsNewAndWellFormed2jg(t *testing.T) {
 	seen := map[string]bool{}

@@ -204,7 +204,7 @@ func (s *Sender) Flush() {
 	// down with it.
 	var older, recorded []Event
 	for _, event := range all {
-		if RecorderTypes[event.Type] {
+		if IsolatedTypes[event.Type] {
 			recorded = append(recorded, event)
 		} else {
 			older = append(older, event)
@@ -221,6 +221,18 @@ var RecorderTypes = map[string]bool{"trace": true, "run.summary": true, "compact
 	"model.behaviour": true, "budget.drift": true, "approval.wait": true, "model.refused": true, "connection.state": true,
 	"update": true, "settings.shape": true, "app.start": true, "app.lifecycle": true, "page.health": true, "link.health": true, "install": true,
 	"resource": true, "feature.use": true}
+
+// IsolatedTypes travel apart from the older envelope types so a receiver that
+// has not admitted a newly documented event cannot refuse an established event
+// beside it. Most are recorder-built; link.session and link.handshake are built
+// at the live link sites instead.
+var IsolatedTypes = func() map[string]bool {
+	out := map[string]bool{"link.session": true, "link.handshake": true}
+	for kind := range RecorderTypes {
+		out[kind] = true
+	}
+	return out
+}()
 
 func (s *Sender) send(pending []Event) {
 	for len(pending) > 0 {

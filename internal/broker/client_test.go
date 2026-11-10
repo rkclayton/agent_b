@@ -55,6 +55,81 @@ func TestHandledRequestDeduplicationIsBounded2pd(t *testing.T) {
 	}
 }
 
+func TestClosedAgentLinkReportsItsDeliveryCounts2xl(t *testing.T) {
+	agent, device, pairing := testPair(t)
+	standIn := newScriptedBroker(t, agent, device, pairing)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return standIn, nil }, nil)
+	reported := make(chan map[string]any, 1)
+	client.OnTelemetry(func(kind string, fields map[string]any) {
+		if kind == "link.session" {
+			reported <- fields
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- client.Run(ctx) }()
+	standIn.handshake(t)
+	waitConnected(t, client)
+	ids := make([][]byte, 3)
+	for index := range ids {
+		ids[index] = make([]byte, 16)
+		ids[index][0] = byte(index + 1)
+		if err := client.Send(ids[index], []byte("bounded stand-in"), standIn); err != nil {
+			t.Fatal(err)
+		}
+		if frame := standIn.next(t); frame.Type != FrameCiphertext {
+			t.Fatalf("send %d = frame 0x%02x", index, frame.Type)
+		}
+	}
+	standIn.push(FrameAck, IDOnlyFrame{PairingID: hexID(pairing.PairingID), MessageID: hexID(ids[0])})
+	deadline := time.Now().Add(time.Second)
+	for client.Pending() != 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+	select {
+	case fields := <-reported:
+		for name, want := range map[string]any{"role": "agent", "sent": int64(3), "acked": int64(1), "unacked": int64(2), "close": "user"} {
+			if got := fields[name]; got != want {
+				t.Errorf("%s = %#v, want %#v; event=%#v", name, got, want, fields)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("closing the established link emitted no link.session")
+	}
+}
+
+func TestHelloFailureReportsHandshakeStep2xl(t *testing.T) {
+	agent, _, pairing := testPair(t)
+	standIn := newScriptedBroker(t, agent, Identity{}, pairing)
+	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return standIn, nil }, nil)
+	reported := make(chan map[string]any, 1)
+	client.OnTelemetry(func(kind string, fields map[string]any) {
+		if kind == "link.handshake" {
+			reported <- fields
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = client.Run(ctx) }()
+	if frame := standIn.next(t); frame.Type != FrameHello {
+		t.Fatalf("first frame = 0x%02x, want HELLO", frame.Type)
+	}
+	standIn.push(FrameError, ErrorPayload{Code: "busy", Detail: "try later"})
+	select {
+	case fields := <-reported:
+		if fields["step"] != "hello" {
+			t.Fatalf("step = %#v, event=%#v", fields["step"], fields)
+		}
+		if _, present := fields["elapsed_ms"]; !present {
+			t.Fatalf("elapsed_ms absent: %#v", fields)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the failed HELLO emitted no link.handshake")
+	}
+}
+
 func newScriptedBroker(t *testing.T, agent, device Identity, pairing Pairing) *scriptedBroker {
 	return &scriptedBroker{
 		t: t, agent: agent, device: device, pairing: pairing,

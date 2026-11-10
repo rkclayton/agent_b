@@ -114,7 +114,27 @@ type Client struct {
 	connected func(context.Context)
 	refused   func(code, detail string)
 	event     func(string)
+	telemetry func(string, map[string]any)
+	link      *linkSessionStats
 }
+
+type linkSessionStats struct {
+	started               time.Time
+	sent, acked, received int64
+	sentAt                map[string]time.Time
+	ackBuckets            [32]uint64
+	ackSamples            uint64
+	ackMaxMS              int64
+}
+
+type handshakeFailure struct {
+	step    string
+	elapsed time.Duration
+	err     error
+}
+
+func (e *handshakeFailure) Error() string { return e.err.Error() }
+func (e *handshakeFailure) Unwrap() error { return e.err }
 
 const maxPendingPushes = 128
 
@@ -143,6 +163,39 @@ func (c *Client) OnHolding(holding func(context.Context)) { c.holding = holding 
 func (c *Client) OnConnected(connected func(context.Context)) { c.connected = connected }
 
 func (c *Client) OnSessionEvent(event func(string)) { c.event = event }
+
+// OnTelemetry receives only the two content-free link records documented in
+// docs/telemetry-trace.md. The host decides whether telemetry is enabled.
+func (c *Client) OnTelemetry(observe func(string, map[string]any)) { c.telemetry = observe }
+
+func (c *Client) observe(kind string, fields map[string]any) {
+	if c.telemetry != nil {
+		c.telemetry(kind, fields)
+	}
+}
+
+func (c *Client) handshakeError(step string, started time.Time, err error) error {
+	var failure *handshakeFailure
+	if errors.As(err, &failure) {
+		if failure.elapsed == 0 {
+			failure.elapsed = c.now().Sub(started)
+		}
+		return failure
+	}
+	return &handshakeFailure{step: step, elapsed: c.now().Sub(started), err: err}
+}
+
+func (c *Client) reportHandshake(err error) {
+	var failure *handshakeFailure
+	if !errors.As(err, &failure) {
+		return
+	}
+	ms := failure.elapsed.Milliseconds()
+	if ms < 0 {
+		ms = 0
+	}
+	c.observe("link.handshake", map[string]any{"step": failure.step, "elapsed_ms": ms})
+}
 
 func (c *Client) recordEvent(message string) {
 	if c.event != nil {
@@ -308,6 +361,7 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		c.reportHandshake(err)
 		c.mu.Lock()
 		wasConnected := c.status.State == "holding" || c.status.State == "phone connected"
 		c.mu.Unlock()
@@ -372,13 +426,14 @@ func nextReconnectBackoff(previous time.Duration, established bool) time.Duratio
 	return min(previous*2, 60*time.Second)
 }
 
-func (c *Client) once(ctx context.Context) error {
+func (c *Client) once(ctx context.Context) (result error) {
+	dialStarted := c.now()
 	transport, err := c.dial(ctx)
 	if err != nil {
-		return err
+		return c.handshakeError("dial", dialStarted, err)
 	}
 	defer func() {
-		c.dropSession()
+		c.dropSession(linkCloseReason(result, ctx))
 		c.mu.Lock()
 		c.transport = nil
 		c.mu.Unlock()
@@ -389,8 +444,9 @@ func (c *Client) once(ctx context.Context) error {
 	c.pushHead, c.pushLen = 0, 0
 	c.mu.Unlock()
 
+	helloStarted := c.now()
 	if err := c.authenticate(ctx, transport); err != nil {
-		return err
+		return c.handshakeError("hello", helloStarted, err)
 	}
 	c.recordEvent("connected")
 	query, err := Encode(FramePeerQuery, peerQueryPayload{PairingID: hexID(c.pairing.PairingID)})
@@ -634,6 +690,7 @@ func (c *Client) establish(ctx context.Context, transport Transport) error {
 	c.session = session
 	c.sendCount = 1 // the sealed finish was counter 0
 	c.epoch = 0
+	c.link = &linkSessionStats{started: c.now(), sentAt: map[string]time.Time{}}
 	c.status.SessionID = session.SessionID()
 	c.mu.Unlock()
 	return nil
@@ -659,12 +716,67 @@ type IDOnlyFrame struct {
 	ExpiresAt      string `json:"expires_at,omitempty"`
 }
 
-func (c *Client) dropSession() {
+func linkCloseReason(err error, ctx context.Context) string {
+	if ctx.Err() != nil {
+		return "user"
+	}
+	var problem *Problem
+	if errors.As(err, &problem) {
+		switch problem.Code {
+		case "connection_replaced":
+			return "replaced"
+		case "revoked", "not_paired":
+			return "user"
+		}
+	}
+	if err == nil {
+		return "other"
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "eof") || strings.Contains(lower, "closed") {
+		return "peer_closed"
+	}
+	return "network"
+}
+
+func ackPercentile50(stats *linkSessionStats) int64 {
+	if stats.ackSamples == 0 {
+		return 0
+	}
+	want, seen := (stats.ackSamples+1)/2, uint64(0)
+	for index, count := range stats.ackBuckets {
+		seen += count
+		if seen >= want {
+			if index == 0 {
+				return 0
+			}
+			return int64(1) << (index - 1)
+		}
+	}
+	return stats.ackMaxMS
+}
+
+func (c *Client) dropSession(reason string) {
 	c.mu.Lock()
+	stats := c.link
+	c.link = nil
 	c.session = nil
 	c.status.SessionID = ""
 	c.room.Broadcast()
 	c.mu.Unlock()
+	if stats == nil {
+		return
+	}
+	age := c.now().Sub(stats.started)
+	if age < 0 {
+		age = 0
+	}
+	c.observe("link.session", map[string]any{
+		"role": "agent", "sent": stats.sent, "acked": stats.acked,
+		"unacked": stats.sent - stats.acked, "received": stats.received,
+		"received_unacked": int64(0), "ack_p50_ms": ackPercentile50(stats),
+		"ack_max_ms": stats.ackMaxMS, "age_s": int64(age / time.Second), "close": reason,
+	})
 }
 
 func (c *Client) startConnected(ctx context.Context) context.CancelFunc {
@@ -711,16 +823,21 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				stopSession()
 				stopSession = nil
 			}
-			c.dropSession()
+			reason := "replaced"
+			if !peer.Connected {
+				reason = "peer_closed"
+			}
+			c.dropSession(reason)
 			c.setState("holding", nil)
 			if !peer.Connected {
 				continue
 			}
+			peerStarted := c.now()
 			if err := c.establish(ctx, transport); err != nil {
 				if errors.Is(err, errOpeningUndeliverable) {
 					continue
 				}
-				return err
+				return c.handshakeError("peer", peerStarted, err)
 			}
 			// A PEER that came during the handshake came before the device's
 			// SESSION_READY, and the broker relays one connection's frames in order:
@@ -748,6 +865,25 @@ func (c *Client) serve(ctx context.Context, transport Transport) error {
 				return err
 			}
 			c.mu.Lock()
+			if c.link != nil {
+				if sentAt, present := c.link.sentAt[ack.MessageID]; present {
+					ms := c.now().Sub(sentAt).Milliseconds()
+					if ms < 0 {
+						ms = 0
+					}
+					bucket := 0
+					for value := ms; value > 0 && bucket < len(c.link.ackBuckets)-1; value >>= 1 {
+						bucket++
+					}
+					c.link.ackBuckets[bucket]++
+					c.link.ackSamples++
+					if ms > c.link.ackMaxMS {
+						c.link.ackMaxMS = ms
+					}
+					c.link.acked++
+					delete(c.link.sentAt, ack.MessageID)
+				}
+			}
 			c.removePendingLocked(ack.MessageID)
 			c.mu.Unlock()
 		case FrameQueued:
@@ -861,6 +997,9 @@ func (c *Client) deliver(frame Frame, transport Transport) error {
 		return err
 	}
 	c.mu.Lock()
+	if c.link != nil {
+		c.link.received++
+	}
 	c.status.LastMessageAt = c.now().UTC().Format(time.RFC3339)
 	c.mu.Unlock()
 	ack, err := Encode(FrameAck, IDOnlyFrame{PairingID: payload.PairingID, SessionID: payload.SessionID, MessageID: payload.MessageID})
@@ -938,7 +1077,18 @@ func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
 	if err != nil {
 		return err
 	}
-	return transport.Send(out)
+	if err := transport.Send(out); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if c.link != nil {
+		c.link.sent++
+		if len(c.link.sentAt) < maxPendingDeliveries {
+			c.link.sentAt[hexID(messageID)] = c.now()
+		}
+	}
+	c.mu.Unlock()
+	return nil
 }
 
 // resend encrypts a retained message again under the CURRENT session, which is what

@@ -129,15 +129,17 @@ const (
 	UpdateResult    = "update"
 	SettingsShape   = "settings.shape"
 	// the app around the runs, aggregated per hour by the recorder.
-	AppStart     = "app.start"
-	AppLifecycle = "app.lifecycle"
-	PageHealth   = "page.health"
-	LinkHealth   = "link.health"
-	Install      = "install"
-	Resource     = "resource"
-	FeatureUse   = "feature.use"
-	HeaderState  = "header.state"
-	ImportHermes = "import.hermes"
+	AppStart      = "app.start"
+	AppLifecycle  = "app.lifecycle"
+	PageHealth    = "page.health"
+	LinkHealth    = "link.health"
+	LinkSession   = "link.session"
+	LinkHandshake = "link.handshake"
+	Install       = "install"
+	Resource      = "resource"
+	FeatureUse    = "feature.use"
+	HeaderState   = "header.state"
+	ImportHermes  = "import.hermes"
 )
 
 const (

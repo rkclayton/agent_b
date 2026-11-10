@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -41,10 +42,25 @@ func Dial(address string) Dialer {
 		config.TlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: strings.Split(hostOf(endpoint), ":")[0]}
 		connection, err := websocket.DialConfig(config)
 		if err != nil {
+			if isTLSFailure(err) {
+				return nil, &handshakeFailure{step: "tls", err: fmt.Errorf("broker dial: %w", err)}
+			}
 			return nil, fmt.Errorf("broker dial: %w", err)
 		}
 		return newSocketTransport(connection), nil
 	}
+}
+
+func isTLSFailure(err error) bool {
+	var unknown x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	var hostname x509.HostnameError
+	var header tls.RecordHeaderError
+	if errors.As(err, &unknown) || errors.As(err, &invalid) || errors.As(err, &hostname) || errors.As(err, &header) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "tls:") || strings.Contains(text, "x509:")
 }
 
 // connectURL turns whatever the operator typed into the endpoint the document names.

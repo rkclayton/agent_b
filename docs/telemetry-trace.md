@@ -323,10 +323,40 @@ The phone link (the broker session), when it did anything in the hour.
 | `pushes` | object | push sends by the broker's answer (`accepted`, `no_token`, `refused`) |
 | `join_bytes` | int | the most one phone join sent, bucketed |
 
-PC-to-phone message latency is not measured: the link keeps no send time.
+The hourly aggregate does not carry per-session delivery counts; `link.session`
+below carries those counts when a session closes.
 
 ```json vector:link.health
 {"type":"link.health","at":"2026-10-04T21:00:05Z","connects":3,"drops":{"eof":2},"reconnect_ms":{"p50":1200,"p95":4100},"refused":{"queue_full":1},"pushes":{"accepted":4},"join_bytes":67108864}
+```
+
+### `link.session`
+
+One event when a link session closes. `role` is `agent` or `device`; `sent`,
+`acked`, `unacked`, `received`, and `received_unacked` are frame counts from
+that side. `unacked` is what this side sent that the peer had not acknowledged
+at close. `received_unacked` is what this side had received but not yet
+acknowledged at close; the PC reports zero. `ack_p50_ms` and `ack_max_ms` are
+the acknowledgement latency, `age_s` is the session age, and `close` is exactly
+one of `peer_closed`, `network`, `replaced`, `suspended`, `wake_done`, `user`,
+or `other`. A device may also send `wake_to_connect_ms` and `state`, where
+`state` is `fg`, `bg`, or `inactive`.
+
+```json vector:link.session
+{"type":"link.session","at":"2026-10-04T21:00:05Z","role":"agent","sent":3,"acked":1,"unacked":2,"received":1,"received_unacked":0,"ack_p50_ms":42,"ack_max_ms":42,"age_s":18,"close":"network"}
+```
+
+### `link.handshake`
+
+One event for a failed handshake only. `step` is exactly `dial`, `tls`, `hello`,
+or `peer`; `elapsed_ms` is the elapsed time in that step.
+
+Neither event ever carries content, an address, a token, a pairing code, or a
+full identifier; where an implementation needs an identifier for local
+correlation, it may use a prefix only.
+
+```json vector:link.handshake
+{"type":"link.handshake","at":"2026-10-04T21:00:05Z","step":"hello","elapsed_ms":240}
 ```
 
 ### `install`
@@ -463,6 +493,8 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `app.lifecycle` | `phase`, `previous_exit`, `cause`, `uptime_s` |
 | `page.health` | `state_bytes`, `state_ms`, `page_load_ms`, `longest_freeze_ms`, `js_errors` |
 | `link.health` | `connects`, `drops`, `reconnect_ms`, `refused`, `pushes`, `join_bytes` |
+| `link.session` | `role`, `sent`, `acked`, `unacked`, `received`, `received_unacked`, `ack_p50_ms`, `ack_max_ms`, `age_s`, `close`, `wake_to_connect_ms`, `state` |
+| `link.handshake` | `step`, `elapsed_ms` |
 | `install` | `step`, `class`, `from`, `to` |
 | `resource` | `memory_peak_bytes`, `data_bytes`, `chats_bytes`, `chats`, `ram_bytes`, `arch`, `os_version` |
 | `feature.use` | `chats_created`, `messages_sent`, `tools`, `attachments`, `voice`, `settings_pages`, `approvals` |

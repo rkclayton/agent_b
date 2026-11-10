@@ -74,6 +74,9 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 		c.recordSession(pairing, message)
 		server.app.Link(message) // its shape only
 	})
+	client.OnTelemetry(func(kind string, fields map[string]any) {
+		server.queueRunTelemetry(kind, fields)
+	})
 	client.OnConnected(func(connection context.Context) {
 		live.reset()
 		c.mu.Lock()

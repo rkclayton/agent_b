@@ -1261,10 +1261,8 @@ if (realModel) {
 		await card.waitFor({ state: "visible" });
 		assert.match(await card.innerText(), /Replace skill report-kit\?/);
 		await mkdir(join(args.evidence, "captures"), { recursive: true });
-		await captureWithMasks(page, join(args.evidence, "captures", "skill-replace-card-closed.png"));
 		await card.locator("summary", { hasText: "Approval required" }).click();
 		assert.match(await card.innerText(), /New acceptance skill/);
-		await captureWithMasks(page, join(args.evidence, "captures", "skill-replace-card-open.png"));
 		assert.equal(await readFile(join(stored, "SKILL.md"), "utf8"), before, "skill changed before approval");
 		for (const size of [{ width: 304, height: 254 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }]) {
 			await page.setViewportSize(size);
@@ -1288,9 +1286,9 @@ if (realModel) {
 		assert.match(await readFile(join(operatorSkillDraftSource, "SKILL.md"), "utf8"), /Drafts a fixture report/);
 		const draftCard = page.locator("#chat-pending-approval .approval-card");
 		await draftCard.waitFor({ state: "visible" });
-		await captureWithMasks(page, join(args.evidence, "captures", "skill-add-card-closed.png"));
+		await draftCard.screenshot({ path: join(args.evidence, "captures", "skill-add-card-closed.png") });
 		await draftCard.locator("summary", { hasText: "Approval required" }).click();
-		await captureWithMasks(page, join(args.evidence, "captures", "skill-add-card-open.png"));
+		await draftCard.screenshot({ path: join(args.evidence, "captures", "skill-add-card-open.png") });
 		await clickPendingApproval("Just once", added.data.call_id);
 		await waitEvent(sessionID, (event) => event.seq > added.seq && event.type === "run.stopped" && event.data?.reason === "done", "operator-folder skill added");
 		await page.reload();

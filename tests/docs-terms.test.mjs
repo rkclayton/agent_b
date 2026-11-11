@@ -474,6 +474,14 @@ test("the tag gate refuses a commit whose install-cycle job is missing or not gr
   assert.equal(installCycleRefusal([{ name: "install-cycle", conclusion: "failure" }, { name: "install-cycle", conclusion: "success" }]), "");
 });
 
+test("the telemetry document carries both PC and device link session vectors", async () => {
+  const { telemetryVectors } = await import("../tools/tag-release.mjs"), sessions = telemetryVectors().filter(({ type }) => type === "link.session");
+  assert.equal(sessions.length, 2);
+  const device = sessions.find(({ role }) => role === "device"), document = await readFile(join(repoRoot, "docs", "telemetry-trace.md"), "utf8"), row = document.split("\n").find(line => line.startsWith("| `link.session`"));
+  assert.ok(device.received_unacked > 0 && typeof device.wake_to_connect_ms === "number" && device.state === "bg");
+  for (const field of Object.keys(device).filter(field => !["type", "at"].includes(field))) assert.ok(row.includes(`\`${field}\``), `${field} missing from allow-list`);
+});
+
 test("the telemetry release gate names a refused or dropped event before tagging", async () => {
   const { createServer } = await import("node:http");
   const { releaseAfterTelemetry } = await import("../tools/tag-release.mjs");

@@ -345,6 +345,9 @@ or `other`. A device may also send `wake_to_connect_ms` and `state`, where
 ```json vector:link.session
 {"type":"link.session","at":"2026-10-04T21:00:05Z","role":"agent","sent":3,"acked":1,"unacked":2,"received":1,"received_unacked":0,"ack_p50_ms":42,"ack_max_ms":42,"age_s":18,"close":"network"}
 ```
+```json vector:link.session
+{"type":"link.session","at":"2026-10-04T21:00:05Z","role":"device","sent":3,"acked":1,"unacked":2,"received":2,"received_unacked":1,"ack_p50_ms":42,"ack_max_ms":42,"age_s":18,"close":"wake_done","wake_to_connect_ms":350,"state":"bg"}
+```
 
 ### `link.handshake`
 

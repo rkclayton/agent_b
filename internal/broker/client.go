@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"harness/internal/buildinfo"
 )
 
 // DefaultURL is THE broker address, and this is the one place it is written.
@@ -468,6 +470,7 @@ func (c *Client) once(ctx context.Context) (result error) {
 
 type helloPayload struct {
 	Role         string `json:"role"`
+	Client       string `json:"client,omitempty"`
 	ConnectionID string `json:"connection_id"`
 	KeyID        string `json:"key_id"`
 	Ed25519      string `json:"ed25519_public"`
@@ -512,6 +515,7 @@ func (c *Client) authenticate(ctx context.Context, transport Transport) error {
 	}
 	hello, err := Encode(FrameHello, helloPayload{
 		Role:         "agent",
+		Client:       "windows/" + buildinfo.Current().Tag,
 		ConnectionID: hexID(connectionID),
 		KeyID:        hexID(c.identity.KeyID()),
 		Ed25519:      base64.RawURLEncoding.EncodeToString(c.identity.SigningPublic()),

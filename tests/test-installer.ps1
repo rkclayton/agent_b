@@ -12,23 +12,38 @@ param(
     [switch]$SkipWindowAcceptance,
     [string]$EvidenceDirectory,
     [switch]$FailureDiagnosticSelfTest,
-    [switch]$FailureDiagnosticChildPathSelfTest
+    [switch]$FailureDiagnosticChildPathSelfTest,
+    [switch]$CleanArchiveIdentitySelfTest,
+    [switch]$CleanArchiveIdentityMismatchSelfTest
 )
 
 $ErrorActionPreference = 'Stop'
 $script:matrixStage = 'initialization'
 $script:matrixLastProof = 'none'
-function Write-MatrixProof {
-    param([Parameter(Mandatory=$true)][string]$Text)
-    $script:matrixLastProof = $Text
-    Write-Host $Text
-}
 trap {
     $failure = $_
     $line = [int]$failure.InvocationInfo.ScriptLineNumber
     $message = ([string]$failure.Exception.Message -replace '\s+', ' ').Trim()
     Write-Host "MATRIX FAILURE: stage=$script:matrixStage; last proof=$script:matrixLastProof; site=test-installer.ps1:$line; $message"
     exit 1
+}
+function Write-MatrixProof {
+    param([Parameter(Mandatory=$true)][string]$Text)
+    $script:matrixLastProof = $Text
+    Write-Host $Text
+}
+function Resolve-CleanArchiveIdentity {
+    param([string]$HeadCommit, [bool]$WorkingDirty, [object]$RetainedIdentity)
+    if ($null -ne $RetainedIdentity) {
+        return [pscustomobject]@{ commit = [string]$RetainedIdentity.commit; dirty = [bool]$RetainedIdentity.dirty }
+    }
+    return [pscustomobject]@{ commit = $HeadCommit; dirty = $WorkingDirty }
+}
+function Assert-CleanArchiveIdentity {
+    param([object]$Reported, [object]$Expected)
+    if ($Reported.commit -ne $Expected.commit -or [bool]$Reported.dirty -ne [bool]$Expected.dirty) {
+        throw "identity differs: reported $($Reported.commit)/$($Reported.dirty), expected $($Expected.commit)/$($Expected.dirty)"
+    }
 }
 if ($FailureDiagnosticSelfTest) {
     $script:matrixStage = 'first-run-onboarding'
@@ -41,6 +56,19 @@ if ($FailureDiagnosticChildPathSelfTest) {
     & $env:ComSpec /d /s /c 'echo stand-in child stderr 1>&2 & exit /b 7'
     if ($LASTEXITCODE -ne 0) { throw "stand-in child exited $LASTEXITCODE" }
     throw 'stand-in child unexpectedly succeeded'
+}
+if ($CleanArchiveIdentitySelfTest) {
+    $script:matrixStage = 'clean-archive'
+    $reported = [pscustomobject]@{ commit = 'retained-commit'; dirty = $false }
+    $expected = Resolve-CleanArchiveIdentity -HeadCommit 'current-head' -WorkingDirty $true -RetainedIdentity $reported
+    Assert-CleanArchiveIdentity -Reported $reported -Expected $expected
+    if ($expected.commit -ne 'retained-commit' -or $expected.dirty) { throw 'the retained-candidate identity was not preserved' }
+    Write-MatrixProof 'PASS: retained commit and clean dirty flag are compared with their own archive'
+    exit 0
+}
+if ($CleanArchiveIdentityMismatchSelfTest) {
+    $script:matrixStage = 'clean-archive'
+    Assert-CleanArchiveIdentity -Reported ([pscustomobject]@{ commit = 'different-commit'; dirty = $false }) -Expected ([pscustomobject]@{ commit = 'expected-commit'; dirty = $false })
 }
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\windows-tools.ps1')
@@ -1648,32 +1676,37 @@ try {
     if (-not $git) { throw 'git.exe is required to produce the clean archive for the first-clone scenario.' }
     $tree = Join-Path $cloneRoot 'tree'
     $null = New-Item -ItemType Directory -Path $tree -Force
-    # Copy the TRACKED WORKING TREE rather than archiving HEAD: the point is to
-    # catch a regression in the change being made, not in the last commit.
-    $tracked = @(& $git.Source -C $sourceRoot ls-files)
-    if ($LASTEXITCODE -ne 0 -or -not $tracked.Count) { throw "git ls-files produced no tracked files." }
-    # Item 2gu: untracked, non-ignored files too, for the same reason.
-    $tracked = @($tracked) + @(& $git.Source -C $sourceRoot ls-files --others --exclude-standard)
-    foreach ($relative in $tracked) {
-        $from = Join-Path $sourceRoot ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
-        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
-        $to = Join-Path $tree ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
-        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force
-        Copy-Item -LiteralPath $from -Destination $to -Force
+    $headCommit = [string](& $git.Source -C $sourceRoot rev-parse HEAD | Select-Object -First 1)
+    if ($UseExistingSignedCandidate) {
+        $archive = Join-Path $cloneRoot 'source.zip'
+        & $git.Source -C $sourceRoot archive --format=zip -o $archive ([string]$existingIdentity.commit)
+        if ($LASTEXITCODE -ne 0) { throw "git archive for the retained candidate exited $LASTEXITCODE." }
+        Expand-Archive -LiteralPath $archive -DestinationPath $tree -Force
+    } else {
+        # Include uncommitted work so a plain matrix proves the change being made.
+        $tracked = @(& $git.Source -C $sourceRoot ls-files) + @(& $git.Source -C $sourceRoot ls-files --others --exclude-standard)
+        if ($LASTEXITCODE -ne 0 -or -not $tracked.Count) { throw "git ls-files produced no tracked files." }
+        foreach ($relative in $tracked) {
+            $from = Join-Path $sourceRoot ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+            if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+            $to = Join-Path $tree ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $to) -Force
+            Copy-Item -LiteralPath $from -Destination $to -Force
+        }
     }
     if (Test-Path -LiteralPath (Join-Path $tree '.git')) { throw 'the extracted archive must not be a git checkout.' }
 
-    # The release step builds the candidate (item 2eu); the installer never does.
-    # A tree with no .git states its commit explicitly.
-    $treeCommit = [string](& $git.Source -C $sourceRoot rev-parse HEAD | Select-Object -First 1)
+    $workingDirty = [bool](@(& $git.Source -C $sourceRoot status --porcelain --untracked-files=normal).Count)
+    $treeIdentity = Resolve-CleanArchiveIdentity -HeadCommit $headCommit.Trim() -WorkingDirty $workingDirty -RetainedIdentity $(if ($UseExistingSignedCandidate) { $existingIdentity } else { $null })
+    $treeDirty = ([string]([bool]$treeIdentity.dirty)).ToLowerInvariant()
     if ($UseExistingSignedCandidate) {
         Copy-Item -LiteralPath (Join-Path $sourceRoot 'Agent_b.exe') -Destination (Join-Path $tree 'Agent_b.exe') -Force
         Copy-Item -LiteralPath (Join-Path $sourceRoot 'agentb.exe') -Destination (Join-Path $tree 'agentb.exe') -Force
     }
     if ($UseExistingSignedCandidate) {
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeIdentity.commit -Dirty $treeDirty -SignForTest
     } else {
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $tree -Commit $treeIdentity.commit -Dirty $treeDirty -SignForTest
     }
     if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate build exited $LASTEXITCODE." }
     $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json
@@ -1682,9 +1715,9 @@ try {
     $savedErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     if ($UseExistingSignedCandidate) {
-        $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' -SignForTest 2>&1 | Out-String)
+        $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeIdentity.commit -Dirty $treeDirty -ExpectedTag 'v9.9.9' -SignForTest 2>&1 | Out-String)
     } else {
-        $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -ExpectedTag 'v9.9.9' -SignForTest 2>&1 | Out-String)
+        $mismatchOutput = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $tree -Commit $treeIdentity.commit -Dirty $treeDirty -ExpectedTag 'v9.9.9' -SignForTest 2>&1 | Out-String)
     }
     $mismatchExit = $LASTEXITCODE
     $ErrorActionPreference = $savedErrorAction
@@ -1694,9 +1727,9 @@ try {
     }
     Write-MatrixProof "PROOF release step: an exe reporting $($treeManifest.tag) is refused for release v9.9.9 and no manifest is left"
     if ($UseExistingSignedCandidate) {
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -UseExistingSignedBinary -SourceDirectory $tree -Commit $treeIdentity.commit -Dirty $treeDirty -SignForTest
     } else {
-        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $tree -Commit $treeCommit.Trim() -Dirty true -SignForTest
+        & (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\build-candidate.ps1') -SourceDirectory $tree -Commit $treeIdentity.commit -Dirty $treeDirty -SignForTest
     }
     if ($LASTEXITCODE -ne 0) { throw "clean-archive candidate rebuild exited $LASTEXITCODE." }
     $treeManifest = Get-Content -Raw -LiteralPath (Join-Path $tree 'candidate-final.json') | ConvertFrom-Json

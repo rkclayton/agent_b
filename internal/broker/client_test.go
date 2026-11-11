@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"harness/internal/buildinfo"
 )
 
 // Item 2kq (a): the scenarios the document names, each against a SCRIPTED BROKER that
@@ -196,6 +198,13 @@ func (b *scriptedBroker) authenticate(t *testing.T) {
 	var greeting helloPayload
 	if err := DecodeInto(hello.Payload, &greeting); err != nil {
 		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := DecodeInto(hello.Payload, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fields["client"], "windows/"+buildinfo.Current().Tag; got != want {
+		t.Fatalf("HELLO client = %v, want %q", got, want)
 	}
 	if greeting.Role != "agent" {
 		t.Fatalf("the client claims role %q", greeting.Role)

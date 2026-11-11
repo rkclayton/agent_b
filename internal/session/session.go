@@ -362,7 +362,7 @@ func (s *Session) ResolveOperatorPath(path string) string {
 }
 
 func resolveOperatorAlias(path, root string) string {
-	value := filepath.ToSlash(strings.TrimSpace(path))
+	value := filepath.ToSlash(strings.ReplaceAll(strings.TrimSpace(path), `\`, "/"))
 	const prefix = "~/Agent_b"
 	if root == "" || (len(value) != len(prefix) && (len(value) < len(prefix)+1 || value[len(prefix)] != '/')) || !strings.EqualFold(value[:min(len(value), len(prefix))], prefix) {
 		return path

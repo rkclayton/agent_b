@@ -15,7 +15,7 @@ import { renderSendStop } from "./stop-state.js";
 import { runTimeSentence } from "./run-summary.js";
 import { classifyResponseBlocks, hasVisibleChatContent, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
-import { registerMenu } from "./menu-behavior.js";
+import { registerMenu, requestConfirmation } from "./menu-behavior.js";
 import { liveActivityLook, liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
 import { renderChatProposals } from "./chat-proposals.js";
@@ -682,7 +682,7 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
   }
   if (!active && changed.size && view.work.runID && !view.work.undo) {
     const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-work-undo"; undo.textContent = "Undo file changes";
-    undo.onclick = async () => { if (!confirm("Undo file changes from this run? File tools only.")) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:view.work.runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
+    undo.onclick = async () => { if (!await requestConfirmation("Undo file changes from this run? File tools only.", { confirmLabel: "Undo" })) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:view.work.runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
     view.work.undo = undo; view.work.controls.append(undo);
   }
   if (view.work.undo) view.work.undo.hidden = active || !changed.size || !view.work.runID;
@@ -740,7 +740,7 @@ function renderFileUndoList(session, work) {
     };
     const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-file-undo"; undo.textContent = "Undo this file";
     undo.onclick = async () => {
-      if (!confirm("Undo file changes from this run? File tools only.")) return;
+      if (!await requestConfirmation("Undo file changes from this run? File tools only.", { confirmLabel: "Undo" })) return;
       undo.disabled = true;
       try {
         const result = await api("/api/file-undo", { session_id:session.id, run_id:work.runID, file_id:file.id, confirm:true });

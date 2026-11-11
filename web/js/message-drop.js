@@ -20,7 +20,7 @@ export function createMessageDropController(button, options) {
     if (!session.messages?.length || !["idle", "replay"].includes(session.run?.status)) return;
     const message = session.messages[session.messages.length - 1];
     const detail = `Drop the most recent ${message.role || "conversation"} message from “${session.label || session.id}”?\n\nThis cannot be undone.`;
-    if (!options.confirmDrop(detail)) return;
+    if (!await options.confirmDrop(detail)) return;
     pending = true;
     render();
     try {

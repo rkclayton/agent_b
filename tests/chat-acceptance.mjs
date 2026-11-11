@@ -930,8 +930,8 @@ if (args.journey && !["scheduled-work", "skills", "chat-management"].includes(ar
     await waitProjectedChatText(sessionID, "SCRATCH FILE COMPLETE", name);
     const response = page.locator(".chat-response").filter({ hasText: "SCRATCH FILE COMPLETE" });
     await response.getByRole("button", { name: /files? changed/ }).click();
-    page.once("dialog", (dialog) => dialog.accept());
     await response.getByRole("button", { name: "Undo file changes" }).click();
+    await page.locator(".confirm-popover").getByRole("button", { name: "Undo", exact: true }).click();
     await response.locator(".chat-work-undo-result").waitFor({ state: "visible" });
   } else {
     throw new Error(`unknown acceptance journey: ${name}`);
@@ -1207,13 +1207,9 @@ if (realModel) {
     assert.equal(await explorerRow.locator(`[data-session="${migrated.id}"]`).count(), 1, "moved chat missing from menu folder");
     await openSettings();
     assert.equal(await clickText(".settings-nav button", "Chats"), true);
-    const count = Object.keys((await state()).sessions).length, dialogs = [];
-    const acceptDeleteAll = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
-    page.on("dialog", acceptDeleteAll);
     await page.locator(".delete-all-chats").click();
+    await page.locator(".confirm-popover").getByRole("button", { name: "Delete", exact: true }).click();
     for (let attempt = 0; attempt < 200 && Object.keys((await state()).sessions).length; attempt++) await sleep(50);
-    page.off("dialog", acceptDeleteAll);
-    assert.equal(dialogs.at(-1), `Delete all ${count} chats? Memory notes, plans and files stay.`);
     assert.equal(Object.keys((await state()).sessions).length, 0);
     assert.equal(await readFile(join(movedPath, "w7-kept.txt"), "utf8"), "keep");
     record("real-root-migrate-filesystem-move-menu-delete-all");
@@ -1310,13 +1306,12 @@ if (realModel) {
 		await json(`http://127.0.0.1:${appPort}/api/message`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: bulkBusy.id, text: "acceptance: bulk hold" }) });
 		for (let attempt = 0; attempt < 100 && (await state()).sessions[bulkBusy.id].run.status !== "running"; attempt++) await sleep(10);
 		assert.equal((await state()).sessions[bulkBusy.id].run.status, "running");
-		const bulkDialogs = [], acceptBulk = async (dialog) => { bulkDialogs.push(dialog.message()); await dialog.accept(); }; page.on("dialog", acceptBulk);
-		await page.locator(".delete-all-chats").click(); await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('is running')`, "bulk delete names running chat");
+		await page.locator(".delete-all-chats").click(); await page.locator(".confirm-popover").getByRole("button", { name: "Delete", exact: true }).click(); await browser.wait(`document.querySelector('.settings-content')?.innerText.includes('is running')`, "bulk delete names running chat");
 		assert.equal(Object.keys((await state()).sessions).length, bulkCount);
 		await json(`http://127.0.0.1:${appPort}/api/stop`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": (await state()).mutation_token }, body: JSON.stringify({ session_id: bulkBusy.id }) });
 		await waitEvent(bulkBusy.id, (event) => event.type === "run.stopped", "bulk-delete fixture stopped");
-		await page.locator(".delete-all-chats").click(); for (let attempt = 0; attempt < 100 && Object.keys((await state()).sessions).length; attempt++) await sleep(50); page.off("dialog", acceptBulk);
-		assert.equal(bulkDialogs.at(-1), `Delete all ${bulkCount} chats? Memory notes, plans and files stay.`); assert.equal(Object.keys((await state()).sessions).length, 0); await assert.rejects(readFile(bulkKept, "utf8"));
+		await page.locator(".delete-all-chats").click(); await page.locator(".confirm-popover").getByRole("button", { name: "Delete", exact: true }).click(); for (let attempt = 0; attempt < 100 && Object.keys((await state()).sessions).length; attempt++) await sleep(50);
+		assert.equal(Object.keys((await state()).sessions).length, 0); await assert.rejects(readFile(bulkKept, "utf8"));
 		await page.locator(".chat-empty").waitFor({ state: "visible" });
 		await browser.wait("document.querySelectorAll('.chat-list-row[data-session]').length === 0", "bulk delete rendered no chat rows");
 		assert.equal(await page.locator("#chat-task").isEnabled(), true); assert.equal(await page.locator("#chat-send").isEnabled(), true);
@@ -1335,7 +1330,7 @@ if (realModel) {
 		const firstAfterDelete = await createAndAnswer("acceptance: new after delete all");
 		const deleteOne = async (id) => {
 			await page.locator(`[data-session="${id}"]`).hover(); await page.locator(`[data-session="${id}"] .chat-list-more`).click();
-			const acceptOne = (dialog) => dialog.accept(); page.once("dialog", acceptOne); await page.locator(`[data-session="${id}"] .chat-list-menu-action.alarm`).evaluate((button) => button.click());
+			await page.locator(`[data-session="${id}"] .chat-list-menu-action.alarm`).evaluate((button) => button.click()); await page.locator(`[data-session="${id}"] .chat-list-delete-confirm`).getByRole("button", { name: "Delete", exact: true }).click();
 			await browser.wait(`!document.querySelector('[data-session="${id}"]')`, "open chat deleted");
 		};
 		await deleteOne(firstAfterDelete); await createAndAnswer("acceptance: new after open delete");
@@ -3180,7 +3175,6 @@ if (realModel) {
   const closedRow = page.locator(`.chat-list-row[data-session="${idleCloseID}"]`);
   await closedRow.waitFor({ state: "visible" });
   assert.equal(await closedRow.getAttribute("class").then((value) => value.includes("closed")), false, "closed styling must be gone");
-  const dialogs = [];
   const stateBeforeReopen = await state();
   const otherOpen = Object.values(stateBeforeReopen.sessions).filter((session) => session.id !== idleCloseID && !session.closed).map((session) => session.id);
   await closedRow.locator(".chat-list-name").click();
@@ -3192,20 +3186,14 @@ if (realModel) {
   await closedRow.hover();
   await closedRow.locator(".chat-list-more").click();
   const deleteButton = closedRow.locator('.chat-list-row-menu').getByRole("button", { name: "Delete", exact: true });
-  const dismiss = async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); };
-  page.on("dialog", dismiss);
   await deleteButton.click();
-  await sleep(300);
-  page.off("dialog", dismiss);
-  assert.equal(dialogs.at(-1), "Delete this chat permanently? Memory notes it made are kept.");
+  await closedRow.locator(".chat-list-delete-confirm").getByRole("button", { name: "Cancel", exact: true }).click();
   assert.ok((await state()).sessions[idleCloseID], "a dismissed delete confirm must keep the chat");
   await closedRow.hover();
   await closedRow.locator(".chat-list-more").click();
-  const accept = async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); };
-  page.on("dialog", accept);
   await closedRow.locator('.chat-list-row-menu').getByRole("button", { name: "Delete", exact: true }).click();
+  await closedRow.locator(".chat-list-delete-confirm").getByRole("button", { name: "Delete", exact: true }).click();
   await page.waitForFunction((id) => !document.querySelector(`.chat-list-row[data-session="${id}"]`), idleCloseID);
-  page.off("dialog", accept);
   for (let attempt = 0; attempt < 100 && (await state()).sessions[idleCloseID]; attempt++) await sleep(50);
   assert.equal((await state()).sessions[idleCloseID], undefined, "delete must remove it from the registry");
   assert.equal(await page.locator(`.chat-list-row[data-session="${idleCloseID}"]`).count(), 0, "a deleted chat leaves no list entry");

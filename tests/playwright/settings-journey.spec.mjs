@@ -254,7 +254,7 @@ test("a live run keeps drawing beneath Settings 2sy", async () => {
 	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); const original = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await page.locator(".chat-list-new").click(); await expect(page.locator(".chat-list-row.selected")).not.toHaveAttribute("data-session", original); const streamed = await page.locator(".chat-list-row.selected").getAttribute("data-session"); await page.locator("#chat-task").fill("stream behind Settings"); await page.locator("#chat-send").click();
 	await expect(page.locator("#chat-log")).toContainText("ui harness "); await toggleSettings(page); await expect(page.locator(".chat-list-name.working")).toBeVisible();
 	const before = (await page.locator("#chat-log").innerText()).length; await page.screenshot({ path: join(repo, "test-results", "2sy-settings-streaming.png"), fullPage: true });
-	await expect(page.locator("#chat-log")).toContainText("ui harness reply"); await expect.poll(async () => (await page.locator("#chat-log").innerText()).length).toBeGreaterThan(before); await expect(page.locator(".chat-list-name.working")).toHaveCount(0); await page.getByTitle("Close").click(); await page.locator(`.chat-list-row[data-session="${original}"] .chat-list-name`).click(); const streamRow = page.locator(`.chat-list-row[data-session="${streamed}"]`); await streamRow.hover(); await streamRow.locator(".chat-list-more").click(); page.once("dialog", (dialog) => dialog.accept()); await streamRow.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click(); await expect(streamRow).toHaveCount(0); await page.close();
+	await expect(page.locator("#chat-log")).toContainText("ui harness reply"); await expect.poll(async () => (await page.locator("#chat-log").innerText()).length).toBeGreaterThan(before); await expect(page.locator(".chat-list-name.working")).toHaveCount(0); await page.getByTitle("Close").click(); await page.locator(`.chat-list-row[data-session="${original}"] .chat-list-name`).click(); const streamRow = page.locator(`.chat-list-row[data-session="${streamed}"]`); await streamRow.hover(); await streamRow.locator(".chat-list-more").click(); await streamRow.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click(); await streamRow.locator(".chat-list-delete-confirm").getByRole("button", { name: "Delete", exact: true }).click(); await expect(streamRow).toHaveCount(0); await page.close();
 });
 
 test("the setup document uses an X and returns to Settings 2sy", async () => {
@@ -364,8 +364,8 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   const session = await selected.getAttribute("data-session");
   await selected.hover();
   await selected.locator(".chat-list-more").click();
-  page.once("dialog", (dialog) => dialog.accept());
   await selected.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click();
+  await selected.locator(".chat-list-delete-confirm").getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.locator(`.chat-list-row[data-session="${session}"]`)).toHaveCount(0);
 
   // 10. Remove the connection, through the anchored confirmation (item 2l4), and
@@ -918,11 +918,11 @@ test("finished turns undo their own real file changes before and after restart 2
 	await expect(alpha.locator(".chat-file-open")).toHaveCount(2);
 	for (const file of await alpha.locator(".chat-file-open").all()) await file.click();
 	await expect(alpha.locator(".chat-file-diff")).toHaveCount(2);
-	page.once("dialog", (dialog) => dialog.accept());
 	await alpha.locator(".chat-file-undo").first().click();
+	await page.locator(".confirm-popover").getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(alpha.getByRole("button", { name: /1 files? changed/ })).toBeVisible();
-	page.once("dialog", (dialog) => dialog.accept());
 	await alpha.getByRole("button", { name: "Undo file changes" }).click();
+	await page.locator(".confirm-popover").getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(alpha.locator(".chat-work-undo-result")).toContainText("restored undo-alpha-two.txt");
 	for (const suffix of ["one", "two"]) expect(await readFile(join(workspace, `undo-alpha-${suffix}.txt`), "utf8")).toBe(original(`alpha-${suffix}`));
 
@@ -945,16 +945,16 @@ test("finished turns undo their own real file changes before and after restart 2
 	for (const file of await beta.locator(".chat-file-open").all()) await file.click();
 	await expect(beta.locator(".chat-file-diff")).toHaveCount(2);
 	const betaUndo = page.waitForRequest((request) => request.url().endsWith("/api/file-undo") && request.method() === "POST");
-	page.once("dialog", (dialog) => dialog.accept());
 	await beta.getByRole("button", { name: "Undo file changes" }).click();
+	await page.locator(".confirm-popover").getByRole("button", { name: "Undo", exact: true }).click();
 	expect((await betaUndo).postDataJSON().run_id).toBe(runIDs.beta);
 	await expect(beta.locator(".chat-work-undo-result")).toContainText("restored undo-beta-one.txt");
 	for (const suffix of ["one", "two"]) {
 		expect(await readFile(join(workspace, `undo-beta-${suffix}.txt`), "utf8")).toBe(original(`beta-${suffix}`));
 		expect(await readFile(join(workspace, `undo-gamma-${suffix}.txt`), "utf8")).toBe(`gamma-${suffix}-changed\n`);
 	}
-	page.once("dialog", (dialog) => dialog.accept());
 	await gamma.getByRole("button", { name: "Undo file changes" }).click();
+	await page.locator(".confirm-popover").getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(gamma.locator(".chat-work-undo-result")).toContainText("restored undo-gamma-one.txt");
 	for (const suffix of ["one", "two"]) expect(await readFile(join(workspace, `undo-gamma-${suffix}.txt`), "utf8")).toBe(original(`gamma-${suffix}`));
 	await page.close();

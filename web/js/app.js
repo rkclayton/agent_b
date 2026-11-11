@@ -11,6 +11,7 @@ import { agentKey, compactionFigures, groupedLifetimeRows, ratio, runProfileRows
 import { renderStopState } from "./stop-state.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText } from "./chat-activity.js";
+import { requestConfirmation, requestText } from "./menu-behavior.js";
 
 const requestedSession = new URLSearchParams(location.search).get("session");
 let initialSession = requestedSession;
@@ -36,7 +37,7 @@ const panelRunLabel = document.getElementById("panel-run-label");
 
 const dropControl = createMessageDropController(dropLastMessage, {
   session: () => store.sessions[store.active], interactive: () => !store.replay,
-  confirmDrop: (message) => window.confirm(message),
+  confirmDrop: (message) => requestConfirmation(message, { confirmLabel: "Drop", danger: true }),
   drop: (id) => api(`/api/sessions/${encodeURIComponent(id)}/messages/drop-last`, {}), reportError: showError,
 });
 
@@ -290,13 +291,13 @@ async function editAgent(action) {
   } else if (action === "powershell") {
     body = { action: "update", id: selectedAgent, powershell: read("powershell")?.value || "" };
   } else if (action === "add") {
-    const name = prompt("Agent name"); if (!name) return;
+    const name = await requestText("Agent name"); if (!name) return;
     body = { action: "add", name };
   } else if (action === "duplicate") {
-    const name = prompt("Duplicate name"); if (!name) return;
+    const name = await requestText("Duplicate name"); if (!name) return;
     body = { action: "duplicate", source_id: selectedAgent, name };
   } else if (action === "delete") {
-    if (!confirm(`Delete ${agent.name}?`)) return;
+    if (!await requestConfirmation(`Delete ${agent.name}?`, { confirmLabel: "Delete", danger: true })) return;
     body = { action: "delete", id: selectedAgent };
   } else {
     body = { action: "update", id: selectedAgent, name: read("name")?.value, prompt: selectedAgent === "agent_b" ? "" : read("prompt")?.value,
@@ -404,7 +405,7 @@ async function toggleTool(event) {
 }
 
 async function clearStats() {
-  if (!selectedAgent || store.replay || !window.confirm(`Clear all lifetime stats for ${selectedAgent}?`)) return;
+  if (!selectedAgent || store.replay || !await requestConfirmation(`Clear all lifetime stats for ${selectedAgent}?`, { confirmLabel: "Clear", danger: true })) return;
   try { ledger = await api(`/api/stats/${encodeURIComponent(selectedAgent)}/clear`, { confirm: true }); showFeedback(`Stats cleared for ${selectedAgent}.`); scheduleRender(); }
   catch (error) { showError(error.message); }
 }
@@ -414,7 +415,7 @@ async function flushMemory() {
   if (!session || store.replay) return showError("An open chat is required to identify the folder.");
   try {
     const preview = await api(`/api/agents/${encodeURIComponent(selectedAgent)}/memory/flush`, { workspace: session.workspace, confirm: false });
-    if (!window.confirm(`Flush memory for ${selectedAgent} and ${preview.workspace}?\n\n${preview.agent_entries} agent entries and ${preview.workspace_entries} folder entries will be removed.`)) return;
+    if (!await requestConfirmation(`Flush memory for ${selectedAgent} and ${preview.workspace}?\n\n${preview.agent_entries} agent entries and ${preview.workspace_entries} folder entries will be removed.`, { confirmLabel: "Flush", danger: true })) return;
     await api(`/api/agents/${encodeURIComponent(selectedAgent)}/memory/flush`, { workspace: session.workspace, confirm: true });
     showFeedback(`Memory flushed for ${selectedAgent} and ${preview.workspace}.`); await refreshState();
   } catch (error) { showError(error.message); }

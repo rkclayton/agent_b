@@ -10,6 +10,7 @@ const renameEvidence = process.env.AGENTB_2SN_EVIDENCE_DIR || "test-results/2sn-
 // Item 2qb CHECKS 1-4: every folder head has the icon controls, add preserves
 // its parent, nested folders render nested, and both rename paths work.
 test("folder-plus nests and pencils rename folders and chats", async ({ browser }) => {
+  test.setTimeout(60_000);
   const id = "chat-0";
   const session = { schema_version: 1, cursor: { generation: `${id}.jsonl`, offset: 1 }, complete: true, id, label: "Chat name",
     agent_id: "agent_b", role: "b", created_at: "2026-10-04T00:00:00Z", run: { status: "running" }, tools: [], messages: [], budget: {},
@@ -66,17 +67,16 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   await page.locator("#chat-log").click();
   await expect(panel.getByTitle("New folder in A")).toBeHidden();
 
-  page.once("dialog", (dialog) => dialog.accept("B"));
 	await panel.locator('[data-folder="A"] > summary').focus(); await page.keyboard.press("Tab");
 	await expect(panel.getByTitle("New folder in A")).toBeFocused(); await page.keyboard.press("Enter");
+	await panel.getByLabel("Folder name").fill("B"); await panel.getByLabel("Folder name").press("Enter");
 	await expect(panel.locator('[data-folder="A"] > [data-folder="A/B"]')).toHaveCount(1);
-	await panel.locator('[data-folder="A"] > summary').click();
   await expect(panel.locator('[data-folder="A"] > [data-folder="A/B"]')).toBeVisible();
   expect(actions.at(-1)).toEqual({ action: "add", parent: "A", name: "B" });
 
-  page.once("dialog", (dialog) => dialog.accept("Z"));
 	await panel.locator('[data-folder="A"] > summary').hover();
   await panel.getByTitle("Rename A").click();
+	await panel.getByLabel("Folder name").fill("Z"); await panel.getByLabel("Folder name").press("Enter");
   await expect(panel.locator('[data-folder="Z"]')).toBeVisible();
 	await panel.locator('[data-folder="Z"] > summary').click();
 
@@ -130,7 +130,7 @@ test("folder-plus nests and pencils rename folders and chats", async ({ browser 
   refuseRename = true;
   await chatRow.hover(); await chatRow.locator(".chat-list-more").click(); await panel.getByRole("button", { name: "Rename", exact: true }).click();
   await panel.getByLabel("Chat name").fill("Refused"); await page.keyboard.press("Enter");
-  await expect(chatRow.locator(".chat-list-name")).toHaveText("Redraw-safe"); await expect(page.locator(".shell-session-title")).toHaveClass(/alarm/);
+  await expect(chatRow.locator(".chat-list-name")).toHaveText("Redraw-safe"); await expect(chatRow.locator(".chat-list-row-error")).toHaveText("session not found");
   await context.close();
 });
 

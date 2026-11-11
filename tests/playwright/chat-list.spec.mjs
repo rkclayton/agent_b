@@ -13,6 +13,7 @@ const listEvidence = process.env.AGENTB_2SI_EVIDENCE_DIR || "test-results/2si-ev
 const edgeEvidence = process.env.AGENTB_2SP_EVIDENCE_DIR || "test-results/2sp-evidence";
 const returnedEvidence = process.env.AGENTB_2TA_EVIDENCE_DIR || "test-results/2ta-evidence";
 const wellEvidence = process.env.AGENTB_2V7_EVIDENCE_DIR || "test-results/2v7-evidence";
+const steadyEvidence = process.env.AGENTB_2XR_EVIDENCE_DIR || "logs/evidence/rel-1.62.198/captures";
 
 test("chat list rows, actions, independent state, resize persistence and captures 2qz", async ({ browser }) => {
   test.setTimeout(90000);
@@ -32,7 +33,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
     { id: "f1", folder: "Work", pinned: false }, { id: "f2", folder: "Work", pinned: false },
     { id: "root", folder: "", pinned: false }, { id: "worker", folder: "", pinned: false },
   ] };
-  const actions = [];
+  const actions = []; let nextSession = 0;
   const snapshot = () => ({ sessions, connections: [{ id: "fixture", label: "fixture" }], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [{ id: "fixture", label: "fixture" }] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} });
   const context = await browser.newContext({ viewport: { width: 1400, height: 800 } });
   await context.addInitScript(({ data }) => {
@@ -52,6 +53,11 @@ test("chat list rows, actions, independent state, resize persistence and capture
         if (body.action === "pin") tree.chats.find((chat) => chat.id === body.id).pinned = body.pinned;
         if (body.action === "move") tree.chats.find((chat) => chat.id === body.id).folder = body.folder;
         if (body.action === "add") tree.folders.push(body.name);
+        if (body.action === "rename") { tree.folders = tree.folders.map((folder) => folder === body.path ? body.name : folder); for (const chat of tree.chats) if (chat.folder === body.path) chat.folder = body.name; }
+        if (body.action === "delete") {
+          if (tree.chats.some((chat) => chat.folder === body.path)) return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "folder must be empty" }) });
+          tree.folders = tree.folders.filter((folder) => folder !== body.path);
+        }
       }
       return route.fulfill({ contentType: "application/json", body: JSON.stringify(tree) });
     }
@@ -59,12 +65,14 @@ test("chat list rows, actions, independent state, resize persistence and capture
     if (match && match[2] === "reopen") { actions.push({ action: "reopen", id: match[1] }); sessions[match[1]].closed = false; return route.fulfill({ contentType: "application/json", body: "{}" }); }
     if (match && request.method() === "POST") { sessions[match[1]].label = request.postDataJSON().label; return route.fulfill({ contentType: "application/json", body: JSON.stringify({ session: sessions[match[1]] }) }); }
     if (match && request.method() === "DELETE") { delete sessions[match[1]]; tree.chats = tree.chats.filter((chat) => chat.id !== match[1]); return route.fulfill({ contentType: "application/json", body: "{}" }); }
-    if (url.pathname === "/api/sessions" && request.method() === "POST") { const body = request.postDataJSON(), id = `new${Object.keys(sessions).length}`; actions.push({ action: "create", ...body }); sessions[id] = { ...base, id, label: "New chat", role: body.role === "d" ? "d" : "b", created_at: "2026-10-06T07:00:00Z", run: { status: "idle" } }; tree.chats.push({ id, folder: "", pinned: false }); return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ session: sessions[id] }) }); }
+    if (url.pathname === "/api/sessions" && request.method() === "POST") { const body = request.postDataJSON(), id = `new${nextSession++}`; actions.push({ action: "create", ...body }); sessions[id] = { ...base, id, label: "New chat", role: body.role === "d" ? "d" : "b", created_at: "2026-10-06T07:00:00Z", run: { status: "idle" } }; tree.chats.push({ id, folder: "", pinned: false }); return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ session: sessions[id] }) }); }
     if (url.pathname === "/api/host-window" && request.method() === "POST") { actions.push(request.postDataJSON()); return route.fulfill({ contentType: "application/json", body: "{}" }); }
     if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
     return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
   });
   await page.goto("http://localhost:59999/chat?setup=skip&session=p1", { waitUntil: "domcontentloaded" });
+  await mkdir(steadyEvidence, { recursive: true });
+  const captureSteady = async (state) => { for (const width of [304, 1280, 1920]) { await page.setViewportSize({ width, height: width === 304 ? 860 : 1080 }); await page.screenshot({ path: join(steadyEvidence, `${state}-${width}.png`) }); } await page.setViewportSize({ width: 1400, height: 800 }); };
   const rows = page.locator(".chat-list-row[data-session]");
   await expect(rows).toHaveCount(5);
 	const listTop = page.locator(".chat-list-top-row");
@@ -82,6 +90,32 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await expect(listMenu.locator(":scope > button")).toHaveText(["Settings"]);
   await expect(listMenu.locator(":scope > hr, :scope > a")).toHaveCount(0);
   await page.keyboard.press("Escape");
+  await captureSteady("rest");
+  const headingBeforeListError = await page.locator(".shell-session-title").innerText();
+  await page.locator(".chat-list-new-folder").click();
+  const folderInput = page.locator('.chat-list-folder-editor input[aria-label="Folder name"]'); await expect(folderInput).toBeVisible(); await folderInput.fill("Invoices"); await captureSteady("folder-editor"); await folderInput.press("Enter"); await expect(page.locator('.chat-list-folder[data-folder="Invoices"]')).toBeVisible();
+  const work = page.locator('.chat-list-folder[data-folder="Work"]'); await work.locator(":scope > summary").hover(); await work.locator(".chat-list-folder-action").nth(1).click(); await folderInput.fill("Projects"); await folderInput.press("Enter"); await expect(page.locator('.chat-list-folder[data-folder="Projects"]')).toBeVisible();
+  const beforeNew = await rows.count(); await page.locator(".chat-list-new").click(); await expect(rows).toHaveCount(beforeNew + 1); const created = rows.filter({ hasText: "New chat" });
+  await created.hover(); await created.locator(".chat-list-more").click(); await created.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click();
+  const deleteCard = created.locator(".chat-list-delete-confirm"); await expect(deleteCard).toBeVisible(); await expect(deleteCard.getByRole("button", { name: "Cancel" })).toBeFocused(); await captureSteady("delete-card"); await deleteCard.getByRole("button", { name: "Cancel" }).click(); await expect(created).toHaveCount(1);
+  await created.hover(); await created.locator(".chat-list-more").click(); await created.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click(); await created.locator(".chat-list-delete-confirm").getByRole("button", { name: "Delete", exact: true }).click(); await expect(created).toHaveCount(0);
+  const projects = page.locator('.chat-list-folder[data-folder="Projects"]'); await projects.locator(":scope > summary").hover(); await projects.locator(".chat-list-folder-delete").click();
+  expect.soft(await projects.locator(".chat-list-row-error").innerText({ timeout: 500 }).catch(() => ""), "folder error is beside the folder").toBe("Folder is not empty");
+  expect.soft(await page.locator(".shell-session-title").innerText(), "list errors do not replace the agent selector").toBe(headingBeforeListError);
+  await captureSteady("folder-error");
+  tree.folders = tree.folders.filter((folder) => folder !== "Invoices").map((folder) => folder === "Projects" ? "Work" : folder); for (const chat of tree.chats) if (chat.folder === "Projects") chat.folder = "Work";
+  await page.reload();
+  await page.locator('[data-session="p1"]').hover(); await page.locator('[data-session="p1"] .chat-list-more').click();
+  await page.locator(".chat-list").evaluate((list) => { list.style.height = "40px"; list.scrollTop = 12; globalThis.__rowBefore2xr = document.querySelector('[data-session="p1"]'); globalThis.__scrollBefore2xr = list.scrollTop; });
+  await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "projection.patch", data: { session_id: "root", operations: [{ op: "replace", path: "/label", value: "Newest other chat" }, { op: "replace", path: "/last_activity", value: "2026-10-07T00:00:00Z" }] } }); });
+  const persistence = await page.evaluate(() => ({ same: globalThis.__rowBefore2xr === document.querySelector('[data-session="p1"]'), open: !document.querySelector('[data-session="p1"] .chat-list-row-menu').hidden, scroll: document.querySelector(".chat-list").scrollTop === globalThis.__scrollBefore2xr }));
+  expect.soft(persistence, "another chat changes without replacing this row").toEqual({ same: true, open: true, scroll: true });
+  tree.folders.push("House");
+  await page.reload();
+  await page.locator('.chat-list-folder[data-folder="Work"] > summary').click(); await page.locator('.chat-list-folder[data-folder="House"] > summary').click();
+  await page.reload();
+  expect.soft(await page.locator('.chat-list-folder[open]').evaluateAll((folders) => folders.map((folder) => folder.dataset.folder).sort()), "open folders survive reload").toEqual(["House", "Work"]);
+  await page.locator('.chat-list-folder[open] > summary').evaluateAll((summaries) => summaries.forEach((summary) => summary.click()));
   expect(await rows.evaluateAll((items) => items.map((item) => item.dataset.session))).toEqual(["p2", "p1", "f1", "f2", "root"]);
   await expect(page.locator('[data-session="worker"]')).toHaveCount(0);
   await expect(page.getByText("Archived", { exact: true })).toHaveCount(0);
@@ -282,17 +316,18 @@ test("chat list rows, actions, independent state, resize persistence and capture
     await page.locator(".chat-list-menu-button").click(); await page.screenshot({ path:join(folderEvidence,`chat-list-${width}-menu.png`) }); await page.keyboard.press("Escape");
   }
   await page.setViewportSize({ width:1400, height:800 });
-  page.once("dialog", (dialog) => dialog.accept("Fixture folder")); await page.locator(".chat-list-new-folder").click();
+  await page.locator(".chat-list-new-folder").click(); await folderInput.fill("Fixture folder"); await folderInput.press("Enter");
   await expect(page.locator('.chat-list-folder[data-folder="Fixture folder"]')).toBeVisible();
   const foldersBeforeCancel = await page.locator(".chat-list-folder").count();
-  page.once("dialog", (dialog) => dialog.dismiss()); await page.locator(".chat-list-new-folder").click();
+  await page.locator(".chat-list-new-folder").click(); await folderInput.press("Escape");
   await expect(page.locator(".chat-list-folder")).toHaveCount(foldersBeforeCancel);
   await page.locator(".chat-list-menu-button").click(); await listMenu.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.locator("#settings-page")).toBeVisible(); await expect(page.getByTitle("Close")).toBeVisible();
   await page.keyboard.press("Escape"); await expect(page.locator("#settings-page")).toBeHidden(); await expect(page.getByTitle("Close")).toBeHidden();
   await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "snapshot", data: { ...bus.store, build: {} } }); });
-  await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeHidden();
+  await expect(page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu')).toBeVisible();
+  await page.keyboard.press("Escape");
 
   const longRow = page.locator('.chat-list-row[data-session="root"]'), longName = longRow.locator('.chat-list-name'), longMore = longRow.locator('.chat-list-more');
   const clippedNameStyle = await longName.evaluate((node) => ({ paddingRight: getComputedStyle(node).paddingRight, overflow: getComputedStyle(node).textOverflow }));

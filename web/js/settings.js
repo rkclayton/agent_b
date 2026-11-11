@@ -16,6 +16,7 @@ import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
 import { mountPlan, unmountPlan } from "./plan.js";
 import { registerMenu } from "./menu-behavior.js";
+import { requestConfirmation } from "./menu-behavior.js";
 
 const sheet = document.getElementById("settings-page");
 const backdrop = document.getElementById("settings-backdrop");
@@ -1039,7 +1040,7 @@ async function runAction(event, button, action, id) {
 	if (action === "close") return void leaveSettingsForChat();
 	if (action === "delete-all-chats") {
 		const count = Object.keys(store.sessions || {}).length;
-		if (!confirm(`Delete all ${count} chat${count === 1 ? "" : "s"}? Memory notes, plans and files stay.`)) return;
+		if (!await requestConfirmation(`Delete all ${count} chat${count === 1 ? "" : "s"}? Memory notes, plans and files stay.`, { confirmLabel: "Delete", danger: true })) return;
 		try { await api("/api/chats/delete-all", { confirm: true }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); leaveSettingsForChat(); }
 		catch (error) { errors.set("chat_root", error.message); render(); }
 		return;

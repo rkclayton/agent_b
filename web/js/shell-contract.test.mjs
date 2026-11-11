@@ -16,12 +16,18 @@ const chatCSS = await readFile(new URL("../css/chat.css", import.meta.url), "utf
 // Settings already adopts, so there is one page to hold the contract.
 const pages = await Promise.all(["index.html"].map(async (name) => [name, await readFile(new URL(`../${name}`, import.meta.url), "utf8")]));
 
+test("browser code has no native prompt, confirm or alert dialogs 2xr", () => {
+	for (const [name, source] of [["shell", shell], ["chat", chat], ["app", consoleApp], ["settings", settings]]) {
+		assert.doesNotMatch(source, /\b(?:window\.)?(?:prompt|confirm|alert)\s*\(/, name);
+	}
+});
+
 test("new folder leaves the menu for its own far-edge button 2u6", () => {
 	assert.match(shell, /iconButton\("folder-plus", "New folder", "chat-list-new-folder"\)/);
 	assert.match(shell, /listActions\.append\(listMenuButton, newChatButton\)/);
 	assert.match(shell, /listTop\.append\(listActions, newFolderButton\)/);
 	assert.match(shell, /listTop\.prepend\(listActions\)/);
-	assert.match(shell, /newFolderButton\.onclick = \(\) => \{ const name = prompt\("New folder name"\); if \(name\) void act\(\{ action: "add", parent: "", name \}\); \}/);
+	assert.match(shell, /newFolderButton\.onclick = \(\) => beginFolderEdit\(\{ mode: "add", parent: "", draft: "" \}\)/);
 	assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)/);
 	assert.doesNotMatch(shell, /button\("Folder", "", "chat-list-menu-action"\)/);
 	assert.match(shell, /if \(hasD\) \{[\s\S]*newChatMenu\.append\(label, plan, rule\);[\s\S]*\}\s*newChatMenu\.append\(openSettings\)/);
@@ -279,6 +285,6 @@ test("the attachment control replaces the redundant per-chat readout", async () 
 test("Delete says what it does and works on a running chat (2py)", () => {
   assert.match(shell, /const deleteConfirmText = "Delete this chat permanently\? Memory notes it made are kept\.";/);
   assert.match(shell, /button\(labels\[3\], labels\[3\], "chat-list-menu-action alarm"\)/);
-  assert.match(shell, /remove\.onclick = \(\) => \{ menuControllers\.get\(menu\)\?\.close\(\); void deleteChat\(session\); \}/);
+  assert.match(shell, /remove\.onclick = \(\) => \{ menuControllers\.get\(menu\)\?\.close\(\); deletePending = session\.id; renderChatPanel\(\); \}/);
   assert.doesNotMatch(shell, /Stop it before deleting the chat/);
 });

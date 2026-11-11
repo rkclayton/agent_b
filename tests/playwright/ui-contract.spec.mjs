@@ -782,8 +782,8 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   for (const width of [1280, 304]) { await finished.page.setViewportSize({ width, height:860 }); await finished.page.evaluate((show) => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.toggle("chat-list-visible",show); document.body.classList.toggle("chat-list-hidden",!show); panel.hidden=!show; handle.hidden=show; }, width > 360); await finished.page.screenshot({ path:`logs/evidence/rel-1.62.58/captures/file-diff-${width}.png`, fullPage:true }); }
   await finished.page.setViewportSize({ width:1000, height:760 });
   await finished.page.evaluate(() => { const panel=document.querySelector(".chat-list-panel"), handle=document.querySelector(".chat-list-handle"); document.body.classList.add("chat-list-visible"); document.body.classList.remove("chat-list-hidden"); panel.hidden=false; handle.hidden=true; });
-  finished.page.once("dialog", (dialog) => dialog.accept());
   await finished.page.locator(".chat-file-undo").first().click();
+  await finished.page.locator(".confirm-popover").getByRole("button", { name:"Undo", exact:true }).click();
   await expect(finished.page.getByRole("button", { name: "2 files changed" })).toBeVisible();
   await expect(finished.page.locator(".chat-file-open")).toHaveCount(2);
   const drawMS = await finished.page.evaluate(async () => { const start=performance.now(); [...document.querySelectorAll(".chat-file-item")].find((node)=>node.textContent.includes("second.txt")).querySelector(".chat-file-open").click(); for (let index=0; index<120 && document.querySelectorAll(".chat-file-diff-line").length!==2000; index++) await new Promise(requestAnimationFrame); return performance.now()-start; });
@@ -793,8 +793,8 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await finished.page.locator(".chat-file-item").filter({ hasText:"second.txt" }).locator(".chat-file-open").click();
   await finished.page.locator(".chat-file-item").filter({ hasText:"third.txt" }).locator(".chat-file-open").click();
   await expect(finished.page.locator(".chat-file-changed")).toHaveText("Changed again since this run; Undo this file will leave it unchanged.");
-  finished.page.once("dialog", (dialog) => dialog.accept());
   await finished.page.locator(".chat-file-item").filter({ hasText:"third.txt" }).locator(".chat-file-undo").click();
+  await finished.page.locator(".confirm-popover").getByRole("button", { name:"Undo", exact:true }).click();
   await expect(finished.page.locator(".chat-work-undo-result")).toContainText("left changed third.txt");
   await expect(finished.page.getByRole("button", { name: "2 files changed" })).toBeVisible();
   await finished.page.getByRole("button", { name: "2 files changed" }).click();

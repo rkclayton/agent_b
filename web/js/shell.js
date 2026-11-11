@@ -9,6 +9,7 @@ import { beginNavigation } from "./navigation-telemetry.js";
 import { arrangeChats, menuLabels, panelDrag } from "./chat-list.js";
 import { registerMenu } from "./menu-behavior.js";
 import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
+import { createChatsWindow } from "./chats-window.js";
 
 const activeRunStates = new Set(["running", "queued", "stopping"]);
 const agentKey = (agent) => { const name = String(agent?.name || "").trim().toLowerCase(); return name === "agent_b" ? name : name.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); };
@@ -50,8 +51,9 @@ function createShell(options = {}) {
   const listMenuButton = iconButton("menu", "", "chat-list-primary-action chat-list-menu-button");
   listMenuButton.setAttribute("aria-label", "Chat menu"); listMenuButton.removeAttribute("title");
   const newChatButton = iconButton("plus", "New chat", "chat-list-primary-action chat-list-new");
+  const searchChatsButton = iconButton("search", "Search chats", "chat-list-primary-action chat-list-search");
   const newFolderButton = iconButton("folder-plus", "New folder", "chat-list-new-folder");
-  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton);
+  const listActions = node("div", "chat-list-top-actions"); listActions.append(listMenuButton, newChatButton, searchChatsButton);
   const newChatMenu = node("div", "shell-menu shell-new-menu chat-list-main-menu");
   newChatMenu.hidden = true;
   const menuControllers = new WeakMap();
@@ -68,6 +70,15 @@ function createShell(options = {}) {
   let listTop = null;
   const optimisticNames = new Map();
   const displayedName = (session) => optimisticNames.get(session.id) || chatName(session);
+  const chatsWindow = createChatsWindow({
+    getTree: () => chatTree,
+    getSession: (id) => store.sessions[id],
+    onTreeAction: async (body) => { chatTree = await api("/api/chats/tree", body); chatTreeReady = true; renderChatPanel(); return chatTree; },
+    onDelete: deleteIndexedChat,
+    onRename: async (id, label) => { await api(`/api/sessions/${encodeURIComponent(id)}`, { label }); reduce({ type:"snapshot", data:await api("/api/state", undefined, "GET") }); renderChatPanel(); },
+    onOpen: openIndexedChat,
+  });
+  searchChatsButton.onclick = () => chatsWindow.open();
 
   const chatPanel = node("aside", "chat-list-panel");
   chatPanel.setAttribute("aria-label", "Chats");
@@ -422,8 +433,9 @@ function createShell(options = {}) {
           for (const folder of ["", ...(chatTree.folders || [])]) { const choice = button(folder || "No folder", folder || "No folder", "chat-list-menu-action"); choice.onclick = () => void act({ action: "move", id: session.id, folder }, false, { kind: "chat", id: session.id }); choices.append(choice); }
           menu.append(choices);
         };
-        const remove = button(labels[3], labels[3], "chat-list-menu-action alarm"); remove.onclick = () => { menuControllers.get(menu)?.close(); deletePending = session.id; renderChatPanel(); };
-        menu.append(pin, rename, move, remove); row.classList.add("menu-open"); name.removeAttribute("title"); revealMenu(menu, more);
+        const archive = button(labels[3], labels[3], "chat-list-menu-action"); archive.onclick = () => void act({ action:"archive", id:session.id }, false, { kind:"chat", id:session.id });
+        const remove = button(labels[4], labels[4], "chat-list-menu-action alarm"); remove.onclick = () => { menuControllers.get(menu)?.close(); deletePending = session.id; renderChatPanel(); };
+        menu.append(pin, rename, move); if (!chatWorking(session) && !session.pending_approval && !session.pending_repo_policy) menu.append(archive); menu.append(remove); row.classList.add("menu-open"); name.removeAttribute("title"); revealMenu(menu, more);
       };
       if (renameState?.id === session.id) {
         row.draggable = false;
@@ -436,8 +448,8 @@ function createShell(options = {}) {
     if (arranged.pinned.length) { const group = node("section", "chat-list-group pinned"); const heading = node("strong", "chat-list-group-name"); heading.textContent = "Pinned"; group.append(heading); arranged.pinned.forEach((chat) => renderRow(chat, group)); chatList.append(group); }
     for (const group of arranged.folders) folderHeading(group.path, group.path.split("/").slice(0, -1).join("/"));
     for (const group of arranged.folders) { const target = folderTargets.get(group.path); group.chats.forEach((chat) => renderRow(chat, target)); }
-    const root = node("section", "chat-list-group root"); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
-    arranged.root.forEach((chat) => renderRow(chat, root)); chatList.append(root);
+    const root = node("section", "chat-list-group root recent"); const recentHeading = node("strong", "chat-list-group-name"); recentHeading.textContent = "Recent"; root.append(recentHeading); root.ondragover = (event) => event.preventDefault(); root.ondrop = (event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain"); if (id) void act({ action: "move", id, folder: "" }); };
+    arranged.recent.forEach((chat) => renderRow(chat, root)); const viewAll = button("View all", "View all", "chat-list-view-all"); viewAll.onclick = () => chatsWindow.open(); root.append(viewAll); chatList.append(root);
     for (const error of chatList.querySelectorAll(".chat-list-row-error")) error.remove();
     if (listError) {
       const target = listError.kind === "chat" ? chatList.querySelector(`.chat-list-row[data-session="${CSS.escape(listError.id)}"]`) : chatList.querySelector(`.chat-list-folder[data-folder="${CSS.escape(listError.path)}"]`);
@@ -466,6 +478,22 @@ function createShell(options = {}) {
       .catch(() => { chatTreeLoaded = false; })
       .finally(() => { chatTreeRefresh = null; });
     return chatTreeRefresh;
+  }
+
+  function openIndexedChat(id) {
+    const session = store.sessions[id];
+    if (!session) return;
+    const show = () => { if (page !== "chat") openSide(`agent_${session.role === "d" ? "d" : "b"}`, id, "chat"); else { setSelection(`agent_${session.role === "d" ? "d" : "b"}`, id); render(); } };
+    if (!session.closed) return show();
+    void api(`/api/sessions/${encodeURIComponent(id)}/reopen`, {}).then(() => api("/api/state", undefined, "GET")).then((data) => { reduce({ type:"snapshot", data }); show(); }).catch((error) => report(error.message));
+  }
+
+  async function deleteIndexedChat(id) {
+    await api(`/api/sessions/${encodeURIComponent(id)}`, undefined, "DELETE");
+    reduce({ type:"snapshot", data:await api("/api/state", undefined, "GET") });
+    chatTree = await api("/api/chats/tree", undefined, "GET"); chatTreeReady = true;
+    if (store.selection.session_id === id) { const next = Object.values(store.sessions).filter((chat) => chat.id !== id && chat.role !== "c").sort((a,b) => Date.parse(b.last_activity || b.created_at || 0)-Date.parse(a.last_activity || a.created_at || 0))[0]; setSelection(next ? `agent_${next.role === "d" ? "d" : "b"}` : "agent_b", next?.id || ""); }
+    renderChatPanel();
   }
 
   function beginRename(row, session) {
@@ -689,6 +717,7 @@ function createShell(options = {}) {
       if (!store.replay) return createChat("agent_b");
       return Promise.resolve(null);
     },
+    refreshChats: refreshChatTree,
   };
 }
 
@@ -726,6 +755,7 @@ function iconButton(kind, title, className) {
 	: kind === "page-plus" ? ["M5 3.5h9l5 5v12H5zM14 3.5v5h5", "M12 11v6M9 14h6"]
 	: kind === "menu" ? ["M4 6h16M4 12h16M4 18h16"]
 	: kind === "plus" ? ["M12 5v14M5 12h14"]
+    : kind === "search" ? ["M17 17l3 3", "M15.5 15.5a6 6 0 1 1 0-9 6 6 0 0 1 0 9"]
     : ["M5 19l3.5-.8L19 6.7 16.3 4 5.8 15.5z", "M14.8 5.5l2.7 2.7"];
   for (const shape of paths) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");

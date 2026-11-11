@@ -285,7 +285,7 @@ func TestCleanupRemovesOnlyAppOwnedLeftoversAndClearsArchiveMark2ta(t *testing.T
 		t.Fatal("unmarked metadata changed")
 	}
 	meta, err = ReadMetadata(archived)
-	if err != nil || !meta.ArchivedAt.IsZero() || !meta.Pinned || meta.Label != "kept name" {
+	if err != nil || meta.ArchivedAt.IsZero() || !meta.Pinned || meta.Label != "kept name" {
 		t.Fatalf("restored metadata = %+v, %v", meta, err)
 	}
 }
@@ -308,6 +308,36 @@ func TestPinSurvivesRestartAndMove2qz(t *testing.T) {
 	entry, found, err := New(root).Find("pinned")
 	if err != nil || !found || !entry.Metadata.Pinned {
 		t.Fatalf("restart after move: found=%v metadata=%+v err=%v", found, entry.Metadata, err)
+	}
+}
+
+func TestSetArchivedPersistsAndCleanupKeepsIt2xt(t *testing.T) {
+	root := t.TempDir()
+	store := New(root)
+	path, err := store.Create("archived", "Archived", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SetArchived("archived", true); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := ReadMetadata(path)
+	if err != nil || metadata.ArchivedAt.IsZero() {
+		t.Fatalf("archived metadata = %+v, %v", metadata, err)
+	}
+	if _, err = store.Cleanup(map[string]bool{"archived": true}); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err = ReadMetadata(path)
+	if err != nil || metadata.ArchivedAt.IsZero() {
+		t.Fatalf("cleanup cleared archive = %+v, %v", metadata, err)
+	}
+	if err = store.SetArchived("archived", false); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err = ReadMetadata(path)
+	if err != nil || !metadata.ArchivedAt.IsZero() {
+		t.Fatalf("restored metadata = %+v, %v", metadata, err)
 	}
 }
 

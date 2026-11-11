@@ -24,7 +24,7 @@ test("browser code has no native prompt, confirm or alert dialogs 2xr", () => {
 
 test("new folder leaves the menu for its own far-edge button 2u6", () => {
 	assert.match(shell, /iconButton\("folder-plus", "New folder", "chat-list-new-folder"\)/);
-	assert.match(shell, /listActions\.append\(listMenuButton, newChatButton\)/);
+	assert.match(shell, /listActions\.append\(listMenuButton, newChatButton, searchChatsButton\)/);
 	assert.match(shell, /listTop\.append\(listActions, newFolderButton\)/);
 	assert.match(shell, /listTop\.prepend\(listActions\)/);
 	assert.match(shell, /newFolderButton\.onclick = \(\) => beginFolderEdit\(\{ mode: "add", parent: "", draft: "" \}\)/);
@@ -284,7 +284,7 @@ test("the attachment control replaces the redundant per-chat readout", async () 
 // refuses to draw and which the pane's fallback happily bound to.
 test("Delete says what it does and works on a running chat (2py)", () => {
   assert.match(shell, /const deleteConfirmText = "Delete this chat permanently\? Memory notes it made are kept\.";/);
-  assert.match(shell, /button\(labels\[3\], labels\[3\], "chat-list-menu-action alarm"\)/);
+  assert.match(shell, /button\(labels\[4\], labels\[4\], "chat-list-menu-action alarm"\)/);
   assert.match(shell, /remove\.onclick = \(\) => \{ menuControllers\.get\(menu\)\?\.close\(\); deletePending = session\.id; renderChatPanel\(\); \}/);
   assert.doesNotMatch(shell, /Stop it before deleting the chat/);
 });

@@ -1477,6 +1477,7 @@ async function submit() {
   if (!text && !queuedAttachments.length) return;
   try {
 		await api("/api/message", { session_id: session.id, text, attachments: queuedAttachments.map(attachmentMetadata) });
+    await shell?.refreshChats?.();
     input.value = "";
     queuedAttachments = [];
     attachmentQueues.set(selectedID(), queuedAttachments);

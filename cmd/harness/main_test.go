@@ -44,7 +44,7 @@ func TestStartupDoesNotCreateAChatWithoutAnOperatorAction2qd(t *testing.T) {
 	}
 }
 
-func TestStartupRestoresMarkedChatAndClearsOnlyArchiveMark2ta(t *testing.T) {
+func TestStartupRestoresMarkedChatAndKeepsArchiveMark2xt(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	logs := filepath.Join(root, "logs")
 	writers, err := events.NewWriters(logs)
@@ -85,7 +85,7 @@ func TestStartupRestoresMarkedChatAndClearsOnlyArchiveMark2ta(t *testing.T) {
 		t.Fatalf("restore=%v err=%v", restored, err)
 	}
 	meta, err = chatstore.ReadMetadata(chat.Workspace)
-	if err != nil || !meta.ArchivedAt.IsZero() || !meta.Pinned {
+	if err != nil || meta.ArchivedAt.IsZero() || !meta.Pinned {
 		t.Fatalf("metadata=%+v err=%v", meta, err)
 	}
 }

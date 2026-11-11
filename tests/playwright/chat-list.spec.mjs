@@ -14,6 +14,7 @@ const edgeEvidence = process.env.AGENTB_2SP_EVIDENCE_DIR || "test-results/2sp-ev
 const returnedEvidence = process.env.AGENTB_2TA_EVIDENCE_DIR || "test-results/2ta-evidence";
 const wellEvidence = process.env.AGENTB_2V7_EVIDENCE_DIR || "test-results/2v7-evidence";
 const steadyEvidence = process.env.AGENTB_2XR_EVIDENCE_DIR || "logs/evidence/rel-1.62.198/captures";
+const chatsEvidence = process.env.AGENTB_2XS_EVIDENCE_DIR || "logs/evidence/rel-1.62.199/captures";
 
 test("chat list rows, actions, independent state, resize persistence and captures 2qz", async ({ browser }) => {
   test.setTimeout(90000);
@@ -76,11 +77,12 @@ test("chat list rows, actions, independent state, resize persistence and capture
   const rows = page.locator(".chat-list-row[data-session]");
   await expect(rows).toHaveCount(5);
 	const listTop = page.locator(".chat-list-top-row");
-	await expect(listTop.locator("button")).toHaveCount(3);
+	await expect(listTop.locator("button")).toHaveCount(4);
 	await expect(listTop.locator("button").first()).not.toHaveAttribute("title", /.+/);
 	await expect(listTop.locator("button").nth(1)).toHaveAttribute("title", "New chat");
-	await expect(listTop.locator("button").nth(2)).toHaveAttribute("title", "New folder");
-	await expect(listTop.locator("button").nth(2)).toHaveAttribute("aria-label", "New folder");
+	await expect(listTop.locator("button").nth(2)).toHaveAttribute("title", "Search chats");
+	await expect(listTop.locator("button").nth(3)).toHaveAttribute("title", "New folder");
+	await expect(listTop.locator("button").nth(3)).toHaveAttribute("aria-label", "New folder");
   expect(await listTop.innerText()).toBe("");
   await expect(page.locator(".shell-settings")).toHaveCount(0);
   await page.locator(".chat-list-menu-button").click();
@@ -300,7 +302,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
   for (const panelWidth of [240, 96]) for (const textSize of [9, 12, 32]) {
     await page.evaluate(({ panelWidth, textSize }) => { document.documentElement.style.setProperty("--chat-list-width", `${panelWidth}px`); document.documentElement.style.setProperty("--chat-size", `${textSize}px`); document.documentElement.dataset.chatListWrap = String(textSize >= 28); }, { panelWidth, textSize });
     const top = await page.locator(".chat-list-top-row").evaluate((row) => ({ height: row.getBoundingClientRect().height, buttons: [...row.querySelectorAll("button")].map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]), text: row.innerText }));
-    expect(top, `${panelWidth}px / ${textSize}px`).toEqual({ height: 24, buttons: [[24, 24], [24, 24], [18, 18]], text: "" });
+    expect(top, `${panelWidth}px / ${textSize}px`).toEqual({ height: 24, buttons: [[24, 24], [24, 24], [24, 24], [18, 18]], text: "" });
     await page.locator(".chat-list").evaluate((list) => { list.scrollTop = 100; });
     expect(await page.locator(".chat-list-top-row").evaluate((row) => row.getBoundingClientRect().top - row.closest(".chat-list-panel").getBoundingClientRect().top)).toBe(0);
     await page.screenshot({ path: join(listEvidence, `${panelWidth}-${textSize}-open.png`) });
@@ -374,7 +376,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
 
   await page.locator('.chat-list-row[data-session="root"]').hover(); await page.locator('.chat-list-row[data-session="root"] .chat-list-more').click();
   const menu = page.locator('.chat-list-row[data-session="root"] .chat-list-row-menu');
-  await expect(menu.locator(":scope > button")).toHaveText(["Pin", "Rename", "Move to folder", "Delete"]);
+  await expect(menu.locator(":scope > button")).toHaveText(["Pin", "Rename", "Move to folder", "Archive", "Delete"]);
   await page.screenshot({ path: join(evidence, "2qz-row-menu.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
@@ -418,7 +420,7 @@ test("chat list rows, actions, independent state, resize persistence and capture
   await page.setViewportSize({ width: 1280, height: 800 });
   const collapsedButtons = await page.locator(".shell-left button").evaluateAll((buttons) => buttons.map((button) => { const box = button.getBoundingClientRect(); return { className: button.className, x: box.x, width: box.width }; }));
   console.log(`2V2 W0 ${JSON.stringify(collapsedButtons)}`);
-  expect(collapsedButtons.map(({ className }) => className)).toEqual(["chat-list-primary-action chat-list-menu-button", "chat-list-primary-action chat-list-new"]);
+  expect(collapsedButtons.map(({ className }) => className)).toEqual(["chat-list-primary-action chat-list-menu-button", "chat-list-primary-action chat-list-new", "chat-list-primary-action chat-list-search"]);
   await expect(page.locator(".chat-list-new-folder")).toBeHidden();
   expect(await page.locator(".shell-left").evaluate((left) => [...left.children].map((child) => child.className))).toEqual(["agent-robot shell-app-robot running", "chat-list-top-actions", "shell-window-title"]);
   await page.locator(".shell-left > .chat-list-top-actions .chat-list-new").click(); await expect(rows).toHaveCount(++rowCount);
@@ -444,6 +446,49 @@ test("chat list rows, actions, independent state, resize persistence and capture
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   const text = await page.locator(".chat-list-panel").evaluate((panel) => { const out = [], walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT); for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent.trim()) out.push(node.textContent.trim()); return out; });
   expect(text.some((value) => /[.!?](?:\s|$)/.test(value))).toBe(false);
+  await context.close();
+});
+
+test("Recent and the virtualized Chats window open search and act on several chats 2xs", async ({ browser }) => {
+  test.setTimeout(90000);
+  await mkdir(chatsEvidence, { recursive: true });
+  const base = { schema_version:1, complete:true, agent_id:"agent_b", role:"b", connection_id:"fixture", b_connection:"fixture", tools:[], messages:[], budget:{}, activity:{completed_stages:[]}, timeline:[], chat:[], runnable:true, closed:false, run:{status:"idle"} };
+  const sessions = {}, tree = { folders:["Work"], chats:[] };
+  for (let index=0; index<2000; index++) { const id=`chat-${index}`, at=new Date(Date.UTC(2026,10,10,0,0,0)-index*60000).toISOString(); sessions[id]={...base,id,label:index<6?`Alpha ${index}`:`Chat ${index}`,created_at:at,last_activity:at}; tree.chats.push({id,name:sessions[id].label,folder:"",pinned:false,last_activity:at}); }
+  const snapshot=()=>({sessions,connections:[{id:"fixture"}],config:{agents:[{name:"agent_b",b:"fixture"}],connections:[{id:"fixture"}]},flow:{stages:[],edges:[]},tools:[],plans:[],profiles:{active:"",names:[]},build:{}});
+  const context=await browser.newContext({viewport:{width:1280,height:860}}); await context.addInitScript(({data})=>{ sessionStorage.setItem("agentb.selection",JSON.stringify({agent_id:"agent_b",session_id:"chat-0",surface:{kind:"chat",key:"chat-0"}})); class Events{constructor(){this.listeners=new Map;setTimeout(()=>{const e={data:JSON.stringify({type:"snapshot",data})};for(const f of this.listeners.get("snapshot")||[])f(e)})}addEventListener(t,f){this.listeners.set(t,[...(this.listeners.get(t)||[]),f])}close(){}} globalThis.EventSource=Events;globalThis.chrome={webview:{}};},{data:snapshot()});
+  const page=await context.newPage(); await page.route("**/*",async(route)=>{const req=route.request(),url=new URL(req.url());if(url.pathname==="/chat")return route.fulfill({contentType:"text/html",body:indexHTML});if(url.pathname==="/api/state")return route.fulfill({contentType:"application/json",body:JSON.stringify(snapshot())});if(url.pathname==="/api/chats/tree"){if(req.method()==="POST"){const body=req.postDataJSON();if(body.action==="move")tree.chats.find((row)=>row.id===body.id).folder=body.folder;}return route.fulfill({contentType:"application/json",body:JSON.stringify(tree)});}const match=url.pathname.match(/^\/api\/sessions\/([^/]+)$/);if(match&&req.method()==="DELETE"){delete sessions[match[1]];tree.chats=tree.chats.filter((row)=>row.id!==match[1]);return route.fulfill({contentType:"application/json",body:"{}"});}if(url.pathname.startsWith("/api/"))return route.fulfill({contentType:"application/json",body:"{}"});return route.fulfill({path:webRoot+url.pathname.replace(/^\/static\//,"")});});
+  await page.goto("http://localhost:59999/chat?setup=skip&session=chat-0",{waitUntil:"domcontentloaded"});
+  await expect(page.locator(".chat-list-group.recent .chat-list-row")).toHaveCount(20); await expect(page.getByRole("button",{name:"View all",exact:true})).toBeVisible();
+  for (const [name,width,height] of [["wide",1280,860],["medium",800,620],["narrow",390,700]]) { await page.setViewportSize({width,height}); await page.screenshot({path:join(chatsEvidence,`2xs-list-${name}.png`)}); }
+  await page.setViewportSize({width:1280,height:860});
+  const opened=await page.evaluate(()=>{performance.mark("chats-open-start");document.querySelector(".chat-list-search").click();return new Promise((resolve)=>requestAnimationFrame(()=>resolve(performance.now()-performance.getEntriesByName("chats-open-start").at(-1).startTime)));}); console.log(`2xs Chats open ${opened.toFixed(1)} ms`); expect(opened).toBeLessThan(200);
+  const win=page.locator(".chats-window"); await expect(win).toBeVisible(); await expect(win.getByRole("searchbox",{name:"Search chats"})).toBeFocused(); expect(await win.locator(".chats-window-row").count()).toBeLessThanOrEqual(40);
+  const frame=await win.locator(".chats-window-list").evaluate(async(list)=>{let last=performance.now(),max=0;for(let step=1;step<=60;step++){list.scrollTop=(list.scrollHeight-list.clientHeight)*step/60;await new Promise((resolve)=>requestAnimationFrame((now)=>{max=Math.max(max,now-last);last=now;resolve();}));}return max;}); console.log(`2xs Chats scroll max frame ${frame.toFixed(1)} ms`); expect(frame).toBeLessThan(50); expect(await win.locator(".chats-window-row").count()).toBeLessThanOrEqual(40); await win.locator(".chats-window-list").evaluate((list)=>{list.scrollTop=0;});
+  for (const [name,width,height] of [["wide",1280,860],["medium",800,620],["narrow",390,700]]) { await page.setViewportSize({width,height}); await page.screenshot({path:join(chatsEvidence,`2xs-window-${name}.png`)}); }
+  await page.setViewportSize({width:1280,height:860});
+  await win.getByRole("searchbox",{name:"Search chats"}).fill("alp"); await expect(win.locator(".chats-window-row")).toHaveCount(6); await win.getByRole("searchbox",{name:"Search chats"}).fill("not-here"); await expect(win.getByText("No chats match",{exact:true})).toBeVisible(); await win.getByRole("searchbox",{name:"Search chats"}).fill("alp");
+  const boxes=win.locator('.chats-window-row input[type="checkbox"]'); await win.locator('.chats-window-row').first().hover(); await boxes.nth(0).check(); await boxes.nth(2).click({modifiers:["Shift"]}); await expect(win.getByText("3 selected",{exact:true})).toBeVisible(); for (const [name,width,height] of [["wide",1280,860],["medium",800,620],["narrow",390,700]]) { await page.setViewportSize({width,height}); await page.screenshot({path:join(chatsEvidence,`2xs-selection-${name}.png`)}); } await page.setViewportSize({width:1280,height:860}); await win.getByRole("button",{name:"Move to folder",exact:true}).click(); await win.getByRole("button",{name:"Work",exact:true}).click(); expect(tree.chats.filter((row)=>row.folder==="Work")).toHaveLength(3);
+  await win.locator('.chats-window-row').first().hover(); await boxes.nth(0).check(); await boxes.nth(1).check(); await win.getByRole("button",{name:"Delete",exact:true}).click(); const question=page.locator('.confirm-popover[aria-label="Confirm"]'); await question.getByRole("button",{name:"Cancel",exact:true}).click(); expect(Object.keys(sessions)).toHaveLength(2000); await win.getByRole("button",{name:"Delete",exact:true}).click(); await question.getByRole("button",{name:"Delete",exact:true}).click(); expect(Object.keys(sessions)).toHaveLength(1998); await expect(win.getByRole("button",{name:/Chats 1998/})).toBeVisible();
+  await win.getByLabel("Close Chats").click(); await page.getByRole("button",{name:"View all",exact:true}).click(); await expect(win.getByRole("searchbox",{name:"Search chats"})).toBeFocused(); await win.getByLabel("Close Chats").click(); await page.keyboard.press("Control+k"); await expect(win).toBeVisible();
+  await context.close();
+});
+
+test("archive persists, restores its place, and a sent message restores it 2xt", async ({ browser }) => {
+  test.setTimeout(90000);
+  await mkdir(chatsEvidence,{recursive:true});
+  const base={schema_version:1,complete:true,agent_id:"agent_b",role:"b",connection_id:"fixture",b_connection:"fixture",tools:[],messages:[],budget:{},activity:{completed_stages:[]},timeline:[],chat:[],runnable:true,closed:false,run:{status:"idle"}};
+  const sessions={kept:{...base,id:"kept",label:"Kept chat",created_at:"2026-11-10T00:00:00Z",last_activity:"2026-11-10T00:00:00Z"},busy:{...base,id:"busy",label:"Busy chat",created_at:"2026-11-09T00:00:00Z",last_activity:"2026-11-09T00:00:00Z",run:{status:"running"}}};
+  const tree={folders:["Work"],chats:[{id:"kept",name:"Kept chat",folder:"Work",pinned:true,archived:false,last_activity:sessions.kept.last_activity},{id:"busy",name:"Busy chat",folder:"",pinned:false,archived:false,last_activity:sessions.busy.last_activity}]};
+  const snapshot=()=>({sessions,connections:[{id:"fixture"}],config:{agents:[{name:"agent_b",b:"fixture"}],connections:[{id:"fixture"}]},flow:{stages:[],edges:[]},tools:[],plans:[],profiles:{active:"",names:[]},build:{}});
+  const context=await browser.newContext({viewport:{width:1280,height:860}}); await context.addInitScript(({data})=>{sessionStorage.setItem("agentb.selection",JSON.stringify({agent_id:"agent_b",session_id:"kept",surface:{kind:"chat",key:"kept"}}));class Events{constructor(){this.listeners=new Map;setTimeout(()=>{const e={data:JSON.stringify({type:"snapshot",data})};for(const f of this.listeners.get("snapshot")||[])f(e)})}addEventListener(t,f){this.listeners.set(t,[...(this.listeners.get(t)||[]),f])}close(){}}globalThis.EventSource=Events;globalThis.chrome={webview:{}};},{data:snapshot()});
+  const route=async(route)=>{const req=route.request(),url=new URL(req.url());if(url.pathname==="/chat")return route.fulfill({contentType:"text/html",body:indexHTML});if(url.pathname==="/api/state")return route.fulfill({contentType:"application/json",body:JSON.stringify(snapshot())});if(url.pathname==="/api/chats/tree"){if(req.method()==="POST"){const body=req.postDataJSON(),row=tree.chats.find((item)=>item.id===body.id);if(body.action==="archive")row.archived=true;if(body.action==="restore")row.archived=false;if(body.action==="pin")row.pinned=body.pinned;if(body.action==="move")row.folder=body.folder;}return route.fulfill({contentType:"application/json",body:JSON.stringify(tree)});}if(url.pathname==="/api/message"){tree.chats.find((row)=>row.id===req.postDataJSON().session_id).archived=false;return route.fulfill({status:202,contentType:"application/json",body:'{"run_id":"r"}'});}if(url.pathname.startsWith("/api/"))return route.fulfill({contentType:"application/json",body:"{}"});return route.fulfill({path:webRoot+url.pathname.replace(/^\/static\//,"")});}; await context.route("**/*",route);
+  let page=await context.newPage(); await page.goto("http://localhost:59999/chat?setup=skip&session=kept",{waitUntil:"domcontentloaded"});
+  await page.locator('.chat-list-row[data-session="kept"]').hover(); await page.getByRole("button",{name:"Kept chat menu"}).click(); await expect(page.getByRole("button",{name:"Archive",exact:true})).toBeVisible(); for(const [name,width,height] of [["wide",1280,860],["medium",800,620],["narrow",390,700]]){await page.setViewportSize({width,height});await page.screenshot({path:join(chatsEvidence,`2xt-menu-${name}.png`)});} await page.setViewportSize({width:1280,height:860}); await page.getByRole("button",{name:"Archive",exact:true}).click(); await expect(page.getByRole("button",{name:"Kept chat menu"})).toHaveCount(0);
+  await page.locator('.chat-list-row[data-session="busy"]').hover(); await page.getByRole("button",{name:"Busy chat menu"}).click(); await expect(page.getByRole("button",{name:"Archive",exact:true})).toHaveCount(0); await page.screenshot({path:join(chatsEvidence,"2xt-running-menu-wide.png")});
+  await page.getByRole("button",{name:"Search chats"}).click(); let win=page.locator(".chats-window"); await expect(win.getByRole("button",{name:"Archived 1"})).toBeVisible(); await page.close();
+  page=await context.newPage(); await page.goto("http://localhost:59999/chat?setup=skip&session=kept",{waitUntil:"domcontentloaded"}); await page.getByRole("button",{name:"Search chats"}).click(); win=page.locator(".chats-window"); await win.getByRole("button",{name:"Archived 1"}).click(); await win.locator('.chats-window-row[data-session="kept"]').hover(); await win.getByRole("button",{name:"Kept chat menu"}).click(); await win.getByRole("button",{name:"Restore",exact:true}).click(); expect(tree.chats[0]).toMatchObject({folder:"Work",pinned:true,archived:false}); await win.getByLabel("Close Chats").click(); await expect(page.locator(".chat-list-group.pinned").getByText("Kept chat",{exact:true})).toBeVisible();
+  await page.evaluate(async()=>{await fetch("/api/chats/tree",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"pin",id:"kept",pinned:false})});await fetch("/api/chats/tree",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"move",id:"kept",folder:""})});}); await page.reload({waitUntil:"domcontentloaded"}); await page.locator('.chat-list-row[data-session="kept"]').hover(); await page.getByRole("button",{name:"Kept chat menu"}).click(); await page.getByRole("button",{name:"Archive",exact:true}).click(); await page.getByRole("button",{name:"Search chats"}).click(); win=page.locator(".chats-window"); await win.getByRole("button",{name:"Archived 1"}).click(); const row=win.locator('.chats-window-row[data-session="kept"]'); await row.hover(); await row.locator('input[type="checkbox"]').check(); for(const [name,width,height] of [["wide",1280,860],["medium",800,620],["narrow",390,700]]){await page.setViewportSize({width,height});await page.screenshot({path:join(chatsEvidence,`2xt-archived-${name}.png`)});} await page.setViewportSize({width:1280,height:860}); await row.getByRole("button",{name:"Kept chat",exact:true}).click(); await page.locator("#chat-task").fill("restore this chat"); await page.locator("#chat-send").click(); await expect(page.locator(".chat-list-group.recent").getByText("Kept chat",{exact:true})).toBeVisible();
   await context.close();
 });
 

@@ -59,6 +59,11 @@ func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 		}
 	case "pin":
 		err = store.SetPinned(body.ID, body.Pinned)
+	case "archive", "restore":
+		err = store.SetArchived(body.ID, body.Action == "archive")
+		if err == nil {
+			changed = map[string]any{"operation": body.Action, "session_id": body.ID}
+		}
 	default:
 		writeError(w, 400, "unknown chat tree action", "action")
 		return
@@ -136,6 +141,30 @@ func (s *Server) decorateChatList(sessions map[string]projection.Snapshot) []str
 	return folders
 }
 
+func (s *Server) omitArchivedChats(sessions map[string]projection.Snapshot) {
+	for id := range s.archivedChatIDs() {
+		delete(sessions, id)
+	}
+}
+
+func (s *Server) archivedChatIDs() map[string]bool {
+	ids := map[string]bool{}
+	store := s.chatState.storeSnapshot()
+	if store == nil {
+		return ids
+	}
+	entries, err := store.Scan()
+	if err != nil {
+		return ids
+	}
+	for _, entry := range entries {
+		if !entry.Metadata.ArchivedAt.IsZero() {
+			ids[entry.Metadata.ID] = true
+		}
+	}
+	return ids
+}
+
 // decorateChatRow gives one chat its list row's folder and last activity.
 func (s *Server) decorateChatRow(value projection.Snapshot, entry chatstore.Entry) projection.Snapshot {
 	value.Folder = s.relativeChatPath(filepath.Dir(entry.Path))
@@ -208,7 +237,11 @@ func (s *Server) writeChatTree(w http.ResponseWriter) {
 	chats := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
 		rel, _ := filepath.Rel(root, entry.Path)
-		chats = append(chats, map[string]any{"id": entry.Metadata.ID, "name": filepath.Base(entry.Path), "folder": filepath.ToSlash(filepath.Dir(rel)), "pinned": entry.Metadata.Pinned})
+		activity := entry.Metadata.LastActivity
+		if activity.IsZero() {
+			activity = entry.Metadata.Created
+		}
+		chats = append(chats, map[string]any{"id": entry.Metadata.ID, "name": entry.Metadata.Label, "folder": filepath.ToSlash(filepath.Dir(rel)), "pinned": entry.Metadata.Pinned, "archived": !entry.Metadata.ArchivedAt.IsZero(), "last_activity": activity.UTC().Format(time.RFC3339Nano)})
 	}
 	for _, chat := range chats {
 		if chat["folder"] == "." {

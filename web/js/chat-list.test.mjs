@@ -26,8 +26,33 @@ test("chat list is pinned, folders, then root; newest first and workers absent 2
 });
 
 test("row menu is exactly pin rename move delete in order 2qz", () => {
-  assert.deepEqual(menuLabels(false), ["Pin", "Rename", "Move to folder", "Delete"]);
-  assert.deepEqual(menuLabels(true), ["Unpin", "Rename", "Move to folder", "Delete"]);
+  assert.deepEqual(menuLabels(false), ["Pin", "Rename", "Move to folder", "Archive", "Delete"]);
+  assert.deepEqual(menuLabels(true), ["Unpin", "Rename", "Move to folder", "Archive", "Delete"]);
+});
+
+test("archived chats are omitted from every list group including pinned 2xt", () => {
+  const sessions = { archived: { id:"archived", role:"b", last_activity:"2026-11-10T00:00:00Z" }, kept: { id:"kept", role:"b", last_activity:"2026-11-09T00:00:00Z" } };
+  const arranged = arrangeChats(sessions, { folders:["Work"], chats:[{ id:"archived", folder:"Work", pinned:true, archived:true }, { id:"kept", folder:"", pinned:false }] });
+  assert.deepEqual(arranged.pinned, []); assert.deepEqual(arranged.folders[0].chats, []); assert.deepEqual(arranged.recent.map(({id})=>id), ["kept"]);
+});
+
+test("Recent keeps twenty newest roots plus an older active chat 2xs", () => {
+  const sessions = {};
+  const chats = [];
+  for (let index = 0; index < 30; index++) {
+    const id = `root-${index}`;
+    sessions[id] = { id, role: "b", last_activity: `2026-11-${String(30 - index).padStart(2, "0")}T00:00:00Z`, run: { status: index === 24 ? "running" : "idle" } };
+    chats.push({ id, folder: "", pinned: false });
+  }
+  sessions.pinned = { id: "pinned", role: "b", last_activity: "2026-10-01T00:00:00Z" };
+  sessions.foldered = { id: "foldered", role: "b", last_activity: "2026-10-01T00:00:00Z" };
+  chats.push({ id: "pinned", folder: "", pinned: true }, { id: "foldered", folder: "Work", pinned: false });
+  const arranged = arrangeChats(sessions, { folders: ["Work"], chats });
+  assert.equal(arranged.recent.length, 21);
+  assert.deepEqual(arranged.recent.slice(0, 3).map(({ id }) => id), ["root-0", "root-1", "root-2"]);
+  assert.equal(arranged.recent.at(-1).id, "root-24");
+  assert.deepEqual(arranged.pinned.map(({ id }) => id), ["pinned"]);
+  assert.deepEqual(arranged.folders[0].chats.map(({ id }) => id), ["foldered"]);
 });
 
 test("panel drag resizes, hides at the edge, and reopens 2qz", () => {

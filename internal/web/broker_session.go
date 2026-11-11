@@ -193,9 +193,17 @@ func deviceChatPage(sessions map[string]projection.Snapshot, keep, before string
 // deviceListed is which chats a device's list holds: the join's page, the pages it
 // asked for, and each chat an upsert has since sent it (item 2wy).
 type deviceListed struct {
-	mu   sync.Mutex
-	ids  map[string]bool
-	rows map[string][2]string // each chat's folder and last activity as the list last decorated it (2wz)
+	mu       sync.Mutex
+	ids      map[string]bool
+	rows     map[string][2]string // each chat's folder and last activity as the list last decorated it (2wz)
+	archived map[string]bool
+}
+
+func (l *deviceListed) setArchived(ids map[string]bool) { l.mu.Lock(); l.archived = ids; l.mu.Unlock() }
+func (l *deviceListed) isArchived(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.archived[id]
 }
 
 // know keeps every decorated chat's folder and last activity for its upsert row.
@@ -236,6 +244,15 @@ func (l *deviceListed) follow(event events.Event) {
 	case event.Type == events.ChatDeleted:
 		delete(l.rows, id)
 		delete(l.ids, id)
+	case event.Type == events.ChatListPatch && change["operation"] == "archive":
+		if l.archived == nil {
+			l.archived = map[string]bool{}
+		}
+		l.archived[id] = true
+		delete(l.rows, id)
+		delete(l.ids, id)
+	case event.Type == events.ChatListPatch && change["operation"] == "restore":
+		delete(l.archived, id)
 	case event.Type == events.ChatListPatch && change["operation"] == "move":
 		if row, ok := l.rows[id]; ok {
 			row[0], _ = change["folder"].(string)
@@ -680,6 +697,8 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 		}
 		defer unsubscribe()
 		folders := s.decorateChatList(sessions)
+		listed.setArchived(s.archivedChatIDs())
+		s.omitArchivedChats(sessions)
 		page, next, _ := deviceChatPage(sessions, "", "", deviceListPage)
 		listed.set(page)
 		listed.know(sessions)
@@ -726,7 +745,7 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			}
 			current, found := s.projector.CurrentSnapshot()[patch.SessionID]
 			// a chat the device's list lacks arrives as a row before its patch.
-			if lacked := found && listed.add(patch.SessionID); lacked || found && live != nil && live.opened() {
+			if lacked := found && !listed.isArchived(patch.SessionID) && listed.add(patch.SessionID); lacked || found && !listed.isArchived(patch.SessionID) && live != nil && live.opened() {
 				if row := phoneChatListPatch(current, patch, lacked); row != nil {
 					placed, session := s.deviceListRow(listed, current), row["session"].(map[string]any)
 					session["folder"], session["last_activity"] = placed.Folder, placed.LastActivity
@@ -774,6 +793,19 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 				return
 			}
 			listed.follow(event)
+			if change, _ := event.Data.(map[string]any); event.Type == events.ChatListPatch && change["operation"] == "archive" {
+				send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatDeleted, "", "", map[string]any{"session_id": change["session_id"]})})
+				continue
+			} else if event.Type == events.ChatListPatch && change["operation"] == "restore" {
+				id, _ := change["session_id"].(string)
+				if current, found := s.projector.CurrentSnapshot()[id]; found {
+					placed := s.deviceListRow(listed, current)
+					row := phoneChatListPatch(placed, projection.Patch{}, true)
+					send(map[string]any{"v": 1, "kind": "event", "data": events.New(events.ChatListPatch, "", "", row)})
+					listed.add(id)
+				}
+				continue
+			}
 			if unit, mirrored := s.outboundMirror(event); mirrored {
 				send(unit)
 			}

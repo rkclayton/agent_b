@@ -330,6 +330,20 @@ func (s *Store) SetPinned(id string, pinned bool) error {
 	return WriteMetadata(entry.Path, entry.Metadata)
 }
 
+func (s *Store) SetArchived(id string, archived bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.Find(id)
+	if err != nil || !found {
+		return errors.Join(err, fmt.Errorf("chat not found"))
+	}
+	entry.Metadata.ArchivedAt = time.Time{}
+	if archived {
+		entry.Metadata.ArchivedAt = time.Now().UTC()
+	}
+	return WriteMetadata(entry.Path, entry.Metadata)
+}
+
 func (s *Store) Rename(id, label string) (string, error) {
 	entry, found, err := s.Find(id)
 	if err != nil || !found {
@@ -381,12 +395,6 @@ func (s *Store) Cleanup(journals map[string]bool) (CleanupResult, error) {
 		keep := 0
 		if journals[id] {
 			keep = 1
-			if !matches[0].Metadata.ArchivedAt.IsZero() {
-				matches[0].Metadata.ArchivedAt = time.Time{}
-				if err := WriteMetadata(matches[0].Path, matches[0].Metadata); err != nil {
-					return result, err
-				}
-			}
 		}
 		for _, entry := range matches[keep:] {
 			owned, checkErr := appOwnedChatFolder(entry.Path)

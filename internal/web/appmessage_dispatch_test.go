@@ -327,6 +327,43 @@ func TestDesktopPinLeavesPhoneChatListBytesUnchanged2qz(t *testing.T) {
 	}
 }
 
+func TestArchivedChatIsOmittedFromPhoneListWithoutChangingRowShape2xt(t *testing.T) {
+	server, registry, writers, _, _, _ := consoleServer(t)
+	defer writers.Close()
+	server.bus.SetSink(nil)
+	server.bus.SetDurableSink(writers.WriteRecord, server.projector.Apply, server.projector.MarkStale)
+	archived, _ := registry.Create("archived", server.ConfigSnapshot().DefaultAgentID(), "")
+	kept, _ := registry.Create("kept", server.ConfigSnapshot().DefaultAgentID(), "")
+	if _, err := server.projector.Snapshot(writers.SessionCursors()); err != nil {
+		t.Fatal(err)
+	}
+	rows := server.projector.CurrentSnapshot()
+	server.decorateChatList(rows)
+	server.omitArchivedChats(rows)
+	before, _ := json.Marshal(server.firstScreenSessions(rows, "-"))
+	response := httptest.NewRecorder()
+	server.chatTree(response, httptest.NewRequest(http.MethodPost, "/api/chats/tree", strings.NewReader(`{"action":"archive","id":"`+archived.ID+`"}`)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("archive = %d %s", response.Code, response.Body.String())
+	}
+	rows = server.projector.CurrentSnapshot()
+	server.decorateChatList(rows)
+	server.omitArchivedChats(rows)
+	after, _ := json.Marshal(server.firstScreenSessions(rows, "-"))
+	if bytes.Contains(after, []byte(archived.ID)) || !bytes.Contains(after, []byte(kept.ID)) {
+		t.Fatalf("archived phone list = %s", after)
+	}
+	var beforeRows, afterRows map[string]map[string]any
+	_ = json.Unmarshal(before, &beforeRows)
+	_ = json.Unmarshal(after, &afterRows)
+	delete(beforeRows, archived.ID)
+	want, _ := json.Marshal(beforeRows)
+	got, _ := json.Marshal(afterRows)
+	if !bytes.Equal(want, got) {
+		t.Fatalf("remaining phone row shape changed\nwant=%s\ngot=%s", want, got)
+	}
+}
+
 func TestPhoneRenameAndDeleteUseTheDesktopHandlers2qk(t *testing.T) {
 	server, _, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()

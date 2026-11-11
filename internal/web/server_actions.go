@@ -69,6 +69,9 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error(), "session_id")
 		return
 	}
+	if store := s.chatState.storeSnapshot(); store != nil {
+		_ = store.SetArchived(body.SessionID, false)
+	}
 	s.submissions.remember(key, submittedSession, 202, result)
 	writeJSON(w, 202, result)
 }

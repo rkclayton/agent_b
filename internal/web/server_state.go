@@ -192,6 +192,8 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		s.decorateChatList(sessions)
 		total = len(sessions)
 		if pairedDeviceAuthenticated(r) {
+			s.omitArchivedChats(sessions)
+			total = len(sessions)
 			sessions, next, _ = deviceChatPage(sessions, selected, "", deviceListPage)
 		}
 		snapshot = s.snapshotWithSessions(s.firstScreenSessions(sessions, selected), false)

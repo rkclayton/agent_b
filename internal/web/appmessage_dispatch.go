@@ -312,6 +312,7 @@ func (s *Server) dispatchChatListPage(request appRequestUnit, live *phoneStreamS
 	if s.projector != nil {
 		sessions = s.projector.CurrentSnapshot()
 		s.decorateChatList(sessions)
+		s.omitArchivedChats(sessions)
 	}
 	page, next, ok := deviceChatPage(sessions, "", asked.Before, asked.N)
 	if !ok {

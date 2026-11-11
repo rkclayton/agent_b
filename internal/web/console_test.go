@@ -111,7 +111,7 @@ func TestChatTreeOperationsAreFilesystemOperations(t *testing.T) {
 	}
 }
 
-func TestArchiveAndRestoreActionsAreGone2ta(t *testing.T) {
+func TestArchiveAndRestoreActionsPersist2xt(t *testing.T) {
 	server, registry, writers, _, _, _ := consoleServer(t)
 	defer writers.Close()
 	chat, err := registry.Create("archive me", "coder", "")
@@ -120,7 +120,7 @@ func TestArchiveAndRestoreActionsAreGone2ta(t *testing.T) {
 	}
 	for _, action := range []string{"archive", "restore"} {
 		response := postConsole(t, server, "/api/chats/tree", `{"action":"`+action+`","id":"`+chat.ID+`"}`)
-		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "unknown chat tree action") {
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"archived":`+map[string]string{"archive": "true", "restore": "false"}[action]) {
 			t.Fatalf("%s: %d %s", action, response.Code, response.Body.String())
 		}
 	}

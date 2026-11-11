@@ -6,12 +6,104 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"harness/internal/chatstore"
 	"harness/internal/events"
 	"harness/internal/projection"
 )
+
+type chatSearchMatch struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Line      string `json:"line"`
+	MessageID string `json:"message_id"`
+	Archived  bool   `json:"archived"`
+	activity  time.Time
+}
+
+func (s *Server) chatSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		method(w)
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	answer := struct {
+		Matches []chatSearchMatch `json:"matches"`
+	}{Matches: []chatSearchMatch{}}
+	if len([]rune(query)) < 2 || s.writers == nil || s.chatState.storeSnapshot() == nil {
+		writeJSON(w, 200, answer)
+		return
+	}
+	entries, err := s.chatState.storeSnapshot().Scan()
+	if err != nil {
+		writeError(w, 500, err.Error(), "chats")
+		return
+	}
+	for _, entry := range entries {
+		message, found, searchErr := s.writers.SearchChatMessage(entry.Metadata.ID, query)
+		if os.IsNotExist(searchErr) {
+			continue
+		}
+		if searchErr != nil {
+			writeError(w, 500, searchErr.Error(), "chats")
+			return
+		}
+		if !found {
+			continue
+		}
+		activity := entry.Metadata.LastActivity
+		if activity.IsZero() {
+			activity = entry.Metadata.Created
+		}
+		answer.Matches = append(answer.Matches, chatSearchMatch{ID: entry.Metadata.ID, Name: entry.Metadata.Label, Line: chatMatchLine(message.Content, query), MessageID: message.ID, Archived: !entry.Metadata.ArchivedAt.IsZero(), activity: activity})
+	}
+	sort.SliceStable(answer.Matches, func(i, j int) bool { return answer.Matches[i].activity.After(answer.Matches[j].activity) })
+	if len(answer.Matches) > 50 {
+		answer.Matches = answer.Matches[:50]
+	}
+	writeJSON(w, 200, answer)
+}
+
+func chatMatchLine(content, query string) string {
+	text := []rune(strings.Map(func(value rune) rune {
+		if value == '\r' || value == '\n' || value == '\t' {
+			return ' '
+		}
+		return value
+	}, content))
+	needle := []rune(strings.ToLower(strings.TrimSpace(query)))
+	lower := []rune(strings.ToLower(string(text)))
+	index := 0
+	for ; index+len(needle) <= len(lower); index++ {
+		if string(lower[index:index+len(needle)]) == string(needle) {
+			break
+		}
+	}
+	start := index - 48
+	if start < 0 {
+		start = 0
+	}
+	end := start + 120
+	if end > len(text) {
+		end = len(text)
+		start = end - 120
+		if start < 0 {
+			start = 0
+		}
+	}
+	line := string(text[start:end])
+	if start > 0 {
+		line = "…" + string([]rune(line)[1:])
+	}
+	if end < len(text) {
+		trimmed := []rune(line)
+		line = string(trimmed[:len(trimmed)-1]) + "…"
+	}
+	return line
+}
 
 func (s *Server) chatTree(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {

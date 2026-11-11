@@ -77,6 +77,7 @@ function createShell(options = {}) {
     onDelete: deleteIndexedChat,
     onRename: async (id, label) => { await api(`/api/sessions/${encodeURIComponent(id)}`, { label }); reduce({ type:"snapshot", data:await api("/api/state", undefined, "GET") }); renderChatPanel(); },
     onOpen: openIndexedChat,
+		onSearch: (query) => api(`/api/chats/search?q=${encodeURIComponent(query)}`, undefined, "GET"),
   });
   searchChatsButton.onclick = () => chatsWindow.open();
 

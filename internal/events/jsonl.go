@@ -157,8 +157,10 @@ func (w *Writers) ProjectionCacheDir() string {
 	w.mu.Unlock()
 	return filepath.Join(filepath.Dir(dir), "cache", "projection")
 }
-func (w *Writers) ChatDir() string              { w.mu.Lock(); defer w.mu.Unlock(); return w.chatDir }
-func PendingChatPath(chatDir, id string) string { return filepath.Join(filepath.Dir(chatDir), ".chat-flight-"+id+".jsonl") }
+func (w *Writers) ChatDir() string { w.mu.Lock(); defer w.mu.Unlock(); return w.chatDir }
+func PendingChatPath(chatDir, id string) string {
+	return filepath.Join(filepath.Dir(chatDir), ".chat-flight-"+id+".jsonl")
+}
 
 // DurableChatPaths returns the retained chat journals. Unlike the operational
 // tapes in logs, these files are not subject to log retention.
@@ -250,6 +252,55 @@ func (w *Writers) ReadChatHistory(sessionID, query string, offset, limit int) (C
 	}
 	result.Total = matched
 	return result, nil
+}
+
+// SearchChatMessage streams one journal and returns its first user or assistant
+// message containing query. Tool material, reasoning and attachments are never
+// candidates, even when their encoded event record contains the same bytes.
+func (w *Writers) SearchChatMessage(sessionID, query string) (Message, bool, error) {
+	if filepath.Base(sessionID) != sessionID || sessionID == "." || sessionID == "" {
+		return Message{}, false, fmt.Errorf("invalid session id %q", sessionID)
+	}
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if len([]rune(needle)) < 2 {
+		return Message{}, false, nil
+	}
+	w.mu.Lock()
+	path := filepath.Join(w.chatDir, sessionID+".jsonl")
+	w.mu.Unlock()
+	file, err := os.Open(path)
+	if err != nil {
+		return Message{}, false, err
+	}
+	defer file.Close()
+	reader := bufio.NewReaderSize(file, 64*1024)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 && bytes.Contains(bytes.ToLower(line), []byte(needle)) {
+			var event Event
+			if err := json.Unmarshal(line, &event); err != nil {
+				return Message{}, false, fmt.Errorf("search chat: %w", err)
+			}
+			if event.SessionID == sessionID && event.Type == MessageAppended {
+				var wrapper struct {
+					Message Message `json:"message"`
+				}
+				if err := decodeValue(event.Data, &wrapper); err != nil {
+					return Message{}, false, err
+				}
+				message := wrapper.Message
+				if (message.Role == "user" || message.Role == "assistant") && strings.Contains(strings.ToLower(message.Content), needle) {
+					return message, true, nil
+				}
+			}
+		}
+		if readErr == io.EOF {
+			return Message{}, false, nil
+		}
+		if readErr != nil {
+			return Message{}, false, readErr
+		}
+	}
 }
 
 // LatestOperationalSessionPaths supports the one-time upgrade from releases

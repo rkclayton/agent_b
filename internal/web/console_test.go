@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -122,6 +123,89 @@ func TestArchiveAndRestoreActionsPersist2xt(t *testing.T) {
 		response := postConsole(t, server, "/api/chats/tree", `{"action":"`+action+`","id":"`+chat.ID+`"}`)
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"archived":`+map[string]string{"archive": "true", "restore": "false"}[action]) {
 			t.Fatalf("%s: %d %s", action, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestChatMessageSearchFindsOnlyUserAndAssistantMessages2xu(t *testing.T) {
+	server, registry, writers, _, cfg, _ := consoleServer(t)
+	defer writers.Close()
+	roles := []struct{ label, role, content string }{
+		{"User words", "user", "the remembered phrase is here"},
+		{"Assistant words", "assistant", "I also remembered the phrase"},
+		{"Tool words", "tool", "remembered must not escape a tool result"},
+	}
+	for index, fixture := range roles {
+		chat, err := registry.Create(fixture.label, "coder", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		server.bus.Publish(events.New(events.MessageAppended, chat.ID, "run", map[string]any{"message": events.Message{ID: fmt.Sprintf("message-%d", index), Role: fixture.role, Content: fixture.content}}))
+		if index == 1 {
+			if err := server.chatState.storeSnapshot().SetArchived(chat.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	response := httptest.NewRecorder()
+	server.chatSearch(response, httptest.NewRequest(http.MethodGet, "/api/chats/search?q=remembered", nil))
+	var answer struct {
+		Matches []struct {
+			ID, Line string
+			Archived bool
+		} `json:"matches"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(answer.Matches) != 2 {
+		t.Fatalf("status=%d answer=%+v", response.Code, answer)
+	}
+	archived := 0
+	for _, match := range answer.Matches {
+		if !strings.Contains(strings.ToLower(match.Line), "remembered") {
+			t.Fatalf("line=%q", match.Line)
+		}
+		if match.Archived {
+			archived++
+		}
+		if len([]rune(match.Line)) > 120 {
+			t.Fatalf("line is %d characters", len([]rune(match.Line)))
+		}
+	}
+	if archived != 1 {
+		t.Fatalf("archived matches=%d", archived)
+	}
+	one := httptest.NewRecorder()
+	server.chatSearch(one, httptest.NewRequest(http.MethodGet, "/api/chats/search?q=r", nil))
+	if one.Code != http.StatusOK || !strings.Contains(one.Body.String(), `"matches":[]`) {
+		t.Fatalf("one character: %d %s", one.Code, one.Body)
+	}
+	var sentMu sync.Mutex
+	var sent [][]byte
+	server.telemetry.transport = func(body []byte) error {
+		sentMu.Lock()
+		sent = append(sent, append([]byte(nil), body...))
+		sentMu.Unlock()
+		return nil
+	}
+	cfg.Telemetry = config.Telemetry{Enabled: true, Endpoint: "https://receiver.invalid/ingest", InstallID: "fixture"}
+	server.applyTelemetry(*cfg)
+	server.bus.Publish(events.New(events.RunStopped, "main", "run", map[string]any{"reason": "done", "turns": 1}))
+	server.telemetry.mu.Lock()
+	if state := server.telemetry.state; state != nil {
+		state.sender.Flush()
+	}
+	server.telemetry.mu.Unlock()
+	server.applyTelemetry(config.Config{Telemetry: config.Telemetry{Enabled: false}})
+	sentMu.Lock()
+	defer sentMu.Unlock()
+	if len(sent) == 0 {
+		t.Fatal("the privacy fixture built no telemetry batch")
+	}
+	for _, body := range sent {
+		if bytes.Contains(bytes.ToLower(body), []byte("remembered")) {
+			t.Fatalf("search query reached telemetry: %s", body)
 		}
 	}
 }

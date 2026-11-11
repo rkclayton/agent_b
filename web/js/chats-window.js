@@ -24,22 +24,23 @@ function activityLabel(value) {
   return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function createChatsWindow({ getTree, getSession, onTreeAction, onDelete, onRename, onOpen }) {
+export function createChatsWindow({ getTree, getSession, onTreeAction, onDelete, onRename, onOpen, onSearch }) {
   const backdrop = element("div", "chats-window-backdrop"); backdrop.hidden = true;
   const sheet = element("section", "chats-window"); sheet.hidden = true; sheet.setAttribute("aria-label", "Chats"); sheet.setAttribute("aria-hidden", "true");
   const head = element("header", "chats-window-head"); const title = element("strong", "", "Chats"); const close = element("button", "chats-window-close", "×"); close.type = "button"; close.title = "Dismiss Chats"; close.setAttribute("aria-label","Close Chats"); head.append(title, close);
   const searchWrap = element("label", "chats-window-search"); const search = document.createElement("input"); search.type = "search"; search.placeholder = "Search"; search.setAttribute("aria-label", "Search chats"); searchWrap.append(search);
   const tabs = element("div", "chats-window-tabs"); const chatsTab = element("button", "selected"), archivedTab = element("button"); for (const tab of [chatsTab,archivedTab]) tab.type = "button"; tabs.append(chatsTab,archivedTab);
   const header = element("div", "chats-window-table-head"); header.innerHTML = '<span></span><span>Name</span><span>Folder</span><span>Last activity</span><span></span>';
-  const list = element("div", "chats-window-list"); const rowsHost = element("div", "chats-window-rows"); list.append(rowsHost);
+  const list = element("div", "chats-window-list"); const rowsHost = element("div", "chats-window-rows"), messageHeading = element("div", "chats-window-message-heading", "In messages"), messageRows = element("div", "chats-window-message-rows"); messageHeading.hidden = true; list.append(rowsHost, messageHeading, messageRows);
   const empty = element("div", "chats-window-empty", "No chats match"); empty.hidden = true;
   const bar = element("footer", "chats-window-bar"); bar.hidden = true; const count = element("span", "chats-window-selected"); const archive = element("button"), move = element("button", "", "Move to folder"), remove = element("button", "alarm", "Delete"); for (const button of [archive, move, remove]) button.type = "button"; bar.append(count, archive, move, remove);
   sheet.append(head, searchWrap, tabs, header, list, empty, bar); document.body.append(backdrop, sheet);
-  let all = [], filtered = [], selected = new Set(), lastPicked = -1, errors = new Map(), open = false, lastFocus = null, folderMenu = null, archived = false;
+  let all = [], filtered = [], messageMatches = [], selected = new Set(), lastPicked = -1, errors = new Map(), open = false, lastFocus = null, folderMenu = null, archived = false, searchSerial = 0, searchTimer = 0;
 
   const read = () => [...(getTree()?.chats || [])].filter((row)=>!!row.archived===archived).sort(newestFirst);
   const updateBar = () => { count.textContent = `${selected.size} selected`; bar.hidden = selected.size === 0; sheet.classList.toggle("picking", selected.size > 0); };
-  const refresh = () => { const tree=getTree()?.chats||[]; all = read(); filtered = filterChats(all, search.value); selected = new Set([...selected].filter((id) => all.some((row) => row.id === id))); chatsTab.textContent = `Chats ${tree.filter((row)=>!row.archived).length}`; archivedTab.textContent=`Archived ${tree.filter((row)=>row.archived).length}`; chatsTab.classList.toggle("selected",!archived); archivedTab.classList.toggle("selected",archived); archive.textContent=archived?"Restore":"Archive"; move.hidden=archived; empty.hidden = filtered.length !== 0; list.hidden = !filtered.length; renderRows(); updateBar(); };
+  const visibleMessageMatches = () => { const names = new Set(filtered.map((row) => row.id)); return messageMatches.filter((row) => !names.has(row.id)); };
+  const refresh = () => { const tree=getTree()?.chats||[]; all = read(); filtered = filterChats(all, search.value); selected = new Set([...selected].filter((id) => all.some((row) => row.id === id))); chatsTab.textContent = `Chats ${tree.filter((row)=>!row.archived).length}`; archivedTab.textContent=`Archived ${tree.filter((row)=>row.archived).length}`; chatsTab.classList.toggle("selected",!archived); archivedTab.classList.toggle("selected",archived); archive.textContent=archived?"Restore":"Archive"; move.hidden=archived; const messages=visibleMessageMatches(); empty.hidden = filtered.length !== 0 || messages.length !== 0; list.hidden = filtered.length === 0 && messages.length === 0; renderRows(); renderMessageRows(messages); updateBar(); };
   const runTree = async (body) => { try { errors.delete(body.id); await onTreeAction(body); refresh(); return true; } catch (error) { errors.set(body.id, error.message); refresh(); return false; } };
   const chooseFolder = (ids, anchor) => {
     folderMenu?.remove(); folderMenu = element("div", "shell-menu chats-window-folder-menu");
@@ -69,10 +70,21 @@ export function createChatsWindow({ getTree, getSession, onTreeAction, onDelete,
       if(errors.has(row.id)) line.append(element("div", "chats-window-row-error", errors.get(row.id))); fragment.append(line); }
     const bottom=element("div", "chats-window-spacer"); bottom.style.height=`${(filtered.length-range.end)*28}px`; fragment.append(bottom); rowsHost.replaceChildren(fragment);
   }
-  const closeWindow = () => { if (!open) return; open=false; sheet.hidden=true; backdrop.hidden=true; sheet.setAttribute("aria-hidden","true"); document.body.classList.remove("chats-window-open"); folderMenu?.remove(); folderMenu=null; lastFocus?.focus(); };
-  const openWindow = () => { lastFocus=document.activeElement; open=true; archived=false; selected.clear(); errors.clear(); search.value=""; list.scrollTop=0; sheet.hidden=false; backdrop.hidden=false; sheet.setAttribute("aria-hidden","false"); document.body.classList.add("chats-window-open"); refresh(); requestAnimationFrame(()=>search.focus({preventScroll:true})); };
+  function renderMessageRows(messages) {
+    messageHeading.hidden = messages.length === 0;
+    const tree = new Map((getTree()?.chats || []).map((row) => [row.id, row]));
+    messageRows.replaceChildren(...messages.map((match) => {
+      const meta = tree.get(match.id) || {}, line = element("div", "chats-window-message-row"); line.dataset.session = match.id;
+      const blank = element("span"), name = element("button", "chats-window-message-name"); name.type = "button"; name.textContent = `${match.name}${match.archived ? " · archived" : ""}`; name.onclick = () => { closeWindow(); onOpen(match.id); };
+      const snippet = element("span", "chats-window-message-snippet"), text = String(match.line || ""), query = String(match._query || ""), at = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+      if (query && at >= 0) { snippet.append(text.slice(0, at), element("span", "chats-window-message-match", text.slice(at, at + query.length)), text.slice(at + query.length)); } else snippet.textContent = text;
+      name.append(snippet); line.append(blank, name, element("span", "chats-window-folder", meta.folder || ""), element("span", "chats-window-activity", activityLabel(meta.last_activity)), element("span")); return line;
+    }));
+  }
+  const closeWindow = () => { if (!open) return; open=false; clearTimeout(searchTimer); searchSerial++; sheet.hidden=true; backdrop.hidden=true; sheet.setAttribute("aria-hidden","true"); document.body.classList.remove("chats-window-open"); folderMenu?.remove(); folderMenu=null; lastFocus?.focus(); };
+  const openWindow = () => { lastFocus=document.activeElement; open=true; archived=false; selected.clear(); errors.clear(); messageMatches=[]; search.value=""; list.scrollTop=0; sheet.hidden=false; backdrop.hidden=false; sheet.setAttribute("aria-hidden","false"); document.body.classList.add("chats-window-open"); refresh(); requestAnimationFrame(()=>search.focus({preventScroll:true})); };
   const selectTab=(value)=>{archived=value;selected.clear();lastPicked=-1;list.scrollTop=0;refresh();}; chatsTab.onclick=()=>selectTab(false); archivedTab.onclick=()=>selectTab(true);
-  search.oninput=()=>{list.scrollTop=0;selected.clear();lastPicked=-1;refresh();}; list.onscroll=renderRows; close.onclick=closeWindow; backdrop.onclick=closeWindow;
+  search.oninput=()=>{list.scrollTop=0;selected.clear();lastPicked=-1;refresh();clearTimeout(searchTimer);const query=search.value,serial=++searchSerial;if([...query.trim()].length<2){messageMatches=[];refresh();return;}searchTimer=setTimeout(async()=>{try{const answer=await onSearch(query);if(serial!==searchSerial||!open)return;messageMatches=(answer?.matches||[]).map((row)=>({...row,_query:query}));refresh();}catch{if(serial===searchSerial&&open){messageMatches=[];refresh();}}},200);}; list.onscroll=renderRows; close.onclick=closeWindow; backdrop.onclick=closeWindow;
   archive.onclick=async()=>{const action=archived?"restore":"archive",ids=[...selected],results=await Promise.allSettled(ids.map((id)=>onTreeAction({action,id})));results.forEach((result,index)=>{const id=ids[index];if(result.status==="fulfilled")selected.delete(id);else errors.set(id,result.reason?.message||String(result.reason));});refresh();}; move.onclick=()=>chooseFolder([...selected],move); remove.onclick=async()=>{ const ids=[...selected]; if(!await requestConfirmation(`Delete ${ids.length} chats? Memory notes, plans and files stay.`,{anchor:remove,confirmLabel:"Delete",danger:true}))return; const results=await Promise.allSettled(ids.map((id)=>onDelete(id))); results.forEach((result,index)=>{const id=ids[index];if(result.status==="fulfilled")selected.delete(id);else errors.set(id,result.reason?.message||String(result.reason));}); refresh(); };
   document.addEventListener("keydown",(event)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){event.preventDefault();openWindow();return;}if(open&&event.key==="Escape"){event.preventDefault();closeWindow();}});
   return { open:openWindow, close:closeWindow, refresh };

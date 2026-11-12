@@ -3,8 +3,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +18,121 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"harness/internal/config"
 )
+
+func TestShutdownErrorIsAStopDetailNotAStartupFailure2xx(t *testing.T) {
+	previous := shutdownHTTPServer
+	shutdownHTTPServer = func(*http.Server, context.Context) error { return errors.New("stand-in shutdown failure") }
+	t.Cleanup(func() { shutdownHTTPServer = previous })
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := probe.Addr().String()
+	_ = probe.Close()
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Listen = address
+	served := make(chan error, 1)
+	go func() {
+		served <- serve(&cfg, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), newLifetime(root, time.Now), root, "")
+	}()
+	var event uintptr
+	for deadline := time.Now().Add(5 * time.Second); event == 0 && time.Now().Before(deadline); {
+		name, _ := syscall.UTF16PtrFromString(stopEventName(root, os.Getpid()))
+		event, _, _ = procOpenEvent.Call(0x0002, 0, uintptr(unsafe.Pointer(name)))
+		if event == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if event == 0 {
+		t.Fatal("stop event was not created")
+	}
+	defer syscall.CloseHandle(syscall.Handle(event))
+	procSetEvent.Call(event)
+	if err := <-served; err != nil {
+		t.Fatalf("a stop error escaped to main: %v", err)
+	}
+	logBytes, err := os.ReadFile(filepath.Join(root, "logs", launcherLogName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(logBytes)
+	if strings.Count(logText, "\n") != 1 || !strings.Contains(logText, "cause=installer; asked to close (the installer's graceful stop); shutdown error: stand-in shutdown failure") {
+		t.Fatalf("launcher log = %q", logText)
+	}
+	if strings.Contains(logText, "startup error") {
+		t.Fatalf("a stop was reported as startup failure: %q", logText)
+	}
+}
+
+func TestCloseRequestEndsOpenResponsesWithinFiveSeconds2xx(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		path        string
+		contentType string
+	}{
+		{name: "event stream", path: "/api/events", contentType: "text/event-stream"},
+		{name: "mid request", path: "/mid-request", contentType: "text/plain"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			probe, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			address := probe.Addr().String()
+			_ = probe.Close()
+			started := make(chan struct{})
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != testCase.path {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", testCase.contentType)
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				close(started)
+				<-r.Context().Done()
+			})
+			root := t.TempDir()
+			cfg := config.Defaults(root)
+			cfg.Listen = address
+			served := make(chan error, 1)
+			go func() { served <- serve(&cfg, handler, newLifetime(root, time.Now), root, "") }()
+			var response *http.Response
+			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+				response, err = http.Get("http://" + address + testCase.path)
+				if err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			<-started
+			name, _ := syscall.UTF16PtrFromString(stopEventName(root, os.Getpid()))
+			event, _, openErr := procOpenEvent.Call(0x0002, 0, uintptr(unsafe.Pointer(name)))
+			if event == 0 {
+				t.Fatalf("open stop event: %v", openErr)
+			}
+			defer syscall.CloseHandle(syscall.Handle(event))
+			began := time.Now()
+			if ok, _, setErr := procSetEvent.Call(event); ok == 0 {
+				t.Fatalf("set stop event: %v", setErr)
+			}
+			if err := <-served; err != nil {
+				t.Fatalf("serve returned a stop-path error after %s: %v", time.Since(began), err)
+			}
+			if elapsed := time.Since(began); elapsed >= 5*time.Second {
+				t.Fatalf("close took %s with %s open", elapsed, testCase.name)
+			}
+		})
+	}
+}
 
 func TestStopEventNameIncludesCanonicalApplicationRoot(t *testing.T) {
 	const want = `Local\Agent_b-stop-4000a646ff6e06e3c2c7b712-1234`

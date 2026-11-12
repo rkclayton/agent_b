@@ -544,10 +544,34 @@ func startupElevationError(elevated bool) error {
 	return fmt.Errorf("SECURITY: Agent_b refuses to run with an elevated Administrator token; local administrators can launch it normally by double-clicking start-Agent_b.cmd in File Explorer (do not use Run as administrator)")
 }
 
+const gracefulHTTPStopLimit = 4 * time.Second
+
+var shutdownHTTPServer = func(server *http.Server, ctx context.Context) error { return server.Shutdown(ctx) }
+
+// stopHTTPServer gives active handlers one short grace after telling them to
+// end. Shutdown deliberately does not cancel active request contexts, so an
+// event stream can otherwise hold the process until the deadline. Close is the
+// bounded fallback; a stop-path error is lifecycle detail, not a start-up error.
+func stopHTTPServer(server *http.Server, cancelRequests context.CancelFunc) error {
+	cancelRequests()
+	ctx, cancel := context.WithTimeout(context.Background(), gracefulHTTPStopLimit)
+	defer cancel()
+	if err := shutdownHTTPServer(server, ctx); err != nil {
+		_ = server.Close()
+		return err
+	}
+	return nil
+}
+
 // serve binds, then records the process lifetime (when life is non-nil) from
 // the moment the listener exists until the server stops, whatever stops it.
 func serve(cfg *config.Config, handler http.Handler, life *lifetime, applicationRoot, browserBootstrap string) error {
-	httpServer := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	requestContext, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	httpServer := &http.Server{
+		Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
+		BaseContext: func(net.Listener) context.Context { return requestContext },
+	}
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return err
@@ -596,25 +620,29 @@ func serve(cfg *config.Config, handler http.Handler, life *lifetime, application
 	select {
 	case sig := <-signals:
 		log.Printf("stopping on %s", sig)
-		stopped(fmt.Sprintf("signal %s", sig))
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return httpServer.Shutdown(ctx)
+		detail := fmt.Sprintf("signal %s", sig)
+		if stopErr := stopHTTPServer(httpServer, cancelRequests); stopErr != nil {
+			detail += "; shutdown error: " + stopErr.Error()
+		}
+		stopped(detail)
+		return nil
 	case cause := <-closeRequests:
 		log.Printf("stopping on a close request")
+		detail := "asked to close"
+		if cause == "installer" {
+			detail = "asked to close (the installer's graceful stop)"
+		}
+		if stopErr := stopHTTPServer(httpServer, cancelRequests); stopErr != nil {
+			detail += "; shutdown error: " + stopErr.Error()
+		}
 		if life != nil {
-			detail := "asked to close"
-			if cause == "installer" {
-				detail = "asked to close (the installer's graceful stop)"
-			}
 			life.stoppedCause(cause, detail)
 		} else {
-			stopped("asked to close")
+			stopped(detail)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return httpServer.Shutdown(ctx)
+		return nil
 	case err := <-errors:
+		cancelRequests()
 		if err != nil && err != http.ErrServerClosed {
 			stopped(fmt.Sprintf("the HTTP server failed: %v", err))
 			return err

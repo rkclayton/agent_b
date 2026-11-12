@@ -11,6 +11,7 @@ param(
 # that is never production's, no window, and the operator's install never touched.
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Net.Http
 if (-not $Candidate) { $Candidate = Split-Path -Parent $PSScriptRoot }
 . (Join-Path $PSScriptRoot 'suite-production-guard.ps1')
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\removal-guard.ps1')
@@ -56,6 +57,36 @@ function Invoke-Setup {
 
 function Test-Answers {
     try { return (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2).StatusCode -eq 200 } catch { return $false }
+}
+
+function Open-PageStream {
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.CookieContainer = [Net.CookieContainer]::new()
+    $client = [Net.Http.HttpClient]::new($handler)
+    $page = $client.GetAsync($url).GetAwaiter().GetResult()
+    if (-not $page.IsSuccessStatusCode) { throw "the disposable chat page returned $([int]$page.StatusCode)" }
+    $page.Dispose()
+    $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "http://127.0.0.1:$port/api/events")
+    $response = $client.SendAsync($request, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    if (-not $response.IsSuccessStatusCode) { throw "the disposable event stream returned $([int]$response.StatusCode)" }
+    return [pscustomobject]@{ Handler=$handler; Client=$client; Request=$request; Response=$response }
+}
+
+function Close-PageStream([object]$Stream) {
+    if ($null -eq $Stream) { return }
+    $Stream.Response.Dispose()
+    $Stream.Request.Dispose()
+    $Stream.Client.Dispose()
+    $Stream.Handler.Dispose()
+}
+
+function Assert-ConnectedStop([string]$Output, [int]$Attempt) {
+    $match = [regex]::Match($Output, 'STOP COMPLETE: Agent_b PID \d+ exited; waited ([0-9.]+)(ms|s) for its process handle to close')
+    if (-not $match.Success) { throw "INSTALL CYCLE FAILED: connected update has no STOP COMPLETE line`n$Output" }
+    $milliseconds = if ($match.Groups[2].Value -eq 's') { [double]$match.Groups[1].Value * 1000 } else { [double]$match.Groups[1].Value }
+    if ($milliseconds -ge 5000) { throw "INSTALL CYCLE FAILED: connected update waited $milliseconds ms, expected under 5000`n$Output" }
+    if ($Output -match 'startup error|Agent_b could not start') { throw "INSTALL CYCLE FAILED: a stop was shown as a startup failure`n$Output" }
+    Write-Host "PASS connected update $Attempt/3 STOP COMPLETE after $milliseconds ms with no startup failure"
 }
 
 function Start-Installed {
@@ -105,12 +136,28 @@ try {
     $null = New-Item -ItemType Directory -Path (Split-Path -Parent $chat) -Force
     [IO.File]::WriteAllText($chat, "{}`n")
 
+    # A live page holds the event stream open. Exercise the same update twice on
+    # current settings, then once more below while the older-config migration is
+    # also in play: three connected stops, one candidate, no retry hidden inside.
+    foreach ($attempt in 1..2) {
+        $runningBefore = @(Get-Running).ProcessId
+        $pageStream = Open-PageStream
+        try { $connected = Invoke-Setup -NoStart } finally { Close-PageStream $pageStream }
+        Assert-ConnectedStop $connected.Output $attempt
+        Assert-Step "connected install $attempt exits 0" ($connected.Exit -eq 0) $connected.Output
+        Assert-Step "connected install $attempt stopped the running copy" (-not (@(Get-Running).ProcessId | Where-Object { $runningBefore -contains $_ })) $connected.Output
+        $launch = Start-Installed
+        Assert-Step "connected install $attempt restarts and answers" (($launch.Exit -eq 0) -and (Test-Answers)) $launch.Output
+    }
+
     # The operator's case: the data folder holds a configuration from a release too
     # old to read, and the installer runs over the top of the running copy.
     Write-Config -Version 13
     $before = [IO.File]::ReadAllBytes((Join-Path $data 'harness.json'))
     $runningBefore = @(Get-Running).ProcessId
-    $over = Invoke-Setup -NoStart
+    $pageStream = Open-PageStream
+    try { $over = Invoke-Setup -NoStart } finally { Close-PageStream $pageStream }
+    Assert-ConnectedStop $over.Output 3
     Assert-Step 'install over the running copy exits 0' ($over.Exit -eq 0) $over.Output
     Assert-Step 'install over the top stopped the running copy' (-not (@(Get-Running).ProcessId | Where-Object { $runningBefore -contains $_ })) $over.Output
     Set-TemplatePort

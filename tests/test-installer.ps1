@@ -13,6 +13,7 @@ param(
     [string]$EvidenceDirectory,
     [switch]$FailureDiagnosticSelfTest,
     [switch]$FailureDiagnosticChildPathSelfTest,
+    [switch]$ActivityCountMismatchSelfTest,
     [switch]$CleanArchiveIdentitySelfTest,
     [switch]$CleanArchiveIdentityMismatchSelfTest
 )
@@ -56,6 +57,14 @@ if ($FailureDiagnosticChildPathSelfTest) {
     & $env:ComSpec /d /s /c 'echo stand-in child stderr 1>&2 & exit /b 7'
     if ($LASTEXITCODE -ne 0) { throw "stand-in child exited $LASTEXITCODE" }
     throw 'stand-in child unexpectedly succeeded'
+}
+if ($ActivityCountMismatchSelfTest) {
+    $script:matrixStage = 'chat-acceptance'
+    $script:matrixLastProof = 'item 2xj adds the third file-only Activity row'
+    $toggles = 17
+    $activityRows = 19
+    if ($activityRows -ne $toggles + 3) { throw "item 2xj Activity row mismatch: $activityRows rows for $toggles toggles" }
+    throw 'the wrong Activity count unexpectedly passed'
 }
 if ($CleanArchiveIdentitySelfTest) {
     $script:matrixStage = 'clean-archive'

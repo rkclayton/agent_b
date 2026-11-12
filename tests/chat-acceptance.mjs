@@ -1492,8 +1492,8 @@ if (realModel) {
   assert.deepEqual(panelGeometry.windows, chatGeometry.windows, JSON.stringify({ chatGeometry, panelGeometry }));
   assert.deepEqual({ ...panelGeometry.connection, x: chatGeometry.connection.x }, chatGeometry.connection, JSON.stringify({ chatGeometry, panelGeometry }));
   assert.equal(chatGeometry.connection.x - panelGeometry.connection.x, 0);
-	// Agents holds the configurable half. web_search and delegate are deliberately
-	// file-only, but remain observable as the two additional Activity rows.
+	// Agents holds the configurable half. web_search, delegate, and item 2xj's
+	// powershell_session are file-only, but remain observable as three additional Activity rows.
   const activityCounts = await page.locator("#panel-tool-counters tr").count();
   assert.equal(await clickText(".settings-nav button", "Profiles"), true);
   await page.locator("#agents-panel").waitFor({ state: "visible" });
@@ -1501,14 +1501,15 @@ if (realModel) {
     toggles: document.querySelectorAll('#panel-tools input[type="checkbox"]').length,
     agent: !!document.querySelector("#panel-agent option"),
   }));
-	assert.ok(toolHalves.toggles >= 12 && activityCounts === toolHalves.toggles + 2, JSON.stringify({ ...toolHalves, counts: activityCounts }));
+	assert.ok(toolHalves.toggles >= 12 && activityCounts === toolHalves.toggles + 3, JSON.stringify({ ...toolHalves, counts: activityCounts }));
   assert.equal(toolHalves.agent, true);
   await page.getByTitle("Close").click();
   await page.locator('.chat-list-row.selected').hover();
   await page.locator('.chat-list-row.selected .chat-list-more').click();
   const toggleMenu = page.locator('.chat-list-row.selected .chat-list-row-menu');
   await toggleMenu.waitFor({ state: "visible" });
-  assert.deepEqual(await toggleMenu.locator(":scope > button").allInnerTexts(), ["Pin", "Rename", "Move to folder", "Delete"]);
+  // Item 2xt added Archive between Move to folder and Delete for a closed chat.
+  assert.deepEqual(await toggleMenu.locator(":scope > button").allInnerTexts(), ["Pin", "Rename", "Move to folder", "Archive", "Delete"]);
   const menuPalette = await toggleMenu.evaluate((menu) => {
     const rgb = (value) => value.match(/[\d.]+/g).slice(0, 3).map(Number);
     const luminance = (value) => rgb(value).map((part) => part / 255).map((part) => part <= .04045 ? part / 12.92 : ((part + .055) / 1.055) ** 2.4).reduce((sum, part, index) => sum + part * [.2126, .7152, .0722][index], 0);

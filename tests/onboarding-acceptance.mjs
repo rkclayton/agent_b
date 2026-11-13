@@ -59,7 +59,7 @@ const fake = createServer(async (request, response) => {
   requestCount += 1;
   response.setHeader("Content-Type", "application/json");
   if (request.url === "/props") return void response.end(JSON.stringify({ connection: "llama.cpp", n_ctx: 32768 }));
-  if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "onboarding-fake" }, { id: "onboarding-fake-second" }] }));
+  if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: [{ id: "onboarding-fake", context_length: 32768 }, { id: "onboarding-fake-second", context_length: 32768 }] }));
   let raw = "";
   for await (const chunk of request) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};
@@ -128,88 +128,37 @@ try {
     await mkdir(args.evidence, { recursive: true });
     await page.screenshot({ path: join(args.evidence, "setup-1-where-is-your-model.png") });
   }
-  await page.locator('[data-action="show-install"]').click();
-  await page.locator('.setup-install select[data-field="install-model"]').waitFor();
-  await page.waitForFunction(() => document.querySelector('.setup-install select[data-field="install-model"]')?.options.length > 0);
-  assert.equal(await page.locator('[data-field="install-backend"]').count(), 0, "backend must be automatic text, not a select");
-  assert.match(await page.locator('.setup-install').innerText(), /Backend\s+(?:cuda|vulkan|cpu)/i);
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-installer-auto-backend.png") });
-  await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
-  await page.locator('[data-field="model"]').fill("onboarding-fake");
-  await page.locator('[data-action="save"]').click();
-  await page.waitForFunction(() => document.querySelector(".setup-feedback")?.textContent !== "Saving connection…");
-  assert.equal(await page.locator(".setup-feedback").textContent(), "Connection saved.");
-  await page.locator('[data-action="test"]').click();
-  await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
-  assert.equal(await page.locator("h1").textContent(), "Where is your model?");
-  await page.locator('[data-action="recommended"]').click();
-  await page.waitForFunction(() => document.querySelector(".setup-feedback")?.textContent !== "Reading recommended values…");
-  assert.match(await page.locator(".setup-feedback").textContent(), /shipped default|server/);
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-connection-actions.png") });
-  await page.locator('[data-action="measure"]', { hasText: "Eval" }).click();
-  const measurementDeadline = Date.now() + 15000;
-  while (Date.now() < measurementDeadline) {
-    const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model`);
-    if (response.ok) {
-      const measurement = await response.json();
-      if (measurement.running && measurement.processed >= 1) break;
-    }
-    await sleep(50);
-  }
-  assert.ok(Date.now() < measurementDeadline, "measurement did not begin its first brief before the stop request");
-  await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
-  await page.locator("h1").filter({ hasText: "Send anonymous data to help improve Agent_b" }).waitFor();
-  assert.equal(await page.locator(".setup-note").textContent(), "Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-4-anonymous-data.png") });
-  await page.locator('[data-action="telemetry-next"]').click();
-  await page.locator("h1").filter({ hasText: "Run commands as a separate Windows account?" }).waitFor();
-  assert.equal(await page.locator('[data-action="toggle-service-identity"]').getAttribute("aria-checked"), "false");
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-5-service-identity-off.png") });
-  await page.locator('[data-action="identity-next"]').click();
-  await page.locator("h1").filter({ hasText: "Done" }).waitFor();
-  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-6-done-after-stop.png") });
-  let state;
-  for (const deadline = Date.now() + 15000; Date.now() < deadline;) {
-    state = await waitJSON(`${baseURL}/api/state`);
-    if (state.config.connections?.[0]?.measurement?.stopped && state.config.connections?.[0]?.measurement?.briefs_run === 1) break;
-    await sleep(50);
-  }
-  assert.equal(state.config.agents?.[0]?.b, "setup-model");
-  assert.equal(state.config.agents?.[0]?.c || "", "");
-  assert.equal(state.config.agents?.[0]?.d || "", "");
-  assert.equal(state.config.connections?.[0]?.measurement?.stopped, true);
-  assert.equal(state.config.connections?.[0]?.measurement?.briefs_run, 1);
-
-  await page.goto(`${baseURL}/setup?from=settings`);
-  await page.locator('[data-field="url"]').fill(`http://127.0.0.1:${fakePort}`);
-  await page.locator('[data-field="model"]').fill("onboarding-fake-second");
-  await page.locator('[data-action="save"]').click();
-  await page.waitForFunction(() => document.querySelector(".setup-feedback")?.textContent !== "Saving connection…");
-  assert.equal(await page.locator(".setup-feedback").textContent(), "Connection saved.");
-  await page.locator('[data-action="test"]').click();
-  await page.locator(".setup-feedback").filter({ hasText: /Test passed in \d+ ms/ }).waitFor({ timeout: 60000 });
-  state = await waitJSON(`${baseURL}/api/state`);
-  assert.equal(state.config.agents?.[0]?.b, "setup-model");
-  assert.equal(state.config.agents?.[0]?.c, "setup-model-2");
-  assert.equal(state.config.agents?.[0]?.d || "", "");
-  await page.locator('[data-action="measure"]', { hasText: "Eval" }).click();
-  const secondMeasurementDeadline = Date.now() + 15000;
-  while (Date.now() < secondMeasurementDeadline) {
-    const response = await fetch(`${baseURL}/api/eval/measure?connection_id=setup-model-2`);
-    if (response.ok) {
-      const measurement = await response.json();
-      if (measurement.running && measurement.processed >= 1) break;
-    }
-    await sleep(50);
-  }
-  assert.ok(Date.now() < secondMeasurementDeadline, "second measurement did not begin its first brief before the stop request");
-  await page.locator('[data-action="measure"]', { hasText: "Stop" }).click();
-  await page.locator("h1").filter({ hasText: "Done" }).waitFor();
-  await page.locator('[data-action="finish"]').click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByLabel("Address").fill(`http://127.0.0.1:${fakePort}`);
+  await page.getByLabel("Model").fill("onboarding-fake");
+  await page.getByRole("button", { name: "Connect" }).click();
+  await page.getByRole("button", { name: "Next" }).waitFor({ timeout: 60000 });
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-checking.png") });
+  await page.getByRole("button", { name: "Next" }).click();
+  assert.equal(await page.locator("h1").textContent(), "Agent_b is ready");
+  assert.equal(await page.getByRole("switch").getAttribute("aria-checked"), "true");
+  if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-ready.png") });
+  await page.getByRole("button", { name: "Finish" }).click();
   await page.waitForURL(/\/chat\?session=main$/);
   await page.locator("#chat-task").fill("acceptance: first-run API-only chat");
   await page.locator("#chat-send").click();
   await page.waitForFunction(() => document.querySelector("#chat-log")?.innerText.includes("onboarding fake response"), undefined, { timeout: 15000 });
+  let state = await waitJSON(`${baseURL}/api/state`);
+  assert.equal(state.config.agents?.[0]?.b, "setup-model");
+  assert.equal(state.config.agents?.[0]?.c || "", "");
+  assert.equal(state.config.agents?.[0]?.d || "", "");
+  assert.equal(state.config.connections?.[0]?.context?.n_ctx, 32768);
+
+  await page.goto(`${baseURL}/setup?from=settings`);
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByLabel("Address").fill(`http://127.0.0.1:${fakePort}`);
+  await page.getByLabel("Model").fill("onboarding-fake-second");
+  await page.getByRole("button", { name: "Connect" }).click();
+  await page.getByRole("button", { name: "Next" }).waitFor({ timeout: 60000 });
+  await page.getByRole("button", { name: "Next" }).click();
+  assert.equal(await page.getByRole("switch").count(), 0, "Settings setup must not show the diagnostics switch");
+  await page.getByRole("button", { name: "Finish" }).click();
+  await page.waitForURL(/\/chat$/);
   state = await waitJSON(`${baseURL}/api/state`);
   assert.equal(state.config.connections?.length, 2);
   assert.equal(state.config.agents?.[0]?.b, "setup-model");
@@ -217,7 +166,7 @@ try {
   assert.equal(state.config.agents?.[0]?.d || "", "");
   assert.equal(Object.keys(state.sessions || {}).length, 1);
   assert.deepEqual(pageErrors, []);
-  process.stdout.write(`PASS: fresh Setup auto-selected the backend, stopped and stored one measurement brief, assigned tested connections b then c with d empty, and reached a working chat (${requestCount} fake requests)\n`);
+  process.stdout.write(`PASS: three-screen Setup saved the server window, assigned tested connections b then c, and reached a working chat (${requestCount} fake requests)\n`);
 } finally {
   await browser?.close().catch(() => {});
   await stopChild(app);

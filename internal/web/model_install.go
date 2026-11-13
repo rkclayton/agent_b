@@ -111,6 +111,8 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusAccepted, s.modelInstaller.Snapshot())
+	case http.MethodDelete:
+		writeJSON(w, http.StatusOK, s.modelInstaller.Cancel())
 	default:
 		method(w)
 	}

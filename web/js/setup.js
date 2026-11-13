@@ -2,323 +2,251 @@ import { acquireBrowserSessionToken } from "./browser-session.js";
 import { largestFitting } from "./local-recommendations.js";
 
 const root = document.getElementById("setup");
-const connection = document.getElementById("connection");
+const connectionStatus = document.getElementById("connection");
 const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate"];
-let snapshot;
-let step = "where";
-let connectionID = "";
-let detection;
-let catalog;
-let installState;
-let available = 0;
-let busy = false;
-let measuring = false;
-let message = "";
-let alarm = false;
-let discoveredModels = [];
-let discoveryNote = "";
-let connectionDraft;
-let addingFromSettings = false;
-let telemetryChoice = true;
-let identityStatus = { loaded: false, supported: true, state: "missing" };
-let identityBusy = false;
-let identityMessage = "service identity off — commands run as you";
-let identityAlarm = false;
+const suggestedContext = 8192;
+let snapshot, detection, catalog, installState;
+let screen = 1, connectionID = "";
+let addingFromSettings = false, more = false, installing = false, checking = false, contextNeedsInput = false;
+let draft = { label: "My model", base_url: "http://127.0.0.1:8080", api_key: "", model: "", context: 0 };
+let checkRows = emptyRows(), models = [], modelDefaults = {}, failure = null, telemetryChoice = true;
 const mutationToken = await acquireBrowserSessionToken();
 
 root.addEventListener("click", click);
 root.addEventListener("change", change);
+root.addEventListener("input", input);
 document.querySelector(".shell-window-controls")?.addEventListener("click", (event) => {
   const action = event.target.closest(".shell-window-control")?.dataset.action;
-  if (!action) return;
-  void request("/api/host-window", { action }).catch((error) => {
-    connection.textContent = error.message;
-    connection.className = "alarm";
-  });
+  if (action) void request("/api/host-window", { action }).catch(showHeaderError);
 });
 void load();
+
+function emptyRows() {
+  return ["Server", "Model", "Context size", "Test message"].map((label) => ({ label, state: "wait", value: "" }));
+}
 
 async function load() {
   try {
     snapshot = await request("/api/state", undefined, "GET");
     addingFromSettings = new URLSearchParams(location.search).get("from") === "settings";
-    connectionID = addingFromSettings ? "" : snapshot.config?.agents?.[0]?.b || snapshot.connections?.[0]?.id || "";
     telemetryChoice = snapshot.config?.telemetry?.enabled !== false;
+    if (!addingFromSettings) {
+      const current = snapshot.connections?.find((item) => item.id === snapshot.config?.agents?.[0]?.b) || snapshot.connections?.[0];
+      if (current) {
+        connectionID = current.id;
+        draft = { label: current.label || "My model", base_url: current.base_url || draft.base_url, api_key: "", model: current.model || "", context: Number(current.context?.n_ctx || 0) };
+      }
+    }
     render();
-  } catch (error) {
-    connection.textContent = error.message;
-    connection.className = "alarm";
-  }
+    void readInstallChoice();
+  } catch (error) { showHeaderError(error); }
 }
 
 function render() {
   if (!snapshot) return;
-  const names = { where: "Where is your model?", capability: "Evaluation Harness", telemetry: "Send anonymous data to help improve Agent_b", identity: "Run commands as a separate Windows account?", done: "Done" };
-  const steps = addingFromSettings ? ["where", "capability", "done"] : ["where", "capability", "telemetry", "identity", "done"];
-  document.getElementById("setup-step").textContent = `${steps.indexOf(step) + 1} of ${steps.length} · ${names[step]}`;
-  root.innerHTML = step === "where" ? whereScreen() : step === "capability" ? capabilityScreen() : step === "telemetry" ? telemetryScreen() : step === "identity" ? identityScreen() : doneScreen();
+  root.innerHTML = `<section class="setup-wizard raised"><div class="setup-head"><span class="setup-step">${screen} OF 3</span><button type="button" class="setup-x" data-action="close" title="Close setup" aria-label="Close setup">×</button></div>${screen === 1 ? chooseScreen() : screen === 2 ? checkingScreen() : readyScreen()}</section>`;
 }
 
-function whereScreen() {
-  const connection = connectionDraft || selectedConnection();
-  const currentModel = connection?.model || "";
-  const modelField = discoveredModels.length
-    ? `<select data-field="model">${!discoveredModels.includes(currentModel) && currentModel ? `<option value="${attr(currentModel)}" selected>${html(currentModel)} · not served</option>` : ""}${discoveredModels.map((model) => `<option value="${attr(model)}" ${model === currentModel ? "selected" : ""}>${html(model)}</option>`).join("")}</select>`
-    : `<input data-field="model" value="${attr(currentModel)}" placeholder="model name">`;
-	const contextReading = measuredContext(connection);
-  return `<section class="setup-section"><h1>Where is your model?</h1>
-    <div class="setup-fields">
-      <label>Label<input data-field="label" value="${attr(connection?.label || "My model")}"></label>
-      <label>Address<input data-field="url" value="${attr(connection?.base_url || "http://127.0.0.1:8080")}" placeholder="host or http://host:port">${discoveryNote ? `<span class="setup-note discovery-note">${html(discoveryNote)}</span>` : ""}</label>
-      <label>Saved credential name<input data-field="credential" value="${attr(connection?.credential || "")}" placeholder="optional"></label>
-      <label>API key<input data-field="api-key" type="password" autocomplete="off" placeholder="optional"></label>
-      <label>Model<span class="setup-inline">${modelField}<button data-action="query-models" type="button">Query models</button></span></label>
-      <label>Context size<input data-field="context" type="number" value="${attr(connection?.context?.n_ctx || "")}" placeholder="${attr(connection?.capabilities?.n_ctx || "")}"><span class="setup-note">${html(contextReading)}</span></label>
-      <label>State<strong class="setup-value">${html(connection?.not_runnable_reason || (connection?.capabilities?.probed_at ? "ready" : "not tested"))}</strong></label>
-    </div>
-    <div class="setup-actions setup-connection-actions"><button data-action="test" ${disabled()}>Test</button><button data-action="measure" ${!connection || (busy && !measuring) ? "disabled" : ""}>${measuring ? "Stop" : "Eval"}</button><button data-action="recommended" ${!connection || disabled() ? "disabled" : ""}>Recommended</button></div>
-    <div class="setup-actions"><button data-action="save" ${disabled()}>Save</button><button data-action="show-install" class="quiet">Install one here</button><button data-action="later" class="quiet">Later</button></div>
-    ${installer()}${feedback()}</section>`;
+function chooseScreen() {
+  const chosen = recommendedModel();
+  const size = chosen?.artifact?.bytes ? bytes(chosen.artifact.bytes) : chosen?.min_gib ? `${chosen.min_gib} GiB` : "";
+  const installFact = chosen ? `${html(chosen.label)}${size ? ` · ${html(size)}` : ""}` : "";
+  const progress = installing
+    ? `<div class="setup-progress"><progress max="${Number(installState?.total_bytes || 1)}" value="${Number(installState?.downloaded_bytes || 0)}"></progress><span class="setup-fact">${html(progressText())}</span><button type="button" data-action="cancel-install">Cancel</button></div>`
+    : `<button type="button" class="setup-primary" data-action="install" ${chosen ? "" : "disabled"}>Install</button>`;
+  return `<h1>Set up a model</h1><div class="setup-option"><strong>Install on this computer</strong><span class="setup-fact">${installFact}</span>${progress}</div><div class="setup-option"><strong>Connect to a server</strong><div class="setup-line"><input data-field="address" aria-label="Address" value="${attr(draft.base_url)}"><button type="button" data-action="connect">Connect</button></div><button type="button" class="setup-more" data-action="more">More options ${more ? "⌄" : "›"}</button>${more ? `<div class="setup-grid"><label>Name</label><input data-field="name" aria-label="Name" value="${attr(draft.label)}"><label>API key</label><input data-field="api-key" aria-label="API key" type="password" autocomplete="off" value="${attr(draft.api_key)}"><label>Model</label><input data-field="model" aria-label="Model" value="${attr(draft.model)}"><label>Context size</label><input data-field="context" aria-label="Context size" type="number" value="${draft.context > 0 ? draft.context : ""}"></div>` : ""}</div>`;
 }
 
-function measuredContext(connection) {
-	const caps = connection?.capabilities || {};
-	const published = Number(caps.n_ctx || 0), bytes = Number(caps.observed_byte_limit || 0), typed = Number(connection?.context?.n_ctx || 0);
-	if (bytes > 0) {
-		const usable = published > 0 ? Math.min(published, Math.floor(bytes / 4)) : Math.floor(bytes / 4);
-		return `usable ceiling ${usable}${typed > usable ? ` · saved ${typed - usable} above` : ""}`;
-	}
-	if (published > 0) return `published window ${published}`;
-	return "typed, not measured";
+function checkingScreen() {
+  return `<h1>Checking your model</h1><div class="setup-checks">${checkRows.map((row, index) => checkRow(row, index)).join("")}</div><div class="setup-foot"><button type="button" class="setup-quiet setup-back" data-action="back">Back</button>${failure ? `<button type="button" data-action="retry">Try again</button>` : ""}${checksReady() ? `<button type="button" class="setup-primary" data-action="next">Next</button>` : ""}</div>`;
 }
 
-function installer() {
-  if (!detection && !catalog) return "";
-  if (!detection || !catalog) return `<div class="setup-install"><p>Reading this computer…</p></div>`;
-  const models = catalog.models || [], chosen = largestFitting(models, available);
-  const modelOptions = models.map((item) => `<option value="${attr(item.id)}"${item === chosen ? " selected" : ""}>${html(item.label)} · ${item.min_gib} GiB minimum${item === chosen ? ` · fits your ${available} GiB` : ""}</option>`).join("");
-  const progress = installState ? `<div class="setup-progress"><progress max="${installState.total_bytes || 1}" value="${installState.downloaded_bytes || 0}"></progress><span>${html(installState.text || installState.phase || "")}</span></div>` : "";
-  const choice = localBackend(detection);
-  const hardware = choice.gpu
-    ? `${choice.gpu.vendor} ${choice.gpu.name} · ${memory(choice.gpu.vram_bytes, "VRAM")}`
-    : `${memory(detection.system_memory_bytes, "system memory")} · CPU fallback`;
-  return `<div class="setup-install"><h2>Install one here</h2><p>${html(hardware)}</p>
-    <div class="setup-fields"><label>Model<select data-field="install-model">${modelOptions}</select></label><label>Backend<strong class="setup-value">${html(choice.backend)}</strong></label></div>
-    <p class="setup-note">Sources: ${link(catalog.runtime_source, `llama.cpp ${catalog.runtime_version}`)} and the selected model's named Hugging Face source. Agent_b verifies the pinned size and SHA-256 before extracting or starting anything.</p>
-    <div class="setup-actions"><button data-action="install" ${disabled() || !models.length ? "disabled" : ""}>Install and test</button></div>${progress}
-    <details><summary>Model runs on another computer</summary><pre>${html(remoteGuide())}</pre></details></div>`;
+function checkRow(row, index) {
+  const mark = row.state === "ok" ? "✓" : row.state === "bad" ? "×" : "·";
+  let value = html(row.value);
+  if (index === 1 && row.state === "pick") value = `<select data-field="model-pick" aria-label="Model"><option value=""></option>${models.map((model) => `<option value="${attr(model)}">${html(model)}</option>`).join("")}</select>`;
+  if (index === 2 && contextNeedsInput) value = `<span class="setup-line"><input data-field="context-pick" aria-label="Context size" type="number" value="${draft.context || suggestedContext}"><span class="setup-fact">suggested</span></span>`;
+  if (row.state === "bad") value = `<span class="setup-failure-line">${html(row.value)}</span>${failure?.detail ? `<details><summary>details</summary><span>${html(failure.detail)}</span></details>` : ""}`;
+  return `<div class="setup-check ${row.state}"><span class="setup-mark">${mark}</span><span>${html(row.label)}</span><span class="setup-check-value">${value}</span></div>`;
 }
 
-function capabilityScreen() {
-  const connection = selectedConnection();
-  const caps = connection?.capabilities || {};
-  const measurement = connection?.measurement;
-  return `<section class="setup-section"><h1>Evaluation Harness</h1>
-    <div class="setup-readout">
-      ${row("Context", caps.n_ctx ? `${Number(caps.n_ctx).toLocaleString()} tokens` : "not reported")}
-      ${row("Tools", caps.tool_calls ? "available" : "not available")}
-      ${row("Images", caps.image_input || caps.vision === "reads images" ? "available" : "not available")}
-      ${row("Reasoning", caps.reasoning_control && caps.reasoning_control !== "none" ? caps.reasoning_control : "not reported")}
-      ${row("Capability number", measurement ? `${measurement.passed}/${measurement.total} briefs · ${percent(measurement.tool_error_rate)} tool errors` : "unmeasured")}
-    </div>
-    <p class="setup-note">Measure it runs ten briefs once each and stops after five minutes. It is optional.</p>
-    <div class="setup-actions">${measurement
-      ? `<button data-action="capability-next">Continue</button>`
-      : `<button data-action="measure" ${!connection ? "disabled" : ""}>${measuring ? "Stop" : "Measure it"}</button><button data-action="capability-next" class="quiet">Skip</button><button data-action="where" class="quiet">Back</button>`}</div>${feedback()}</section>`;
-}
-
-function telemetryScreen() {
-  return `<section class="setup-section"><h1 id="telemetry-title">Send anonymous data to help improve Agent_b</h1>
-    <button type="button" class="setup-switch ${telemetryChoice ? "on" : ""}" role="switch" aria-checked="${telemetryChoice}" aria-labelledby="telemetry-title" data-action="toggle-telemetry"></button>
-    <p class="setup-note">Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.</p>
-    <div class="setup-actions"><button data-action="telemetry-next">Next</button></div>${feedback()}</section>`;
-}
-
-function identityScreen() {
-  const on = snapshot.config?.shell?.service_account?.enabled === true && identityStatus.state === "ready";
-  const unavailable = identityStatus.setup_unavailable || (!identityStatus.supported ? "Service identity is available only on Windows." : identityStatus.administrator ? "The agentb-svc account belongs to Administrators." : "");
-  const line = unavailable || identityMessage;
-  return `<section class="setup-section setup-identity"><h1 id="identity-title">Run commands as a separate Windows account?</h1>
-    <button type="button" class="setup-switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" aria-labelledby="identity-title" data-action="toggle-service-identity" ${identityBusy || unavailable ? "disabled" : ""}></button>
-    <p class="setup-note ${identityAlarm || unavailable ? "alarm" : ""}" role="status">${html(line)}</p>
-    <div class="setup-actions"><button data-action="identity-next" ${identityBusy ? "disabled" : ""}>Next</button></div></section>`;
-}
-
-function doneScreen() {
-  return `<section class="setup-section"><h1>Done</h1><p>Your model connection is saved.</p><div class="setup-actions"><button data-action="finish">Open Chat</button></div>${feedback()}</section>`;
+function readyScreen() {
+  const diagnostics = addingFromSettings ? "" : `<button type="button" class="setup-switch ${telemetryChoice ? "on" : ""}" role="switch" aria-checked="${telemetryChoice}" data-action="telemetry"></button><span>Send anonymous diagnostics</span>`;
+  return `<h1>Agent_b is ready</h1><div class="setup-check ok"><span class="setup-mark">✓</span><span>Model</span><span class="setup-check-value">${html(draft.model)} · ${Number(draft.context).toLocaleString()} context</span></div>${diagnostics ? `<div class="setup-line">${diagnostics}</div>` : ""}<div class="setup-foot"><button type="button" class="setup-quiet setup-back" data-action="back">Back</button><button type="button" class="setup-primary" data-action="finish">Finish</button></div>`;
 }
 
 async function click(event) {
-  const button = event.target.closest("[data-action]");
-  if (!button) return;
-  const action = button.dataset.action;
-  if (busy && !(action === "measure" && measuring)) return;
-  if (action === "show-install") return showInstall();
-  if (action === "save") return saveConnection();
-  if (action === "query-models") return queryModels();
-  if (action === "test") return testConnection();
-  if (action === "recommended") return recommended();
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (!action) return;
+  if (action === "close") return closeSetup();
+  if (action === "more") { captureDraft(); more = !more; return render(); }
+  if (action === "connect") { captureDraft(); return startChecks(); }
   if (action === "install") return installModel();
-  if (action === "later") return afterCapability();
-  if (action === "where") return go("where");
-  if (action === "capability-next") return afterCapability();
-  if (action === "toggle-telemetry") { telemetryChoice = !telemetryChoice; return render(); }
-  if (action === "toggle-service-identity") return toggleServiceIdentity();
-  if (action === "telemetry-next") return saveTelemetry();
-  if (action === "identity-next") return go("done");
-  if (action === "measure") return measuring ? stopMeasurement() : measure();
+  if (action === "cancel-install") return cancelInstall();
+  if (action === "back") { screen = Math.max(1, screen - 1); failure = null; return render(); }
+  if (action === "retry") return runChecks(failure?.index || 0);
+  if (action === "next") { await saveCheckedConnection(); screen = 3; return render(); }
+  if (action === "telemetry") { telemetryChoice = !telemetryChoice; return render(); }
   if (action === "finish") return finish();
 }
 
-function change() {}
+function change(event) {
+  if (event.target.matches('[data-field="model-pick"]')) {
+    draft.model = event.target.value;
+    if (draft.model) void continueAfterModel();
+  }
+}
 
-async function showInstall() {
-  detection = {}; catalog = {}; available = 0; message = ""; render();
-  try {
-    const values = await Promise.all([request("/api/local-detection", undefined, "GET"), request("/api/model-install", undefined, "GET")]);
-    detection = values[0]; catalog = values[1].catalog; installState = values[1].state;
-    available = Math.floor(Number(localRecommendationBytes(detection)) / 2 ** 30);
-    catalog.models = (catalog.models || []).filter((item) => !available || available >= item.min_gib);
-  } catch (error) { fail(error); }
+function input(event) {
+  if (!event.target.matches('[data-field="context-pick"]')) return;
+  draft.context = Number(event.target.value || 0);
+  checkRows[2] = { label: "Context size", state: draft.context > 0 ? "ok" : "wait", value: draft.context > 0 ? draft.context.toLocaleString() : "" };
   render();
 }
 
-async function testConnection() {
-  const url = field("url"), model = field("model"), credential = field("credential"), apiKey = field("api-key");
-  if (!url) return fail(new Error("Address is required before Test."));
-  setBusy("Testing the connection…");
+function captureDraft() {
+  draft.base_url = field("address") || draft.base_url;
+  draft.label = field("name") || draft.label;
+  draft.api_key = field("api-key") || draft.api_key;
+  draft.model = field("model") || draft.model;
+  const context = Number(field("context") || draft.context || 0);
+  if (context > 0) draft.context = context;
+}
+
+async function readInstallChoice() {
   try {
-    if (!connectionID) throw new Error("Save the connection before Test.");
-    const discovered = await request(`/api/connections/${encodeURIComponent(connectionID)}/probe`, { base_url: url, model, api_key: apiKey });
-    discoveryNote = discovered.message || "";
-    message = discoveryNote;
-    alarm = discovered.status !== "passed";
-  } catch (error) {
-    fail(error);
-  } finally { busy = false; render(); }
+    const [local, install] = await Promise.all([request("/api/local-detection", undefined, "GET"), request("/api/model-install", undefined, "GET")]);
+    detection = local; catalog = install.catalog; installState = install.state;
+  } catch { detection = {}; catalog = { models: [] }; }
+  render();
 }
 
-async function recommended() {
-  if (!connectionID) return fail(new Error("Save the connection before Recommended."));
-  setBusy("Reading recommended values…");
-  try {
-    const answer = await request(`/api/connections/${encodeURIComponent(connectionID)}/recommended`, {});
-    if (Object.hasOwn(answer.values || {}, "context.n_ctx")) document.querySelector('[data-field="context"]').value = answer.values["context.n_ctx"];
-    connectionDraft = captureConnectionDraft();
-    message = Object.entries(answer.sources || {}).map(([field, source]) => `${field}: ${source}`).join(" · ");
-    alarm = false;
-  } catch (error) { fail(error); } finally { busy = false; render(); }
-}
-
-function connectionFromFields(current, id, url = field("url"), model = field("model")) {
-  const next = { ...current, id, label: field("label") || current.label || "My model", base_url: url, model };
-  const credential = field("credential"), apiKey = field("api-key"), nctx = Number(field("context") || 0);
-  if (credential) next.credential = credential;
-  if (apiKey) next.api_key = apiKey;
-  next.context = { ...(current.context || {}), n_ctx: nctx };
-  return next;
-}
-
-function captureConnectionDraft() {
-  const current = selectedConnection() || {};
-  const id = connectionID || "setup-model";
-  return connectionFromFields(current, id);
-}
-
-async function saveConnection() {
-  const url = field("url");
-  if (!url) return fail(new Error("Address is required before Save."));
-  if (!connectionID || !snapshot.connections?.some((item) => item.id === connectionID)) connectionID = uniqueID("setup-model");
-  const next = connectionFromFields(selectedConnection() || {}, connectionID);
-  setBusy("Saving connection…");
-  try {
-    const connections = [...(snapshot.config.connections || []).filter((item) => item.id !== connectionID), next];
-    snapshot.config = await request("/api/config", { connections, agents: savedConnectionAgents() });
-    snapshot = await request("/api/state", undefined, "GET");
-    connectionDraft = undefined;
-    message = "Connection saved.";
-    discoveryNote = "";
-  } catch (error) { fail(error); } finally { busy = false; render(); }
-}
-
-async function queryModels() {
-  const url = field("url");
-  if (!url) return fail(new Error("Enter an address before Query models."));
-  const apiKey = field("api-key");
-  connectionDraft = captureConnectionDraft();
-  setBusy("Querying models…");
-  try {
-    const result = await request(`/api/connections/${encodeURIComponent(connectionID || "setup-model")}/models`, { base_url: url, api_key: apiKey });
-    discoveredModels = result.models || [];
-    discoveryNote = result.message || "Models loaded.";
-  } catch (error) { fail(error); } finally { busy = false; render(); }
+function recommendedModel() {
+  if (!catalog?.models?.length) return null;
+  const available = Math.floor(Number(localRecommendationBytes(detection)) / 2 ** 30);
+  return largestFitting(catalog.models.filter((item) => !available || available >= item.min_gib), available);
 }
 
 async function installModel() {
-  setBusy("Starting verified downloads…");
-  try {
-    await request("/api/model-install", { model_id: field("install-model"), backend: localBackend(detection).backend });
-    while (true) {
-      await delay(750);
-      installState = (await request("/api/model-install", undefined, "GET")).state;
-      render();
-      if (!installState.running) break;
-    }
-    if (installState.error) throw new Error(installState.error);
-    connectionID = installState.connection_id;
-    snapshot = await request("/api/state", undefined, "GET");
-    await assignSavedConnection();
-    go("where");
-  } catch (error) { fail(error); } finally { busy = false; render(); }
-}
-
-async function measure() {
-  measuring = true;
-  setBusy("Running ten briefs (five-minute cap)…");
-  try {
-    await request("/api/eval/measure", { connection_id: connectionID });
-    while (true) {
-      await delay(750);
-      const state = await request(`/api/eval/measure?connection_id=${encodeURIComponent(connectionID)}`, undefined, "GET");
-      message = state.text || "Measuring…";
-      if (!state.running) {
-        if (state.error) throw new Error(state.error);
-        snapshot = await request("/api/state", undefined, "GET");
-        measuring = false;
-        busy = false;
-        afterCapability();
-        break;
-      }
-      render();
-    }
-  } catch (error) { fail(error); } finally { measuring = false; busy = false; render(); }
-}
-
-async function stopMeasurement() {
-  message = "Stopping after the current brief…";
+  const model = recommendedModel();
+  if (!model) return;
+  installing = true;
+  installState = { running: true, total_bytes: model.artifact?.bytes || 1, downloaded_bytes: 0 };
   render();
   try {
-    await request(`/api/eval/measure?connection_id=${encodeURIComponent(connectionID)}`, undefined, "DELETE");
-  } catch (error) { fail(error); }
+    await request("/api/model-install", { model_id: model.id, backend: localBackend(detection).backend });
+    while (installing) {
+      await delay(300);
+      installState = (await request("/api/model-install", undefined, "GET")).state;
+      if (!installState.running) break;
+      render();
+    }
+    if (!installing || installState.phase === "cancelled") return;
+    if (installState.error) throw new Error(installState.error);
+    snapshot = await request("/api/state", undefined, "GET");
+    connectionID = installState.connection_id;
+    const saved = snapshot.connections?.find((item) => item.id === connectionID);
+    draft = { label: saved?.label || "My model", base_url: saved?.base_url || installState.base_url, api_key: "", model: saved?.model || installState.model, context: Number(saved?.context?.n_ctx || installState.context?.n_ctx || 0) };
+    installing = false;
+    await startChecks();
+  } catch (error) { installing = false; showHeaderError(error); render(); }
 }
 
-async function assignSavedConnection() {
-  snapshot.config = await request("/api/config", { agents: savedConnectionAgents() });
+async function cancelInstall() {
+  try { installState = await request("/api/model-install", undefined, "DELETE"); } catch (error) { showHeaderError(error); }
+  installing = false;
+  render();
 }
 
-function savedConnectionAgents() {
-  const current = snapshot.config.agents?.[0] || { name: "Agent_b", toolset: fullTools };
-  const agent = { ...current, name: current.name || "Agent_b", toolset: current.toolset || fullTools };
-  if (!agent.b) agent.b = connectionID;
-  else if (agent.b !== connectionID && !agent.c) agent.c = connectionID;
-  return [agent];
+async function closeSetup() {
+  if (installing) await cancelInstall();
+  location.href = "/chat?setup=skip&from=setup";
 }
+
+async function startChecks() {
+  screen = 2; checking = true; failure = null; checkRows = emptyRows(); models = []; modelDefaults = {}; contextNeedsInput = false; render();
+  await runChecks(0);
+}
+
+async function runChecks(from) {
+  checking = true; failure = null;
+  for (let index = from; index < checkRows.length; index++) checkRows[index] = { ...checkRows[index], state: "wait", value: "" };
+  render();
+  try {
+    if (from <= 1) {
+      const result = await request(`/api/connections/${encodeURIComponent(connectionID || "setup-model")}/models`, { base_url: draft.base_url, api_key: draft.api_key });
+      checkRows[0] = { label: "Server", state: "ok", value: "answered" };
+      models = result.models || [];
+      modelDefaults = result.model_defaults || {};
+      if (!models.length) return failRow(1, "No model is loaded on that server.", result.message || "The server listed no models.");
+      if (!draft.model && models.length > 1) { checkRows[1] = { label: "Model", state: "pick", value: "" }; checking = false; return render(); }
+      if (!draft.model) draft.model = models[0];
+      if (!models.includes(draft.model)) return failRow(1, "No model is loaded on that server.", `The server did not list ${draft.model}.`);
+      checkRows[1] = { label: "Model", state: "ok", value: draft.model };
+      const published = Number(modelDefaults?.[draft.model]?.context?.n_ctx || 0);
+      if (draft.context <= 0) draft.context = published || suggestedContext;
+      contextNeedsInput = published <= 0;
+      checkRows[2] = { label: "Context size", state: draft.context > 0 ? "ok" : "wait", value: contextNeedsInput ? "" : draft.context.toLocaleString() };
+      render();
+    }
+    await runTestMessage();
+  } catch (error) {
+    const detail = error.message || String(error);
+    if (error.status === 401 || error.status === 403 || /refused (?:the )?(?:api )?key|(?:401|403)/i.test(detail)) return failRow(0, "The server refused the key.", detail);
+    return failRow(0, "Nothing answered at that address.", detail);
+  } finally { checking = false; render(); }
+}
+
+async function continueAfterModel() {
+  checkRows[1] = { label: "Model", state: "ok", value: draft.model };
+  const published = Number(modelDefaults?.[draft.model]?.context?.n_ctx || 0);
+  draft.context = published || suggestedContext; contextNeedsInput = published <= 0;
+  checkRows[2] = { label: "Context size", state: "ok", value: contextNeedsInput ? "" : draft.context.toLocaleString() };
+  render();
+  await runTestMessage();
+}
+
+async function runTestMessage() {
+  try {
+    const answer = await request(`/api/connections/${encodeURIComponent(connectionID || "setup-model")}/probe`, { base_url: draft.base_url, model: draft.model, api_key: draft.api_key, request_timeout_s: 30, setup: true });
+    if (answer.status !== "passed") throw new Error(answer.message || "The model returned no text.");
+    checkRows[3] = { label: "Test message", state: "ok", value: "answered" };
+    await saveCheckedConnection();
+    render();
+  } catch (error) {
+    const detail = error.message || String(error);
+    if (error.status === 401 || error.status === 403 || /refused (?:the )?(?:api )?key|(?:401|403)/i.test(detail)) return failRow(0, "The server refused the key.", detail);
+    if (/no models|model.*not.*served|choose a listed model/i.test(detail)) return failRow(1, "No model is loaded on that server.", detail);
+    return failRow(3, "The model did not answer.", detail);
+  }
+}
+
+async function saveCheckedConnection() {
+  if (!(draft.context > 0)) return;
+  if (!connectionID || !snapshot.config?.connections?.some((item) => item.id === connectionID)) connectionID = uniqueID("setup-model");
+  const current = snapshot.config?.connections?.find((item) => item.id === connectionID) || {};
+  const next = { ...current, id: connectionID, label: draft.label || "My model", base_url: draft.base_url, model: draft.model, context: { ...(current.context || {}), n_ctx: draft.context } };
+  if (String(next.api_key || "").includes("••••")) delete next.api_key;
+  if (draft.api_key) next.api_key = draft.api_key;
+  snapshot.config = await request("/api/config", { connections: [next] });
+  snapshot = await request("/api/state", undefined, "GET");
+}
+
+function failRow(index, line, detail) {
+  checkRows[index] = { label: checkRows[index].label, state: "bad", value: line };
+  for (let next = index + 1; next < checkRows.length; next++) checkRows[next] = { ...checkRows[next], state: "wait", value: "" };
+  failure = { index, detail }; checking = false; render();
+}
+
+function checksReady() { return !checking && !failure && draft.context > 0 && checkRows.every((row) => row.state === "ok"); }
 
 async function finish() {
-  setBusy("Opening chat…");
   try {
+    const patch = { agents: savedConnectionAgents() };
+    if (!addingFromSettings) patch.telemetry = { ...(snapshot.config?.telemetry || {}), enabled: telemetryChoice };
+    snapshot.config = await request("/api/config", patch);
     snapshot = await request("/api/state", undefined, "GET");
-    const agent = snapshot.config.agents?.[0];
+    const agent = snapshot.config?.agents?.[0];
     if (!Object.keys(snapshot.sessions || {}).length && agent) {
       const agentID = agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       const created = await request("/api/sessions", { label: "main", agent_id: agentID });
@@ -326,85 +254,26 @@ async function finish() {
       return;
     }
     location.href = "/chat";
-  } catch (error) { busy = false; fail(error); }
+  } catch (error) { showHeaderError(error); }
 }
 
-function remoteGuide() {
-  return `On the model computer:\n1. Download the same llama.cpp release and verify its published SHA-256.\n2. Start: llama-server -m <verified-model.gguf> --host 0.0.0.0 --port 8080\n3. Allow TCP 8080 only on your private network.\n4. Enter http://<private-host-address>:8080 above and select Test.\nAgent_b does not start, restart, or reconfigure a remote model host.`;
+function savedConnectionAgents() {
+  const current = snapshot.config?.agents?.[0] || { name: "Agent_b", toolset: fullTools };
+  const agent = { ...current, name: current.name || "Agent_b", toolset: current.toolset || fullTools };
+  if (!agent.b) agent.b = connectionID;
+  else if (agent.b !== connectionID && !agent.c) agent.c = connectionID;
+  return [agent];
 }
 
-function go(next) { step = next; message = ""; alarm = false; render(); }
-function afterCapability() { go(addingFromSettings ? "done" : "telemetry"); }
-async function saveTelemetry() {
-  setBusy("Saving your choice…");
-  try {
-    snapshot.config = await request("/api/config", { telemetry: { ...(snapshot.config.telemetry || {}), enabled: telemetryChoice } });
-    snapshot = await request("/api/state", undefined, "GET");
-    go("identity");
-    await refreshIdentity();
-  } catch (error) { fail(error); } finally { busy = false; render(); }
-}
-
-async function refreshIdentity() {
-  try {
-    identityStatus = { ...(await request(`/api/service-account?connection_id=${encodeURIComponent(connectionID)}`, undefined, "GET")), loaded: true };
-    if (identityStatus.state === "ready" && snapshot.config?.shell?.service_account?.enabled) identityMessage = "service identity ready";
-  } catch (error) {
-    identityStatus = { loaded: true, supported: true, setup_unavailable: error.message };
-    identityMessage = error.message;
-    identityAlarm = true;
-  }
-  render();
-}
-
-async function toggleServiceIdentity() {
-  const on = snapshot.config?.shell?.service_account?.enabled === true && identityStatus.state === "ready";
-  identityBusy = true;
-  identityAlarm = false;
-  identityMessage = on ? "Turning service identity off…" : "Working — Windows will ask once";
-  render();
-  try {
-    if (on) {
-      snapshot.config = await request("/api/config", { shell: { service_account: { enabled: false } } });
-      identityMessage = "service identity off — commands run as you";
-    } else {
-      const result = await request("/api/service-account", { action: "provision", connection_id: connectionID, allow_local_network: false, local_subnets: [] });
-      if (result.config) snapshot.config = result.config;
-      identityStatus = { ...(result.account || identityStatus), loaded: true, state: "ready" };
-      identityMessage = "service identity ready";
-    }
-  } catch (error) {
-    identityMessage = error.message;
-    identityAlarm = true;
-    if (error.message.toLowerCase().includes("declined")) {
-      snapshot.config.shell.service_account.enabled = false;
-      identityStatus.state = "disabled";
-    }
-  } finally {
-    identityBusy = false;
-    await refreshIdentity();
-  }
-}
-function setBusy(text) { busy = true; message = text; alarm = false; render(); }
-function fail(error) { message = error.message || String(error); alarm = true; render(); }
-function selectedConnection() { return snapshot.connections?.find((item) => item.id === connectionID); }
+function progressText() { const done = Number(installState?.downloaded_bytes || 0), total = Number(installState?.total_bytes || 0); return total > 0 ? `${bytes(done)} of ${bytes(total)}` : ""; }
 function field(name) { return root.querySelector(`[data-field="${name}"]`)?.value?.trim() || ""; }
-function row(label, value) { return `<div><span>${html(label)}</span><strong>${html(value)}</strong></div>`; }
-function feedback() { return message ? `<p class="setup-feedback ${alarm ? "alarm" : ""}" role="status">${html(message)}</p>` : ""; }
-function disabled() { return busy ? "disabled" : ""; }
-function localBackend(report = {}) {
-  const gpus = report.gpus || [];
-  if (report.accelerators?.cuda) return { backend: "cuda", gpu: gpus.find((item) => item.vendor === "NVIDIA") || gpus[0] };
-  if (report.accelerators?.vulkan) return { backend: "vulkan", gpu: gpus[0] };
-  return { backend: "cpu", gpu: null };
-}
+function uniqueID(base) { let id = base, n = 2; while (snapshot.config?.connections?.some((item) => item.id === id)) id = `${base}-${n++}`; return id; }
+function localBackend(report = {}) { const gpus = report.gpus || []; if (report.accelerators?.cuda) return { backend: "cuda", gpu: gpus.find((item) => item.vendor === "NVIDIA") || gpus[0] }; if (report.accelerators?.vulkan) return { backend: "vulkan", gpu: gpus[0] }; return { backend: "cpu", gpu: null }; }
 function localRecommendationBytes(report = {}) { return localBackend(report).gpu?.vram_bytes || report.system_memory_bytes || 0; }
-function memory(bytes, kind) { return `${(Number(bytes || 0) / 2 ** 30).toFixed(1)} GiB ${kind}`; }
-function percent(value) { return `${(Number(value || 0) * 100).toFixed(0)}%`; }
-function uniqueID(base) { let id = base, n = 2; while (snapshot.connections?.some((item) => item.id === id)) id = `${base}-${n++}`; return id; }
+function bytes(value) { const gib = Number(value || 0) / 2 ** 30; return `${gib >= 1 ? gib.toFixed(1) : (Number(value || 0) / 2 ** 20).toFixed(0)} ${gib >= 1 ? "GiB" : "MiB"}`; }
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-function link(url, label) { return /^https:\/\//.test(url || "") ? `<a href="${attr(url)}" target="_blank" rel="noreferrer">${html(label)}</a>` : html(label); }
-function html(value) { return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+function showHeaderError(error) { connectionStatus.textContent = error.message || String(error); connectionStatus.className = "alarm"; }
+function html(value) { return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]); }
 function attr(value) { return html(value); }
 
 async function request(path, body, method = "POST") {
@@ -413,6 +282,6 @@ async function request(path, body, method = "POST") {
   if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
   const response = await fetch(path, options);
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(value.error || `HTTP ${response.status}`);
+  if (!response.ok) { const error = new Error(value.error || `HTTP ${response.status}`); error.status = response.status; throw error; }
   return value;
 }

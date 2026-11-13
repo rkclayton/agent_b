@@ -70,6 +70,7 @@ type Manager struct {
 	runtime      Runtime
 	models       []Model
 	state        State
+	cancel       context.CancelFunc
 	start        func(string, []string, string) (int, error)
 	onReady      func(context.Context, State) error
 }
@@ -135,10 +136,28 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 		m.mu.Unlock()
 		return errors.New("available memory for the selected backend is unknown")
 	}
+	runContext, cancel := context.WithCancel(ctx)
+	m.cancel = cancel
 	m.state = State{Running: true, Phase: "queued", Text: "Preparing verified downloads", Total: total, Model: model.Label}
 	m.mu.Unlock()
-	go m.run(ctx, model, request.Backend, request.AvailableBytes, assets)
+	go m.run(runContext, model, request.Backend, request.AvailableBytes, assets)
 	return nil
+}
+
+// Cancel stops the active install at its next context-aware boundary. Downloads
+// remove their .part file, and onReady is never reached after cancellation.
+func (m *Manager) Cancel() State {
+	m.mu.Lock()
+	if m.state.Running && m.cancel != nil {
+		m.cancel()
+		m.state.Running = false
+		m.state.Phase = "cancelled"
+		m.state.Text = "Cancelled"
+		m.state.Error = ""
+	}
+	state := m.state
+	m.mu.Unlock()
+	return state
 }
 
 func (m *Manager) model(id string) (Model, bool) {
@@ -152,6 +171,10 @@ func (m *Manager) model(id string) (Model, bool) {
 
 func (m *Manager) run(ctx context.Context, model Model, backend string, availableBytes uint64, runtimeAssets []Artifact) {
 	fail := func(err error) {
+		if errors.Is(err, context.Canceled) {
+			m.set(func(s *State) { s.Running = false; s.Phase = "cancelled"; s.Error = ""; s.Text = "Cancelled" })
+			return
+		}
 		m.set(func(s *State) { s.Running = false; s.Phase = "failed"; s.Error = err.Error(); s.Text = err.Error() })
 	}
 	installRoot := filepath.Join(m.root, "models")
@@ -166,6 +189,10 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		return
 	}
 	for _, artifact := range runtimeAssets {
+		if err := ctx.Err(); err != nil {
+			fail(err)
+			return
+		}
 		archive := filepath.Join(runtimeRoot, artifact.Name)
 		if err := m.download(ctx, "runtime", artifact, archive); err != nil {
 			fail(err)
@@ -177,6 +204,10 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		}
 	}
 	modelPath := filepath.Join(modelRoot, model.Artifact.Name)
+	if err := ctx.Err(); err != nil {
+		fail(err)
+		return
+	}
 	if err := m.download(ctx, "model", model.Artifact, modelPath); err != nil {
 		fail(err)
 		return
@@ -229,6 +260,10 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		fail(fmt.Errorf("llama-server did not become ready; autostart retained at %s: %w", launcher, err))
 		return
 	}
+	if err := ctx.Err(); err != nil {
+		fail(err)
+		return
+	}
 	// llama-server reports the loaded GGUF path as its model id. Persist that
 	// exact id so the connection created by the wizard agrees with /v1/models.
 	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ConnectionID: "installed-local", BaseURL: baseURL, Model: modelPath, Context: &sizing}
@@ -240,6 +275,7 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 	}
 	m.mu.Lock()
 	m.state = ready
+	m.cancel = nil
 	m.mu.Unlock()
 }
 

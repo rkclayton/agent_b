@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -148,6 +149,42 @@ func TestTamperedDownloadIsRefusedBeforeExecution(t *testing.T) {
 	if started || manager.Snapshot().Phase != "failed" {
 		t.Fatalf("started=%v state=%+v", started, manager.Snapshot())
 	}
+}
+
+func TestCancelStopsDownloadAndNeverRegistersPartialModel2xz(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1048576")
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	artifact := Artifact{URL: server.URL, Name: "runtime.zip", Bytes: 1048576, SHA256: strings.Repeat("0", 64)}
+	manager := New(t.TempDir(), t.TempDir(), server.Client(), Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {artifact}}}, []Model{{ID: "fixture", Artifact: artifact}}, func(context.Context, State) error {
+		t.Fatal("cancelled install registered a connection")
+		return nil
+	})
+	if err := manager.Start(context.Background(), Request{ModelID: "fixture", Backend: "cpu", AvailableBytes: 4 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not begin")
+	}
+	state := manager.Cancel()
+	if state.Running || state.Phase != "cancelled" {
+		t.Fatalf("cancel state=%+v", state)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	part := filepath.Join(manager.root, "models", "llama.cpp", "fixture", "cpu", "runtime.zip.part")
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(part); errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("partial download remained at cancellation boundary: %s", part)
 }
 
 func TestProductionDownloadsRequireHTTPSBeforeNetworkOrExecution(t *testing.T) {

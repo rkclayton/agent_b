@@ -10,75 +10,75 @@ const styles = fs.readFileSync(new URL("../css/setup.css", import.meta.url), "ut
 const detector = fs.readFileSync(new URL("../../scripts/detect-local-capabilities.ps1", import.meta.url), "utf8");
 const template = JSON.parse(fs.readFileSync(new URL("../../harness.example.json", import.meta.url), "utf8"));
 
-test("Fresh template has no connections and setup asks connection, evaluation, telemetry, identity, then done", () => {
+test("fresh setup is exactly choose, check, and ready 2xz", () => {
   assert.deepEqual(template.connections, []);
   assert.deepEqual(template.agents, []);
-  for (const label of ["Where is your model?", "Evaluation Harness", "Send anonymous data to help improve Agent_b", "Run commands as a separate Windows account?", "Done"]) assert.match(script, new RegExp(label.replaceAll("?", "\\?")));
-	assert.match(script, /Only diagnostic data is sent — counts, durations and error classes\. Never your chats, files or prompts\./);
-	assert.match(script, /telemetry:\s*\{[\s\S]*enabled: telemetryChoice/);
-  for (const label of ["Test", "Eval", "Recommended", "Install one here", "Later"]) assert.match(script, new RegExp(label));
-  assert.doesNotMatch(script, /Who does what\?|rolesScreen|data-role=/);
-  assert.doesNotMatch(`${html}\n${script}`, /\b(?:PKI|accounting)\b/i);
+  for (const label of ["Set up a model", "Checking your model", "Agent_b is ready"]) assert.match(script, new RegExp(label));
+  assert.match(script, /screen === 1 \? chooseScreen\(\) : screen === 2 \? checkingScreen\(\) : readyScreen\(\)/);
+  assert.match(script, /\$\{screen\} OF 3/);
+  assert.doesNotMatch(script, /Where is your model\?|Evaluation Harness|Run commands as a separate Windows account\?|Open Chat|\bLater\b/);
 });
 
-test("Fresh setup alone offers one service-identity switch and blocks Next while Windows works", () => {
-  assert.match(script, /steps = addingFromSettings \? \["where", "capability", "done"\] : \["where", "capability", "telemetry", "identity", "done"\]/);
-  assert.match(script, /role="switch"[^>]*data-action="toggle-service-identity"/);
-  assert.match(script, /service identity off — commands run as you/);
-  assert.match(script, /Windows will ask once/);
-  assert.match(script, /identityBusy \? "disabled"/);
-  assert.match(script, /\/api\/service-account/);
+test("checking is one ordered four-row proof and one short setup message 2xz", () => {
+  assert.match(script, /\["Server", "Model", "Context size", "Test message"\]/);
+  assert.match(script, /\/models/);
+  assert.match(script, /setup: true/);
+  assert.match(script, /answer\.status !== "passed"/);
+  assert.match(script, /checksReady\(\)[\s\S]*>Next</);
+  assert.doesNotMatch(script, /\/api\/eval\/measure|\/recommended/);
 });
 
-test("Setup uses the same separate Test Eval and Recommended actions", () => {
-  for (const label of ["Context", "Tools", "Images", "Reasoning", "Capability number", "unmeasured"]) assert.match(script, new RegExp(label));
-  assert.match(script, /\/api\/connections\/\$\{encodeURIComponent\(connectionID\)\}\/probe/);
-  assert.match(script, /\/api\/connections\/\$\{encodeURIComponent\(connectionID\)\}\/recommended/);
-  assert.match(script, /\/api\/eval\/measure/);
-  assert.doesNotMatch(script, /waitForProbe\(previousProbe\)/);
-  assert.match(script, /<select data-field="model">/);
+test("missing context is offered as a positive suggestion and zero cannot advance 2xz", () => {
+  assert.match(script, /const suggestedContext = 8192/);
+  assert.match(script, /draft\.context = published \|\| suggestedContext/);
+  assert.match(script, /contextNeedsInput = published <= 0/);
+  assert.match(script, /draft\.context > 0 && checkRows\.every/);
+  assert.doesNotMatch(script, /n_ctx:\s*0/);
 });
 
-test("Local install chooses accelerator and measurement requests carry only catalog IDs", () => {
-  assert.match(script, /\/api\/model-install/);
-  assert.match(script, /model_id: field\("install-model"\), backend: localBackend\(detection\)\.backend/);
-  assert.match(script, /accelerators\?\.cuda/);
-  assert.match(script, /accelerators\?\.vulkan/);
-  assert.match(script, /gpu\?\.vram_bytes \|\| report\.system_memory_bytes/);
-  assert.doesNotMatch(script, /data-field="install-backend"/);
-  assert.doesNotMatch(script, /model_url|runtime_url|sha256:/);
-  assert.match(script, /\/api\/eval\/measure/);
+test("multiple models wait for a choice and failures keep their fixed lines 2xz", () => {
+  assert.match(script, /models\.length > 1/);
+  assert.match(script, /state: "pick"/);
+  for (const line of ["Nothing answered at that address.", "The server refused the key.", "No model is loaded on that server.", "The model did not answer."]) assert.ok(script.includes(line));
+  assert.match(script, /<details><summary>details<\/summary>/);
+  assert.match(script, />Try again</);
 });
 
-test("Setup strip has a close control and window controls but no Chat page button", () => {
-  assert.match(html, /class="setup-close"[^>]*aria-label="Close"[^>]*>×<\/a>/);
-  assert.doesNotMatch(html, /⚙|setup-settings/);
+test("close is available throughout and cancels an active local install 2xz", () => {
+  assert.match(script, /data-action="close"[^>]*>×<\/button>/);
+  assert.match(script, /if \(installing\) await cancelInstall\(\)/);
+  assert.match(script, /request\("\/api\/model-install", undefined, "DELETE"\)/);
+  assert.match(script, /location\.href = "\/chat\?setup=skip&from=setup"/);
   assert.match(html, /class="shell-window-controls"/);
   assert.doesNotMatch(html, />Chat<|setup-chat/);
 });
 
-test("Save assigns the first connection to b, the second to c, and never d", () => {
-  assert.match(script, /saveConnection[\s\S]*connections, agents: savedConnectionAgents\(\)/);
+test("connection saves before ready and routing changes only on Finish 2xz", () => {
+  assert.match(script, /await saveCheckedConnection\(\);\s*screen = 3/);
   assert.match(script, /if \(!agent\.b\) agent\.b = connectionID/);
   assert.match(script, /else if \(agent\.b !== connectionID && !agent\.c\) agent\.c = connectionID/);
   assert.doesNotMatch(script, /agent\.d\s*=/);
-  assert.match(script, /toolset: current\.toolset \|\| fullTools/);
+  assert.match(script, /if \(action === "finish"\) return finish\(\)/);
+  assert.match(script, /const patch = \{ agents: savedConnectionAgents\(\) \}/);
 });
 
-test("Local install returns to the same three connection actions without probing", () => {
-  assert.match(script, /installModel[\s\S]*await assignSavedConnection\(\);[\s\S]*go\("where"\)/);
-  assert.doesNotMatch(script, /waitForProbe/);
+test("Settings setup omits diagnostics while first run offers it 2xz", () => {
+  assert.match(script, /addingFromSettings = new URLSearchParams\(location\.search\)\.get\("from"\) === "settings"/);
+  assert.match(script, /addingFromSettings \? "" :/);
+  assert.match(script, /Send anonymous diagnostics/);
+  assert.match(script, /if \(!addingFromSettings\) patch\.telemetry/);
 });
 
-test("Eval button becomes Stop and completion advances to telemetry without Skip or Back", () => {
-  assert.match(script, /measuring \? "Stop" : "Eval"/);
-  assert.match(script, /busy && !measuring/);
-  assert.match(script, /"DELETE"/);
-  assert.match(script, /afterCapability\(\)/);
-  assert.match(script, /measurement[\s\S]*Continue[\s\S]*: `[\s\S]*Skip[\s\S]*Back/);
+test("local install chooses an accelerator and sends only a catalog id", () => {
+  assert.match(script, /\/api\/model-install/);
+  assert.match(script, /model_id: model\.id, backend: localBackend\(detection\)\.backend/);
+  assert.match(script, /accelerators\?\.cuda/);
+  assert.match(script, /accelerators\?\.vulkan/);
+  assert.match(script, /gpu\?\.vram_bytes \|\| report\.system_memory_bytes/);
+  assert.doesNotMatch(script, /data-field="install-backend"|model_url|runtime_url|sha256:/);
 });
 
-test("Versioned recommendation table stays small and memory-class keyed", () => {
+test("versioned recommendation table stays small and memory-class keyed", () => {
   assert.equal(recommendationTableVersion, "2026-09-07");
   assert.ok(recommendationTable.length <= 20);
   assert.equal(recommendationForBytes(8 * 1024 ** 3).model, "qwen3.5:4b");
@@ -86,26 +86,23 @@ test("Versioned recommendation table stays small and memory-class keyed", () => 
   assert.equal(recommendationForBytes(128 * 1024 ** 3).model, "qwen3.5:122b");
 });
 
-test("Local detection is read-only and covers accelerators, connections, and interpreters", () => {
+test("local detection stays read-only and covers supported local runtimes", () => {
   for (const name of ["Ollama", "LM Studio", "llama-server", "python", "node", "go", "dotnet"]) assert.match(detector, new RegExp(`name='${name}'`));
   assert.doesNotMatch(detector, /\$env:Path\s*=|Start-Process|Invoke-WebRequest|Invoke-RestMethod/);
-  assert.match(detector, /runs as service/);
-  assert.match(detector, /operator-only/);
   assert.match(detector, /accelerators/);
   assert.match(detector, /vulkan-1\.dll/);
 });
 
-test("Setup follows the console palette and reduced motion is zero seconds", () => {
+test("setup uses the console palette and has no motion", () => {
   assert.doesNotMatch(styles, /#[0-9a-f]{3,8}/i);
   assert.match(styles, /prefers-reduced-motion:reduce/);
   assert.match(styles, /transition-duration:0ms!important;animation-duration:0ms!important/);
 });
 
-test("The install step preselects the largest catalog model that fits 2wa", () => {
+test("the install choice is the largest catalog model that fits", () => {
   const models = [["0.8b", 0], ["2b", 4], ["4b", 6], ["9b", 12], ["27b", 20], ["35b", 48]].map(([id, min_gib]) => ({ id, min_gib }));
   const fits = (available) => models.filter((item) => !available || available >= item.min_gib);
   for (const [available, id] of [[8, "4b"], [12, "9b"], [24, "27b"], [3, "0.8b"]]) assert.equal(largestFitting(fits(available), available)?.id, id);
   assert.equal(largestFitting(fits(0), 0), undefined);
-  assert.equal(fits(0).length, models.length);
-  assert.match(script, /· fits your \$\{available\} GiB/);
+  assert.match(script, /largestFitting\(catalog\.models\.filter/);
 });

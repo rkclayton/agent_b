@@ -16,13 +16,14 @@
 // a product defect and not a model mood.
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { start } from "../ui-harness.mjs";
+import { freePort, start } from "../ui-harness.mjs";
 import { auditLayoutSnapshot, collectLayoutSnapshot } from "../layout-gate.mjs";
 import { removeTreeWithinAllowedRoots } from "../../tools/removal-guard.mjs";
 
@@ -53,6 +54,127 @@ test.beforeAll(async () => {
   const exe = join(root, "Agent_b.exe");
   await run(join(repo, ".tools", "go", "bin", "go.exe"), ["build", "-o", exe, "./cmd/harness"], { cwd: repo, windowsHide: true });
   harness = await start({ exe, appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"], streamDelayMs: 800 });
+});
+
+test.describe("setup wizard 2xz", () => {
+	let wizardRoot;
+	let wizardHarness;
+
+	const standIn = async (options = {}) => {
+		const state = { mode: options.mode || "ok", requests: 0 };
+		const server = createServer(async (request, response) => {
+			const key = request.headers.authorization || "";
+			if (state.mode === "key" && key !== "Bearer accepted") { response.statusCode = 401; return void response.end(JSON.stringify({ error: "fixture key refused" })); }
+			if (request.url === "/v1/models") {
+				const models = state.mode === "none" ? [] : (options.models || ["wizard-model"]);
+				return void response.end(JSON.stringify({ data: models.map((id) => ({ id, context_length: options.window || 0 })) }));
+			}
+			if (request.url === "/props") return void response.end(JSON.stringify(options.window ? { default_generation_settings: { n_ctx: options.window } } : {}));
+			if (request.url !== "/v1/chat/completions") { response.statusCode = 404; return void response.end(JSON.stringify({ error: "fixture route" })); }
+			state.requests += 1;
+			if (state.mode === "empty") return void response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "" } }] }));
+			response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "wizard answer" } }] }));
+		});
+		await new Promise((done) => server.listen(options.port || 0, "127.0.0.1", done));
+		return { url: `http://127.0.0.1:${server.address().port}`, state, close: () => { server.closeAllConnections?.(); return new Promise((done) => server.close(done)); } };
+	};
+
+	const openSetup = async (page) => {
+		await page.goto(`${wizardHarness.base}/setup?from=settings`);
+		await expect(page.getByRole("heading", { name: "Set up a model" })).toBeVisible();
+	};
+
+	const connect = async (page, url, { key = "", model = "" } = {}) => {
+		await page.getByLabel("Address").fill(url);
+		if (key || model) {
+			await page.getByRole("button", { name: /More options/ }).click();
+			if (key) await page.getByLabel("API key").fill(key);
+			if (model) await page.getByLabel("Model").fill(model);
+		}
+		await page.getByRole("button", { name: "Connect" }).click();
+	};
+
+	test.beforeAll(async () => {
+		test.setTimeout(300_000);
+		wizardRoot = await mkdtemp(join(tmpdir(), "agentb-setup-wizard-"));
+		const exe = join(wizardRoot, "Agent_b.exe");
+		await run(join(repo, ".tools", "go", "bin", "go.exe"), ["build", "-o", exe, "./cmd/harness"], { cwd: repo, windowsHide: true });
+		wizardHarness = await start({ exe, appRoot: repo, data: join(wizardRoot, "data") });
+	});
+
+	test.afterAll(async () => {
+		await wizardHarness?.stop();
+		if (wizardRoot) removeTreeWithinAllowedRoots(wizardRoot, [tmpdir()], "setup wizard Playwright cleanup");
+	});
+
+	test("2xz CHECK 2 connects, saves the reported window, finishes and answers", async () => {
+		const model = await standIn({ window: 32768 }); const page = await wizardHarness.context.newPage();
+		try {
+			await openSetup(page); await connect(page, model.url); await expect(page.getByText("32,768", { exact: true })).toBeVisible();
+			await page.getByRole("button", { name: "Next" }).click(); await page.getByRole("button", { name: "Finish" }).click(); await page.waitForURL(/\/chat/);
+			const state = await wizardHarness.getState(); expect(state.config.connections.find((item) => item.base_url === model.url)?.context?.n_ctx).toBe(32768); expect(model.state.requests).toBe(1);
+			await page.locator("#chat-task").fill("setup wizard answer"); await page.locator("#chat-send").click(); await expect(page.locator("#chat-log")).toContainText("ui harness reply");
+		} finally { await page.close(); await model.close(); }
+	});
+
+	test("2xz CHECK 3 requires a positive suggested context when none is reported", async () => {
+		const model = await standIn(); const page = await wizardHarness.context.newPage();
+		try {
+			await openSetup(page); await connect(page, model.url); const context = page.getByLabel("Context size"); await expect(context).toHaveValue("8192");
+			await context.fill("0"); await expect(page.getByRole("button", { name: "Next" })).toHaveCount(0); await context.fill(""); await expect(page.getByRole("button", { name: "Next" })).toHaveCount(0); await context.fill("16384"); await expect(page.getByRole("button", { name: "Next" })).toBeVisible();
+		} finally { await page.close(); await model.close(); }
+	});
+
+	test("2xz CHECK 4 waits for a model pick when the server lists three", async () => {
+		const model = await standIn({ window: 32768, models: ["one", "two", "three"] }); const page = await wizardHarness.context.newPage();
+		try {
+			await openSetup(page); await connect(page, model.url); const picker = page.getByLabel("Model"); await expect(picker.locator("option")).toHaveText(["", "one", "two", "three"]); await expect(page.getByRole("button", { name: "Next" })).toHaveCount(0); await picker.selectOption("two"); await expect(page.getByRole("button", { name: "Next" })).toBeVisible();
+		} finally { await page.close(); await model.close(); }
+	});
+
+	for (const scenario of [
+		{ name: "closed port", line: "Nothing answered at that address.", setup: async () => { const port = await freePort(); return { url: `http://127.0.0.1:${port}`, repair: async () => standIn({ window: 32768, port }) }; } },
+		{ name: "refused key", line: "The server refused the key.", setup: async () => { const server = await standIn({ mode: "key", window: 32768 }); return { url: server.url, key: "wrong", server, repair: async () => { server.state.mode = "ok"; return server; } }; } },
+		{ name: "no model", line: "No model is loaded on that server.", setup: async () => { const server = await standIn({ mode: "none" }); return { url: server.url, server, repair: async () => { server.state.mode = "ok"; return server; } }; } },
+		{ name: "empty answer", line: "The model did not answer.", setup: async () => { const server = await standIn({ mode: "empty", window: 32768 }); return { url: server.url, server, repair: async () => { server.state.mode = "ok"; return server; } }; } },
+	]) test(`2xz CHECK 5 ${scenario.name} shows its fixed line and retries`, async () => {
+		test.setTimeout(240_000); const fixture = await scenario.setup(); const page = await wizardHarness.context.newPage(); let repaired;
+		try {
+			await openSetup(page); await connect(page, fixture.url, { key: fixture.key }); await expect(page.getByText(scenario.line, { exact: true })).toBeVisible(); await expect(page.getByText("details", { exact: true })).toBeVisible(); repaired = await fixture.repair();
+			if (repaired.url !== fixture.url) { await page.getByRole("button", { name: "Back" }).click(); await page.getByLabel("Address").fill(repaired.url); await page.getByRole("button", { name: "Connect" }).click(); } else await page.getByRole("button", { name: "Try again" }).click();
+			await expect(page.getByRole("button", { name: "Next" }), "repair did not complete all checks").toBeVisible({ timeout: 90_000 });
+		} finally { await page.close(); if (repaired && repaired !== fixture.server) await repaired.close(); await fixture.server?.close(); }
+	});
+
+	test("2xz CHECK 6 closes every screen and cancels a download", async () => {
+		const model = await standIn({ window: 32768 });
+		for (const screen of [1, 2, 3]) {
+			const page = await wizardHarness.context.newPage(); await openSetup(page); if (screen > 1) await connect(page, model.url); if (screen > 2) await page.getByRole("button", { name: "Next" }).click(); await page.getByTitle("Close setup").click(); await page.waitForURL(/\/chat\?setup=skip/); await expect(page.locator("#chat-task")).toBeVisible(); await page.goto(`${wizardHarness.base}/chat#settings/connections`); await expect(page.getByRole("button", { name: "Open setup guide" })).toBeVisible(); await page.close();
+		}
+		const page = await wizardHarness.context.newPage(); let cancelled = false;
+		await page.route("**/api/local-detection", (route) => route.fulfill({ json: { system_memory_bytes: 16 * 2 ** 30, gpus: [], accelerators: {} } }));
+		await page.route("**/api/model-install", (route) => route.request().method() === "DELETE" ? (cancelled = true, route.fulfill({ json: { running: false, phase: "cancelled" } })) : route.request().method() === "POST" ? route.fulfill({ status: 202, json: { running: true } }) : route.fulfill({ json: { catalog: { models: [{ id: "local", label: "Local", min_gib: 1, artifact: { bytes: 100 } }] }, state: { running: true, total_bytes: 100, downloaded_bytes: 10 } } }));
+		await openSetup(page); await page.getByRole("button", { name: "Install" }).click(); await page.getByTitle("Close setup").click(); await page.waitForURL(/\/chat\?setup=skip/); expect(cancelled).toBe(true); await page.close(); await model.close();
+	});
+
+	test("2xz CHECK 7 keeps setup to its three screens and Settings keeps advanced controls", async () => {
+		const model = await standIn({ window: 32768 }); const page = await wizardHarness.context.newPage();
+		try {
+			await openSetup(page); await expect(page.locator("body")).not.toContainText(/Skip|Later|Open Chat|Evaluation Harness|separate Windows account/); await connect(page, model.url); await page.getByRole("button", { name: "Next" }).click(); await expect(page.getByRole("heading", { name: "Agent_b is ready" })).toBeVisible(); await expect(page.locator(".setup-main button.setup-primary")).toHaveText("Finish");
+			await page.goto(`${wizardHarness.base}/chat#settings/connections`); await page.getByRole("button", { name: /UI http:/ }).click(); await expect(page.getByRole("button", { name: "Eval", exact: true }).first()).toBeVisible(); await page.locator('.settings-nav [data-id="shell"]').click(); await expect(page.locator(".settings-content")).toContainText("Experimental");
+		} finally { await page.close(); await model.close(); }
+	});
+
+	test("2xz CHECK 8 captures every designed state at three sizes", async () => {
+		test.setTimeout(240_000); const captures = join(repo, "logs", "evidence", "rel-1.62.204", "captures"); await mkdir(captures, { recursive: true }); const sizes = [[304, 720], [1280, 860], [1920, 1080]];
+		const capture = async (page, state) => { for (const [width, height] of sizes) { await page.setViewportSize({ width, height }); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".setup-wizard")), `${state} ${width}`).toEqual([]); await page.screenshot({ path: join(captures, `${state}-${width}.png`) }); } };
+		const choose = await wizardHarness.context.newPage(); await openSetup(choose); await capture(choose, "choose"); await choose.getByRole("button", { name: /More options/ }).click(); await capture(choose, "more"); await choose.close();
+		const installing = await wizardHarness.context.newPage(); await installing.route("**/api/local-detection", (route) => route.fulfill({ json: { system_memory_bytes: 16 * 2 ** 30, gpus: [], accelerators: {} } })); await installing.route("**/api/model-install", (route) => route.request().method() === "POST" ? route.fulfill({ status: 202, json: { running: true } }) : route.fulfill({ json: { catalog: { models: [{ id: "local", label: "Example-9B", min_gib: 1, artifact: { bytes: 6 * 2 ** 30 } }] }, state: { running: true, total_bytes: 6 * 2 ** 30, downloaded_bytes: 3.7 * 2 ** 30 } } })); await openSetup(installing); await installing.getByRole("button", { name: "Install" }).click(); await capture(installing, "installing"); await installing.close();
+		const checking = await wizardHarness.context.newPage(); await checking.route("**/api/connections/setup-model/models", () => {}); await openSetup(checking); await checking.getByRole("button", { name: "Connect" }).click(); await capture(checking, "checking"); await checking.close();
+		const askServer = await standIn(); const ask = await wizardHarness.context.newPage(); await openSetup(ask); await connect(ask, askServer.url); await expect(ask.getByLabel("Context size")).toBeVisible(); await capture(ask, "context-suggested"); await ask.close(); await askServer.close();
+		const bad = await wizardHarness.context.newPage(); await bad.route("**/api/connections/setup-model/models", (route) => route.fulfill({ json: { models: [], message: "fixture has no model" } })); await openSetup(bad); await bad.getByRole("button", { name: "Connect" }).click(); await expect(bad.getByText("No model is loaded on that server.", { exact: true })).toBeVisible(); await capture(bad, "failed"); await bad.close();
+		const doneServer = await standIn({ window: 32768 }); const done = await wizardHarness.context.newPage(); await openSetup(done); await connect(done, doneServer.url); await done.getByRole("button", { name: "Next" }).click(); await capture(done, "ready"); await done.close(); await doneServer.close();
+	});
 });
 
 test("generic skill-folder add shows the complete Hermes-layout preview before writing", async () => {
@@ -257,10 +379,10 @@ test("a live run keeps drawing beneath Settings 2sy", async () => {
 	await expect(page.locator("#chat-log")).toContainText("ui harness reply"); await expect.poll(async () => (await page.locator("#chat-log").innerText()).length).toBeGreaterThan(before); await expect(page.locator(".chat-list-name.working")).toHaveCount(0); await page.getByTitle("Close").click(); await page.locator(`.chat-list-row[data-session="${original}"] .chat-list-name`).click(); const streamRow = page.locator(`.chat-list-row[data-session="${streamed}"]`); await streamRow.hover(); await streamRow.locator(".chat-list-more").click(); await streamRow.locator(".chat-list-row-menu").getByRole("button", { name: "Delete", exact: true }).click(); await streamRow.locator(".chat-list-delete-confirm").getByRole("button", { name: "Delete", exact: true }).click(); await expect(streamRow).toHaveCount(0); await page.close();
 });
 
-test("the setup document uses an X and returns to Settings 2sy", async () => {
+test("the setup document uses an X, lands on chat, and reopens from Settings 2sy", async () => {
 	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); await toggleSettings(page); await page.locator('[data-action="open-setup"]').click();
-	await expect(page).toHaveURL(/\/setup\?from=settings/); await expect(page.locator(".setup-close")).toHaveText("×"); await expect(page.locator(".setup-close")).toHaveAttribute("title", "Close"); await expect(page.locator("body")).not.toContainText("⚙");
-	await page.locator(".setup-close").click(); await expect(page).toHaveURL(/\/chat\?.*#settings\/connections/); await expect(page.locator("#settings-page")).toBeVisible(); await page.close();
+	await expect(page).toHaveURL(/\/setup\?from=settings/); await expect(page.locator(".setup-x")).toHaveText("×"); await expect(page.locator(".setup-x")).toHaveAttribute("title", "Close setup"); await expect(page.locator("body")).not.toContainText("⚙");
+	await page.locator(".setup-x").click(); await expect(page).toHaveURL(/\/chat\?setup=skip/); await expect(page.locator("#chat-task")).toBeVisible(); await toggleSettings(page); await page.locator('.settings-nav [data-id="connections"]').click(); await expect(page.locator('[data-action="open-setup"]')).toBeVisible(); await page.close();
 });
 
 test("the settings journey: type a host, pick a model, Test, save, chat, delete, remove", async () => {
@@ -476,24 +598,19 @@ test("Phone shows all four wire states and follows presence without a reload", a
 	await page.close();
 });
 
-test("telemetry consent is shared by Setup and About and persists both choices", async () => {
+test("the ready screen telemetry switch is shared with About and persists both choices", async () => {
+	test.setTimeout(120_000);
 	const evidence = join(repo, "candidate", "rel-1.45.0-w2-telemetry");
 	await mkdir(evidence, { recursive: true });
 	const page = await harness.context.newPage();
 	for (const enabled of [false, true]) {
 		await page.goto(`${harness.base}/setup`);
-		await page.locator('[data-action="later"]').click();
-		await expect(page.locator("h1")).toHaveText("Send anonymous data to help improve Agent_b");
-		await expect(page.locator("#setup-step")).toContainText("3 of 5");
-		await expect(page.locator(".setup-note")).toHaveText("Only diagnostic data is sent — counts, durations and error classes. Never your chats, files or prompts.");
-		const consent = page.locator('[data-action="toggle-telemetry"]');
+		await page.getByRole("button", { name: /More options/ }).click(); await page.getByLabel("Address").fill(`http://127.0.0.1:${harness.modelPort}`); await page.getByLabel("Model").fill("journey-model"); await page.getByRole("button", { name: "Connect" }).click(); await page.getByRole("button", { name: "Next" }).click();
+		await expect(page.locator("h1")).toHaveText("Agent_b is ready");
+		const consent = page.getByRole("switch");
 		if ((await consent.getAttribute("aria-checked")) !== String(enabled)) await consent.click();
 		if (!enabled) await page.screenshot({ path: join(evidence, "setup-anonymous-data.png"), fullPage: true });
-		await page.locator('[data-action="telemetry-next"]').click();
-		await expect(page.locator("h1")).toHaveText("Run commands as a separate Windows account?");
-		await expect(page.locator('[data-action="toggle-service-identity"]')).toHaveAttribute("aria-checked", "false");
-		await page.locator('[data-action="identity-next"]').click();
-		await expect(page.locator("h1")).toHaveText("Done");
+		await page.getByRole("button", { name: "Finish" }).click(); await page.waitForURL(/\/chat/);
 		expect((await harness.getState()).config.telemetry.enabled).toBe(enabled);
 	}
 	await page.goto(`${harness.base}/chat`);
@@ -506,80 +623,24 @@ test("telemetry consent is shared by Setup and About and persists both choices",
 	await page.close();
 });
 
-test("fresh Setup service identity has one switch and five measured states at three widths 2tf", async () => {
+test("service identity remains under Settings Experimental at three widths 2tf", async () => {
 	test.setTimeout(120_000);
 	const evidence = join(repo, "logs", "evidence", "rel-1.62.75", "captures");
 	await mkdir(evidence, { recursive: true });
 	const sizes = [{ width: 304, height: 720 }, { width: 1280, height: 860 }, { width: 1920, height: 1080 }];
-	const openIdentity = async (page, getStatus, post) => {
-		await page.route("**/api/service-account**", async (route) => {
-			if (route.request().method() === "GET") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(getStatus()) });
-			return post(route);
-		});
-		await page.goto(`${harness.base}/setup`);
-		await page.locator('[data-action="later"]').click();
-		await page.locator('[data-action="telemetry-next"]').click();
-		await expect(page.locator("h1")).toHaveText("Run commands as a separate Windows account?");
-	};
-	const capture = async (page, state) => {
+	const capture = async (page) => {
 		for (const size of sizes) {
 			await page.setViewportSize(size);
-			const layout = await page.locator(".setup-section").evaluate((section) => {
+			const layout = await page.locator(".settings-content").evaluate((section) => {
 				const box = section.getBoundingClientRect();
 				const controls = [...section.querySelectorAll("button")].map((node) => node.getBoundingClientRect());
 				return { pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, inside: box.left >= -1 && box.right <= innerWidth + 1 && controls.every((item) => item.left >= box.left - 1 && item.right <= box.right + 1), textWhole: [...section.querySelectorAll("h1,p")].every((node) => node.scrollWidth <= node.clientWidth + 1) };
 			});
-			expect(layout, `${state} ${size.width}`).toEqual({ pageOverflow: 0, inside: true, textWhole: true });
-			await page.screenshot({ path: join(evidence, `${state}-${size.width}.png`), fullPage: true });
+			expect(layout, `service identity ${size.width}`).toEqual({ pageOverflow: 0, inside: true, textWhole: true });
+			await page.screenshot({ path: join(evidence, `service-identity-settings-${size.width}.png`), fullPage: true });
 		}
 	};
-
-	{
-		const page = await harness.context.newPage();
-		await openIdentity(page, () => ({ supported: true, state: "missing" }), (route) => route.abort());
-		await expect(page.locator('[data-action="toggle-service-identity"]')).toHaveAttribute("aria-checked", "false");
-		await capture(page, "identity-rest");
-		await page.close();
-	}
-	{
-		const page = await harness.context.newPage();
-		let ready = false;
-		let release;
-		const grant = new Promise((resolve) => { release = resolve; });
-		await openIdentity(page, () => ({ supported: true, exists: ready, state: ready ? "ready" : "missing" }), async (route) => {
-			await grant;
-			ready = true;
-			const config = structuredClone((await harness.getState()).config);
-			config.shell.service_account.enabled = true;
-			await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, message: "service identity ready", account: { supported: true, exists: true, state: "ready" }, config }) });
-		});
-		const click = page.locator('[data-action="toggle-service-identity"]').click();
-		await expect(page.locator(".setup-note")).toHaveText("Working — Windows will ask once");
-		await expect(page.locator('[data-action="identity-next"]')).toBeDisabled();
-		await capture(page, "identity-working");
-		release();
-		await click;
-		await expect(page.locator(".setup-note")).toHaveText("service identity ready");
-		await expect(page.locator('[data-action="toggle-service-identity"]')).toHaveAttribute("aria-checked", "true");
-		await capture(page, "identity-ready");
-		await page.close();
-	}
-	{
-		const page = await harness.context.newPage();
-		await openIdentity(page, () => ({ supported: true, state: "missing" }), (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Windows step failed (error code 5): access denied" }) }));
-		await page.locator('[data-action="toggle-service-identity"]').click();
-		await expect(page.locator(".setup-note")).toContainText("Windows step failed");
-		await capture(page, "identity-failed");
-		await page.close();
-	}
-	{
-		const page = await harness.context.newPage();
-		await openIdentity(page, () => ({ supported: true, state: "missing", setup_unavailable: "the selected connection uses a hostname" }), (route) => route.abort());
-		await expect(page.locator('[data-action="toggle-service-identity"]')).toBeDisabled();
-		await expect(page.locator(".setup-note")).toContainText("uses a hostname");
-		await capture(page, "identity-unavailable");
-		await page.close();
-	}
+	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat`); await toggleSettings(page); await page.locator('.settings-nav [data-id="shell"]').click(); await expect(page.locator(".settings-content")).toContainText("Experimental"); await expect(page.getByRole("switch", { name: "Service identity" })).toBeVisible(); await capture(page); await page.close();
 });
 
 // Item 2nc (c), carried into the journey: the confirmation belongs to its control, and

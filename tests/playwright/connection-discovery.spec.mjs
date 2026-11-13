@@ -115,14 +115,14 @@ test("Defaults offers one fallback dropdown of the other connections 2ro", async
 // an SSE stream. Six of them reach the browser's per-origin HTTP/1.1 connection limit
 // and the next page's requests queue behind them forever — which showed up as a save
 // that said "Saving changes…" and never finished. Each case closes its page.
-test("Setup and Connections share the independent model picker and read-only Test", async () => {
+test("Setup checks a typed model while Connections keeps its independent picker and Test", async () => {
   const setup = await harness.context.newPage();
-  await setup.goto(`${harness.base}/setup`);
-  await setup.getByRole("button", { name: "Query models" }).click();
-  await expect(setup.locator('[data-field="model"]')).toHaveJSProperty("tagName", "SELECT");
-  await expect(setup.locator('[data-field="model"] option')).toHaveText(["absent-model · not served", "alpha-model", "beta-model"]);
-  await setup.getByRole("button", { name: "Test" }).click();
-  await expect(setup.locator(".setup-feedback")).toContainText('Model "absent-model" is not served');
+  await setup.goto(`${harness.base}/setup?from=settings`);
+  await setup.getByRole("button", { name: /More options/ }).click();
+  await setup.getByLabel("Address").fill(`http://127.0.0.1:${harness.modelPort}`);
+  await setup.getByLabel("Model").fill("absent-model");
+  await setup.getByRole("button", { name: "Connect" }).click();
+  await expect(setup.getByText("No model is loaded on that server.", { exact: true })).toBeVisible();
 
   const settings = await harness.context.newPage();
   await settings.goto(`${harness.base}/chat?from=setup#settings/connections`);
@@ -158,25 +158,16 @@ test("Setup and Connections share the independent model picker and read-only Tes
   await settings.close();
 });
 
-test("setup context row distinguishes usable published and typed readings 2sv", async () => {
+test("setup context row uses a published window or a positive suggestion 2sv", async () => {
 	await mkdir(join(repo, "test-results"), { recursive: true });
-	const variants = [
-		["usable", { n_ctx: 200000, observed_byte_limit: 400000 }, "usable ceiling 100000 · saved 100000 above"],
-		["published", { n_ctx: 200000 }, "published window 200000"],
-		["typed", {}, "typed, not measured"],
-	];
-	for (const [name, capabilities, expected] of variants) {
+	for (const [name, published] of [["published", 200000], ["suggested", 0]]) {
 		const page = await harness.context.newPage();
-		await page.route("**/api/state", async (route) => {
-			const response = await route.fetch();
-			const state = await response.json();
-			state.connections[0].capabilities = capabilities;
-			state.connections[0].context.n_ctx = name === "typed" ? 123456 : 200000;
-			await route.fulfill({ response, json: state });
-		});
-		await page.goto(`${harness.base}/setup`);
-		const reading = page.locator('label:has-text("Context size") .setup-note');
-		await expect(reading).toHaveText(expected);
+		await page.route("**/api/connections/setup-model/models", (route) => route.fulfill({ json: { models: ["alpha-model"], model_defaults: { "alpha-model": { context: { n_ctx: published } } } } }));
+		await page.route("**/api/connections/setup-model/probe", (route) => route.fulfill({ json: { status: "passed" } }));
+		await page.goto(`${harness.base}/setup?from=settings`);
+		await page.getByLabel("Address").fill(`http://127.0.0.1:${harness.modelPort}`); await page.getByRole("button", { name: "Connect" }).click();
+		if (published) await expect(page.getByText("200,000", { exact: true })).toBeVisible();
+		else await expect(page.getByLabel("Context size")).toHaveValue("8192");
 		await page.screenshot({ path: join(repo, "test-results", `2sv-context-${name}.png`), fullPage: true });
 		await page.close();
 	}
@@ -185,11 +176,9 @@ test("the install step preselects the largest model that fits 8 GiB 2wa", async 
 	await mkdir(join(repo, "test-results"), { recursive: true });
 	const page = await harness.context.newPage();
 	await page.route("**/api/local-detection", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ accelerators: { cuda: true }, gpus: [{ vendor: "NVIDIA", name: "Test GPU", vram_bytes: 8 * 2 ** 30 }], system_memory_bytes: 32 * 2 ** 30 }) }));
-	await page.goto(`${harness.base}/setup`);
-	await page.getByRole("button", { name: "Install one here" }).click();
-	const select = page.locator('select[data-field="install-model"]');
-	await expect(select.locator("option:checked")).toHaveText("Qwen3.5 4B Q4_K_M · 6 GiB minimum · fits your 8 GiB");
-	await expect(select.locator("option")).toHaveText(["Qwen3.5 0.8B Q4_K_M · 0 GiB minimum", "Qwen3.5 2B Q4_K_M · 4 GiB minimum", "Qwen3.5 4B Q4_K_M · 6 GiB minimum · fits your 8 GiB"]);
+	await page.goto(`${harness.base}/setup?from=settings`);
+	await expect(page.getByText(/Qwen3\.5 4B Q4_K_M/)).toBeVisible();
+	await expect(page.getByRole("button", { name: "Install", exact: true })).toHaveCount(1);
 	await page.screenshot({ path: join(repo, "test-results", "2wa-install-8gib.png"), fullPage: true });
 	await page.close();
 });

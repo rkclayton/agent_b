@@ -276,8 +276,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSuffix(tail, "/probe")
 	connection, ok := s.Connection(id)
 	if !ok {
-		writeError(w, 404, "connection not found", "connection_id")
-		return
+		connection = &config.Connection{ID: id, Label: "My model", RequestTimeoutS: 30}
 	}
 	var body struct {
 		BaseURL string `json:"base_url"`
@@ -287,8 +286,13 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		// is cleared by running it.
 		APIKey          string `json:"api_key"`
 		RequestTimeoutS int    `json:"request_timeout_s"`
+		Setup           bool   `json:"setup"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decode(w, r, &body) {
+		return
+	}
+	if !ok && !body.Setup {
+		writeError(w, http.StatusNotFound, "connection not found", "connection_id")
 		return
 	}
 	tested := *connection
@@ -310,9 +314,15 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tested.Protocol = config.ProtocolForAddress(tested.BaseURL)
-	if err := s.saveDetectedProtocol(id, tested.Protocol); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "connections."+id+".protocol")
+	if body.Setup {
+		s.setupConnectionMessage(w, r, id, tested)
 		return
+	}
+	if ok {
+		if err := s.saveDetectedProtocol(id, tested.Protocol); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "connections."+id+".protocol")
+			return
+		}
 	}
 	discoveryContext, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
@@ -426,10 +436,37 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	duration := max(int(time.Since(started).Milliseconds()), 1)
-	s.releaseReachableConnection(id)
+	if ok {
+		s.releaseReachableConnection(id)
+	}
 	// 2wb: the vision probe runs again and says what it sent and got; it saves nothing.
 	vision, _, seen := probe.Vision(r.Context(), llm.New(&updated))
 	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "duration_ms": duration, "message": fmt.Sprintf("Test passed in %d ms · images: %s (%s)", duration, vision, seen)})
+}
+
+// setupConnectionMessage is the wizard's fourth row: exactly one short request
+// to the already-listed model. It does not run the broader Test probe or save.
+func (s *Server) setupConnectionMessage(w http.ResponseWriter, r *http.Request, id string, tested config.Connection) {
+	timeoutSeconds := max(5, min(tested.RequestTimeoutS, 30))
+	check, stop := context.WithTimeout(r.Context(), time.Duration(timeoutSeconds)*time.Second)
+	defer stop()
+	answer, err := llm.New(&tested).Chat(check, llm.Request{Messages: []llm.Message{{Role: "user", Content: "Reply OK."}}, MaxTokens: 64})
+	if err != nil {
+		detail := strings.Join(strings.Fields(strings.TrimSpace(err.Error())), " ")
+		if tested.APIKey != "" {
+			detail = strings.ReplaceAll(detail, tested.APIKey, "<api-key>")
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			detail = fmt.Sprintf("the model did not answer in %d seconds", timeoutSeconds)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": detail})
+		return
+	}
+	if strings.TrimSpace(answer.Content) == "" && strings.TrimSpace(answer.Reasoning) == "" && len(answer.ToolCalls) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "failed", "connection_id": id, "message": "the model answered with nothing"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "passed", "connection_id": id, "message": "answered"})
 }
 
 func (s *Server) saveDetectedProtocol(id, protocol string) error {

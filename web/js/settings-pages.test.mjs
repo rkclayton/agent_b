@@ -341,7 +341,7 @@ test("stored connection keys reveal briefly and Duplicate stays on the row", () 
 	assert.doesNotMatch(connections, /This server runs one model/);
 });
 
-test("Defaults offers one fallback row with none and only other connections 2ro", () => {
+test("Advanced offers one fallback row with none and only other connections 2ro", () => {
 	const source = fs.readFileSync(new URL("settings-connections.js", import.meta.url), "utf8");
 	assert.match(source, /row\("fallback"[\s\S]*<select[^>]*data-path="\$\{attr\(`connections\.\$\{id\}\.fallback`\)\}"/);
 	assert.match(source, /<option value=""[^>]*>none<\/option>/);
@@ -601,7 +601,7 @@ test("no service identity message names a control the section does not render", 
 
 // Item 2px CHECKS 2, 3 and 5: Edit shows every field before any Test or chosen
 // model; the server's three models fill the picker; the lamp and word are the
-// health state, the same in the header and the form.
+// health state, shown once in the row that is also the form's head.
 test("the connection form is whole before a Test and its models come from the server", () => {
   const context = pageContext();
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "", api_key: "", context: { n_ctx: 32768, reserve_output: 8192 }, reasoning: { enabled: false, control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
@@ -609,12 +609,12 @@ test("the connection form is whole before a Test and its models come from the se
   context.expanded.add("acme");
   context.store.connection_health = { acme: { lamp: "amber", word: "no model chosen" } };
   const typed = renderConnectionsPage(context);
-  for (const label of ["name", "address", "key", "model", "context size", "thinking", "reads images", "Eval", "Recommended", "Defaults", "reserve"]) {
+  for (const label of ["name", "address", "key", "model", "context size", "reads images", "Eval", "Recommended", "Advanced", "reserve"]) {
     assert.ok(typed.includes(label), `${label} is not on the form before a Test`);
   }
 	assert.doesNotMatch(typed, /credential ref/);
   assert.doesNotMatch(typed, /Test to list models/);
-  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 2, "header and form head disagree");
+  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 1, "the open connection repeats its health lamp");
   context.probeMessages.set("acme", { models: ["alpha", "beta", "gamma"] });
   const listed = renderConnectionsPage(context);
   for (const model of ["alpha", "beta", "gamma"]) assert.match(listed, new RegExp(`<option value="${model}"`));
@@ -656,7 +656,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
   const rendered = renderConnectionsPage(context);
   const editor = rendered.slice(rendered.indexOf('<section class="connection-editor"'));
   const defaults = editor.match(/<details class="connection-defaults"[^>]*><summary>([^<]+)<\/summary>/);
-  assert.equal(defaults?.[1], "Defaults");
+  assert.equal(defaults?.[1], "Advanced");
   assert.doesNotMatch(defaults?.[0] || "", /\sopen(?:\s|>)/);
   const visible = editor.slice(0, editor.indexOf('<details class="connection-defaults"'));
   const labels = [...visible.matchAll(/<label[^>]*>([^<]*)<\/label>/g)].map((match) => match[1]).filter(Boolean);
@@ -668,10 +668,10 @@ test("connection editor keeps server controls and leaves thinking to agent profi
   const textNodes = [...editor.matchAll(/>([^<>]+)</g)].map((match) => match[1].trim()).filter(Boolean);
   const allowed = new Set([
     "acme", "http://acme:8080/", "name", "address", "agent profile", "agent_b (default)", "key", "show", "model", "alpha", "type a name…",
-    "context size", "context unknown — enter the size", "thinking", "low", "medium", "high", "reads images",
-    "Test", "Eval", "Recommended", "Defaults", "Connection", "extract_url", "protocol", "attachment handling", "fallback",
+    "context size", "context unknown — enter the size", "reads images",
+    "Test", "Eval", "Recommended", "Advanced", "Connection", "extract_url", "protocol", "attachment handling", "fallback",
     "auto", "native", "extract", "runs at once", "timeout", "probe mode", "full", "minimal", "off", "Reasoning &amp; context",
-    "control", "chat_template_kwargs", "top_level", "server_flag", "none", "effort", "preserve", "reasoning cap", "reserve",
+    "control", "chat_template_kwargs", "top_level", "server_flag", "none", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",
     "repeat penalty", "llama.cpp only", "System prompt", "system prompt override", "Capabilities", "not probed",
     "no findings", "Save", "Duplicate", "images", "chat's connection", "server default", "Connectors", "No connectors configured.",

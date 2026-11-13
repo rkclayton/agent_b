@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -227,6 +228,9 @@ func connectionWithProfileThinking(connection config.Connection, profile config.
 		control = connection.Capabilities.ReasoningControl
 	}
 	connection.Reasoning.Enabled = profile.Thinking && control != "" && control != "none"
+	if profile.Effort != "" && slices.Contains(connection.Reasoning.ValidEfforts, profile.Effort) {
+		connection.Reasoning.Effort = profile.Effort
+	}
 	return connection
 }
 func (r *Runner) Gate() *Gate                     { return r.gate }

@@ -37,6 +37,7 @@ test.beforeAll(async () => {
     // listing does not offer, which is still exactly this case.
     connectionModel: "absent-model",
     agents: ["Private fixture"],
+    validEfforts: ["low", "medium", "high"],
   });
 });
 
@@ -71,6 +72,102 @@ test("persistent PowerShell mode round-trips on the Profiles editor 2xj", async 
   await page.close();
 });
 
+test("custom profile thinking applies alone and a refusal sits beside its switch 2y0", async () => {
+  const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.goto(`${harness.base}/chat`);
+  await openSettings(page);
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  const thinking = page.locator('[data-action="thinking"]');
+  await expect(thinking).toHaveAttribute("aria-checked", "true");
+  await thinking.click();
+  await expect(thinking).toHaveAttribute("aria-checked", "false");
+  await page.reload();
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  await expect(page.locator('[data-action="thinking"]')).toHaveAttribute("aria-checked", "false");
+  await page.route("**/api/agents", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "profile update refused", field: "thinking" }) }));
+  await page.locator('[data-action="thinking"]').click();
+  await expect(page.locator('[data-agent-error="thinking"]')).toHaveText("profile update refused");
+  await page.close();
+});
+
+test("thinking effort lives on the profile and the connection keeps only its advanced server controls 2y1", async () => {
+  test.setTimeout(120_000);
+  const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.goto(`${harness.base}/chat`);
+  await openSettings(page);
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  if (await page.locator('[data-action="thinking"]').getAttribute("aria-checked") === "false") {
+    const enabled = page.waitForResponse((response) => response.url().endsWith("/api/agents") && response.request().method() === "POST");
+    await page.locator('[data-action="thinking"]').click();
+    expect((await enabled).status()).toBe(200);
+    await page.reload();
+    await page.locator('.settings-nav [data-id="profiles"]').click();
+    const customProfile = await page.locator('#panel-agent option').evaluateAll((options) =>
+      options.map((option) => option.value).find((value) => value && value !== "agent_b"));
+    await page.locator('#panel-agent').selectOption(customProfile);
+  }
+  const effort = page.locator(".profile-effort");
+  await expect(effort.getByRole("button")).toHaveText(["model default", "low", "medium", "high"]);
+  await effort.getByRole("button", { name: "low", exact: true }).click();
+  await expect(effort.getByRole("button", { name: "low", exact: true })).toHaveClass(/selected/);
+  await page.reload();
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  await expect(page.locator('.profile-effort').getByRole("button", { name: "low", exact: true })).toHaveClass(/selected/);
+  await page.locator('[data-action="thinking"]').click();
+  await expect(page.locator(".profile-effort")).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(repo, "logs", "evidence", "rel-1.62.205", "captures", "profile-thinking-off-1280x860.png") });
+  await page.evaluate(() => document.querySelector('.settings-nav [data-id="connections"]').click());
+  await page.evaluate(() => document.querySelector('[data-action="connection-toggle"][data-id="ui"]').click());
+  await expect(page.locator(".connection-defaults > summary")).toHaveText("Advanced");
+  expect(await page.evaluate(() => document.querySelector(".connection-defaults").textContent.includes("effort"))).toBe(false);
+  await page.close();
+});
+
+test("the connection row is its only head and profile fields save on blur 2y2", async () => {
+  test.setTimeout(120_000);
+  const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.goto(`${harness.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await expect(page.locator(".connection-list").first().locator(".lamp")).toHaveCount(1);
+  await expect(page.locator(".connection-editor-head")).toHaveCount(0);
+  await expect(page.locator(".connection-primary [data-vision-verdict]")).toHaveCount(0);
+  const captures = join(repo, "logs", "evidence", "rel-1.62.205", "captures");
+  await mkdir(captures, { recursive: true });
+  for (const [size, width, height] of [["minimum", 304, 254], ["1280x860", 1280, 860], ["1920x1080", 1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+    await page.screenshot({ path: join(captures, `connection-open-${size}.png`) });
+  }
+  await page.locator(".connection-defaults > summary").click();
+  await expect(page.locator(".connection-capabilities")).toContainText("probe: rejected");
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+  const nameSaved = page.waitForResponse((response) => response.url().endsWith("/api/agents") && response.request().method() === "POST");
+  await page.evaluate(() => { const field = document.querySelector('[data-field="name"]'); field.value = "Renamed fixture"; field.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+  expect((await nameSaved).status()).toBe(200);
+  await expect(page.locator('#panel-agent')).toHaveValue("renamed-fixture");
+  await page.waitForTimeout(500);
+  const promptSaved = page.waitForResponse((response) => response.url().endsWith("/api/agents") && response.request().method() === "POST");
+  await page.evaluate(() => { const field = document.querySelector('[data-field="prompt"]'); field.value = "Begin with the task."; field.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+  expect((await promptSaved).status()).toBe(200);
+  await page.reload();
+  await page.locator('.settings-nav [data-id="profiles"]').click();
+  await page.locator('#panel-agent').selectOption({ label: "Renamed fixture" });
+  await expect(page.locator('[data-field="prompt"]')).toHaveValue("Begin with the task.");
+  await page.route("**/api/agents", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "name is already used", field: "name" }) }));
+  await page.evaluate(() => { const field = document.querySelector('[data-field="name"]'); field.value = "Taken"; field.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+  await expect(page.locator('[data-agent-error="name"]')).toHaveText("name is already used");
+  await expect(page.locator('[data-field="name"]')).toHaveValue("Renamed fixture");
+  await page.close();
+});
+
 test("the images row has two picks and saves them 2s3", async () => {
   const captures = join(repo, "logs", "evidence", "rel-1.62.51", "captures");
   await mkdir(captures, { recursive: true });
@@ -101,7 +198,7 @@ test("the images row has two picks and saves them 2s3", async () => {
   await page.close();
 });
 
-test("Defaults offers one fallback dropdown of the other connections 2ro", async () => {
+test("Advanced offers one fallback dropdown of the other connections 2ro", async () => {
 	const evidence = join(repo, "logs", "evidence", "rel-1.62.41", "captures"); await mkdir(evidence, { recursive: true });
 	const page = await harness.context.newPage(); await page.goto(`${harness.base}/chat#settings/connections`);
 	await page.locator('[data-action="duplicate-connection"][data-id="ui"]').click(); await expect(page.locator('[data-action="connection-toggle"]')).toHaveCount(2);
@@ -264,7 +361,7 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   await narrow.close();
 });
 
-test("2qx eight-field editor and closed Defaults fit wide and narrow", async () => {
+test("2qx eight-field editor and closed Advanced fit wide and narrow", async () => {
   const evidence = process.env.AGENTB_EVIDENCE_DIR;
   for (const width of [1400, 304]) {
     const context = await harness.browser.newContext({ viewport: { width, height: width === 304 ? 700 : 900 } });
@@ -275,7 +372,7 @@ test("2qx eight-field editor and closed Defaults fit wide and narrow", async () 
     const visibleLabels = editor.locator(':scope > .connection-fields > .connection-primary > .setting-row > label');
     expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
     const defaults = editor.locator("details.connection-defaults");
-    await expect(defaults.locator(":scope > summary")).toHaveText("Defaults");
+    await expect(defaults.locator(":scope > summary")).toHaveText("Advanced");
     await expect(defaults).not.toHaveAttribute("open", "");
     const geometry = await editor.evaluate((node) => ({
       right: node.getBoundingClientRect().right,
@@ -800,7 +897,9 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
       return measured;
     };
     const builtIn = await stableAgentMetrics();
-    await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+    const customProfile = await page.locator('#panel-agent option').evaluateAll((options) =>
+      options.map((option) => option.value).find((value) => value && value !== "agent_b"));
+    await page.locator('#panel-agent').selectOption(customProfile);
     await expect(page.locator('.settings-content [data-field="private"]')).toBeVisible();
     await settle(page);
     const added = await stableAgentMetrics();

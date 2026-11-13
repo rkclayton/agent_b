@@ -62,7 +62,6 @@ function connections() {
       const refusal = errors.get(`connections.${connection.id}`) || "";
       const failedTest = !isOpen ? failedTestLine(feedback, connection.id) : "";
       const editor = isOpen ? `<section class="connection-editor" aria-label="${attr(connection.label)} connection settings">
-        <div class="connection-editor-head"><div><span class="lamp ${health.lamp}"></span><h3>${html(connection.label)}</h3><span class="connection-url">${html(connection.base_url)}</span></div></div>
         <div class="connection-fields">${connectionFields(connection, connectionReason(connection), feedback)}</div>
       </section>` : "";
       return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}" data-action="connection-toggle" data-id="${attr(connection.id)}" role="button" tabindex="0" aria-expanded="${isOpen}">
@@ -175,12 +174,14 @@ function connectionFields(connection, reason, discovery) {
   const modelSettings = (connection.models || []).find((item) => item.model === shownModel) || discovery?.modelDefaults?.[shownModel];
   const shown = modelSettings ? { ...connection, ...modelSettings, model: shownModel } : connection;
   const caps = shown.capabilities || {};
-  const efforts = shown.reasoning?.valid_efforts || caps.valid_efforts || [];
   const llama = caps.server === "llama.cpp";
   const legacyLearnedLimit = caps.observed_byte_limit > 0 && !(caps.findings || []).some((value) => String(value).startsWith("usable ceiling:"));
+  const verdict = { "reads images": "read a digit", "accepts images but does not read them": "accepted, did not read", rejected: "rejected" }[caps.vision];
+  const visionFinding = verdict && caps.probed_at ? `probe: ${verdict} · ${String(caps.probed_at).slice(0, 10)}` : "";
   const findings = (caps.findings || [])
     .filter((value) => !legacyLearnedLimit || !String(value).startsWith("size limit:"))
     .map((value) => `<li>${html(value)}</li>`)
+    .concat(visionFinding ? [`<li>${html(visionFinding)}</li>`] : [])
     .concat(memoryFinding())
     .join("");
   const samplingRows = [
@@ -253,17 +254,10 @@ function connectionFields(connection, reason, discovery) {
 	    : noteText ? `<p class="settings-note discovery-note ${discovery?.alarm ? "alarm" : ""}">${html(noteText)}</p>` : "";
 	const boolDraft = (path, saved) => drafts.has(path) ? drafts.get(path) === true || drafts.get(path) === "true" : !!saved;
 	const switchControl = (path, selected, label) => `<button type="button" role="switch" aria-checked="${selected}" aria-label="${attr(label)}" class="switch ${selected ? "on" : ""}" data-action="config-toggle" data-path="${attr(path)}" data-value="${selected ? "false" : "true"}"></button>`;
-	const effortPath = `${p}.reasoning.effort`;
-	const selectedEffort = drafts.has(effortPath) ? drafts.get(effortPath) : shown.reasoning.effort;
-	const effortControl = efforts.length
-	  ? `<span class="choice-row">${efforts.map((effort) => `<button type="button" class="${effort === selectedEffort ? "selected" : ""}" data-action="config-choice" data-path="${attr(effortPath)}" data-value="${attr(effort)}">${html(effort)}</button>`).join("")}</span>`
-	  : '<span class="settings-note inline">unavailable</span>';
 	const imagePath = `${p}.reads_images`;
 	const readsImages = boolDraft(imagePath, shown.reads_images);
 	// 2wb: the probe's verdict is a dated fact beside the switch; it decides nothing.
-	const verdict = { "reads images": "read a digit", "accepts images but does not read them": "accepted, did not read", rejected: "rejected" }[caps.vision];
-	const verdictFact = verdict && caps.probed_at ? `<span class="settings-note inline" data-vision-verdict>${html(`probe: ${verdict} · ${String(caps.probed_at).slice(0, 10)}`)}</span>` : "";
-	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images") + verdictFact, "", false);
+	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
 	const serverWindow = Number(store?.connection_health?.[id]?.window || caps.n_ctx || 0);
 	const contextProblem = reason?.startsWith("context ") ? reason : "";
 	const contextFact = serverWindow > 0 && !Number(shown.context.n_ctx || 0)
@@ -282,7 +276,7 @@ function connectionFields(connection, reason, discovery) {
 	${modelControl}${contextControl}${imageControl}
 	${row("", primaryActions, "connection-primary-row", false)}${discoveryNote}</div>
 	${feedback}${measurementResult}
-	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Defaults</summary>
+	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
 	${choices(`${p}.protocol`, "protocol", ["chat-completions", "anthropic-messages", "openai-responses"], connection.protocol || "chat-completions", false)}
@@ -293,7 +287,6 @@ function connectionFields(connection, reason, discovery) {
 	${fallbackControl}</div>
 	    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
 	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], shown.reasoning.control, false)}
-	    ${row("effort", effortControl, "", false)}
 	    ${toggle(`${p}.reasoning.preserve`, "preserve", shown.reasoning.preserve, false)}
 	    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", shown.reasoning.max_tokens || 0, "1", false, "", false, "number", false)}
 	    ${number(`${p}.context.reserve_output`, "reserve", shown.context.reserve_output, "1", false, "", false, "number", false)}</div>

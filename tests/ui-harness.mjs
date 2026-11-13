@@ -46,13 +46,13 @@ async function stopChild(child) {
 
 const TOOLSET = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service"];
 
-function configFor({ appPort, modelPort, data, workspace, agents = [], connectionModel = "ui-harness", brokerURL = "", memoryEnabled = false }) {
+function configFor({ appPort, modelPort, data, workspace, agents = [], connectionModel = "ui-harness", brokerURL = "", memoryEnabled = false, validEfforts = [] }) {
   return {
     config_version: 15, listen: `127.0.0.1:${appPort}`, workspace, log_dir: join(data, "logs"),
     connections: [{
       id: "ui", label: "UI", base_url: `http://127.0.0.1:${modelPort}`, model: connectionModel, credential: "", request_timeout_s: 2, probe_mode: "off",
       sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },
-      reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: [], preserve: false },
+      reasoning: { control: "auto", enabled: false, effort: "medium", valid_efforts: validEfforts, preserve: false },
       context: { n_ctx: 32768, reserve_output: 10240 }, system_prompt_override: "",
       capabilities: { connection: "ui-harness", props: true, n_ctx: 32768, tokenize: true, apply_template: true, apply_template_tools: true, streaming: true, tool_calls: true, grammar_constrained: false, cached_tokens: true, timings: false, prompt_progress: false, document_input: false, image_input: false, vision: "rejected", reasoning_control: "", valid_efforts: [], overflow_behavior: "error", probed_at: new Date().toISOString(), findings: [] },
     }],
@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [] }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -124,7 +124,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 
   const appPort = await freePort();
   const configPath = join(dataRoot, "harness.json");
-  let config = configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL, memoryEnabled });
+  let config = configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL, memoryEnabled, validEfforts });
   if (reuseConfig) {
 		config = JSON.parse(await readFile(configPath, "utf8"));
 		config.listen = `127.0.0.1:${appPort}`;

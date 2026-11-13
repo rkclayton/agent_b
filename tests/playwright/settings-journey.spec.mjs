@@ -771,7 +771,7 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
 });
 
 // 2qx replaces the two identity halves with the settings people change;
-// the action line and collapsed Defaults remain beneath them.
+// the action line and collapsed Advanced section remain beneath them.
 test("the probe verdict is a dated fact and Test names what it sent and got 2wb", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
@@ -779,7 +779,8 @@ test("the probe verdict is a dated fact and Test names what it sent and got 2wb"
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
-  await expect(page.locator(".connection-editor [data-vision-verdict]")).toHaveText(/^probe: rejected · \d{4}-\d{2}-\d{2}$/);
+  await page.locator('.connection-defaults > summary').click();
+  await expect(page.locator(".connection-capabilities li").filter({ hasText: "probe: rejected" })).toHaveText(/^probe: rejected · \d{4}-\d{2}-\d{2}$/);
   await page.screenshot({ path: join(repo, "test-results", "2wb-verdict.png") });
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator(".connection-editor")).toHaveCount(0);
@@ -806,12 +807,12 @@ test("the probe verdict is a dated fact and Test names what it sent and got 2wb"
   await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await tested;
   await expect(page.locator(".connection-editor .discovery-note")).toContainText(/Test passed in \d+ ms · images: accepts images but does not read them \(sent digit \d; got "ui harness reply"\)/);
-  await expect(page.locator(".connection-editor [data-vision-verdict]"), "an unprobed connection has no verdict").toHaveCount(0);
+  await expect(page.locator(".connection-capabilities li").filter({ hasText: "probe:" }), "an unprobed connection has no verdict").toHaveCount(0);
   await page.screenshot({ path: join(repo, "test-results", "2wb-connections.png") });
   await page.close();
 });
 
-test("the sheet reads as eight ordered fields above its actions and Defaults", async () => {
+test("the sheet reads as eight ordered fields above its actions and Advanced", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -824,7 +825,7 @@ test("the sheet reads as eight ordered fields above its actions and Defaults", a
 	const labels = async () => (await editor.locator(":scope > .connection-fields > .connection-primary > .setting-row > label").allTextContents()).filter(Boolean);
 	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
   await expect(page.locator(".connection-defaults")).not.toHaveAttribute("open", /.*/);
-  await expect(page.locator(".connection-defaults > summary")).toHaveText("Defaults");
+  await expect(page.locator(".connection-defaults > summary")).toHaveText("Advanced");
   await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
 
 	// The empty new connection does not collapse or reorder the fields.

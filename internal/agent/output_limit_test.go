@@ -158,3 +158,21 @@ func TestProfileThinkingDecidesEachRequestForm2tp(t *testing.T) {
 		t.Fatal("a server that cannot think was sent thinking")
 	}
 }
+
+func TestProfileEffortOverlaysOnlyWhenTheConnectionAcceptsIt2y1(t *testing.T) {
+	base := config.Connection{Reasoning: config.Reasoning{Control: "top_level", Enabled: true, Effort: "medium", ValidEfforts: []string{"low", "medium", "high"}}}
+	if got := connectionWithProfileThinking(base, config.Agent{Thinking: true, Effort: "low"}).Reasoning.Effort; got != "low" {
+		t.Fatalf("accepted profile effort=%q, want low", got)
+	}
+	if got := connectionWithProfileThinking(base, config.Agent{Thinking: true, Effort: ""}).Reasoning.Effort; got != "medium" {
+		t.Fatalf("model-default effort=%q, want connection medium", got)
+	}
+	unsupported := base
+	unsupported.Reasoning.ValidEfforts = nil
+	if got := connectionWithProfileThinking(unsupported, config.Agent{Thinking: true, Effort: "high"}).Reasoning.Effort; got != "medium" {
+		t.Fatalf("unsupported profile effort=%q, want connection medium", got)
+	}
+	if connectionWithProfileThinking(base, config.Agent{Thinking: false, Effort: "low"}).Reasoning.Enabled {
+		t.Fatal("thinking-off profile still requested reasoning")
+	}
+}

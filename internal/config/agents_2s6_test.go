@@ -32,6 +32,13 @@ func TestAgentNewFieldsAndLegacyPromptMigration(t *testing.T) {
 	if legacy.Prompt != "old" {
 		t.Fatalf("legacy prompt = %q", legacy.Prompt)
 	}
+	var currentWithoutEffort Agent
+	if err := json.Unmarshal([]byte(`{"name":"Current","thinking":true,"toolset":["read_file"],"future_key":"ignored"}`), &currentWithoutEffort); err != nil {
+		t.Fatal(err)
+	}
+	if currentWithoutEffort.Effort != "" || !currentWithoutEffort.Thinking || len(currentWithoutEffort.Toolset) != 1 {
+		t.Fatalf("an unchanged saved profile changed while loading: %#v", currentWithoutEffort)
+	}
 }
 
 func TestAgentConnectionSelectsItsModel(t *testing.T) {

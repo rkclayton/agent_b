@@ -57,13 +57,14 @@ test("Settings navigation remains install-global while agent controls live on Ag
 });
 
 test("thinking is a prominent agent-profile switch and not a connection switch 2tp", () => {
-  assert.match(script, /field\("thinking", thinking\)/);
+  assert.match(script, /field\("thinking", thinkingControl/);
   assert.match(script, /setAttribute\("role", "switch"\)/);
   assert.match(script, /action === "thinking"[\s\S]{0,160}thinking: !agent\.thinking/);
+  assert.match(script, /profile-effort/);
   assert.doesNotMatch(settings, /reasoning\.enabled/);
   assert.match(settings, /reasoning\.control/);
   assert.match(settings, /reasoning\.max_tokens/);
-  assert.match(settings, /reasoning\.effort/);
+  assert.doesNotMatch(settings, /row\("effort"/);
 });
 
 test("Agent profile controls gain wrapped height before narrow layouts can clip them", () => {

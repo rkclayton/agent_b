@@ -19,6 +19,7 @@ let selectedAgent = "";
 let ledger = null;
 // "No lifetime activity" is said only once the ledger has been asked.
 let ledgerAsked = false;
+const agentErrors = new Map();
 let renderFrame = 0;
 let mounted = false;
 const liveContent = document.getElementById("panel-live-content");
@@ -43,6 +44,7 @@ const dropControl = createMessageDropController(dropLastMessage, {
 
 agentSelect.addEventListener("change", () => {
   selectedAgent = agentSelect.value;
+  agentErrors.clear();
   const current = store.sessions[store.active];
   if (current?.agent_id !== selectedAgent) {
     const next = Object.values(store.sessions).filter((session) => !session.closed && session.agent_id === selectedAgent)
@@ -53,6 +55,7 @@ agentSelect.addEventListener("change", () => {
 });
 activityProfile.addEventListener("change", () => {
   selectedAgent = activityProfile.value;
+  agentErrors.clear();
   void refreshLedger();
 });
 // b's row and the strip's switcher write the same setting, so
@@ -60,10 +63,15 @@ activityProfile.addEventListener("change", () => {
 roleTable.addEventListener("change", (event) => {
   if (event.target instanceof HTMLSelectElement && event.target.dataset.role) void changeAgentConnection(event.target.value, event.target.dataset.role);
   else if (event.target instanceof HTMLSelectElement && event.target.dataset.field === "powershell") void editAgent("powershell");
+  else if (event.target instanceof HTMLInputElement && event.target.dataset.field === "private") void editAgent("private");
+});
+roleTable.addEventListener("focusout", (event) => {
+  const field = event.target instanceof HTMLElement ? event.target.dataset.field : "";
+  if (field === "name" || field === "prompt") void editAgent(field);
 });
 roleTable.addEventListener("click", (event) => {
   const action = event.target instanceof HTMLElement ? event.target.dataset.action : "";
-  if (action) void editAgent(action);
+  if (action) void editAgent(action, event.target.dataset.value || "");
 });
 document.getElementById("clear-stats").addEventListener("click", () => void clearStats());
 document.getElementById("flush-memory").addEventListener("click", () => void flushMemory());
@@ -255,7 +263,12 @@ function renderAgentConnection(agent) {
   const connections = store.config.connections?.length ? store.config.connections : store.connections || [];
   if (!agent) { roleTable.replaceChildren(); return; }
   const builtIn = selectedAgent === "agent_b";
-  const field = (label, control) => { const row = node("label", "panel-role-row"); row.append(text(label, "panel-role-name"), control); return row; };
+  const field = (label, control, errorKey = "") => {
+    const row = node("label", "panel-role-row"); row.append(text(label, "panel-role-name"), control);
+    const message = agentErrors.get(errorKey);
+    if (message) { const error = text(message, "field-error panel-role-error"); error.dataset.agentError = errorKey; row.append(error); }
+    return row;
+  };
   const name = document.createElement("input"); name.value = agent.name || ""; name.dataset.field = "name"; name.disabled = builtIn;
   const prompt = document.createElement("textarea"); prompt.value = builtIn ? "Shipped opening prompt" : (agent.prompt || ""); prompt.dataset.field = "prompt"; prompt.disabled = builtIn;
   const helper = (role) => {
@@ -265,29 +278,48 @@ function renderAgentConnection(agent) {
     return field(roleNames[role], select);
   };
   const thinking = button("", "thinking"); thinking.type = "button"; thinking.dataset.action = "thinking"; thinking.setAttribute("role", "switch"); thinking.setAttribute("aria-checked", String(!!agent.thinking)); thinking.className = `switch ${agent.thinking ? "on" : ""}`;
+  const effortOrder = ["low", "medium", "high"];
+  const offeredEfforts = new Set((store.config.connections || []).flatMap((connection) => connection.reasoning?.valid_efforts || connection.capabilities?.valid_efforts || []));
+  const effort = node("span", "choice-row profile-effort");
+  for (const value of ["", ...effortOrder.filter((value) => offeredEfforts.has(value))]) {
+    const choice = button(value || "model default", value || "model default"); choice.dataset.action = "effort"; choice.dataset.value = value;
+    if ((agent.effort || "") === value) choice.classList.add("selected");
+    effort.append(choice);
+  }
+  const thinkingControl = node("span", "profile-thinking-control"); thinkingControl.append(thinking); if (agent.thinking) thinkingControl.append(effort);
   const powershell = document.createElement("select"); powershell.dataset.field = "powershell";
   powershell.append(option("", "Off", !agent.powershell), option("read", "Read only", agent.powershell === "read"), option("full", "Full", agent.powershell === "full"));
-  const rows = [field("name", name), field("thinking", thinking), field("persistent PowerShell", powershell), field("opening prompt", prompt), helper("c"), helper("d")];
+  const rows = [field("name", name, "name"), field("thinking", thinkingControl, "thinking"), field("persistent PowerShell", powershell, "powershell"), field("opening prompt", prompt, "prompt"), helper("c"), helper("d")];
   if (!builtIn) {
     const privateToggle = document.createElement("input"); privateToggle.type = "checkbox"; privateToggle.checked = !!agent.private; privateToggle.dataset.field = "private";
     privateToggle.title = "this agent only writes to its own memory but can still read shared";
-    rows.push(field("private", privateToggle));
+    rows.push(field("private", privateToggle, "private"));
   }
   const actions = node("div", "panel-role-row settings-actions");
-  for (const [action, label] of [["save", "Save"], ["add", "Add"], ["duplicate", "Duplicate"], ["delete", "Delete"]]) {
-    const control = button(label, label); control.dataset.action = action; control.disabled = store.replay || (builtIn && (action === "save" || action === "delete")); actions.append(control);
+  for (const [action, label] of [["add", "Add"], ["duplicate", "Duplicate"], ["delete", "Delete"]]) {
+    const control = button(label, label); control.dataset.action = action; control.disabled = store.replay || (builtIn && action === "delete"); actions.append(control);
   }
   rows.push(actions);
   roleTable.replaceChildren(...rows);
 }
 
-async function editAgent(action) {
+async function editAgent(action, value = "") {
   const agent = (store.config.agents || []).find((value) => agentKey(value) === selectedAgent);
   if (!agent) return;
   const read = (field) => roleTable.querySelector(`[data-field="${field}"]`);
   let body;
+  const errorKey = action === "effort" ? "thinking" : action;
+  agentErrors.delete(errorKey);
   if (action === "thinking") {
     body = { action: "update", id: selectedAgent, thinking: !agent.thinking };
+  } else if (action === "effort") {
+    body = { action: "update", id: selectedAgent, effort: value };
+  } else if (action === "name") {
+    body = { action: "update", id: selectedAgent, name: read("name")?.value };
+  } else if (action === "prompt") {
+    body = { action: "update", id: selectedAgent, prompt: read("prompt")?.value };
+  } else if (action === "private") {
+    body = { action: "update", id: selectedAgent, private: !!read("private")?.checked };
   } else if (action === "powershell") {
     body = { action: "update", id: selectedAgent, powershell: read("powershell")?.value || "" };
   } else if (action === "add") {
@@ -299,15 +331,12 @@ async function editAgent(action) {
   } else if (action === "delete") {
     if (!await requestConfirmation(`Delete ${agent.name}?`, { confirmLabel: "Delete", danger: true })) return;
     body = { action: "delete", id: selectedAgent };
-  } else {
-    body = { action: "update", id: selectedAgent, name: read("name")?.value, prompt: selectedAgent === "agent_b" ? "" : read("prompt")?.value,
-      tools: agent.toolset || [], private: !!read("private")?.checked, thinking: !!agent.thinking };
-  }
+  } else return;
   try {
     const result = await api("/api/agents", body);
     if (result.agent_id) selectedAgent = result.agent_id;
     reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-  } catch (error) { showError(error.message); }
+  } catch (error) { agentErrors.set(errorKey, error.message); scheduleRender(); }
 }
 
 async function changeAgentConnection(connectionID, role = "b") {

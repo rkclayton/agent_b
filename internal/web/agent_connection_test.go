@@ -398,6 +398,18 @@ func TestAgentCRUDProtectsBuiltInAndRebindsOneChat2s6(t *testing.T) {
 	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Prompt != "begin here" || !agent.Private || agent.PowerShell != "read" || len(agent.Toolset) != 1 {
 		t.Fatalf("renamed agent=%#v, %v", agent, ok)
 	}
+	if result := post(`{"action":"update","id":"analyst","thinking":false}`); result.Code != http.StatusOK {
+		t.Fatalf("thinking-only custom update=%d %s", result.Code, result.Body)
+	}
+	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Thinking || agent.Name != "Analyst" || agent.Prompt != "begin here" || !agent.Private || agent.PowerShell != "read" || len(agent.Toolset) != 1 || agent.Toolset[0] != "read_file" {
+		t.Fatalf("thinking-only custom update changed another field: %#v, %v", agent, ok)
+	}
+	if result := post(`{"action":"update","id":"analyst","powershell":"full"}`); result.Code != http.StatusOK {
+		t.Fatalf("PowerShell-only custom update=%d %s", result.Code, result.Body)
+	}
+	if agent, ok := fixture.server.ConfigSnapshot().Agent("analyst"); !ok || agent.Thinking || agent.Name != "Analyst" || agent.Prompt != "begin here" || !agent.Private || agent.PowerShell != "full" || len(agent.Toolset) != 1 || agent.Toolset[0] != "read_file" {
+		t.Fatalf("PowerShell-only custom update changed another field: %#v, %v", agent, ok)
+	}
 	if result := postConfigPatch(t, fixture.server, `{"connections":[{"id":"old","agent_profile":"research"}]}`); result.Code != http.StatusOK {
 		t.Fatalf("assign profile=%d %s", result.Code, result.Body)
 	}

@@ -1379,6 +1379,7 @@
 }
 .connection-row.selected {
   background: var(--well);
+  border-bottom: 0;
 }
 .connection-summary {
   min-width: 0;
@@ -1409,26 +1410,8 @@
 .connection-actions .row-action[data-action="remove-connection"] { color: var(--alarm); }
 .connection-editor {
   padding: 12px 0 22px;
+  background: var(--well);
   border-bottom: 1px solid rgba(112, 125, 139, 0.28);
-}
-.connection-editor-head,
-.connection-editor-head > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.connection-editor-head {
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.connection-editor-head h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
-.connection-editor-head .connection-url {
-  max-width: 42ch;
 }
 .connection-fields {
   display: grid;
@@ -2325,6 +2308,8 @@
   font-variant-numeric: tabular-nums;
 }
 .panel-role-row > :is(input:not([type="checkbox"]), select, textarea):disabled { color: var(--mute); opacity: 1; }
+.panel-role-error { grid-column: 2; }
+.profile-thinking-control { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .panel-role-row.settings-actions {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;

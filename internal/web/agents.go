@@ -9,15 +9,16 @@ import (
 )
 
 type agentRequest struct {
-	Action     string   `json:"action"`
-	ID         string   `json:"id"`
-	SourceID   string   `json:"source_id"`
-	Name       string   `json:"name"`
-	Prompt     string   `json:"prompt"`
-	Tools      []string `json:"tools"`
-	Private    bool     `json:"private"`
-	Thinking   *bool    `json:"thinking"`
-	PowerShell *string  `json:"powershell"`
+	Action     string    `json:"action"`
+	ID         string    `json:"id"`
+	SourceID   string    `json:"source_id"`
+	Name       *string   `json:"name"`
+	Prompt     *string   `json:"prompt"`
+	Tools      *[]string `json:"tools"`
+	Private    *bool     `json:"private"`
+	Thinking   *bool     `json:"thinking"`
+	Effort     *string   `json:"effort"`
+	PowerShell *string   `json:"powershell"`
 }
 
 func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +34,10 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	body.Name = strings.TrimSpace(body.Name)
+	name := ""
+	if body.Name != nil {
+		name = strings.TrimSpace(*body.Name)
+	}
 	s.mu.Lock()
 	before := append([]config.Agent(nil), s.cfg.Agents...)
 	connectionsBefore := append([]config.Connection(nil), s.cfg.Connections...)
@@ -57,13 +61,13 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 404, "source agent not found", "source_id")
 			return
 		}
-		if body.Name == "" {
+		if name == "" {
 			s.mu.Unlock()
 			writeError(w, 400, "name is required", "name")
 			return
 		}
 		next := s.cfg.Agents[source]
-		next.Name = body.Name
+		next.Name = name
 		if body.Action == "add" {
 			next.Thinking = true
 			next.PowerShell = ""
@@ -83,20 +87,31 @@ func (s *Server) agentsEndpoint(w http.ResponseWriter, r *http.Request) {
 		if body.Thinking != nil {
 			s.cfg.Agents[index].Thinking = *body.Thinking
 		}
+		if body.Effort != nil {
+			s.cfg.Agents[index].Effort = strings.TrimSpace(*body.Effort)
+		}
 		if body.PowerShell != nil {
 			s.cfg.Agents[index].PowerShell = strings.TrimSpace(*body.PowerShell)
 		}
 		if !builtIn {
-			if body.Name == "" {
+			if body.Name != nil && name == "" {
 				s.mu.Unlock()
 				writeError(w, 400, "name is required", "name")
 				return
 			}
-			s.cfg.Agents[index].Name = body.Name
-			s.cfg.Agents[index].Prompt = body.Prompt
-			s.cfg.Agents[index].Toolset = append([]string(nil), body.Tools...)
-			s.cfg.Agents[index].Private = body.Private
-		} else if (body.Name != "" && body.Name != "agent_b") || body.Prompt != "" || body.Private || (body.Tools != nil && !sameStrings(body.Tools, s.cfg.Agents[index].Toolset)) {
+			if body.Name != nil {
+				s.cfg.Agents[index].Name = name
+			}
+			if body.Prompt != nil {
+				s.cfg.Agents[index].Prompt = *body.Prompt
+			}
+			if body.Tools != nil {
+				s.cfg.Agents[index].Toolset = append([]string(nil), (*body.Tools)...)
+			}
+			if body.Private != nil {
+				s.cfg.Agents[index].Private = *body.Private
+			}
+		} else if (body.Name != nil && name != "agent_b") || (body.Prompt != nil && *body.Prompt != "") || (body.Private != nil && *body.Private) || (body.Tools != nil && !sameStrings(*body.Tools, s.cfg.Agents[index].Toolset)) {
 			s.mu.Unlock()
 			writeError(w, 400, "agent_b name, prompt and tools are read-only", "agent")
 			return

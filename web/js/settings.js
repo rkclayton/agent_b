@@ -1858,7 +1858,7 @@ async function blur(event) {
       settingsSaveMessage = "Unsaved — use the save beside the setting";
       refreshSaveControls();
 		} else if (path.startsWith("connections.")) {
-			// A pointer moving from a field to Test, Eval, Recommended, Defaults or a
+			// A pointer moving from a field to Test, Eval, Recommended, Advanced or a
 			// row action blurs before its click is dispatched. Let that click land on
 			// the existing control before the successful save redraws the editor.
 			setTimeout(() => void applySetting(path), 0);

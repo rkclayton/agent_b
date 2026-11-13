@@ -1006,7 +1006,7 @@ func TestPairingAgainStopsTheOldSessionBeforeTheNewDial2t1(t *testing.T) {
 func TestADeviceSeesEachAgentsToolsAndAToggleReachesIt2ws(t *testing.T) {
 	server := dispatchServer(t)
 	server.mu.Lock()
-	server.cfg.Agents = append(server.cfg.Agents, config.Agent{Name: "Second", B: "remote", Toolset: []string{"read_file", "shell"}})
+	server.cfg.Agents = append(server.cfg.Agents, config.Agent{Name: "Second", B: "remote", Toolset: []string{"read_file", "shell"}, Effort: "high"})
 	server.mu.Unlock()
 	second := config.AgentID("Second")
 	type row struct {
@@ -1019,6 +1019,9 @@ func TestADeviceSeesEachAgentsToolsAndAToggleReachesIt2ws(t *testing.T) {
 	}
 	rows := func() map[string]row {
 		response := dispatch(t, server, `{"v":1,"kind":"request","id":"aa","route":"state","body":{}}`)
+		if strings.Contains(string(response.Body), `"effort"`) {
+			t.Fatalf("phone profile answer grew the desktop-only effort field: %s", response.Body)
+		}
 		var body struct {
 			Agents []row `json:"agents"`
 		}

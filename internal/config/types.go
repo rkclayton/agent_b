@@ -71,6 +71,7 @@ type ProfileCatalog struct {
 type Agent struct {
 	Name       string                  `json:"name"`
 	Thinking   bool                    `json:"thinking"`
+	Effort     string                  `json:"effort,omitempty"`
 	B          string                  `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
 	C          string                  `json:"c,omitempty"`
 	D          string                  `json:"d,omitempty"`

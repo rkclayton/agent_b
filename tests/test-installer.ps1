@@ -1213,7 +1213,10 @@ Write-MatrixProof 'PROOF the check catches it: a shortcut aimed straight at Agen
     try {
         $savedErrorAction = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
-        $portFailure = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -ConfigPath $configPath -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 5 2>&1 | Out-String)
+        # Item 2x0 moved normal restore work before the listener and gives the
+        # launcher 120 seconds to resolve startup. Keep the port occupied for
+        # that shipped bound so a slower restore cannot release it mid-startup.
+        $portFailure = (& (Get-WindowsPowerShell) -NoLogo -NoProfile -File (Join-Path $testApplication 'scripts\launch-Agent_b.ps1') -ApplicationDirectory $testApplication -DataDirectory $testData -ConfigPath $configPath -Detached -NoBrowser -NoPause -StartupTimeoutSeconds 120 2>&1 | Out-String)
         $portFailureExit = $LASTEXITCODE
         $ErrorActionPreference = $savedErrorAction
     } finally {

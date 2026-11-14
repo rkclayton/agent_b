@@ -214,7 +214,7 @@ function createShell(options = {}) {
       const rawModel = String(connection?.model || "").trim();
       const named = !!connection && rawModel && rawModel !== "model";
       const modelLabel = named ? rawModel.split(/[\/]/).pop() : "not tested";
-      const selected = session?.agent_id === id;
+      const selected = (session?.agent_id || store.selection.agent_id) === id;
       const pending = pendingSessionAgents.get(session?.id) === id;
       const row = button("", `Use ${agent.name}`, `shell-connection-choice${selected ? " selected" : ""}${pending ? " pending" : ""}`);
       row.disabled = !connection;
@@ -229,7 +229,7 @@ function createShell(options = {}) {
             const result = await api(`/api/sessions/${encodeURIComponent(current.id)}`, { agent_id: id });
             if (result.status === "pending") pendingSessionAgents.set(current.id, id);
             reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          }
+          } else setSelection(id, "");
           connectionMenu.hidden = true;
           sessionHeading.setAttribute("aria-expanded", "false");
         } catch (error) { report(error.message); }
@@ -279,7 +279,7 @@ function createShell(options = {}) {
   }
 
   function configuredAgent(session) {
-    return (store.config.agents || []).find((agent) => agentKey(agent) === session?.agent_id) || store.config.agents?.[0];
+    return (store.config.agents || []).find((agent) => agentKey(agent) === (session?.agent_id || store.selection.agent_id)) || store.config.agents?.[0];
   }
 
   function showListMenu(configured, hasD, act) {
@@ -611,7 +611,7 @@ function createShell(options = {}) {
   }
 
   async function createChat(agentID = "agent_b", configured = null) {
-    const source = store.sessions[store.selection.session_id] || Object.values(store.sessions).sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0))[0];
+    const source = store.sessions[store.selection.session_id] || null;
     try {
       const configuredID = configured ? agentKey(configured) : agentKey(configuredAgent(source));
       const body = agentID === "agent_d"
@@ -646,14 +646,17 @@ function createShell(options = {}) {
       void api("/api/host-window", { action: "title", title }).catch(() => {});
     }
     requestAnimationFrame(fitWindowTitle);
-    const health = connectionHealth(store, session?.connection_id);
+    const nextAgent = !session ? configuredAgent(null) : null;
+    const nextConnection = nextAgent ? (store.connections || store.config.connections || []).find((connection) => connection.id === nextAgent.b) : null;
+    const health = connectionHealth(store, session?.connection_id || nextConnection?.id);
     // Kept in the layout whether shown or not, so the shell measures the same on
     // every surface (the chat and Settings over it).
-    setProperty(sessionLamp.style, "visibility", session ? "" : "hidden");
+    setProperty(sessionLamp.style, "visibility", session || nextConnection ? "" : "hidden");
     if (sessionLamp.dataset.state !== health.lamp) sessionLamp.dataset.state = health.lamp;
     setProperty(sessionLamp, "title", health.word);
 	const notRunnableReason = String(session?.not_runnable_reason || "").trim();
-    const heading = session ? (session.runnable === false ? (notRunnableReason || "Chat is not runnable") : `${sessionTitle(session)}${pendingSessionAgents.has(session.id) ? " · next run" : ""}`) : "No chat selected";
+    const nextModel = String(nextConnection?.model || "").trim().split(/[\\/]/).pop() || "not tested";
+    const heading = session ? (session.runnable === false ? (notRunnableReason || "Chat is not runnable") : `${sessionTitle(session)}${pendingSessionAgents.has(session.id) ? " · next run" : ""}`) : nextConnection ? `${nextAgent.name} · ${nextModel}` : "No chat selected";
 	const state = session ? (session.runnable === false ? "not_runnable" : "named") : "no_chat";
 	const reason = state === "not_runnable" ? headerReasonCode(notRunnableReason) : "none";
 	const telemetry = `${state}:${reason}`;

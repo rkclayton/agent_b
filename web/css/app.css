@@ -1381,6 +1381,18 @@
   background: var(--well);
   border-bottom: 0;
 }
+.server-row strong { font: 500 12px/18px var(--mono); }
+.model-row, .model-editor, .connection-add-model { margin-left: 20px; }
+.connection-add-model {
+  min-height: 28px;
+  padding: 0 6px;
+  background: transparent;
+  color: var(--mute);
+  text-align: left;
+}
+.server-editor { padding-left: 26px; }
+.connection-server-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.model-editor { padding-left: 6px; }
 .connection-summary {
   min-width: 0;
   padding: 0;
@@ -1781,6 +1793,9 @@
   .connection-fields .setting-row {
     grid-template-columns: 104px minmax(0, 1fr);
   }
+  .model-row, .model-editor, .connection-add-model { margin-left: 12px; }
+  .model-editor { min-width: 0; }
+  .model-editor .setting-input { min-width: 0; width: 100%; }
   .connection-fields .connection-primary-row {
     grid-template-columns: minmax(0, 1fr);
   }

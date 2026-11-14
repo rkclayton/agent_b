@@ -42,7 +42,7 @@ test("a committed setting applies immediately and a keystroke does not", () => {
 // one committed path is ever sent, and the field-level error renders beside it.
 test("an invalid value is reported beside its field and nothing else is sent", () => {
   assert.match(settings, /const ok = await saveSettings\(path\);/, "applySetting does not send exactly one path");
-  assert.match(settings, /const entries = \[\.\.\.drafts\.entries\(\)\]\.filter\(\(\[path\]\) => !pathPrefix \|\| path\.startsWith\(pathPrefix\)\)/);
+  assert.match(settings, /const entries = \[\.\.\.drafts\.entries\(\)\]\.filter\(\(\[path\]\) => !pathPrefix \|\| \(Array\.isArray\(pathPrefix\) \? pathPrefix\.includes\(path\) : path\.startsWith\(pathPrefix\)\)\)/);
   assert.match(settings, /errors\.set\(error\.field \|\| "config", error\.message\)/, "a field error is not attached to its field");
   assert.match(settings, /problem \? errorMarkup\(problem, `field:\$\{path\}`\) : note/, "a field error has nowhere to render");
 });

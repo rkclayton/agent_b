@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"harness/internal/broker"
 	"harness/internal/credential"
@@ -286,6 +288,14 @@ func (c Config) Masked() Config {
 	copy(out.Connections, c.Connections)
 	for i := range out.Connections {
 		out.Connections[i].exposeActive = true
+		key := "none"
+		if out.Connections[i].Credential != "" {
+			key = "credential:" + out.Connections[i].Credential
+		} else if out.Connections[i].APIKey != "" {
+			key = "inline:" + out.Connections[i].APIKey
+		}
+		group := sha256.Sum256([]byte(strings.TrimSpace(out.Connections[i].BaseURL) + "\x00" + key))
+		out.Connections[i].serverGroup = hex.EncodeToString(group[:12])
 		if out.Connections[i].APIKey != "" {
 			out.Connections[i].APIKey = "•••• set"
 		}

@@ -311,6 +311,40 @@ func TestSaveAndMaskKeepEmptyCatalogsAsArrays(t *testing.T) {
 	}
 }
 
+func TestMaskedConnectionsGroupServersWithoutExposingInlineKeys2y4(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	first, second, third := defaultConnection(), defaultConnection(), defaultConnection()
+	first.ID, first.BaseURL, first.APIKey = "a", "http://models.example", "first-secret"
+	second.ID, second.BaseURL, second.APIKey = "b", first.BaseURL, first.APIKey
+	third.ID, third.BaseURL, third.APIKey = "c", first.BaseURL, "other-secret"
+	cfg.Connections = []Connection{first, second, third}
+	masked, err := json.Marshal(cfg.Masked())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(masked, []byte(first.APIKey)) || bytes.Contains(masked, []byte(third.APIKey)) {
+		t.Fatalf("masked document exposed an inline key: %s", masked)
+	}
+	var document struct {
+		Connections []struct {
+			ServerGroup string `json:"server_group"`
+		} `json:"connections"`
+	}
+	if err := json.Unmarshal(masked, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Connections[0].ServerGroup == "" || document.Connections[0].ServerGroup != document.Connections[1].ServerGroup || document.Connections[0].ServerGroup == document.Connections[2].ServerGroup {
+		t.Fatalf("group tokens=%+v", document.Connections)
+	}
+	saved, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(saved, []byte("server_group")) {
+		t.Fatalf("server_group changed the saved configuration shape: %s", saved)
+	}
+}
+
 func TestLoadRejectsExplicitZeroIndependentBackstops(t *testing.T) {
 	for _, field := range []string{"max_wall_clock_seconds"} {
 		t.Run(field, func(t *testing.T) {

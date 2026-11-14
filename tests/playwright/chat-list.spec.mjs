@@ -533,6 +533,50 @@ test("the chat switcher is an agent menu with queued changes and measured captur
   const scaled = await open(1.75); await scaled.page.screenshot({ path: join(evidence, "agent-menu-1280x860-175.png") }); await scaled.context.close();
 });
 
+test("no-chat header selects and starts on the chosen profile 2y3", async ({ browser }) => {
+  const evidence = "logs/evidence/rel-1.62.206/captures"; await mkdir(evidence, { recursive: true });
+  const connections = [{ id: "one", label: "Home", model: "alpha-model" }, { id: "two", label: "Other", model: "beta-model" }];
+  const agents = [{ name: "agent_b", b: "one" }, { name: "Reviewer", b: "two" }];
+  const sessions = {};
+  const created = [];
+  const snapshot = () => ({ sessions, connections, config: { agents, connections }, connection_health: { one: { lamp: "ok", word: "ready" }, two: { lamp: "ok", word: "ready" } }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "fixture", names: ["fixture"] }, build: {} });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+  await context.addInitScript(({ data }) => {
+    if (!sessionStorage.getItem("agentb.selection")) sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "", surface: { kind: "chat", key: "" } }));
+    class FixtureEvents { constructor() { this.listeners = new Map(); setTimeout(() => { const event = { data: JSON.stringify({ type: "snapshot", data }) }; for (const listener of this.listeners.get("snapshot") || []) listener(event); }); } addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); } close() {} }
+    globalThis.EventSource = FixtureEvents; globalThis.chrome = { webview: {} };
+  }, { data: snapshot() });
+  const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+    if (url.pathname === "/api/state") return route.fulfill({ contentType: "application/json", body: JSON.stringify(snapshot()) });
+    if (url.pathname === "/api/chats/tree") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ folders: [], chats: Object.keys(sessions).map((id) => ({ id, folder: "" })) }) });
+    if (url.pathname === "/api/sessions" && request.method() === "POST") { const body = request.postDataJSON(); created.push(body); const session = { id: "picked", label: "New chat", agent_id: body.agent_id, role: "b", connection_id: "two", created_at: "2026-11-13T00:00:00Z", messages: [], chat: [], timeline: [], run: { status: "idle" }, runnable: true }; sessions.picked = session; return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ session }) }); }
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+    return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+  });
+  await page.goto("http://localhost:59999/chat?setup=skip", { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".shell-session-title")).toHaveText("agent_b · alpha-model");
+  await page.locator(".shell-session-title").click();
+  const choices = page.locator(".shell-connection-choice");
+  await expect(choices.first()).toHaveClass(/selected/);
+  await choices.nth(1).click();
+  await expect(page.locator(".shell-session-title")).toHaveText("Reviewer · beta-model");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator(".shell-session-title")).toHaveText("Reviewer · beta-model");
+  for (const [name, width, height] of [["narrow", 304, 700], ["medium", 1280, 800], ["wide", 1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    await page.screenshot({ path: join(evidence, `2y3-no-chat-${name}-closed.png`) });
+    await page.locator(".shell-session-title").click();
+    await page.screenshot({ path: join(evidence, `2y3-no-chat-${name}-open.png`) });
+    await page.keyboard.press("Escape");
+  }
+  await page.locator(".chat-list-new").click();
+  expect(created.at(-1)?.agent_id).toBe("reviewer");
+  await context.close();
+});
+
 test("removing the gear leaves no gap and keeps the window controls at the edge 2si", async ({ browser }) => {
   const currentShell = await readFile(new URL("../../web/js/shell.js", import.meta.url), "utf8");
   const session = { schema_version: 1, complete: true, id: "chat-0", label: "Chat", agent_id: "agent_b", role: "b", connection_id: "fixture", b_connection: "fixture", created_at: "2026-10-06T00:00:00Z", run: { status: "idle" }, tools: [], messages: [], budget: {}, activity: { completed_stages: [] }, timeline: [], chat: [], runnable: true, closed: false };

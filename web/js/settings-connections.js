@@ -53,28 +53,50 @@ function connections() {
     const methods = Array.isArray(connector.allowed_methods) ? connector.allowed_methods.join(", ") : "";
     return `<div class="connection-row connector-row" data-connector="${attr(name)}"><span class="connection-summary"><span class="lamp"></span><span>${html(name)}</span><span class="connection-url">${html(connector.base_url || "")} · ${html(methods || "no methods")}</span><span class="connection-state"></span></span></div>`;
   }).join("");
-  const rows = connections
-    .map((connection) => {
+  const groups = [];
+  for (const connection of connections) {
+    const key = connection.server_group || `${String(connection.base_url || "").trim()}\u0000${connection.credential || connection.api_key || ""}`;
+    let group = groups.find((candidate) => candidate.key === key);
+    if (!group) { group = { key, connections: [] }; groups.push(group); }
+    group.connections.push(connection);
+  }
+  const rows = groups.map((group) => {
+    const serverOpen = expanded.has(`server:${group.key}`);
+    const first = group.connections[0];
+    const states = group.connections.map((connection) => connectionHealth(store, connection.id));
+    const health = states.find((state) => state.word !== "ready") || states[0] || { lamp: "", word: "checking" };
+    const serverRefusal = errors.get(`servers.${group.key}`) || "";
+    const address = String(first.base_url || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "new server";
+    const ids = group.connections.map((connection) => connection.id).join(",");
+    const serverValue = (field) => {
+      for (const connection of group.connections) {
+        const path = `connections.${connection.id}.${field}`;
+        if (drafts.has(path)) return drafts.get(path);
+      }
+      return first[field] ?? "";
+    };
+    const serverProtocol = String(serverValue("protocol"));
+    const serverEditor = serverOpen ? `<section class="connection-editor server-editor" aria-label="${attr(address)} server settings"><div class="connection-fields connection-server-fields">
+      <div class="setting-row"><label>address</label><input class="setting-input" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="base_url" data-kind="text" value="${attr(serverValue("base_url"))}"></div>
+      <div class="setting-row"><label>key</label><input class="setting-input" type="password" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="api_key" data-kind="secret" value="" placeholder="${first.api_key ? "stored" : ""}"></div>
+      <div class="setting-row"><label>protocol</label><select class="setting-input" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="protocol" data-kind="text">${["chat-completions", "anthropic-messages", "openai-responses"].map((value) => `<option value="${value}" ${serverProtocol === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+      <div class="setting-row"><label>timeout</label><input class="setting-input number" type="number" step="1" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="request_timeout_s" data-kind="number" value="${attr(serverValue("request_timeout_s"))}"></div>
+    </div></section>` : "";
+    const models = group.connections.map((connection) => {
       const isOpen = expanded.has(connection.id);
       const feedback = probeMessages.get(connection.id);
-      const health = connectionHealth(store, connection.id);
+      const modelHealth = connectionHealth(store, connection.id);
       const model = String(connection.model || "").trim().split(/[\\/]/).pop() || "no model";
+      const profile = connection.agent_profile || "agent_b";
       const refusal = errors.get(`connections.${connection.id}`) || "";
-      const failedTest = !isOpen ? failedTestLine(feedback, connection.id) : "";
-      const editor = isOpen ? `<section class="connection-editor" aria-label="${attr(connection.label)} connection settings">
-        <div class="connection-fields">${connectionFields(connection, connectionReason(connection), feedback)}</div>
-      </section>` : "";
-      return `<div class="connection-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}" data-action="connection-toggle" data-id="${attr(connection.id)}" role="button" tabindex="0" aria-expanded="${isOpen}">
-          <span class="connection-summary"><span class="lamp ${health.lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(connection.base_url)} · ${html(model)}</span><span class="connection-state">${html(health.word)}</span></span>
-          <span class="connection-actions">
-            <button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button>
-            <button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Delete ${attr(connection.label)}" title="Delete ${attr(connection.label)}">${connectionIcons.trash}</button>
-          </span>
-          ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}
-          ${failedTest}
-      </div>${editor}`;
-    })
-    .join("");
+      const editor = isOpen ? `<section class="connection-editor model-editor" aria-label="${attr(connection.label)} model settings"><div class="connection-fields">${connectionFields(connection, connectionReason(connection), feedback, true)}</div></section>` : "";
+      return `<div class="connection-row model-row ${isOpen ? "selected" : ""} ${refusal ? "refused" : ""}" data-action="connection-toggle" data-id="${attr(connection.id)}" role="button" tabindex="0" aria-expanded="${isOpen}">
+        <span class="connection-summary"><span class="lamp ${modelHealth.lamp}"></span><span>${html(connection.label)}</span><span class="connection-url">${html(model)} · ${html(profile)}</span><span class="connection-state">${html(modelHealth.word)}</span></span>
+        <span class="connection-actions"><button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button><button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Delete ${attr(connection.label)}" title="Delete ${attr(connection.label)}">${connectionIcons.trash}</button></span>
+        ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}${!isOpen ? failedTestLine(feedback, connection.id) : ""}</div>${editor}`;
+    }).join("");
+    return `<div class="connection-row server-row ${serverOpen ? "selected" : ""} ${serverRefusal ? "refused" : ""}" data-action="server-toggle" data-id="${attr(group.key)}" role="button" tabindex="0" aria-expanded="${serverOpen}"><span class="connection-summary"><span class="lamp ${health.lamp}"></span><strong>${html(address)}</strong><span class="connection-url">${group.connections.length} model${group.connections.length === 1 ? "" : "s"}</span><span class="connection-state">${html(health.word)}</span></span>${serverRefusal ? errorMarkup(serverRefusal, `server:${group.key}:refusal`, "connection-refusal alarm") : ""}</div>${serverEditor}${models}<button type="button" class="connection-add-model" data-action="add-server-model" data-id="${attr(first.id)}">+ Add model</button>`;
+  }).join("");
   const connectionPath = "images.connection";
   const modelPath = "images.model";
   const selectedConnection = String(drafts.has(connectionPath) ? drafts.get(connectionPath) : store.config?.images?.connection || "");
@@ -85,7 +107,7 @@ function connections() {
   const modelOptions = [`<option value="" ${selectedModel ? "" : "selected"}>server default</option>`]
     .concat((imageConnection?.models || []).map((item) => `<option value="${attr(item.model)}" ${selectedModel === item.model ? "selected" : ""}>${html(item.model)}</option>`));
   const imageRow = row("images", `<span class="choice-row"><select class="setting-input" data-path="${connectionPath}" data-kind="text">${connectionOptions.join("")}</select><select class="setting-input" data-path="${modelPath}" data-kind="text">${modelOptions.join("")}</select></span>`);
-  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add connection</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${imageRow}${subhead("Connectors")}<div class="connection-list connector-list">${connectorRows || '<p class="settings-note inline">No connectors configured.</p>'}</div>`;
+  return `${row("actions", '<div class="settings-actions settings-connections-actions"><button type="button" data-action="open-setup">Open setup guide</button><button type="button" data-action="add-connection">Add server</button></div>')}${subhead("Connections")}<div class="connection-list">${rows || '<p class="settings-note inline">No connections configured.</p>'}</div>${imageRow}${subhead("Connectors")}<div class="connection-list connector-list">${connectorRows || '<p class="settings-note inline">No connectors configured.</p>'}</div>`;
 }
 
 // One line on the existing findings row: each memory layer's current size
@@ -155,7 +177,7 @@ function memoryFinding() {
   if (notes.length > 40) lines.push(`<li>… and ${count(notes.length - 40)} more note(s)</li>`);
   return lines;
 }
-function connectionFields(connection, reason, discovery) {
+function connectionFields(connection, reason, discovery, modelOnly = false) {
   const id = connection.id;
   const p = `connections.${id}`;
 	const fallbackPath = `${p}.fallback`;
@@ -270,19 +292,19 @@ function connectionFields(connection, reason, discovery) {
 	const probing = !!discovery?.walking;
 	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${probing ? "disabled" : ""}>${probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
-    ${text(`${p}.base_url`, "address", connection.base_url, "text", false)}
+    ${modelOnly ? "" : text(`${p}.base_url`, "address", connection.base_url, "text", false)}
     ${profileControl}
-    ${secret(`${p}.api_key`, "key", connection.api_key, id, false)}
+	${modelOnly ? "" : secret(`${p}.api_key`, "key", connection.api_key, id, false)}
 	${modelControl}${contextControl}${imageControl}
 	${row("", primaryActions, "connection-primary-row", false)}${discoveryNote}</div>
 	${feedback}${measurementResult}
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
-	${choices(`${p}.protocol`, "protocol", ["chat-completions", "anthropic-messages", "openai-responses"], connection.protocol || "chat-completions", false)}
+	${modelOnly ? "" : choices(`${p}.protocol`, "protocol", ["chat-completions", "anthropic-messages", "openai-responses"], connection.protocol || "chat-completions", false)}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], shown.attachment_handling || "auto", false)}
 	${number(`${p}.max_concurrent`, "runs at once", connection.max_concurrent || "", "1", false, `empty: what the server reports ${"("}${caps.parallel_capacity || 1}), else 1`, false, "number", false)}
-	${number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
+	${modelOnly ? "" : number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}
 	${fallbackControl}</div>
 	    <div class="connection-fieldset connection-reasoning"><h4>Reasoning &amp; context</h4>
@@ -326,7 +348,7 @@ export function renderMeasurement(measurement) {
 import { actionTable } from "./settings-action-table.js";
 
 export const connectionActions = actionTable([
-  "connection-toggle", "show-key", "probe", "measure-connection",
-  "recommended-connection", "add-connection", "duplicate-connection",
+  "connection-toggle", "server-toggle", "show-key", "probe", "measure-connection",
+  "recommended-connection", "add-connection", "add-server-model", "duplicate-connection",
   "remove-connection",
 ]);

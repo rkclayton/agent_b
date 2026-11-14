@@ -115,8 +115,9 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && strings.HasSuffix(tail, "/duplicate") {
 		sourceID := strings.TrimSuffix(tail, "/duplicate")
 		var body struct {
-			ID    string `json:"id"`
-			Label string `json:"label"`
+			ID         string `json:"id"`
+			Label      string `json:"label"`
+			EmptyModel bool   `json:"empty_model"`
 		}
 		if !decode(w, r, &body) {
 			return
@@ -143,6 +144,9 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 		}
 		duplicate.ID = strings.TrimSpace(body.ID)
 		duplicate.Label = strings.TrimSpace(body.Label)
+		if body.EmptyModel {
+			duplicate.Model = ""
+		}
 		next.Connections = append(next.Connections, *duplicate)
 		if err := next.Validate(); err != nil {
 			s.mu.Unlock()

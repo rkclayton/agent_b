@@ -607,6 +607,7 @@ test("the connection form is whole before a Test and its models come from the se
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "", api_key: "", context: { n_ctx: 32768, reserve_output: 8192 }, reasoning: { enabled: false, control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
   context.connectionList = () => [connection];
   context.expanded.add("acme");
+  context.expanded.add(`server:${connection.base_url}\u0000`);
   context.store.connection_health = { acme: { lamp: "amber", word: "no model chosen" } };
   const typed = renderConnectionsPage(context);
   for (const label of ["name", "address", "key", "model", "context size", "reads images", "Eval", "Recommended", "Advanced", "reserve"]) {
@@ -614,7 +615,7 @@ test("the connection form is whole before a Test and its models come from the se
   }
 	assert.doesNotMatch(typed, /credential ref/);
   assert.doesNotMatch(typed, /Test to list models/);
-  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 1, "the open connection repeats its health lamp");
+  assert.equal([...typed.matchAll(/class="lamp amber"/g)].length, 2, "the server and its model do not each show their health lamp");
   context.probeMessages.set("acme", { models: ["alpha", "beta", "gamma"] });
   const listed = renderConnectionsPage(context);
   for (const model of ["alpha", "beta", "gamma"]) assert.match(listed, new RegExp(`<option value="${model}"`));
@@ -647,6 +648,16 @@ test("Context exposes the one live compaction line 2tv", () => {
   assert.doesNotMatch(rendered, /soft threshold/);
 });
 
+test("a grouped server refusal is shown on its server row 2y4", () => {
+  const context = pageContext();
+  const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
+  context.connectionList = () => [connection];
+  context.errors.set(`servers.${connection.base_url}\u0000`, "fixture server refusal");
+  const rendered = renderConnectionsPage(context);
+  assert.match(rendered, /server-row[^]*fixture server refusal/);
+  assert.doesNotMatch(rendered.match(/model-row[^]*$/)?.[0] || "", /fixture server refusal/);
+});
+
 test("connection editor keeps server controls and leaves thinking to agent profiles", () => {
   const context = pageContext();
   const connection = { id: "acme", label: "acme", base_url: "http://acme:8080/", model: "alpha", api_key: "", reads_images: false, context: { n_ctx: 0, reserve_output: 8192 }, reasoning: { enabled: true, effort: "medium", valid_efforts: ["low", "medium", "high"], control: "auto", preserve: false }, sampling: { thinking: {}, nonthinking: {} }, capabilities: {} };
@@ -654,13 +665,13 @@ test("connection editor keeps server controls and leaves thinking to agent profi
   context.expanded.add("acme");
   context.connectionReason = () => "context unknown — enter the size";
   const rendered = renderConnectionsPage(context);
-  const editor = rendered.slice(rendered.indexOf('<section class="connection-editor"'));
+  const editor = rendered.slice(rendered.indexOf('<section class="connection-editor model-editor"'));
   const defaults = editor.match(/<details class="connection-defaults"[^>]*><summary>([^<]+)<\/summary>/);
   assert.equal(defaults?.[1], "Advanced");
   assert.doesNotMatch(defaults?.[0] || "", /\sopen(?:\s|>)/);
   const visible = editor.slice(0, editor.indexOf('<details class="connection-defaults"'));
   const labels = [...visible.matchAll(/<label[^>]*>([^<]*)<\/label>/g)].map((match) => match[1]).filter(Boolean);
-	assert.deepEqual(labels, ["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
+	assert.deepEqual(labels, ["name", "agent profile", "model", "context size", "reads images"]);
   assert.match(visible, /context unknown — enter the size/);
   for (const sentence of ["Model endpoints and their current probe state.", "This server runs one model", "The name this connection", "How much the model thinks"]) {
     assert.doesNotMatch(editor, new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -674,7 +685,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
     "control", "chat_template_kwargs", "top_level", "server_flag", "none", "preserve", "reasoning cap", "reserve",
     "Sampling", "Thinking", "Non-thinking", "temperature", "top_p", "top_k", "min_p", "presence penalty",
     "repeat penalty", "llama.cpp only", "System prompt", "system prompt override", "Capabilities", "not probed",
-    "no findings", "Save", "Duplicate", "images", "chat's connection", "server default", "Connectors", "No connectors configured.",
+    "no findings", "Save", "Duplicate", "+ Add model", "images", "chat's connection", "server default", "Connectors", "No connectors configured.",
   ]);
   assert.deepEqual(textNodes.filter((node) => !allowed.has(node)), [], `non-label/value/state/error text: ${textNodes.join(" | ")}`);
 });

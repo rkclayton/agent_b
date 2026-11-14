@@ -161,7 +161,7 @@ test.describe("setup wizard 2xz", () => {
 		const model = await standIn({ window: 32768 }); const page = await wizardHarness.context.newPage();
 		try {
 			await openSetup(page); await expect(page.locator("body")).not.toContainText(/Skip|Later|Open Chat|Evaluation Harness|separate Windows account/); await connect(page, model.url); await page.getByRole("button", { name: "Next" }).click(); await expect(page.getByRole("heading", { name: "Agent_b is ready" })).toBeVisible(); await expect(page.locator(".setup-main button.setup-primary")).toHaveText("Finish");
-			await page.goto(`${wizardHarness.base}/chat#settings/connections`); await page.getByRole("button", { name: /UI http:/ }).click(); await expect(page.getByRole("button", { name: "Eval", exact: true }).first()).toBeVisible(); await page.locator('.settings-nav [data-id="shell"]').click(); await expect(page.locator(".settings-content")).toContainText("Experimental");
+			await page.goto(`${wizardHarness.base}/chat#settings/connections`); await page.locator('.model-row[data-id="ui"]').click(); await expect(page.getByRole("button", { name: "Eval", exact: true }).first()).toBeVisible(); await page.locator('.settings-nav [data-id="shell"]').click(); await expect(page.locator(".settings-content")).toContainText("Experimental");
 		} finally { await page.close(); await model.close(); }
 	});
 
@@ -398,14 +398,15 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await toggleSettings(page);
   await expect(page.locator("#settings-page")).toBeVisible();
   await page.locator('.settings-nav [data-id="connections"]').click();
-  const rowsBefore = await page.locator(".connection-row").count();
+  const rowsBefore = await page.locator(".model-row").count();
 
   // 2. Add a connection. The row appears and its editor is open.
   await page.locator('[data-action="add-connection"]').click();
-  await expect(page.locator(".connection-row")).toHaveCount(rowsBefore + 1);
-  const editor = page.locator(".connection-editor");
+  await expect(page.locator(".model-row")).toHaveCount(rowsBefore + 1);
+  const editor = page.locator(".model-editor");
+  const serverEditor = page.locator(".server-editor");
   await expect(editor).toBeVisible();
-  const path = await editor.locator("[data-path$='.base_url']").getAttribute("data-path");
+  const path = await editor.locator("[data-path$='.model']").getAttribute("data-path");
   const id = path.split(".")[1];
 	const typeDraft = (locator, value) => locator.evaluate((node, next) => {
 		node.value = next;
@@ -414,7 +415,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
 
   // 3. TYPE A HOST. He types where his server is; the port he typed is the one
   // discovery tries first (item 2nb (a)).
-  await typeDraft(editor.locator(`[data-path="connections.${id}.base_url"]`), `http://127.0.0.1:${harness.modelPort}`);
+  await typeDraft(serverEditor.locator('[data-server-field="base_url"]'), `http://127.0.0.1:${harness.modelPort}`);
 
 	// 4. Name the model this connection should test. Model-list discovery has its own
 	// focused journey; this end-to-end journey also covers a manually typed name.
@@ -440,7 +441,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
 
   // 6. THE STORED-KEY FIELD ROUND TRIP. What is typed is never read back: the field
   // returns saying a key is stored, and the key itself is not in it.
-  const key = editor.locator(`[data-path="connections.${id}.api_key"]`);
+  const key = serverEditor.locator('[data-server-field="api_key"]');
   await expect(key).toHaveAttribute("type", "password");
   await key.fill("journey-secret-value");
   await key.press("Enter");
@@ -449,14 +450,13 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await page.locator('.settings-nav [data-id="connections"]').click();
   // The editor opens when its row is clicked; clicking an already-open one would
   // collapse it, which is the state this step needs to be in.
-  if (!await page.locator(`[data-path="connections.${id}.api_key"]`).count()) {
-    await page.locator(`[data-action="connection-toggle"][data-id="${id}"]`).click();
+  if (!await page.locator('[data-server-field="api_key"]').count()) {
+    await page.locator(`[data-action="server-toggle"]`).last().click();
   }
-  const reopened = page.locator(`[data-path="connections.${id}.api_key"]`);
+  const reopened = page.locator('[data-server-field="api_key"]').last();
   await expect(reopened).toBeVisible();
   await expect(reopened).toHaveValue("");
-  await expect(reopened).not.toHaveAttribute("placeholder", /.*/);
-  await expect(page.locator(".connection-editor .control-note").first()).toHaveText("stored");
+  await expect(reopened).toHaveAttribute("placeholder", "stored");
 
   // 7. A connection with no named profile uses agent_b, and the chat switcher
   // selects that connection without mutating another one.
@@ -500,7 +500,7 @@ test("the settings journey: type a host, pick a model, Test, save, chat, delete,
   await popover.locator('[data-action="confirm-proceed"]').click();
 
   await expect(page.locator(`.connection-row[data-id="${id}"] .connection-summary`)).toHaveCount(0);
-  await expect(page.locator(".connection-row")).toHaveCount(rowsBefore);
+  await expect(page.locator(".model-row")).toHaveCount(rowsBefore);
 });
 
 test("Entra credentials show account controls and configuration without defaults", async () => {
@@ -655,9 +655,9 @@ test("the confirmation popover stays with its control on a scrolled sheet", asyn
   // Enough rows that the sheet scrolls.
   await page.setViewportSize({ width: 1250, height: 600 });
   for (let index = 0; index < 10; index++) {
-    const before = await page.locator(".connection-row").count();
+    const before = await page.locator(".model-row").count();
     await page.locator('[data-action="add-connection"]').click();
-    await expect(page.locator(".connection-row")).toHaveCount(before + 1);
+    await expect(page.locator(".model-row")).toHaveCount(before + 1);
   }
   // Scrolled by the control the operator would be reaching for, and read back in the
   // same evaluation, because a render restores this scroller's position.
@@ -718,12 +718,12 @@ test("a rename alone saves, with no Test and no refusal", async () => {
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
-  const editor = page.locator(".connection-editor");
-  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  const editor = page.locator(".model-editor");
+  const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
   posts.length = 0;
 
   await editor.locator(`[data-path="connections.${id}.label"]`).fill("renamed by hand");
-  await editor.locator(`[data-path="connections.${id}.label"]`).press("Enter");
+  await editor.locator(`[data-path="connections.${id}.label"]`).evaluate((node) => node.blur());
   await expect(page.locator('[data-action="save-connection"]')).toHaveCount(0);
   await expect(page.locator(`.connection-row[data-id="${id}"] .connection-summary`)).toContainText("renamed by hand");
   await expect(page.locator(".connection-refusal")).toHaveCount(0);
@@ -743,9 +743,9 @@ test("the bar is on screen 100 ms after Test, and the bare word is not", async (
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
-  const editor = page.locator(".connection-editor");
-  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
-  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill("192.0.2.1:8080");
+  const editor = page.locator(".model-editor");
+  const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
+  await page.locator('.server-editor [data-server-field="base_url"]').fill("192.0.2.1:8080");
 
   await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
   await page.waitForTimeout(100);
@@ -785,14 +785,15 @@ test("the probe verdict is a dated fact and Test names what it sent and got 2wb"
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator(".connection-editor")).toHaveCount(0);
   await page.locator('[data-action="add-connection"]').click();
-  const editor = page.locator(".connection-editor");
-  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
-  const address = editor.locator(`[data-path="connections.${id}.base_url"]`);
+  const editor = page.locator(".model-editor");
+  const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
+  const address = page.locator('.server-editor [data-server-field="base_url"]');
   const addressSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
-  const modelsListed = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/models`));
   await address.fill(`http://127.0.0.1:${harness.modelPort}`);
-  await address.press("Enter");
+  await address.evaluate((node) => node.blur());
   await addressSaved;
+  const modelsListed = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/models`));
+  await editor.locator(`[data-path="connections.${id}.model"]`).click();
   await modelsListed;
   let model = page.locator(`[data-path="connections.${id}.model"]`);
   if (await model.evaluate((node) => node.tagName === "SELECT")) {
@@ -812,25 +813,73 @@ test("the probe verdict is a dated fact and Test names what it sent and got 2wb"
   await page.close();
 });
 
-test("the sheet reads as eight ordered fields above its actions and Advanced", async () => {
+test("the model sheet keeps its five ordered fields above its actions and Advanced", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
-  const editor = page.locator(".connection-editor");
-  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  const editor = page.locator(".model-editor");
+  const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
 
 	const labels = async () => (await editor.locator(":scope > .connection-fields > .connection-primary > .setting-row > label").allTextContents()).filter(Boolean);
-	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
+	expect(await labels()).toEqual(["name", "agent profile", "model", "context size", "reads images"]);
   await expect(page.locator(".connection-defaults")).not.toHaveAttribute("open", /.*/);
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Advanced");
   await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
 
 	// The empty new connection does not collapse or reorder the fields.
 	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-	expect(await labels()).toEqual(["name", "address", "agent profile", "key", "model", "context size", "reads images"]);
+	expect(await labels()).toEqual(["name", "agent profile", "model", "context size", "reads images"]);
+  await page.close();
+});
+
+test("servers group their models and add one without repeating server fields 2y4", async () => {
+  test.setTimeout(120000);
+  const evidence = join(repo, "logs", "evidence", "rel-1.62.206", "captures"); await mkdir(evidence, { recursive: true });
+  const page = await harness.context.newPage();
+  const network = [];
+  page.on("request", (request) => { if (/\/models$|\/probe$|\/chat\/completions$/.test(new URL(request.url()).pathname)) network.push(request.url()); });
+  await page.goto(`${harness.base}/chat`);
+  await page.evaluate(async () => {
+    const bus = await import("/static/js/bus.js");
+    await bus.api("/api/connections/ui/duplicate", { id: "ui-second", label: "Second model" });
+    await bus.api("/api/config", { connections: [{ id: "ui-second", model: "second-model" }, { id: "third-server", label: "Third server", base_url: "http://192.0.2.20:8080", model: "third-model" }] });
+    bus.reduce({ type: "snapshot", data: await bus.api("/api/state", undefined, "GET") });
+  });
+  await toggleSettings(page);
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await expect(page.locator(".server-row")).toHaveCount(2);
+  await expect(page.locator(".model-row")).toHaveCount(3);
+  await expect(page.locator(".server-row").first()).toContainText("2 models");
+  for (const [name, width, height] of [["narrow", 304, 700], ["medium", 1280, 800], ["wide", 1920, 1080]]) { await page.setViewportSize({ width, height }); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]); await page.screenshot({ path: join(evidence, `2y4-list-${name}.png`) }); }
+  await page.locator('.model-row[data-id="ui-second"]').click();
+  const editor = page.locator(".model-editor");
+  await expect(editor.locator('[data-path$=".base_url"], [data-path$=".api_key"], [data-path$=".protocol"], [data-path$=".request_timeout_s"]')).toHaveCount(0);
+  for (const [name, width, height] of [["narrow", 304, 700], ["medium", 1280, 800], ["wide", 1920, 1080]]) { await page.setViewportSize({ width, height }); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]); await page.screenshot({ path: join(evidence, `2y4-model-open-${name}.png`) }); }
+  await page.locator('.model-row[data-id="ui-second"]').click();
+  await page.locator(".server-row").first().click();
+  const server = page.locator(".server-editor");
+  await expect(server.locator("[data-server-field]")).toHaveCount(4);
+  for (const [name, width, height] of [["narrow", 304, 700], ["medium", 1280, 800], ["wide", 1920, 1080]]) { await page.setViewportSize({ width, height }); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]); await page.screenshot({ path: join(evidence, `2y4-server-open-${name}.png`) }); }
+  const address = server.locator('[data-server-field="base_url"]');
+  const original = await address.inputValue();
+  await address.fill("http://127.0.0.1:19090"); await address.press("Enter");
+  await expect.poll(async () => (await harness.getState()).config.connections.filter((item) => ["ui", "ui-second"].includes(item.id)).map((item) => item.base_url)).toEqual(["http://127.0.0.1:19090", "http://127.0.0.1:19090"]);
+  await expect(page.locator("[data-save-status]")).toContainText("All changes saved");
+  network.length = 0;
+  await page.locator('.connection-add-model[data-id="ui"]').evaluate((node) => node.click());
+  await expect.poll(() => page.evaluate(() => document.activeElement?.dataset?.path || "")).toMatch(/^connections\.[^.]+\.model$/);
+  const addedID = (await page.evaluate(() => document.activeElement.dataset.path)).split(".")[1];
+  const added = (await harness.getState()).config.connections.find((item) => item.id === addedID);
+  expect(added).toMatchObject({ base_url: "http://127.0.0.1:19090", model: "" });
+  expect(network, "Add model contacted a model server").toEqual([]);
+  await page.evaluate(async ({ ids, original }) => {
+    const bus = await import("/static/js/bus.js");
+    await bus.api("/api/config", { connections: [{ id: "ui", base_url: original }] });
+    for (const id of ids) await bus.api(`/api/connections/${id}`, undefined, "DELETE");
+  }, { ids: [addedID, "ui-second", "third-server"], original });
   await page.close();
 });
 
@@ -847,14 +896,15 @@ test("the model he picks is the one the field shows, through Test and through Sa
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
-	const editor = page.locator(".connection-editor");
-	const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
-	const address = editor.locator(`[data-path="connections.${id}.base_url"]`);
+	const editor = page.locator(".model-editor");
+	const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
+	const address = page.locator('.server-editor [data-server-field="base_url"]');
 	const addressSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
-	const modelsListed = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/models`));
 	await address.fill(`127.0.0.1:${harness.modelPort}`);
-	await address.press("Enter");
+	await address.evaluate((node) => node.blur());
 	await addressSaved;
+	const modelsListed = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/models`));
+	await editor.locator(`[data-path="connections.${id}.model"]`).click();
 	await modelsListed;
 
 	let model = page.locator(`[data-path="connections.${id}.model"]`);
@@ -864,14 +914,17 @@ test("the model he picks is the one the field shows, through Test and through Sa
 	}
 	await model.fill("second-model");
   await expect(model, "the field forgot the pick as soon as it was made").toHaveValue("second-model");
+  const modelSaved = page.waitForResponse((response) => response.url().endsWith("/api/config") && response.request().method() === "POST");
+  await model.evaluate((node) => node.blur());
+  await modelSaved;
 
   // Test again: the field still shows what he picked, not what is saved.
-  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click();
-  await expect(page.locator(".connection-editor .discovery-note")).toBeVisible();
+  const tested = page.waitForResponse((response) => response.url().endsWith(`/api/connections/${id}/probe`));
+  await page.locator(`.connection-editor [data-action="probe"][data-id="${id}"]`).click({ force: true });
+  await tested;
   await expect(model, "Test drew the saved model over his pick").toHaveValue("second-model");
 
-  // Enter writes it, and the field still shows it afterwards.
-  await model.press("Enter");
+  // Save wrote it, and the field still shows it afterwards.
   await expect(page.locator('[data-action="save-connection"]')).toHaveCount(0);
   await expect(model).toHaveValue("second-model");
   const saved = await page.evaluate(async () => (await (await fetch("/api/config")).json()).connections);
@@ -914,13 +967,14 @@ test("a refused save keeps the drafts and marks only its field", async () => {
   await toggleSettings(page);
   await page.locator('.settings-nav [data-id="connections"]').click();
   await page.locator('[data-action="add-connection"]').click();
-  const editor = page.locator(".connection-editor");
-  const id = (await editor.locator("[data-path$='.base_url']").getAttribute("data-path")).split(".")[1];
+  const editor = page.locator(".model-editor");
+  const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
   await editor.locator(`[data-path="connections.${id}.label"]`).fill("renamed while refused");
-  await editor.locator(`[data-path="connections.${id}.base_url"]`).fill("127.0.0.1:9");
+  await page.locator('.server-editor [data-server-field="base_url"]').fill("127.0.0.1:9");
 
   // The literal placeholder is not a model, so the server refuses to write it back —
   // which is exactly what kept it alive on the operator's disk.
+  await page.route("**/api/config", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "model is empty", field: `connections.${id}.model` }) }));
   await page.evaluate((connection) => {
     const node = document.querySelector(`[data-path="connections.${connection}.model"]`);
     node.value = "";
@@ -941,7 +995,7 @@ test("a refused save keeps the drafts and marks only its field", async () => {
   await expect(row).not.toContainText("model is empty");
   // Every draft is still on screen: nothing was re-rendered back to the saved value.
   await expect(editor.locator(`[data-path="connections.${id}.label"]`)).toHaveValue("renamed while refused");
-  await expect(editor.locator(`[data-path="connections.${id}.base_url"]`)).toHaveValue("127.0.0.1:9");
+  await expect(page.locator('.server-editor [data-server-field="base_url"]')).toHaveValue("127.0.0.1:9");
   await page.close();
 });
 

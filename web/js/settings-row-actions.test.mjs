@@ -18,11 +18,11 @@ test("each connection row carries duplicate and delete at its right, and no inpu
   // div: item 2nc (a) puts a refusal line between the two, and an end marker that
   // assumed they were adjacent silently swallowed the editor's markup with it.
   const source = sources["settings-connections.js"];
-  const start = source.indexOf('<span class="connection-actions">');
+  const start = source.indexOf('<span class="connection-actions"><button');
   // And the end marker is the actions span's OWN close on its own line: item 2nn (c)
   // puts a span inside the Test control, so the first "</span>" after the start is
   // now that one and a slice ending there stops before three of the four controls.
-  const row = source.slice(start, source.indexOf("\n          </span>", start));
+  const row = source.slice(start, source.indexOf("</span>", start) + 7);
   assert.ok(row, "the connection row has no actions span");
 	for (const action of ["duplicate-connection", "remove-connection"]) {
     assert.match(row, new RegExp(`data-action="${action}"`), `${action} is not on the connection's own line`);
@@ -35,7 +35,8 @@ test("each connection row carries duplicate and delete at its right, and no inpu
   }
   assert.equal((row.match(/aria-label=/g) || []).length, 2, "not every icon action is labelled");
   // Item 2px CHECK 1: the header holds no input element.
-  const header = source.slice(source.indexOf('<div class="connection-row'), source.indexOf("</div>${editor}`;", start));
+  const headerStart = source.indexOf('<div class="connection-row model-row');
+  const header = source.slice(headerStart, source.indexOf("</div>${editor}`;", headerStart));
   assert.doesNotMatch(header, /<input|<select|<textarea/, "the header holds an input");
 });
 

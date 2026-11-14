@@ -324,6 +324,7 @@ type Connection struct {
 	MaxConcurrent int `json:"max_concurrent,omitempty"`
 	initialized   bool
 	exposeActive  bool
+	serverGroup   string
 }
 
 // ConnectionModel holds every value whose truth depends on which model answers.
@@ -630,6 +631,9 @@ func (p Connection) MarshalJSON() ([]byte, error) {
 		if key != "model" {
 			document[key] = value
 		}
+	}
+	if p.serverGroup != "" {
+		document["server_group"] = p.serverGroup
 	}
 	return json.Marshal(document)
 }

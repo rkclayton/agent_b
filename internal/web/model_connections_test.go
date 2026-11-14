@@ -112,6 +112,53 @@ func TestDuplicateConnectionPreservesCredentialReferenceWithoutExposingSecret(t 
 	if strings.Contains(string(persisted), "fixture-secret") || strings.Count(string(persisted), `"credential": "shared-model-key"`) != 2 {
 		t.Fatalf("persisted credential contract not held: %s", persisted)
 	}
+	addModel := httptest.NewRequest(http.MethodPost, "/api/connections/local/duplicate", strings.NewReader(`{"id":"local-model","label":"Local model","empty_model":true}`))
+	addModel.Header.Set("Content-Type", "application/json")
+	authorizeMutation(addModel, server)
+	added := httptest.NewRecorder()
+	server.Handler().ServeHTTP(added, addModel)
+	latest := server.ConfigSnapshot().Connections
+	if added.Code != http.StatusOK || len(latest) != 3 || latest[2].Model != "" || latest[2].Credential != "shared-model-key" || latest[2].BaseURL != latest[0].BaseURL || latest[2].Protocol != latest[0].Protocol || latest[2].RequestTimeoutS != latest[0].RequestTimeoutS {
+		t.Fatalf("add model status=%d connections=%+v", added.Code, latest)
+	}
+}
+
+func TestServerFieldPatchIsAtomicAcrossModels2y4(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	first := runnableTestConnection("first")
+	second := runnableTestConnection("second")
+	first.BaseURL, second.BaseURL = "http://models.example", "http://models.example"
+	cfg.Connections = []config.Connection{first, second}
+	path := filepath.Join(root, "harness.json")
+	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	before := server.ConfigSnapshot()
+	response := postConfigPatch(t, server, `{"connections":[{"id":"first","base_url":"http://changed.example","request_timeout_s":-1},{"id":"second","base_url":"http://changed.example","request_timeout_s":-1}]}`)
+	after := server.ConfigSnapshot()
+	if response.Code != http.StatusBadRequest || after.Connections[0].BaseURL != before.Connections[0].BaseURL || after.Connections[1].BaseURL != before.Connections[1].BaseURL {
+		t.Fatalf("status=%d body=%s before=%+v after=%+v", response.Code, response.Body, before.Connections, after.Connections)
+	}
+}
+
+func TestServerGroupingLeavesPhoneConnectionsByteIdentical2y4(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	first, second := runnableTestConnection("first"), runnableTestConnection("second")
+	first.BaseURL, second.BaseURL = "http://models.example", "http://models.example"
+	cfg.Connections = []config.Connection{first, second}
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	before, err := json.Marshal(server.phoneConnections())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = server.snapshot()
+	after, err := json.Marshal(server.phoneConnections())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) || bytes.Contains(after, []byte("server_group")) {
+		t.Fatalf("phone connections changed: before=%s after=%s", before, after)
+	}
 }
 
 func TestConnectionRefusalsNameExactFields2r9(t *testing.T) {

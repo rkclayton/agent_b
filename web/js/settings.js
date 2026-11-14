@@ -122,12 +122,12 @@ export function initSettings(entry = {}) {
 		if (open) void leaveSettingsForChat().finally(() => event.detail?.after?.());
 	});
   document.addEventListener("keydown", (event) => {
-		if (open && event.key === "Enter" && event.target.matches('.setting-input[data-path^="connections."]')) {
+		if (open && event.key === "Enter" && event.target.matches('.setting-input[data-path^="connections."],.setting-input[data-server-field]')) {
 			event.preventDefault();
 			event.target.blur();
 			return;
 		}
-		if (open && (event.key === "Enter" || event.key === " ") && event.target.matches('.connection-row[data-action="connection-toggle"]')) {
+		if (open && (event.key === "Enter" || event.key === " ") && event.target.matches('.connection-row[data-action="connection-toggle"],.connection-row[data-action="server-toggle"]')) {
 			event.preventDefault();
 			event.target.click();
 			return;
@@ -173,6 +173,17 @@ export function initSettings(entry = {}) {
       // explicit save says so now, and the rest say nothing until they apply.
       appliedSettings.delete(path);
       settingsSaveMessage = needsExplicitSave(path) ? "Unsaved — use the save beside the setting" : "";
+      settingsSaveAlarm = false;
+      refreshSaveControls();
+    }
+    if (event.target.matches(".setting-input[data-server-field]")) {
+      const field = event.target.dataset.serverField;
+      for (const id of String(event.target.dataset.serverIds || "").split(",").filter(Boolean)) {
+        const path = `connections.${id}.${field}`;
+        drafts.set(path, event.target.value);
+        draftKinds.set(path, event.target.dataset.kind || "text");
+      }
+      settingsSaveMessage = "";
       settingsSaveAlarm = false;
       refreshSaveControls();
     }
@@ -1060,11 +1071,18 @@ async function runAction(event, button, action, id) {
   }
   if (action === "connection-toggle") {
     const wasOpen = expanded.has(id);
-    expanded.clear();
+    // A model editor is exclusive with the other model editors, but it must not
+    // fold the server editor the operator deliberately opened above it.
+    for (const key of [...expanded]) if (!String(key).startsWith("server:")) expanded.delete(key);
     if (!wasOpen) {
       expanded.add(id);
       void listConnectionModels(id);
     }
+    return render();
+  }
+  if (action === "server-toggle") {
+    const key = `server:${id}`;
+    if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
     return render();
   }
   if (action === "profile-memory-toggle") {
@@ -1313,6 +1331,7 @@ async function runAction(event, button, action, id) {
     return render();
   }
   if (action === "add-connection") return addConnection();
+  if (action === "add-server-model") return addServerModel(id);
   if (action === "duplicate-connection") return duplicateConnection(id);
   if (action === "remove-connection") return removeConnection(id);
   if (action === "new-session") return newSession();
@@ -1848,11 +1867,28 @@ async function shellCredentialAction(action) {
 
 async function blur(event) {
   const input = event.target;
+  if (input.matches(".setting-input[data-server-field]")) {
+    if (input.dataset.kind === "secret" && !input.value) return;
+    const ids = String(input.dataset.serverIds || "").split(",").filter(Boolean);
+    const field = input.dataset.serverField;
+    const paths = ids.map((id) => `connections.${id}.${field}`);
+    // Input already records the draft. A redraw can move focus from a fresh
+    // copy of the same field; that is not a second edit and must not write the
+    // rendered value over the operator's pending draft.
+    if (!paths.some((path) => drafts.has(path))) return;
+    const ok = await saveSettings(paths);
+    if (!ok) {
+      const message = paths.map((path) => errors.get(path)).find(Boolean) || errors.get("config") || "Save failed";
+      for (const path of paths) errors.delete(path);
+      errors.set(`servers.${input.dataset.serverKey}`, message);
+      render();
+    } else errors.delete(`servers.${input.dataset.serverKey}`);
+    return;
+  }
   if (input.matches(".setting-input[data-path]")) {
     const path = input.dataset.path;
     if (input.dataset.kind === "secret" && input.value === "•••• set") return;
-    drafts.set(path, input.value);
-    draftKinds.set(path, input.dataset.kind || "text");
+    if (!drafts.has(path)) return;
     settingsSaveAlarm = false;
     if (needsExplicitSave(path)) {
       settingsSaveMessage = "Unsaved — use the save beside the setting";
@@ -1980,7 +2016,7 @@ async function saveSettings(pathPrefix = "") {
 		await settingsSaveDone;
 		return saveSettings(pathPrefix);
 	}
-  const entries = [...drafts.entries()].filter(([path]) => !pathPrefix || path.startsWith(pathPrefix));
+  const entries = [...drafts.entries()].filter(([path]) => !pathPrefix || (Array.isArray(pathPrefix) ? pathPrefix.includes(path) : path.startsWith(pathPrefix)));
   if (!entries.length) return true;
   const changedPaths = entries.map(([path]) => path);
   settingsSaving = true;
@@ -2043,6 +2079,8 @@ async function addConnection() {
     // is, and the literal "model" reached save and was refused elsewhere with wording
     // he could not act on. Empty fields with placeholders say what to do instead.
     const result = await api("/api/config", { connections: [{ id, label: id, base_url: "", model: "" }] });
+    const added = (result.connections || []).find((connection) => connection.id === id);
+    if (added) expanded.add(`server:${added.server_group || `${String(added.base_url || "").trim()}\u0000${added.credential || added.api_key || ""}`}`);
     probeMessages.set(id, { message: "Added and saved — edit, then Test", alarm: false });
     reduce({ type: "config.changed", data: { config: result } });
   } catch (error) {
@@ -2069,6 +2107,23 @@ async function duplicateConnection(id) {
 		errors.set(`connections.${id}`, error.message);
 		render();
 	}
+}
+
+async function addServerModel(id) {
+  const source = connectionList().find((connection) => connection.id === id);
+  if (!source) return;
+  const copyID = uniqueID(`${id}-model`);
+  try {
+    const result = await api(`/api/connections/${encodeURIComponent(id)}/duplicate`, { id: copyID, label: `${source.label} model`, empty_model: true });
+    reduce({ type: "config.changed", data: { config: result } });
+    expanded.add(copyID);
+    typedModels.add(copyID);
+    render();
+    requestAnimationFrame(() => sheet.querySelector(`[data-path="connections.${CSS.escape(copyID)}.model"]`)?.focus());
+  } catch (error) {
+    errors.set(`connections.${id}`, error.message);
+    render();
+  }
 }
 
 function uniqueID(base) {

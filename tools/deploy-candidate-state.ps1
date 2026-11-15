@@ -80,6 +80,9 @@ function Invoke-AgentBInstallerQuestion {
     $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
+    # The Go inspector writes UTF-8, independently of the Windows console code page.
+    $start.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $start.StandardErrorEncoding = [Text.Encoding]::UTF8
     $process = New-Object Diagnostics.Process
     $process.StartInfo = $start
     try {

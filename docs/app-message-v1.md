@@ -29,6 +29,8 @@ bytes of its own.
 
 ## The unit budget
 
+A request `id` is executed once per pairing while its first response remains in the desktop's in-memory request window; retransmission (including a second transport message with that id) returns those same response bytes. Use a new id for new work. The window survives transport sessions, expires responses after five minutes (the broker's retained-resend lifetime), and retains at most 1,024 responses and 16 MiB including identity keys, evicting the oldest first at either bound. A process restart forgets the window; a new pairing has a separate identity. No request content is logged by this mechanism.
+
 `UNIT_MAX = 8 388 608` bytes, the broker's ceiling. A sender MUST NOT emit a unit whose UTF-8
 encoding exceeds `UNIT_MAX`. Because the ceiling is stated to include JSON encoding, a sender
 measures the encoded bytes it is about to seal, not the size of the value it started from.

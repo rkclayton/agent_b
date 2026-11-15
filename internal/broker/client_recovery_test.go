@@ -367,6 +367,9 @@ func TestTheDeviceClientPairsInTwoSteps2wq(t *testing.T) {
 			}
 		}
 		device := NewDeviceClient(deviceID, Pairing{})
+		if err := device.SetClient("android/1.2.3"); err != nil {
+			t.Fatal(err)
+		}
 		fingerprint, err := device.BeginPair(ctx, Dial(b.address), code, scanned(agentID))
 		return device, agentID, deviceID, offers, paired, fingerprint, err
 	}
@@ -383,6 +386,17 @@ func TestTheDeviceClientPairsInTwoSteps2wq(t *testing.T) {
 			t.Fatal(err)
 		}
 		agentSide := <-paired
+		transport := newScriptedBroker(t, agentID, deviceID, agentSide)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- device.authenticate(ctx, transport) }()
+		frame := transport.next(t)
+		var hello helloPayload
+		if frame.Type != FrameHello || DecodeInto(frame.Payload, &hello) != nil || hello.Client != "android/1.2.3" {
+			t.Fatal("freshly paired HELLO lost client identity")
+		}
+		cancel()
+		<-done
 		if hexID(device.Pairing().DeviceKeyID) != hexID(agentID.KeyID()) || hexID(agentSide.DeviceKeyID) != hexID(deviceID.KeyID()) || hexID(device.Pairing().PairingID) != hexID(agentSide.PairingID) {
 			t.Fatalf("device %+v, agent %+v", device.Pairing(), agentSide)
 		}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { access, mkdir, readFile, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium } from "playwright";
 
@@ -56,6 +56,11 @@ const stopChild = async (child) => {
 
 let requestCount = 0;
 const fake = createServer(async (request, response) => {
+  if (request.url === "/telemetry") {
+    request.resume();
+    response.writeHead(202);
+    return void response.end();
+  }
   requestCount += 1;
   response.setHeader("Content-Type", "application/json");
   if (request.url === "/props") return void response.end(JSON.stringify({ connection: "llama.cpp", n_ctx: 32768 }));
@@ -92,6 +97,9 @@ const fakePort = fake.address().port;
 const baseURL = `http://127.0.0.1:${args.port}`;
 
 const initial = JSON.parse(await readFile(args.config, "utf8"));
+// Keep the opt-in default under test while keeping fixture events local.
+initial.telemetry = { ...initial.telemetry, endpoint: `http://127.0.0.1:${fakePort}/telemetry` };
+await writeFile(args.config, `${JSON.stringify(initial)}\n`);
 assert.deepEqual(initial.connections, [], "fresh disposable install must start with connections:[]");
 assert.deepEqual(initial.agents, [], "fresh disposable install must start with agents:[]");
 const profileData = initial.profiles?.active ? join(args.data, "profiles", initial.profiles.active) : args.data;

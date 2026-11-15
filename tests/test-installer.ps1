@@ -550,6 +550,7 @@ try {
     $null = New-Item -ItemType Directory -Path $launchFailData -Force
     $launchFailConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'harness.example.json') | ConvertFrom-Json
     $launchFailConfig.listen = "127.0.0.1:$launchFailPort"
+    $launchFailConfig | Add-Member -Force NoteProperty telemetry @{ enabled = $true; endpoint = 'http://127.0.0.1:1/telemetry' }
     $launchFailConfig.workspace = Join-Path $launchFailData 'scratch'
     $launchFailConfig.log_dir = Join-Path $launchFailData 'logs'
     $launchFailConfig.memory.dir = Join-Path $launchFailData 'memory'
@@ -606,6 +607,8 @@ try {
     $null = New-Item -ItemType Directory -Path $testData -Force
     $freshConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'harness.example.json') | ConvertFrom-Json
     $freshConfig.listen = "127.0.0.1:$testPort"
+    # Preserve default opt-in without allowing disposable installs to post live events.
+    $freshConfig | Add-Member -Force NoteProperty telemetry @{ enabled = $true; endpoint = 'http://127.0.0.1:1/telemetry' }
     $freshConfig.workspace = Join-Path $testData 'scratch'
     $freshConfig.log_dir = Join-Path $testData 'logs'
     $freshConfig.memory.dir = Join-Path $testData 'memory'
@@ -1243,6 +1246,7 @@ Write-MatrixProof 'PROOF the check catches it: a shortcut aimed straight at Agen
     $null = New-Item -ItemType Directory -Path $windowFailData -Force
     $windowFailConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'harness.example.json') | ConvertFrom-Json
     $windowFailConfig.listen = "127.0.0.1:$windowFailPort"
+    $windowFailConfig | Add-Member -Force NoteProperty telemetry @{ enabled = $true; endpoint = 'http://127.0.0.1:1/telemetry' }
     $windowFailConfig.workspace = Join-Path $windowFailData 'scratch'
     $windowFailConfig.log_dir = Join-Path $windowFailData 'logs'
     $windowFailConfig.memory.dir = Join-Path $windowFailData 'memory'

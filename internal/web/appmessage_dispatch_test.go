@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,113 @@ import (
 
 // Item 2kq (c): the dispatcher serves the SAME handlers the local page calls, as the
 // paired phone's identity, and the route set is closed.
+
+func TestAppRequestWindowBounds2y7(t *testing.T) {
+	var c appRequestCache
+	now := time.Now()
+	c.now = func() time.Time { return now }
+	runs := 0
+	run := func() []byte { runs++; return []byte("response") }
+	started := time.Now()
+	for n := 0; n < appRequestLimit; n++ {
+		c.run("pairing", fmt.Sprint(n), run)
+	}
+	if len(c.entries) != appRequestLimit {
+		t.Fatal("count bound not filled")
+	}
+	c.run("pairing", "0", run)
+	if runs != appRequestLimit {
+		t.Fatal("oldest was evicted early")
+	}
+	c.run("pairing", "next", run)
+	c.run("pairing", "0", run)
+	if runs != appRequestLimit+2 {
+		t.Fatal("oldest was not evicted")
+	}
+	now = now.Add(appRequestLifetime)
+	c.run("pairing", "0", run)
+	if len(c.entries) != 1 || runs != appRequestLimit+3 {
+		t.Fatal("age bound did not expire")
+	}
+	var restarted appRequestCache
+	restarted.run("pairing", "0", run)
+	if runs != appRequestLimit+4 {
+		t.Fatal("restart retained old results")
+	}
+	for n := 0; n < 4; n++ {
+		c.run("pairing", fmt.Sprint(n), func() []byte { return make([]byte, 8<<20-128) })
+	}
+	if c.bytes > appRequestBytes || len(c.entries) != 2 {
+		t.Fatal("byte bound did not evict oldest")
+	}
+	t.Logf("full bounds: %d entries; byte-bound=%d; elapsed=%s", appRequestLimit, c.bytes, time.Since(started))
+	var group sync.WaitGroup
+	for range 30 {
+		group.Add(1)
+		go func() { defer group.Done(); c.run("pairing", "concurrent", run) }()
+	}
+	group.Wait()
+	if runs != appRequestLimit+5 {
+		t.Fatal("concurrent duplicate ran twice")
+	}
+}
+
+func TestAppMessageRunsOnce2y7(t *testing.T) {
+	var calls atomic.Int64
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); writeModelDone(w) }))
+	defer model.Close()
+	f := newAgentConnectionFixture(t, model.URL, model.URL)
+	unit := []byte(fmt.Sprintf(`{"v":1,"kind":"request","id":"message-1","route":"message","body":{"session_id":%q,"text":"fixture"}}`, f.session.ID))
+	first := f.server.DispatchAppMessage("pairing", unit)
+	if !bytes.Contains(first, []byte(`"status":202`)) && !bytes.Contains(first, []byte(`"status":200`)) {
+		t.Fatalf("request refused: %s", first)
+	}
+	wait := func(want int64) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for calls.Load() < want || f.scheduler.Active(f.session.ID) {
+			if time.Now().After(deadline) {
+				t.Fatal("stand-in run did not finish")
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	wait(1)
+	for range 2 {
+		if next := f.server.DispatchAppMessage("pairing", unit); !bytes.Equal(first, next) {
+			t.Fatal("first response changed")
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatal("duplicate request ran again")
+	}
+	f.server.DispatchAppMessage("pairing", bytes.Replace(unit, []byte("message-1"), []byte("message-2"), 1))
+	wait(2)
+	if calls.Load() != 2 {
+		t.Fatal("different id did not run exactly once")
+	}
+}
+
+func TestAppRequestRunsOnce2y7(t *testing.T) {
+	s := dispatchServer(t)
+	unit := []byte(`{"v":1,"kind":"request","id":"retry-1","route":"chat.create","body":{}}`)
+	first := s.DispatchAppMessage("pairing-1", unit)
+	if !bytes.Contains(first, []byte(`"status":201`)) {
+		t.Fatal("fixture request failed")
+	}
+	for range 2 {
+		if next := s.DispatchAppMessage("pairing-1", unit); !bytes.Equal(first, next) {
+			t.Fatal("duplicate executed again")
+		}
+	}
+	if next := s.DispatchAppMessage("pairing-2", unit); bytes.Equal(first, next) {
+		t.Fatal("pairings share request ids")
+	}
+	other := bytes.Replace(unit, []byte("retry-1"), []byte("retry-2"), 1)
+	if next := s.DispatchAppMessage("pairing-1", other); bytes.Equal(first, next) {
+		t.Fatal("different id did not run")
+	}
+}
 
 func dispatchServer(t *testing.T) *Server {
 	t.Helper()
@@ -1017,8 +1125,10 @@ func TestADeviceSeesEachAgentsToolsAndAToggleReachesIt2ws(t *testing.T) {
 			Enabled bool   `json:"enabled"`
 		} `json:"tools"`
 	}
+	stateRead := 0
 	rows := func() map[string]row {
-		response := dispatch(t, server, `{"v":1,"kind":"request","id":"aa","route":"state","body":{}}`)
+		stateRead++
+		response := dispatch(t, server, fmt.Sprintf(`{"v":1,"kind":"request","id":"state-%d","route":"state","body":{}}`, stateRead))
 		if strings.Contains(string(response.Body), `"effort"`) {
 			t.Fatalf("phone profile answer grew the desktop-only effort field: %s", response.Body)
 		}

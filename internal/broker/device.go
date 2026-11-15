@@ -40,22 +40,26 @@ type DeviceClient struct {
 	agent    Pairing // the AGENT's keys, in the fields Pairing names for the far end
 	slots    chan struct{}
 
-	mu      sync.Mutex
-	sendMu  sync.Mutex // keeps sealed frames on the wire in counter order
-	now     func() time.Time
-	link    Transport
-	stop    context.CancelFunc
-	session *Session
-	counter uint64
-	pending map[string]devicePending
-	counts  Counters
-	pairing *devicePairing // between BeginPair and ConfirmPair
+	mu        sync.Mutex
+	sendMu    sync.Mutex // keeps sealed frames on the wire in counter order
+	now       func() time.Time
+	link      Transport
+	stop      context.CancelFunc
+	session   *Session
+	counter   uint64
+	pending   map[string]devicePending
+	counts    Counters
+	pairing   *devicePairing // between BeginPair and ConfirmPair
+	client    string
+	telemetry func(string, map[string]any)
+	stats     *deviceSessionStats
 }
 
 type devicePending struct {
 	plaintext []byte
 	sent      time.Time
 	session   string // the one it was last sealed under
+	delivery  *DeviceDelivery
 }
 
 type devicePairing struct {
@@ -120,7 +124,7 @@ func (d *DeviceClient) Pair(ctx context.Context, dial Dialer, code string) (stri
 // differs is refused (item 2wq).
 func (d *DeviceClient) BeginPair(ctx context.Context, dial Dialer, code string, agentSigning []byte) (string, error) {
 	d.endPairing()
-	t, err := dial(ctx)
+	t, err := d.dialDevice(ctx, dial)
 	if err != nil {
 		return "", err
 	}
@@ -197,11 +201,19 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 		return errors.New("broker: not paired")
 	}
 	ctx, stop := context.WithCancel(ctx)
-	t, err := dial(ctx)
+	t, err := d.dialDevice(ctx, dial)
 	if err == nil {
+		started := d.now()
 		err = d.authenticate(ctx, t)
+		if err != nil {
+			d.reportHandshake("hello", started, err)
+		}
 		if err == nil {
+			peerStarted := d.now()
 			err = deviceSend(t, FramePeerQuery, peerQueryPayload{PairingID: hexID(d.Pairing().PairingID)})
+			if err != nil {
+				d.reportHandshake("peer", peerStarted, err)
+			}
 		}
 		if err != nil {
 			_ = t.Close(1000, "auth failed")
@@ -226,10 +238,15 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 		close(inbox)
 		_ = t.Close(1000, "done")
 		d.mu.Lock()
+		var record map[string]any
 		if d.link == t { // a Connect that came after this link ended keeps its own
+			record = d.sessionRecordLocked(linkCloseReason(err, ctx))
 			d.link, d.session = nil, nil
 		}
 		d.mu.Unlock()
+		if record != nil {
+			d.observe("link.session", record)
+		}
 		if ctx.Err() == nil {
 			event("closed: " + err.Error())
 		}
@@ -245,7 +262,10 @@ func (d *DeviceClient) authenticate(ctx context.Context, t Transport) error {
 	}
 	var challenge challengePayload
 	var ready readyPayload
-	err := deviceSend(t, FrameHello, helloPayload{Role: "device", ConnectionID: hexID(connectionID), KeyID: hexID(id.KeyID()), Ed25519: b64.EncodeToString(id.SigningPublic()), X25519: b64.EncodeToString(id.AgreementPublic())})
+	d.mu.Lock()
+	client := d.client
+	d.mu.Unlock()
+	err := deviceSend(t, FrameHello, helloPayload{Role: "device", Client: client, ConnectionID: hexID(connectionID), KeyID: hexID(id.KeyID()), Ed25519: b64.EncodeToString(id.SigningPublic()), X25519: b64.EncodeToString(id.AgreementPublic())})
 	if err == nil {
 		err = deviceRead(ctx, t, FrameChallenge, &challenge)
 	}
@@ -259,10 +279,15 @@ func (d *DeviceClient) authenticate(ctx context.Context, t Transport) error {
 	return err
 }
 
-func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []byte, event func(string)) error {
+func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []byte, event func(string)) (serveErr error) {
 	b64, p, me := base64.RawURLEncoding, d.Pairing(), d.identity.KeyID()
 	var opening *Session
 	var openedAt time.Time
+	defer func() {
+		if !openedAt.IsZero() && serveErr != nil {
+			d.reportHandshake("peer", openedAt, serveErr)
+		}
+	}()
 	for {
 		raw, err := t.Receive(ctx)
 		if err != nil {
@@ -280,6 +305,9 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			}
 			out, kind := SessionFrame{PairingID: in.PairingID, HandshakeID: in.HandshakeID, SenderKeyID: hexID(me), RecipientID: in.SenderKeyID}, byte(FrameSessionResp)
 			if frame.Type == FrameSessionInit {
+				if !openedAt.IsZero() {
+					d.reportHandshake("peer", openedAt, errors.New("handshake replaced"))
+				}
 				handshake, _ := hex.DecodeString(in.HandshakeID)
 				ephemeral := make([]byte, 32)
 				if _, err := rand.Read(ephemeral); err != nil {
@@ -317,10 +345,16 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 					return err
 				}
 				d.mu.Lock()
+				record := d.sessionRecordLocked("replaced")
 				d.session, d.counter = opening, 1 // the sealed ready was counter 0
+				d.stats = &deviceSessionStats{started: d.now(), sentAt: make(map[string]time.Time)}
 				d.mu.Unlock()
+				if record != nil {
+					d.observe("link.session", record)
+				}
 				go d.resendStale(ctx, t, opening)
 				opening = nil
+				openedAt = time.Time{}
 				event("session " + out.SessionID[:8])
 				continue
 			}
@@ -346,6 +380,11 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				return err
 			}
 			// The reader never waits on the handler: a message that finds the queue
+			d.mu.Lock()
+			if d.stats != nil {
+				d.stats.received++
+			}
+			d.mu.Unlock()
 			// full is not acknowledged, so the broker keeps it in flight, and the link
 			// ends saying so.
 			select {
@@ -358,6 +397,9 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			}
 			d.mu.Lock()
 			d.counts.Received++
+			if d.stats != nil {
+				d.stats.receivedAcked++
+			}
 			d.mu.Unlock()
 		case FrameAck, FrameExpired, FrameResend, FrameQueued:
 			var in IDOnlyFrame
@@ -367,8 +409,12 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			d.mu.Lock()
 			retained, held := d.pending[in.MessageID]
 			if held && (frame.Type == FrameAck || frame.Type == FrameExpired) {
-				delete(d.pending, in.MessageID)
-				<-d.slots
+				outcome := "expired"
+				if frame.Type == FrameAck {
+					outcome = "delivered"
+					d.ackLocked(in.MessageID)
+				}
+				d.endLocked(in.MessageID, outcome)
 			}
 			d.mu.Unlock()
 			if frame.Type == FrameResend && held {
@@ -404,7 +450,9 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 			// The device never waits on a handshake, but an opening the agent left is
 			// dropped at the agent's bound (item 2wr).
 			if opening != nil && d.now().Sub(openedAt) >= handshakeLimit {
+				d.reportHandshake("peer", openedAt, context.DeadlineExceeded)
 				opening = nil
+				openedAt = time.Time{}
 				event("handshake abandoned")
 			}
 		case FrameError:
@@ -486,6 +534,14 @@ func validFCMPushIdentifier(value string) bool {
 // Send seals one message to the agent and retains it until its ACK. With
 // deliveryIntentLimit unacknowledged it waits for room, or for the context to end.
 func (d *DeviceClient) Send(ctx context.Context, plaintext []byte) error {
+	_, err := d.SendWithHandle(ctx, plaintext)
+	return err
+}
+
+// SendWithHandle is Send with a delivery handle. A non-nil handle means the
+// message was retained, even if the first wire write returned an error. An
+// expired outcome also covers the existing five-minute local expiry fallback.
+func (d *DeviceClient) SendWithHandle(ctx context.Context, plaintext []byte) (*DeviceDelivery, error) {
 	select {
 	case d.slots <- struct{}{}:
 	default:
@@ -495,7 +551,7 @@ func (d *DeviceClient) Send(ctx context.Context, plaintext []byte) error {
 		select {
 		case d.slots <- struct{}{}:
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
 	d.mu.Lock()
@@ -503,26 +559,34 @@ func (d *DeviceClient) Send(ctx context.Context, plaintext []byte) error {
 	d.mu.Unlock()
 	messageID := make([]byte, 16)
 	_, err := rand.Read(messageID)
+	h := &DeviceDelivery{id: hexID(messageID), done: make(chan struct{})}
 	if err == nil && t == nil {
 		err = errors.New("broker: no link")
 	}
 	if err == nil {
-		err = d.seal(t, messageID, append([]byte(nil), plaintext...), false)
+		err = d.seal(t, messageID, append([]byte(nil), plaintext...), false, h)
 	}
 	if err != nil {
 		d.mu.Lock()
-		if _, held := d.pending[hexID(messageID)]; !held {
+		if _, held := d.pending[hexID(messageID)]; !held && h.Outcome() == "" {
 			<-d.slots
+			h = nil
 		}
 		d.mu.Unlock()
 	}
-	return err
+	return h, err
 }
 
-func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend bool) error {
+func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend bool, handles ...*DeviceDelivery) error {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 	d.mu.Lock()
+	if resend {
+		if _, held := d.pending[hexID(messageID)]; !held {
+			d.mu.Unlock()
+			return nil
+		}
+	}
 	s, counter, p, me := d.session, d.counter, d.agent, d.identity.KeyID()
 	if s != nil {
 		d.counter++
@@ -538,11 +602,25 @@ func (d *DeviceClient) seal(t Transport, messageID, plaintext []byte, resend boo
 	}
 	frame := CiphertextFrame{PairingID: hexID(p.PairingID), SessionID: s.SessionID(), MessageID: hexID(messageID), SenderKeyID: hexID(me), RecipientKeyID: hexID(p.DeviceKeyID), Counter: counter, PlaintextBytes: len(plaintext), Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)}
 	d.mu.Lock()
+	if resend {
+		if _, held := d.pending[frame.MessageID]; !held {
+			d.mu.Unlock()
+			return nil
+		}
+	}
 	if retained, held := d.pending[frame.MessageID]; held {
 		retained.plaintext, retained.session = plaintext, frame.SessionID
 		d.pending[frame.MessageID] = retained
 	} else {
-		d.pending[frame.MessageID] = devicePending{plaintext: plaintext, sent: d.now(), session: frame.SessionID}
+		var h *DeviceDelivery
+		if len(handles) > 0 {
+			h = handles[0]
+		}
+		d.pending[frame.MessageID] = devicePending{plaintext: plaintext, sent: d.now(), session: frame.SessionID, delivery: h}
+	}
+	if d.stats != nil {
+		d.stats.sent++
+		d.stats.sentAt[frame.MessageID] = d.now()
 	}
 	if resend {
 		d.counts.Resent++
@@ -590,8 +668,7 @@ func (d *DeviceClient) resendStale(ctx context.Context, t Transport, s *Session)
 func (d *DeviceClient) expireLocked() {
 	for id, retained := range d.pending {
 		if d.now().Sub(retained.sent) >= deliveryLifetime {
-			delete(d.pending, id)
-			<-d.slots
+			d.endLocked(id, "expired")
 		}
 	}
 }

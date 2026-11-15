@@ -57,7 +57,7 @@ func (c *BrokerClient) startSession(pairing broker.Pairing) {
 	}
 	c.stopSessionLocked()
 	c.mu.Unlock()
-	device := "broker:" + hex.EncodeToString(pairing.DeviceKeyID)
+	device := "broker:" + hex.EncodeToString(pairing.PairingID) + ":" + hex.EncodeToString(pairing.DeviceKeyID)
 	ctx, stop := context.WithCancel(context.Background())
 	var client *broker.Client
 	live := newPhoneStreamState()
@@ -553,6 +553,16 @@ func (p *phoneStreamState) prepare(epoch uint64, cursor projection.Cursor) {
 		p.cursor, p.prepared = cursor, true
 	}
 	p.mu.Unlock()
+}
+
+// A replay may restore a reset transport, but cannot replace a newer selection.
+func (p *phoneStreamState) restorePrepared(session string, cursor projection.Cursor) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.mode == 0 {
+		p.epoch++
+		p.mode, p.session, p.cursor, p.prepared, p.held = 1, session, cursor, true, nil
+	}
 }
 func (p *phoneStreamState) abortUnlessPrepared(epoch uint64) {
 	p.mu.Lock()

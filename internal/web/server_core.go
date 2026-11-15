@@ -44,11 +44,12 @@ import (
 )
 
 type Server struct {
-	mu         sync.RWMutex
-	cfg        *config.Config
-	configPath string
-	roots      RuntimeRoots
-	bus        *events.Bus
+	appRequests appRequestCache
+	mu          sync.RWMutex
+	cfg         *config.Config
+	configPath  string
+	roots       RuntimeRoots
+	bus         *events.Bus
 	// the telemetry sender and its subscription, or nothing at all.
 	telemetry telemetryHost
 	// the flight recorder, fed by the bus whatever the switch says.

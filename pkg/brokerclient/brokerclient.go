@@ -11,6 +11,7 @@ type (
 	CiphertextFrame = broker.CiphertextFrame
 	Counters        = broker.Counters
 	DeviceClient    = broker.DeviceClient
+	DeviceDelivery  = broker.DeviceDelivery
 	Dialer          = broker.Dialer
 	ErrorPayload    = broker.ErrorPayload
 	Frame           = broker.Frame

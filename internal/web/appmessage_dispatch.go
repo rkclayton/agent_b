@@ -1,13 +1,17 @@
 package web
 
 import (
+	"container/list"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"harness/internal/projection"
 )
@@ -76,6 +80,67 @@ type appResponseUnit struct {
 	Body   json.RawMessage `json:"body,omitempty"`
 }
 
+const appRequestLimit = 1024
+const appRequestBytes = 16 << 20
+const appRequestLifetime = 5 * time.Minute
+
+type appRequestKey struct {
+	pairing string
+	id      [32]byte
+}
+type appRequestReply struct {
+	key    appRequestKey
+	at     time.Time
+	answer []byte
+}
+type appRequestCache struct {
+	mu      sync.Mutex
+	entries map[appRequestKey]*list.Element
+	order   list.List
+	bytes   int
+	now     func() time.Time
+}
+
+func (c *appRequestCache) removeOldest() {
+	e := c.order.Front()
+	r := e.Value.(appRequestReply)
+	delete(c.entries, r.key)
+	c.bytes -= len(r.answer) + len(r.key.pairing) + 32
+	c.order.Remove(e)
+}
+
+// Execution is serialized with lookup: concurrent duplicates share one result,
+// without an unbounded collection of in-flight requests. Each expiry/eviction
+// removes one entry; no collection is rebuilt on a request path.
+func (c *appRequestCache) run(pairing, id string, execute func() []byte) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if c.now != nil {
+		now = c.now()
+	}
+	for e := c.order.Front(); e != nil && now.Sub(e.Value.(appRequestReply).at) >= appRequestLifetime; e = c.order.Front() {
+		c.removeOldest()
+	}
+	key := appRequestKey{pairing, sha256.Sum256([]byte(id))}
+	if e := c.entries[key]; e != nil {
+		return append([]byte(nil), e.Value.(appRequestReply).answer...), true
+	}
+	answer := execute()
+	size := len(answer) + len(pairing) + 32
+	if size <= appRequestBytes {
+		for len(c.entries) >= appRequestLimit || c.bytes+size > appRequestBytes {
+			c.removeOldest()
+		}
+		if c.entries == nil {
+			c.entries = make(map[appRequestKey]*list.Element)
+		}
+		c.entries[key] = c.order.PushBack(appRequestReply{key, now, append([]byte(nil), answer...)})
+		c.bytes += size
+	}
+	return answer, false
+}
+
 // DispatchAppMessage turns one decrypted request unit into one response unit. It never
 // returns an error: a refusal is a response with a status, because the phone is owed an
 // answer for every id it sent.
@@ -91,6 +156,48 @@ func (s *Server) dispatchAppMessage(deviceID string, unit []byte, live *phoneStr
 	if request.V != 1 || request.Kind != "request" || request.ID == "" {
 		return s.appProblem(request.ID, http.StatusBadRequest, "the unit is not an app-message v1 request")
 	}
+	answer, cached := s.appRequests.run(deviceID, request.ID, func() []byte { return s.executeAppMessage(deviceID, request, live) })
+	if cached && live != nil && !live.opened() {
+		// A failed delivery resets transport subscription state. Re-prime it from
+		// the original answer, without running the request or reading new state.
+		// An already-open subscription is never overwritten by an old retry.
+		var response struct {
+			Status int `json:"status"`
+			Body   struct {
+				SessionID string            `json:"session_id"`
+				Cursor    projection.Cursor `json:"cursor"`
+				Snapshot  struct {
+					Cursor projection.Cursor `json:"cursor"`
+				} `json:"snapshot"`
+				Sessions map[string]struct {
+					Cursor projection.Cursor `json:"cursor"`
+				} `json:"sessions"`
+			} `json:"body"`
+		}
+		if json.Unmarshal(answer, &response) == nil && response.Status == http.StatusOK {
+			switch request.Route {
+			case "chat.open":
+				cursor := response.Body.Cursor
+				if cursor.Generation == "" {
+					cursor = response.Body.Snapshot.Cursor
+				}
+				live.restorePrepared(response.Body.SessionID, cursor)
+			case "resync":
+				var asked struct {
+					SessionID string `json:"session_id"`
+				}
+				if json.Unmarshal(request.Body, &asked) == nil && asked.SessionID != "" {
+					if snapshot, ok := response.Body.Sessions[asked.SessionID]; ok {
+						live.restorePrepared(asked.SessionID, snapshot.Cursor)
+					}
+				}
+			}
+		}
+	}
+	return answer
+}
+
+func (s *Server) executeAppMessage(deviceID string, request appRequestUnit, live *phoneStreamState) []byte {
 	if strings.HasPrefix(request.Route, "chat.mirror") {
 		if _, known := appMessageRoutes[request.Route]; !known {
 			return s.appProblem(request.ID, http.StatusNotImplemented, "this desktop does not publish the route "+request.Route)

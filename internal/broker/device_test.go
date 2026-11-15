@@ -17,6 +17,297 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+type failingDeviceTransport struct {
+	Transport
+	kind byte
+}
+
+func (f failingDeviceTransport) Send(raw []byte) error {
+	frame, err := Decode(raw)
+	if err == nil && frame.Type == f.kind {
+		return errors.New("stand-in write failure")
+	}
+	return f.Transport.Send(raw)
+}
+
+func TestDeviceReceiveAndWriteFailures2y7(t *testing.T) {
+	for _, kind := range []byte{FrameAck, FrameCiphertext} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			b := newStandIn(t)
+			agentID, deviceID := newIdentity(t), newIdentity(t)
+			pairID := make([]byte, 16)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			a := NewClient(agentID, Pairing{PairingID: pairID, DeviceKeyID: deviceID.KeyID(), DeviceSigning: deviceID.SigningPublic(), DeviceAgreement: deviceID.AgreementPublic()}, Dial(b.address), echo)
+			go a.Run(ctx)
+			d := NewDeviceClient(deviceID, Pairing{PairingID: pairID, DeviceKeyID: agentID.KeyID(), DeviceSigning: agentID.SigningPublic(), DeviceAgreement: agentID.AgreementPublic()})
+			defer d.CloseAndDrop()
+			records := make(chan map[string]any, 4)
+			d.OnTelemetry(func(kind string, fields map[string]any) {
+				if kind == "link.session" {
+					records <- fields
+				}
+			})
+			ready := make(chan struct{}, 4)
+			dial := func(ctx context.Context) (Transport, error) {
+				tr, err := Dial(b.address)(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return failingDeviceTransport{tr, kind}, nil
+			}
+			if err := d.Connect(ctx, dial, func([]byte) {}, func(line string) {
+				if strings.HasPrefix(line, "session ") {
+					ready <- struct{}{}
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-ready:
+			case <-time.After(5 * time.Second):
+				t.Fatal("no session")
+			}
+			h, err := d.SendWithHandle(ctx, []byte("fixture"))
+			if kind == FrameCiphertext {
+				if err == nil || h == nil || len(d.Retained()) != 1 {
+					t.Fatal("failed write lost the retained handle")
+				}
+				d.CloseAndDrop()
+				if h.Outcome() != "dropped" {
+					t.Fatal("retained failed write did not end")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case r := <-records:
+				if r["received"] != int64(1) || r["received_unacked"] != int64(1) || r["sent"] != int64(b.count("device 0x20", b.frames)) || b.count("device 0x21", b.frames) != 0 {
+					t.Fatalf("receive/ACK accounting: %v", r)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no session record")
+			}
+		})
+	}
+}
+
+func TestDeviceHandshakeTimeouts2y7(t *testing.T) {
+	t.Run("peer query failure", func(t *testing.T) {
+		d := NewDeviceClient(newIdentity(t), Pairing{PairingID: make([]byte, 16)})
+		b := newScriptedBroker(t, Identity{}, Identity{}, Pairing{})
+		b.push(FrameChallenge, challengePayload{Challenge: "AAAA"})
+		b.push(FrameReady, readyPayload{})
+		var got map[string]any
+		d.OnTelemetry(func(_ string, fields map[string]any) { got = fields })
+		err := d.Connect(context.Background(), func(context.Context) (Transport, error) { return failingDeviceTransport{b, FramePeerQuery}, nil }, func([]byte) {}, func(string) {})
+		if err == nil || got["step"] != "peer" {
+			t.Fatal("failed peer query had no handshake record")
+		}
+	})
+	for _, step := range []string{"dial", "tls", "hello", "peer"} {
+		t.Run(step, func(t *testing.T) {
+			agent, device := newIdentity(t), newIdentity(t)
+			p := Pairing{PairingID: make([]byte, 16), DeviceKeyID: agent.KeyID(), DeviceSigning: agent.SigningPublic(), DeviceAgreement: agent.AgreementPublic()}
+			d := NewDeviceClient(device, p)
+			records := make(chan map[string]any, 2)
+			d.OnTelemetry(func(kind string, fields map[string]any) {
+				if kind == "link.handshake" {
+					records <- fields
+				}
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+			defer cancel()
+			b := newScriptedBroker(t, agent, device, p)
+			if step == "peer" {
+				handshake := make([]byte, 16)
+				ephemeral := make([]byte, 32)
+				_, _ = rand.Read(ephemeral)
+				s, err := NewInitiator(agent, device.AgreementPublic(), SessionPrologue(p.PairingID, handshake, agent.KeyID(), device.KeyID()), ephemeral)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m, err := s.WriteInit()
+				if err != nil {
+					t.Fatal(err)
+				}
+				b.push(FrameSessionInit, SessionFrame{PairingID: hexID(p.PairingID), HandshakeID: hexID(handshake), SenderKeyID: hexID(agent.KeyID()), Noise: base64.RawURLEncoding.EncodeToString(m), Signature: base64.RawURLEncoding.EncodeToString(s.InitSignature(m))})
+				_ = d.serve(ctx, b, make(chan []byte, 1), func(string) {})
+			} else {
+				dial := func(ctx context.Context) (Transport, error) {
+					if step == "hello" {
+						return b, nil
+					}
+					<-ctx.Done()
+					if step == "tls" {
+						return nil, &handshakeFailure{step: "tls", err: ctx.Err()}
+					}
+					return nil, ctx.Err()
+				}
+				if err := d.Connect(ctx, dial, func([]byte) {}, func(string) {}); err == nil {
+					t.Fatal("timeout was accepted")
+				}
+			}
+			select {
+			case r := <-records:
+				if r["step"] != step || r["elapsed_ms"].(int64) <= 0 {
+					t.Fatalf("timeout record: %v", r)
+				}
+			default:
+				t.Fatal("no timeout record")
+			}
+		})
+	}
+}
+
+func TestDeviceHelloClient2y7(t *testing.T) {
+	for _, name := range []string{"", "android/1.2.3"} {
+		d := NewDeviceClient(newIdentity(t), Pairing{})
+		if err := d.SetClient(name); err != nil {
+			t.Fatal(err)
+		}
+		b := newScriptedBroker(t, Identity{}, Identity{}, Pairing{})
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- d.authenticate(ctx, b) }()
+		f := b.next(t)
+		var fields map[string]any
+		if f.Type != FrameHello || DecodeInto(f.Payload, &fields) != nil {
+			t.Fatal("no HELLO")
+		}
+		if name == "" {
+			if _, ok := fields["client"]; ok {
+				t.Fatal("unset client changed bytes")
+			}
+		} else if fields["client"] != name {
+			t.Fatal("client absent")
+		}
+		cancel()
+		<-done
+	}
+}
+
+func TestDeviceRecords2y7(t *testing.T) {
+	closed := make(chan map[string]any, 4)
+	b, _, d := linkThroughStandIn(t, echo, func([]byte) {}, func(d *DeviceClient) {
+		d.OnTelemetry(func(kind string, fields map[string]any) {
+			if kind == "link.session" {
+				closed <- fields
+			}
+		})
+	})
+	b.mu.Lock()
+	b.swallow = "device"
+	b.mu.Unlock()
+	if err := d.Send(context.Background(), []byte("fixture")); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	select {
+	case r := <-closed:
+		if r["role"] != "device" || r["sent"] != int64(1) || r["acked"] != int64(0) || r["unacked"] != int64(1) || r["received_unacked"] != int64(0) {
+			t.Fatalf("counts: %v", r)
+		}
+		if len(r) != 10 {
+			t.Fatalf("record fields: %v", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no close record")
+	}
+	for _, step := range []string{"dial", "tls", "hello", "peer"} {
+		t.Run(step, func(t *testing.T) {
+			d := NewDeviceClient(newIdentity(t), Pairing{})
+			var fields map[string]any
+			d.OnTelemetry(func(kind string, got map[string]any) {
+				if kind != "link.handshake" {
+					t.Fatal(kind)
+				}
+				fields = got
+			})
+			started := time.Now().Add(-20 * time.Millisecond)
+			d.reportHandshake(step, started, context.DeadlineExceeded)
+			if fields["step"] != step || fields["elapsed_ms"].(int64) < 20 || len(fields) != 2 {
+				t.Fatalf("handshake: %v", fields)
+			}
+		})
+	}
+}
+
+func TestDeviceDeliveryEnds2y7(t *testing.T) {
+	for _, outcome := range []string{"delivered", "expired", "dropped", "reconnected"} {
+		t.Run(outcome, func(t *testing.T) {
+			b, agent, d := linkThroughStandIn(t, echo, func([]byte) {})
+			b.mu.Lock()
+			b.swallow = "device"
+			b.mu.Unlock()
+			h, err := d.SendWithHandle(context.Background(), []byte("fixture"))
+			if err != nil || h == nil {
+				t.Fatalf("send: %v", err)
+			}
+			if got := d.Retained(); len(got) != 1 || got[0] != h {
+				t.Fatal("retained handle missing")
+			}
+			want := outcome
+			switch outcome {
+			case "delivered", "expired":
+				kind := byte(FrameAck)
+				if outcome == "expired" {
+					kind = FrameExpired
+				}
+				b.sendTo("device", kind, IDOnlyFrame{MessageID: h.ID()})
+				b.sendTo("device", kind, IDOnlyFrame{MessageID: h.ID()})
+			case "dropped":
+				d.CloseAndDrop()
+			case "reconnected":
+				for deadline := time.Now().Add(5 * time.Second); b.count("device 0x20", b.frames) == 0; time.Sleep(time.Millisecond) {
+					if time.Now().After(deadline) {
+						t.Fatal("stand-in did not receive the first frame")
+					}
+				}
+				b.cut("device")
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					d.mu.Lock()
+					down := d.link == nil
+					d.mu.Unlock()
+					if down && agent.Status().State == "holding" {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("link did not close")
+					}
+					time.Sleep(time.Millisecond)
+				}
+				d.Close() // the existing Android reconnect path must retain this send
+				b.mu.Lock()
+				b.swallow = ""
+				b.mu.Unlock()
+				if err := d.Connect(context.Background(), Dial(b.address), func([]byte) {}, b.deviceEvent); err != nil {
+					t.Fatal(err)
+				}
+				want = "delivered"
+			}
+			select {
+			case <-h.Done():
+			case <-time.After(10 * time.Second):
+				b.mu.Lock()
+				events := append([]string(nil), b.events...)
+				b.mu.Unlock()
+				t.Fatalf("no terminal result: counters=%+v events=%v", d.Counters(), events)
+			}
+			if h.Outcome() != want {
+				t.Fatalf("outcome=%s want=%s", h.Outcome(), want)
+			}
+			d.CloseAndDrop()
+			if h.Outcome() != want || len(d.Retained()) != 0 {
+				t.Fatal("terminal result changed")
+			}
+		})
+	}
+}
+
 // Item 2wo: a stand-in broker that does what the real one does to a burst. Over 240
 // frames in a connection's second it holds the frame and reads nothing more until the
 // second turns; it forwards each frame from the sender's reader to the recipient, giving

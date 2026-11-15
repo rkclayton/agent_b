@@ -710,6 +710,7 @@ const appEnvironment = realModel ? process.env : {
 };
 const toolset = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", ...(cronOnly ? ["cronjob"] : [])];
 const config = {
+  telemetry: { enabled: false },
   config_version: 15, listen: `127.0.0.1:${appPort}`, workspace: args.workspace, log_dir: join(args.data, "logs"),
   connections: [{ id: "acceptance", label: "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCD", base_url: connectionURL, model: connectionName, credential: "", request_timeout_s: 3, probe_mode: "off",
     sampling: { thinking: { temperature: .6, top_p: .95, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 }, nonthinking: { temperature: .7, top_p: .8, top_k: 20, min_p: 0, presence_penalty: 0, repeat_penalty: 1 } },

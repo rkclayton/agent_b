@@ -433,3 +433,23 @@ func TestUpdateReceiptWaitsForAcceptedRetry2y6(t *testing.T) {
 		t.Fatalf("accepted retries acknowledged %d times", delivered)
 	}
 }
+
+func TestFlushWaitsForAnEarlierDelivery2y6(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	sender := New(Options{Transport: func(context.Context, []byte) error { close(entered); <-release; return nil }})
+	defer sender.Close()
+	sender.Observe("update", "2026-11-15T03:00:00Z", map[string]any{"install": "failed_verify", "from": "v1.2.0", "to": "v1.2.1"})
+	first := make(chan struct{})
+	go func() { sender.Flush(); close(first) }()
+	<-entered
+	second := make(chan struct{})
+	go func() { sender.Flush(); close(second) }()
+	select {
+	case <-second:
+		t.Error("Flush returned before an earlier delivery completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	<-first
+	<-second
+}

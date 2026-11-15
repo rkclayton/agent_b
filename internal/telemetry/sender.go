@@ -73,6 +73,7 @@ type Options struct {
 
 // Sender accumulates allow-listed events and sends them in batches.
 type Sender struct {
+	flushMu    sync.Mutex
 	mu         sync.Mutex
 	options    Options
 	pending    []Event
@@ -196,6 +197,8 @@ func (s *Sender) Flush() {
 	if s == nil {
 		return
 	}
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
 	s.mu.Lock()
 	all := s.pending
 	s.pending = nil
@@ -384,6 +387,8 @@ func (s *Sender) enqueue(body []byte) {
 // longer than the backlog allows — with a log line, because a silent drop of
 // the operator's own diagnostics is the kind of thing this order exists to end.
 func (s *Sender) drainQueue() {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
 	dir := s.queueDir()
 	if dir == "" {
 		return

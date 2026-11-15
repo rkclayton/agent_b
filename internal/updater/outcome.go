@@ -99,17 +99,8 @@ func (m *Manager) watchInstallOutcome(started time.Time) {
 		if outcome == nil {
 			continue
 		}
-		if outcome.OK && outcome.Running == "" {
-			continue
-		}
 		if outcome.OK {
-			// AN INSTALL THAT FINISHED WITHOUT REPLACING THIS PROCESS
-			// IS NOT A SUCCESS THIS WINDOW CAN CLAIM. outcomeFor only returns an OK
-			// for the version this process is running, so reaching here at all means
-			// the installer finished and something else is still serving — which is
-			// exactly what happened on 2026-09-26: was written to the
-			// per-user root while the window went on being answered by another
-			// instance, and nothing said so for eleven releases.
+			// The restarted copy can observe the installer finishing after startup.
 			m.mu.Lock()
 			m.state.Step, m.state.Line, m.state.Processed, m.state.Total = "", "", 0, 0
 			outcome.ApplicationRoot = m.applicationRoot

@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -407,5 +408,28 @@ func TestTheCountsAreNotQueuedWhenTelemetryIsOff2lx(t *testing.T) {
 	sender.Flush()
 	if sink.count() != 0 {
 		t.Fatalf("a dropped type carrying the counts produced %d batch(es)", sink.count())
+	}
+}
+
+func TestUpdateReceiptWaitsForAcceptedRetry2y6(t *testing.T) {
+	failed := true
+	delivered := 0
+	sender := New(Options{DataRoot: t.TempDir(), Transport: func(context.Context, []byte) error {
+		if failed {
+			return fmt.Errorf("offline")
+		}
+		return nil
+	}, Delivered: func([]byte) { delivered++ }})
+	defer sender.Close()
+	sender.Observe("update", "2026-11-15T03:00:00Z", map[string]any{"install": "failed_verify", "from": "v1.2.0", "to": "v1.2.1"})
+	sender.Flush()
+	if delivered != 0 {
+		t.Fatal("failed post acknowledged")
+	}
+	failed = false
+	sender.drainQueue()
+	sender.drainQueue()
+	if delivered != 1 {
+		t.Fatalf("accepted retries acknowledged %d times", delivered)
 	}
 }

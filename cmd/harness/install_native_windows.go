@@ -22,6 +22,7 @@ import (
 )
 
 func runNativePerUserInstall(source string, arguments []string, dataRoot string, log *installLog) (bool, error) {
+	appendProgress(dataRoot, installProgress{Phase: "checking the candidate", Text: "Checking the candidate"})
 	if err := verifyNativeCandidate(source); err != nil {
 		return false, err
 	}
@@ -51,6 +52,7 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	if supplied := installerArgument(arguments, "OperatorSid", ""); supplied != "" && !strings.EqualFold(supplied, operatorSID) {
 		return false, fmt.Errorf("installation refused: user SID %s differs from process token %s", supplied, operatorSID)
 	}
+	appendProgress(dataRoot, installProgress{Phase: "stopping the running application", Text: "Stopping the application"})
 	stopped, err := stopNativeInstalledProcess(application, data, log)
 	if err != nil {
 		return false, err

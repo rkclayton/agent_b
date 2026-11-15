@@ -67,6 +67,8 @@ type Options struct {
 	// Transport replaces the HTTP post in tests. It is the ONLY way a batch
 	// leaves, so a test that asserts nothing left asserts against this.
 	Transport func(context.Context, []byte) error
+	// Delivered observes an accepted batch on the sender goroutine.
+	Delivered func([]byte)
 }
 
 // Sender accumulates allow-listed events and sends them in batches.
@@ -268,6 +270,9 @@ func (s *Sender) batch(events []Event) Batch {
 // deliver posts one batch, or queues it when the receiver cannot be reached.
 func (s *Sender) deliver(body []byte) {
 	err := s.post(body)
+	if err == nil && s.options.Delivered != nil {
+		s.options.Delivered(body)
+	}
 	s.remember(Record{
 		SentAt: s.options.Now().UTC().Format(time.RFC3339),
 		Events: countEvents(body),
@@ -421,6 +426,8 @@ func (s *Sender) drainQueue() {
 			total := s.refused
 			s.mu.Unlock()
 			log.Printf("telemetry: dropped queued receiver-refused batch (HTTP %d); refused total %d", refused.status, total)
+		} else if s.options.Delivered != nil {
+			s.options.Delivered(body)
 		}
 		_ = os.Remove(full)
 	}

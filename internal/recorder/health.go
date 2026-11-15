@@ -369,15 +369,38 @@ func (g *globalState) observe(eventType string, data map[string]any) []emitted {
 			out = append(out, emitted{events.UpdateResult, map[string]any{"check": check, "from": current, "to": word(data["version"])}})
 		}
 		outcome := asMap(data["outcome"])
-		if at := text(outcome["at"]); at != "" && at != g.installed {
+		if at := text(outcome["at"]); at != "" && at != g.installed && outcome["reported"] != true {
 			g.installed = at
+			if from := word(outcome["from"]); from != "" {
+				current = from
+			}
 			install := "ok"
 			if outcome["ok"] != true {
-				install = "failed_" + word(outcome["phase"])
+				install = "failed_" + updatePhase(text(outcome["phase"]))
 			}
 			out = append(out, emitted{events.UpdateResult, map[string]any{"install": install, "from": current, "to": word(outcome["version"])}})
 		}
 		return out
 	}
 	return nil
+}
+
+// Only fixed phase words leave the machine; installer messages stay local.
+func updatePhase(phase string) string {
+	switch phase {
+	case "stopping the running application", "stop":
+		return "stop"
+	case "checking the candidate", "verifying", "verify":
+		return "verify"
+	case "copying the application", "copy":
+		return "copy"
+	case "restarting", "restart":
+		return "restart"
+	case "seeding the configuration":
+		return "configuration"
+	case "starting", "preflight", "finishing", "finished", "failed", "downloading", "installing":
+		return phase
+	default:
+		return "unknown"
+	}
 }

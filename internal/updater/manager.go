@@ -237,7 +237,23 @@ func (m *Manager) Start(parent context.Context) {
 	m.cancel = cancel
 	m.mu.Unlock()
 	go func() {
+		phases := readProgressPhases(m.dataRoot)
+		outcome := m.InstallOutcome()
+		m.mu.Lock()
+		m.state.Outcome = outcome
+		m.mu.Unlock()
 		m.refreshEnabled()
+		if len(phases) > 0 && outcome == nil {
+			unfinished := true
+			for _, phase := range phases {
+				if phase.Done {
+					unfinished = false
+				}
+			}
+			if unfinished {
+				go m.watchInstallOutcome(m.now())
+			}
+		}
 		if m.enabled() {
 			_ = m.Check(ctx)
 		}
@@ -525,6 +541,10 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 	m.state.Installing, m.state.Error, m.state.Outcome = true, "", nil
 	state := m.state
 	m.mu.Unlock()
+	if m.dataRoot != "" {
+		_ = os.Remove(filepath.Join(m.dataRoot, installProgressName))
+	}
+	appendOutcomePhase(m.dataRoot, progressPhase{At: time.Now().UTC().Format(time.RFC3339Nano), Phase: "preflight", Text: "Installing Agent_b " + release.Version, From: state.CurrentVersion})
 	m.publish(state)
 	m.setStep("downloading", "downloading Agent_b "+release.Version, 0, 0)
 
@@ -537,6 +557,7 @@ func (m *Manager) Install(ctx context.Context, sessionID string) (string, error)
 	m.state.Installing = false
 	if err != nil {
 		m.state.Error = err.Error()
+		m.state.Outcome = m.failureOutcome(m.state.Step, err.Error())
 		m.state.Step, m.state.Line, m.state.Processed, m.state.Total = "", "", 0, 0
 	}
 	state = m.state
@@ -562,6 +583,7 @@ func (m *Manager) watchEarlyInstallFailure() {
 	case reason := <-m.earlyFailure:
 		m.mu.Lock()
 		m.state.Error = reason
+		m.state.Outcome = m.failureOutcome("verify", reason)
 		m.state.Step, m.state.Line = "", ""
 		state := m.state
 		m.mu.Unlock()

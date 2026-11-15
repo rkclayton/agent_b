@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // THE INSTALLER'S OWN SEQUENCE, READ AS A SEQUENCE.
@@ -23,6 +24,7 @@ import (
 // the outcome the restarted instance can state. It is the installer's own voice
 // either way — no new channel, nothing inferred that the installer did not write.
 type progressPhase struct {
+	From  string `json:"from,omitempty"`
 	At    string `json:"at"`
 	Phase string `json:"phase"`
 	Text  string `json:"text"`
@@ -34,6 +36,8 @@ type progressPhase struct {
 // update that replaced it. A success names the version and the time; a failure
 // names the phase it stopped in, the installer's own sentence, and the transcript.
 type Outcome struct {
+	From       string   `json:"from,omitempty"`
+	Reported   bool     `json:"reported,omitempty"`
 	Version    string   `json:"version,omitempty"`
 	At         string   `json:"at,omitempty"`
 	OK         bool     `json:"ok"`
@@ -124,11 +128,21 @@ func transcriptIn(text string) string {
 // version it finished with is the version now running: a finish for some other
 // version is somebody else's install, and claiming it would be a lie about this
 // process.
-func outcomeFor(dataRoot, currentVersion string) *Outcome {
+func outcomeFor(dataRoot, currentVersion string) (outcome *Outcome) {
 	phases := readProgressPhases(dataRoot)
 	if len(phases) == 0 {
 		return nil
 	}
+	defer func() {
+		if outcome != nil {
+			outcome.From = phases[0].From
+			for _, p := range phases {
+				if p.Phase == "telemetry" && p.Text == outcome.At {
+					outcome.Reported = true
+				}
+			}
+		}
+	}()
 	last := phases[len(phases)-1]
 	for index := len(phases) - 1; index >= 0; index-- {
 		if phases[index].Done {
@@ -177,7 +191,8 @@ func installedVersionIn(phases []progressPhase) string {
 			return match[1]
 		}
 	}
-	for _, phase := range phases {
+	for index := len(phases) - 1; index >= 0; index-- {
+		phase := phases[index]
 		if phase.Phase == "starting" || phase.Phase == "preflight" {
 			if fields := strings.Fields(phase.Text); len(fields) > 0 {
 				if candidate := fields[len(fields)-1]; strings.HasPrefix(candidate, "v") {
@@ -206,8 +221,48 @@ func stepFor(phase string) (string, string) {
 		return "restarting", "starting the new version"
 	case "finished":
 		return "restarting", "finishing"
-	case "warning":
+	case "warning", "telemetry":
 		return "", ""
 	}
 	return "installing", phase
+}
+
+// InstallOutcome reads the one retained attempt; a check may have cleared its UI state.
+func (m *Manager) InstallOutcome() *Outcome { return outcomeFor(m.dataRoot, m.State().CurrentVersion) }
+
+// A receipt is appended only after the intake accepts the outcome, never on an off switch.
+func (m *Manager) MarkOutcomeReported(at string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	outcome := outcomeFor(m.dataRoot, m.state.CurrentVersion)
+	if outcome == nil || outcome.At != at || outcome.Reported {
+		return
+	}
+	appendOutcomePhase(m.dataRoot, progressPhase{At: time.Now().UTC().Format(time.RFC3339Nano), Phase: "telemetry", Text: at})
+}
+func appendOutcomePhase(root string, phase progressPhase) {
+	if root == "" {
+		return
+	}
+	body, err := json.Marshal(phase)
+	if err != nil {
+		return
+	}
+	file, err := os.OpenFile(filepath.Join(root, installProgressName), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(append(body, '\n'))
+}
+
+// Called with the manager lock held. The installer may already have finished
+// its own record; reusing it keeps both observers on the same attempt.
+func (m *Manager) failureOutcome(phase, reason string) *Outcome {
+	if existing := outcomeFor(m.dataRoot, m.state.CurrentVersion); existing != nil && !existing.OK && existing.Version == m.state.Version {
+		return existing
+	}
+	at := time.Now().UTC().Format(time.RFC3339Nano)
+	appendOutcomePhase(m.dataRoot, progressPhase{At: at, Phase: phase, Text: reason, Done: true})
+	return &Outcome{At: at, Version: m.state.Version, From: m.state.CurrentVersion, Phase: phase, Error: reason}
 }

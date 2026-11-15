@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -265,5 +266,73 @@ func TestEveryInstallerPhaseNamesAStage2nh(t *testing.T) {
 	}
 	if step, _ := stepFor("warning"); step != "" {
 		t.Fatalf("a warning became the stage in hand (%q); it is a note", step)
+	}
+}
+
+func TestRetainedUpdateReceipt2y6(t *testing.T) {
+	root := t.TempDir()
+	at := "2026-11-15T03:00:00Z"
+	writePhases(t, root, progressPhase{At: at, From: "v1.2.0", Phase: "starting", Text: "Installing Agent_b v1.2.1"}, progressPhase{At: at, Phase: "copying the application", Done: true, Text: "private failure"})
+	m := New(Options{DataRoot: root, CurrentVersion: "v1.2.0"})
+	if got := m.InstallOutcome(); got == nil || got.Reported || got.From != "v1.2.0" {
+		t.Fatalf("initial=%+v", got)
+	}
+	m.MarkOutcomeReported("older attempt")
+	if m.InstallOutcome().Reported {
+		t.Fatal("acknowledged another attempt")
+	}
+	m.MarkOutcomeReported(at)
+	m.MarkOutcomeReported(at)
+	restarted := New(Options{DataRoot: root, CurrentVersion: "v1.2.0"})
+	if got := restarted.InstallOutcome(); !got.Reported || got.OK || got.Phase != "copying the application" {
+		t.Fatalf("retained=%+v", got)
+	}
+	phases := readProgressPhases(root)
+	if len(phases) != 3 {
+		t.Fatalf("receipt grew: %d records", len(phases))
+	}
+	info, _ := os.Stat(filepath.Join(root, installProgressName))
+	t.Logf("one retained attempt and its receipt: %d records, %d bytes", len(phases), info.Size())
+}
+
+func TestEarlyFailureHasRetainedOutcome2y6(t *testing.T) {
+	root := t.TempDir()
+	writePhases(t, root, progressPhase{Phase: "preflight", Text: "Installing Agent_b v1.2.1", From: "v1.2.0"})
+	early := make(chan string, 1)
+	done := make(chan State, 1)
+	m := New(Options{DataRoot: root, CurrentVersion: "v1.2.0", EarlyInstallFailure: early, Launch: func(string, string) error { return nil }, Changed: func(s State) { done <- s }})
+	m.state.Version = "v1.2.1"
+	early <- "signature verification failed"
+	m.watchEarlyInstallFailure()
+	got := <-done
+	if got.Outcome == nil || got.Outcome.OK || got.Outcome.Phase != "verify" {
+		t.Fatalf("failure=%+v", got)
+	}
+	if retained := m.InstallOutcome(); retained == nil || retained.At != got.Outcome.At {
+		t.Fatalf("not retained: %+v", retained)
+	}
+}
+
+func TestStartedCopyReadsInstallerLateFinish2y6(t *testing.T) {
+	root := t.TempDir()
+	writePhases(t, root, progressPhase{Phase: "starting", Text: "Installing Agent_b v1.2.1", From: "v1.2.0"})
+	observed := make(chan State, 16)
+	m := New(Options{DataRoot: root, CurrentVersion: "v1.2.1", Enabled: func() bool { return false }, Changed: func(s State) { observed <- s }})
+	m.Start(context.Background())
+	defer m.Close()
+	appendOutcomePhase(root, progressPhase{At: time.Now().UTC().Format(time.RFC3339Nano), Phase: "finished", Text: "Agent_b v1.2.1 is installed.", Done: true, OK: true})
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case state := <-observed:
+			if state.Outcome != nil {
+				if !state.Outcome.OK || state.Outcome.From != "v1.2.0" {
+					t.Fatalf("late outcome=%+v", state.Outcome)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("the restarted copy missed the installer's final record")
+		}
 	}
 }

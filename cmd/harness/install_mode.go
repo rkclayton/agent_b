@@ -35,6 +35,7 @@ func installOperatorSID(tokenUser func() (string, error), _ func() (string, erro
 }
 
 type installProgress struct {
+	From  string `json:"from,omitempty"`
 	At    string `json:"at"`
 	Phase string `json:"phase"`
 	Text  string `json:"text"`
@@ -53,7 +54,7 @@ func installProgressPath(dataRoot string) string {
 }
 
 func appendProgress(dataRoot string, entry installProgress) {
-	entry.At = time.Now().UTC().Format(time.RFC3339)
+	entry.At = time.Now().UTC().Format(time.RFC3339Nano)
 	encoded, err := json.Marshal(entry)
 	if err != nil {
 		return
@@ -173,14 +174,29 @@ func outerSignatureDecision(status, subject string) (string, error) {
 	return line, nil
 }
 
-func runInstall(options installOptions, args []string) int {
+func runInstall(options installOptions, args []string) (result int) {
 	dataRoot := installDataRoot(options.dataRoot, args)
 	log := openInstallLog(dataRoot, options.quiet)
 	defer log.close()
+	_ = os.Remove(installProgressPath(dataRoot))
+	appendProgress(dataRoot, installProgress{Phase: "preflight", Text: "Installing Agent_b " + buildinfo.Current().Tag, From: currentDisplayVersion(installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers)))})
+	defer func() {
+		if result != 0 {
+			entries, _ := readInstallProgress(dataRoot)
+			finished := false
+			for _, entry := range entries {
+				finished = finished || entry.Done
+			}
+			if len(entries) > 0 && !finished {
+				appendProgress(dataRoot, installProgress{Phase: entries[len(entries)-1].Phase, Text: "Installer failed. Transcript: " + log.location(), Done: true})
+			}
+		}
+	}()
 	installDone := make(chan struct{})
 	log.printf("install: starting; data root %s", dataRoot)
 	log.printf("install: application root %s", installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers)))
 
+	appendProgress(dataRoot, installProgress{Phase: "checking the candidate", Text: "Checking the candidate"})
 	source := options.sourceDir
 	var removeSource func()
 	embeddedBundle := false
@@ -215,7 +231,6 @@ func runInstall(options installOptions, args []string) int {
 	if err := writeInstallMarker(dataRoot, marker); err != nil {
 		return log.fail("could not record that the install began: %v", err)
 	}
-	_ = os.Remove(installProgressPath(dataRoot))
 	appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Installing Agent_b " + marker.Version})
 
 	var waitInstaller func() error
@@ -290,6 +305,9 @@ func runInstall(options installOptions, args []string) int {
 	}
 	close(installDone)
 	<-followed
+	if entries, err := readInstallProgress(dataRoot); err == nil && len(entries) > 0 {
+		lastPhase = entries[len(entries)-1].Phase
+	}
 	code := 0
 	if waitErr != nil {
 		code = 1
@@ -312,9 +330,9 @@ func runInstall(options installOptions, args []string) int {
 			return 0
 		}
 		if relaunch {
-			appendProgress(dataRoot, installProgress{Phase: "starting", Text: "Starting Agent_b " + marker.Version})
+			appendProgress(dataRoot, installProgress{Phase: "restarting", Text: "Starting Agent_b " + marker.Version})
 			if err := launchInstalledAgent(applicationRoot, operatorDataRoot, options.reopenSession, options.reopenWindow, nativeInstall, log); err != nil {
-				appendProgress(dataRoot, installProgress{Phase: "starting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
+				appendProgress(dataRoot, installProgress{Phase: "restarting", Text: fmt.Sprintf("Agent_b %s was installed but failed to start: %v. Transcript: %s", marker.Version, err, log.location()), Done: true})
 				return log.fail("Agent_b was installed but failed to start: %v", err)
 			}
 		}

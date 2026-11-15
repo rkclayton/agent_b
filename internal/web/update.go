@@ -64,3 +64,10 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 		method(w)
 	}
 }
+
+// Startup opens the telemetry sink before publishing a retained install outcome.
+func (s *Server) StartUpdater() {
+	if s.updater != nil {
+		s.updater.Start(context.Background())
+	}
+}

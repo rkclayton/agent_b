@@ -65,7 +65,7 @@ func (a *harnessApp) openJournal() {
 		Changed:         func(state updater.State) { a.bus.Publish(events.New(events.UpdateChanged, "", "", state)) },
 	})
 	a.web.SetUpdater(updateManager)
-	updateManager.Start(context.Background())
+
 	a.cleanup(updateManager.Close)
 	a.web.PublishPlanChanges()
 	a.web.SetProjection(a.projector, a.writers)
@@ -171,6 +171,7 @@ func (a *harnessApp) wireServices() {
 	// subscribes to the bus, so it is never in a run's path.
 	a.web.StartReflection(24 * time.Hour)
 	a.web.ApplyTelemetry()
+	a.web.StartUpdater()
 	startupApp = a.web.App()
 	crashes := pendingCrashReports(a.paths.Data)
 	previousCrashed = len(crashes) > 0

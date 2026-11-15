@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/updater"
 )
 
 // 2qa CHECKS 1-4: reporting is automatic only while telemetry is on, every
@@ -325,5 +327,100 @@ func TestTheAppsEventsCarryNoPlantedSecret2q7(t *testing.T) {
 	}
 	if !strings.Contains(all, `"name":"TypeError"`) || !strings.Contains(all, `"file":"shell.js"`) || !strings.Contains(all, `"state_bytes":`) {
 		t.Errorf("the page's own facts did not arrive: %s", all)
+	}
+}
+
+func TestUpdateOutcomeSentBeforeShutdown2y6(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			bus := events.NewBus()
+			root := t.TempDir()
+			cfg := &config.Config{Telemetry: config.Telemetry{Enabled: enabled, Endpoint: "https://receiver.invalid/ingest"}}
+			server := newTestServer(t, cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+			received := make(chan map[string]any, 8)
+			server.telemetry.transport = func(body []byte) error {
+				var batch struct {
+					Events []map[string]any `json:"events"`
+				}
+				json.Unmarshal(body, &batch)
+				for _, e := range batch.Events {
+					if e["type"] == events.UpdateResult && e["install"] != nil {
+						received <- e
+					}
+				}
+				return nil
+			}
+			server.applyTelemetry(*cfg)
+			defer func() { server.telemetry.mu.Lock(); server.stopTelemetryLocked(); server.telemetry.mu.Unlock() }()
+			state := map[string]any{"current_version": "v1.2.0", "outcome": map[string]any{"at": "2026-11-15T03:00:00Z", "ok": false, "phase": "copying the application", "version": "v1.2.1"}}
+			bus.Publish(events.New(events.UpdateChanged, "", "", state))
+			bus.Publish(events.New(events.UpdateChanged, "", "", state))
+			select {
+			case event := <-received:
+				if !enabled || event["install"] != "failed_copy" {
+					t.Fatalf("event=%v, enabled=%v", event, enabled)
+				}
+			case <-time.After(time.Second):
+				if enabled {
+					t.Fatal("install outcome remained in the five-minute batch")
+				}
+			}
+			select {
+			case <-received:
+				t.Fatal("duplicate event")
+			case <-time.After(20 * time.Millisecond):
+			}
+		})
+	}
+}
+
+func TestRetainedOutcomeStartsAfterTelemetryAndIsAcknowledged2y6(t *testing.T) {
+	root := t.TempDir()
+	at := "2026-11-15T03:00:00Z"
+	progress := `{"at":"2026-11-15T02:59:00Z","phase":"starting","text":"Installing Agent_b v1.2.1","from":"v1.2.0"}` + "\n" + `{"at":"` + at + `","phase":"stopping the running application","done":true,"text":"private refusal"}` + "\n"
+	os.WriteFile(filepath.Join(root, "install-progress.jsonl"), []byte(progress), 0600)
+	for attempt := 0; attempt < 2; attempt++ {
+		bus := events.NewBus()
+		cfg := &config.Config{Telemetry: config.Telemetry{Enabled: true, Endpoint: "https://receiver.invalid/ingest"}}
+		server := newTestServer(t, cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Data: root, Profile: root}, bus)
+		received := make(chan bool, 8)
+		server.telemetry.transport = func(body []byte) error {
+			var batch struct{ Events []map[string]any }
+			json.Unmarshal(body, &batch)
+			for _, e := range batch.Events {
+				if e["install"] != nil {
+					if e["install"] != "failed_stop" || e["from"] != "v1.2.0" || e["to"] != "v1.2.1" {
+						t.Errorf("wrong payload: %v", e)
+					}
+					received <- true
+				}
+			}
+			return nil
+		}
+		manager := updater.New(updater.Options{DataRoot: root, CurrentVersion: "v1.2.0", Enabled: func() bool { return false }, Changed: func(s updater.State) { bus.Publish(events.New(events.UpdateChanged, "", "", s)) }})
+		server.SetUpdater(manager)
+		server.ApplyTelemetry()
+		server.StartUpdater()
+		select {
+		case <-received:
+			if attempt != 0 {
+				t.Error("receipt was sent twice")
+			}
+		case <-time.After(time.Second):
+			if attempt == 0 {
+				t.Error("retained outcome lost")
+			}
+		}
+		deadline := time.Now().Add(time.Second)
+		for !manager.InstallOutcome().Reported && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if !manager.InstallOutcome().Reported {
+			t.Error("accepted outcome was not acknowledged")
+		}
+		manager.Close()
+		server.telemetry.mu.Lock()
+		server.stopTelemetryLocked()
+		server.telemetry.mu.Unlock()
 	}
 }

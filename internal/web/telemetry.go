@@ -66,6 +66,7 @@ func (s *Server) applyTelemetry(cfg config.Config) {
 		InstallID:    cfg.Telemetry.InstallID,
 		AgentVersion: buildinfo.Current().Tag,
 		DataRoot:     s.profileRoot(),
+		Delivered:    s.updateTelemetryDelivered,
 	}
 	if s.telemetry.transport != nil {
 		forward := s.telemetry.transport
@@ -177,7 +178,20 @@ func (s *Server) queueRunTelemetry(eventType string, data map[string]any) {
 	state := s.telemetry.state
 	s.telemetry.mu.Unlock()
 	if state != nil {
-		state.sender.Observe(eventType, time.Now().UTC().Format(time.RFC3339), data)
+		at := time.Now().UTC().Format(time.RFC3339Nano)
+		install := eventType == events.UpdateResult && data["install"] != nil
+		if install && s.updater != nil {
+			if outcome := s.updater.InstallOutcome(); outcome != nil && outcome.Version == data["to"] {
+				if outcome.Reported {
+					return
+				}
+				at = outcome.At
+			}
+		}
+		state.sender.Observe(eventType, at, data)
+		if install {
+			state.sender.Flush()
+		}
 	}
 }
 
@@ -287,3 +301,20 @@ var _ = events.RunStopped
 
 // App is the app-health aggregator, for start-up's notes.
 func (s *Server) App() *recorder.App { return s.app }
+
+func (s *Server) updateTelemetryDelivered(body []byte) {
+	if s.updater == nil {
+		return
+	}
+	var batch struct {
+		Events []struct{ Type, At, Install string }
+	}
+	if json.Unmarshal(body, &batch) != nil {
+		return
+	}
+	for _, event := range batch.Events {
+		if event.Type == events.UpdateResult && event.Install != "" {
+			s.updater.MarkOutcomeReported(event.At)
+		}
+	}
+}

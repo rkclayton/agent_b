@@ -579,3 +579,29 @@ func appEmissions(t *testing.T) []emitted {
 	}
 	return out
 }
+
+func TestUpdateFailurePhases2y6(t *testing.T) {
+	for phase, want := range map[string]string{"untrusted phase / message": "unknown", "stopping the running application": "stop", "checking the candidate": "verify", "copying the application": "copy", "restarting": "restart", "starting": "starting"} {
+		t.Run(want, func(t *testing.T) {
+			g := globalState{}
+			outcome := map[string]any{"at": "2026-11-15T03:00:00Z", "ok": false, "phase": phase, "version": "v1.2.1", "error": "private message", "transcript": "private path", "pid": 123}
+			state := map[string]any{"current_version": "v1.2.0", "outcome": outcome}
+			got := g.observe(events.UpdateChanged, state)
+			if len(got) != 1 || got[0].data["install"] != "failed_"+want || got[0].data["from"] != "v1.2.0" || got[0].data["to"] != "v1.2.1" {
+				t.Fatalf("failure = %#v", got)
+			}
+			for key := range got[0].data {
+				if key != "check" && key != "install" && key != "from" && key != "to" {
+					t.Fatalf("undocumented field %q", key)
+				}
+			}
+			if again := g.observe(events.UpdateChanged, state); len(again) != 0 {
+				t.Fatal("duplicate refusal emitted")
+			}
+			outcome["at"], outcome["ok"] = "2026-11-15T03:01:00Z", true
+			if got = g.observe(events.UpdateChanged, state); len(got) != 1 || got[0].data["install"] != "ok" {
+				t.Fatalf("success=%#v", got)
+			}
+		})
+	}
+}

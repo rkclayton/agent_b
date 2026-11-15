@@ -529,8 +529,8 @@ func TestPerUserInstallIsNativeAndComplete2or(t *testing.T) {
 	links, iconRefreshes, registration := 0, 0, map[string]any{}
 	plan := nativeInstallPlan{Source: source, Application: application, Data: data, Workspace: filepath.Join(data, "scratch"), StartMenu: filepath.Join(data, "start"), SendTo: filepath.Join(data, "sendto"), Version: "1.50.0", OperatorSID: "S-1-5-21-100"}
 	platform := nativeInstallPlatform{
-		shortcut: func(shortcutSpec) error { links++; return nil },
-		register: func(values map[string]any) error { registration = values; return nil },
+		shortcut:     func(shortcutSpec) error { links++; return nil },
+		register:     func(values map[string]any) error { registration = values; return nil },
 		refreshIcons: func() { iconRefreshes++ },
 	}
 	if err := installPerUserNative(plan, platform); err != nil {
@@ -651,5 +651,16 @@ func TestNativeUninstallPreservesDataUnlessPurgeIsRequested2or(t *testing.T) {
 	}
 	if _, err := os.Stat(plan.Data); !os.IsNotExist(err) {
 		t.Fatalf("purged data remains: %v", err)
+	}
+}
+
+func TestInstallerVerificationOutcome2y6(t *testing.T) {
+	root, source := t.TempDir(), t.TempDir()
+	if code := runInstall(installOptions{sourceDir: source, dataRoot: root, quiet: true, noStart: true}, []string{"-NativeTestMode"}); code == 0 {
+		t.Fatal("invalid candidate accepted")
+	}
+	m := updater.New(updater.Options{DataRoot: root, CurrentVersion: "v1.2.0"})
+	if outcome := m.State().Outcome; outcome == nil || outcome.OK || outcome.Phase != "checking the candidate" {
+		t.Fatalf("verification outcome=%+v", outcome)
 	}
 }

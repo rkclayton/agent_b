@@ -254,7 +254,7 @@ func stopNativeInstalledProcess(application, data string, log *installLog) (bool
 		return false, err
 	}
 	var marker runMarker
-	if json.Unmarshal(encoded, &marker) != nil || marker.PID <= 0 || !processRunning(marker.PID, marker.Created) {
+	if json.Unmarshal(encoded, &marker) != nil || marker.PID <= 0 || marker.Created == 0 || !processRunning(marker.PID, marker.Created) {
 		return false, nil
 	}
 	want, _ := filepath.Abs(application)
@@ -278,12 +278,57 @@ func stopNativeInstalledProcess(application, data string, log *installLog) (bool
 		time.Sleep(200 * time.Millisecond)
 	}
 	if processRunning(marker.PID, marker.Created) {
-		return false, fmt.Errorf("Agent_b PID %d did not exit after the graceful stop signal; installation was not changed", marker.PID)
+		if err := endNativeInstalledProcess(marker, application); err != nil {
+			return false, fmt.Errorf("Agent_b PID %d could not be ended after the graceful stop wait: %w; installation was not changed", marker.PID, err)
+		}
+		log.printf("STOP FORCED: Agent_b PID %d ended after the graceful stop signal; waited %s", marker.PID, time.Since(started).Round(time.Millisecond))
 	}
 	log.printf("STOP COMPLETE: Agent_b PID %d exited; waited %s for its process handle to close", marker.PID, time.Since(started).Round(time.Millisecond))
 	return true, nil
 }
 
+// Retain one verified handle through termination and waiting: a reused PID must
+// never become the target, even if the process exits after the graceful wait.
+func endNativeInstalledProcess(marker runMarker, application string) error {
+	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(marker.PID))
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(handle)
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
+		return err
+	}
+	if marker.Created == 0 || creation.Nanoseconds() != marker.Created {
+		return fmt.Errorf("run marker creation time does not match")
+	}
+	var image [32768]uint16
+	size := uint32(len(image))
+	if err := windows.QueryFullProcessImageName(handle, 0, &image[0], &size); err != nil {
+		return err
+	}
+	if !strings.EqualFold(filepath.Clean(windows.UTF16ToString(image[:size])), filepath.Join(application, "Agent_b.exe")) {
+		return fmt.Errorf("run marker application does not match process image")
+	}
+	state, err := windows.WaitForSingleObject(handle, 0)
+	if err != nil {
+		return err
+	}
+	if state == windows.WAIT_OBJECT_0 {
+		return nil
+	}
+	if err := windows.TerminateProcess(handle, 1); err != nil {
+		return err
+	}
+	state, err = windows.WaitForSingleObject(handle, 5000)
+	if err != nil {
+		return err
+	}
+	if state != windows.WAIT_OBJECT_0 {
+		return fmt.Errorf("process did not exit within five seconds of termination")
+	}
+	return nil
+}
 func describeNativeInstallFailure(err error) error {
 	var failure nativeFileFailure
 	if !errors.As(err, &failure) {

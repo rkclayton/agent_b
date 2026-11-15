@@ -560,3 +560,8 @@ changing that setting through HTTP requires the same verified local-operator pro
 whoever can write the synced operator folder can answer a pending card and therefore grant the non-elevated operator identity within that card's existing scope.
 Folder access and sync-account security are consequently the boundary for mailbox answers; the 40-line / 4-KB cap and verb parser are input hygiene,
 not containment.
+
+The native installer first signals the installed process's scoped stop event and keeps the 15-second graceful wait.
+If that process remains, it may terminate only the process whose nonzero creation time matches the run marker and whose image is the installed Agent_b.exe.
+It retains that verified process handle through termination and a bounded exit wait; it never terminates by name or process tree.
+This applies to the shared install/uninstall stop path (item 2y5); failure to verify or end the process leaves installation unchanged.

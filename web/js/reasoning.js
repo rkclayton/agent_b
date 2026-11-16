@@ -73,16 +73,19 @@ function updateView(view, entry, tokens, options) {
   // mark (Mute closed, Ink open, Trace while live); the caret node stays, hidden,
   // so the row keeps its structure and hit target.
   setText(view.caret, open ? "▾" : "▸");
-  setProperty(view.caret, "hidden", true);
+  setProperty(view.caret, "hidden", !entry.onlyThought);
+  setProperty(view.glyph, "hidden", !!entry.onlyThought);
   setAttribute(view.glyph, "data-open", String(open));
   setProperty(view.active, "hidden", entry.done);
   setProperty(view.summary, "hidden", !entry.done);
+  setProperty(view.button, "hidden", !!entry.liveStatus);
+  let count = "";
   if (entry.done) {
-    const count = options.uncounted?.(entry)
+    count = options.uncounted?.(entry)
       ? "thoughts uncounted"
       : `${entry.reasoningTokensEstimated || entry.thinkingEstimated ? "~" : ""}${options.format(tokens)} tokens`;
     const duration = options.formatDuration?.(entry.thinkingMS);
-    setText(view.summary, `thought · ${count}${duration ? ` · ${duration}` : ""}`);
+    setText(view.summary, entry.onlyThought ? `Thought · ${Math.round(Number(entry.thinkingMS || 0) / 1000)} s` : `thought · ${count}${duration ? ` · ${duration}` : ""}`);
   }
   // a collapsed thought is real model output, and the
   // audit found the browser's own find could not reach it — `hidden` removes
@@ -92,11 +95,12 @@ function updateView(view, entry, tokens, options) {
   if (open) {
     if (view.body.hasAttribute("hidden")) view.body.removeAttribute("hidden");
   } else setAttribute(view.body, "hidden", "until-found");
-  setProperty(view.collapse, "hidden", !open);
+  setProperty(view.collapse, "hidden", !open || !!entry.liveStatus || !!entry.onlyThought);
   const body = entry.reasoning || (entry.done
     ? "Reasoning text is unavailable in this recording."
     : "Waiting for reasoning text…");
-  if (view.body.textContent !== body) view.body.textContent = body;
+  const text = entry.onlyThought && entry.done ? `${count}\n${body}` : body;
+  if (view.body.textContent !== text) view.body.textContent = text;
 }
 
 function setText(node, value) {

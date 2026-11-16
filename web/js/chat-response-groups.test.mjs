@@ -6,6 +6,13 @@ import { classifyResponseBlocks, groupResponseRows, hasVisibleChatContent, isIde
 const tool = (key, name, ok = true, ms = 1) => ({ type: "tool", key, name, args: {}, result: { ok, ms } });
 const thought = (key, tokens, text = "") => ({ type: "agent", key, reasoning: "x", reasoningTokens: tokens, text, done: true, thinkingMS: 2 });
 
+test("a live thought is never named as a finished step 2y9", () => {
+  const live = { ...thought("live", 300), done: false };
+  assert.equal(responseSummarySentence(responseSummary([live])), "");
+  assert.equal(responseSummarySentence(responseSummary([tool("read", "read_file"), live])), "Read a file");
+  assert.equal(responseSummarySentence(responseSummary([{ ...live, done: true }])), "Thought for a moment");
+});
+
 test("Chat ports adjacent grouping and absorbs only fixed-token thin thoughts", () => {
   assert.equal(isThinThought(thought("limit", thinThoughtTokenLimit)), true);
   assert.equal(isThinThought(thought("over", thinThoughtTokenLimit + 1)), false);

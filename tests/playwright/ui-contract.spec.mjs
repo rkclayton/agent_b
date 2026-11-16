@@ -12,6 +12,54 @@ const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url
 const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), "utf8");
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
 
+async function thinkingFixture(browser, width = 1280) {
+  const context = await browser.newContext({ viewport: { width, height: width === 304 ? 254 : width === 1920 ? 1080 : 860 } });
+  const state = { sessions: { thought: { schema_version: 1, complete: true, id: "thought", agent_id: "agent_b", role: "b", runnable: true, run: { status: "running", run_id: "run" }, activity: {}, chat: [], cursor: { generation: "thought", offset: 0 } } }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, profiles: { names: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], build: {} };
+  await context.addInitScript(state => {
+    sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "thought", surface: { kind: "chat", key: "thought" } }));
+    globalThis.EventSource = class { constructor() { this.listeners = {}; globalThis.thoughtEvents = this; setTimeout(() => this.emit(state)); } addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); } emit(data) { for (const fn of this.listeners.snapshot || []) fn({ data: JSON.stringify({ type: "snapshot", data }) }); } close() {} };
+  }, state);
+  const page = await context.newPage();
+  await page.route("**/*", route => { const path = new URL(route.request().url()).pathname; return path === "/chat" ? route.fulfill({ contentType: "text/html", body: indexHTML }) : path.startsWith("/api/") ? route.fulfill({ json: {} }) : route.fulfill({ path: webRoot + path.replace(/^\/static\//, "") }); });
+  await page.goto("http://thinking.test/chat?setup=skip&session=thought");
+  const emit = async (items, done = false) => {
+    const session = state.sessions.thought; session.chat = [{ type: "user", key: "request", text: "Inspect the fixture." }, ...items]; session.cursor.offset++;
+    session.run.status = done ? "idle" : "running";
+    session.activity = done ? { completed_stages: [] } : { stage: "call_model", stage_state: "enter", started_at: Date.now() - 18000, stream: { reasoning_chars: 2218, total_chars: 2218 } };
+    await page.evaluate(next => globalThis.thoughtEvents.emit(next), state); await page.waitForTimeout(180);
+    if (width === 304) await page.evaluate(() => { document.body.classList.add("chat-list-hidden"); document.body.classList.remove("chat-list-visible"); document.querySelector(".chat-list-panel").hidden = true; document.querySelector(".chat-list-handle").hidden = false; });
+  };
+  const capture = async name => { const dir = `logs/evidence/rel-1.62.211/${process.env.AGENTB_THINKING_BASELINE ? "before" : "captures"}`; await mkdir(dir, { recursive: true }); await page.screenshot({ path: `${dir}/${name}-${width}.png` }); expect(await page.locator('.thinking-line:visible,#chat-notice,.thinking-body:visible').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).every(n => n.scrollWidth <= n.clientWidth + 1 && n.getBoundingClientRect().right <= innerWidth + 1))).toBe(true); };
+  return { context, page, emit, capture };
+}
+const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
+test("one live thinking row opens the arriving reasoning and stays open at finish 2y9", async ({ browser }) => {
+  for (const width of [304, 1280, 1920]) {
+    const f = await thinkingFixture(browser, width); await f.emit([fixtureThought]); await f.capture("live");
+    await expect(f.page.locator(".chat-work-summary:visible,.thinking-line:visible")).toHaveCount(0);
+    const status = f.page.locator("#chat-notice"); await expect(status).toContainText(/thinking/i); await expect(f.page.locator(".chat-response")).not.toContainText(/thought/i);
+    await status.click(); await expect(f.page.locator(".thinking-body:visible")).toContainText("Checking the fixture.");
+    await f.emit([{ ...fixtureThought, reasoning: "Checking the fixture. More reasoning arrived." }]); await expect(f.page.locator(".thinking-body:visible")).toContainText("More reasoning arrived."); await f.capture("live-open");
+    await f.emit([{ ...fixtureThought, reasoning: "Checking the fixture. More reasoning arrived.", text: "The answer.", done: true }], true); await expect(f.page.locator(".thinking-body:visible")).toContainText("More reasoning arrived.");
+    await f.context.close();
+  }
+});
+test("finished thinking-only reply is one Thought row with tokens inside 2y9", async ({ browser }) => {
+  for (const width of [304, 1280, 1920]) {
+    const f = await thinkingFixture(browser, width); await f.emit([{ ...fixtureThought, done: true, text: "The answer." }], true); await f.capture("finished");
+    await expect(f.page.locator(".chat-work-summary:visible")).toHaveCount(0); const row = f.page.locator(".thinking-line"); await expect(row).toHaveText(/Thought · 18 s/); await row.click();
+    await expect(f.page.locator(".thinking-body")).toHaveText(/^616 tokens\nChecking the fixture\.$/); await f.capture("finished-open"); await row.click(); await f.page.locator(".thinking-body").dispatchEvent("beforematch"); await expect(f.page.locator(".thinking-body")).toBeVisible(); await f.context.close();
+  }
+});
+test("live header counts only completed steps and finished tools retain their header 2y9", async ({ browser }) => {
+  for (const width of [304, 1280, 1920]) {
+    const f = await thinkingFixture(browser, width), tool = { type: "tool", key: "read", run_id: "run", name: "read_file", args: { path: "fixture.txt" }, result: { ok: true, ms: 5 }, content: "fixture" };
+    await f.emit([tool, fixtureThought]); await f.capture("tools-live"); await expect(f.page.locator(".chat-work-summary")).toContainText("Read a file"); await expect(f.page.locator(".chat-work-summary")).not.toContainText(/thought/i);
+    await f.emit([tool, { ...fixtureThought, done: true, text: "The answer." }], true); await f.capture("tools-finished"); await expect(f.page.locator(".chat-work-summary")).toContainText(/Worked .* · 2 steps/);
+    await f.page.locator(".chat-work-summary-toggle").click(); await expect(f.page.locator(".thinking-line")).toContainText("thought · 616 tokens · 18.0 s"); await f.capture("tools-finished-open"); await f.context.close();
+  }
+});
+
 test("the continued turn sentence is visible 2vt", async ({ page }) => {
   await mkdir("logs/evidence/rel-1.62.136/captures", { recursive:true }); await page.route("http://continued.test/**", (route) => new URL(route.request().url()).pathname === "/" ? route.fulfill({ contentType:"text/html; charset=utf-8", body:`<style>${tokensCSS}${chatCSS}body{background:var(--well);color:var(--ink);padding:24px}</style><button class="chat-step-summary"><span id="sentence"></span><span class="chat-step-caret">›</span></button><script type="module">import {responseSummary,responseSummarySentence} from '/js/chat-response-groups.js';sentence.textContent=responseSummarySentence(responseSummary([{type:'notice',event:{type:'model.retry',data:{reason:'announced_action'}}}]));</script>` }) : route.fulfill({ path:webRoot + new URL(route.request().url()).pathname.slice(1) }));
   await page.goto("http://continued.test/"); await expect(page.locator("#sentence")).toHaveText("Continued once");
@@ -976,14 +1024,14 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   const thoughtState = snapshot("running"), thought = { type: "agent", key: "plain-thought", run_id: runID, reasoning: "The complete thought stays here.", reasoningTokens: 2484, reasoningTokensEstimated: true, thinkingMS: 108300, text: "", done: false };
   thoughtState.sessions[id].chat = [replay[0], thought]; thoughtState.sessions[id].cursor.offset = 2;
   const thoughtPage = await open("running", "thought-2tr.test", thoughtState, "Review the synthetic build record."); await thoughtPage.page.setViewportSize({ width: 1280, height: 860 });
-  const liveThoughtLine = thoughtPage.page.locator('[data-entry-key="thought:plain-thought"] .thinking-line'), beforeTop = await liveThoughtLine.evaluate((node) => node.getBoundingClientRect().top);
+  const liveThoughtLine = thoughtPage.page.locator('#chat-notice'), beforeTop = await liveThoughtLine.evaluate((node) => node.getBoundingClientRect().top);
   thoughtState.sessions[id].chat = [replay[0], { ...thought, text: "Answer with thought.", done: true }, { type: "agent", key: "plain-answer", run_id: runID, text: "Answer without thought.", done: true }]; thoughtState.sessions[id].cursor.offset = 3; thoughtState.sessions[id].run.status = "idle"; thoughtState.sessions[id].activity = { completed_stages: [] }; await thoughtPage.page.evaluate((next) => globalThis.__fixtureEvents.emit("snapshot", { type: "snapshot", data: next }), thoughtState);
   await expect(thoughtPage.page.getByText("Answer with thought.")).toBeVisible();
   const thoughtBlock = thoughtPage.page.locator('.chat-response'), thoughtLine = thoughtBlock.locator('.thinking-line'); await expect(thoughtLine).toHaveCount(1);
-  const thoughtProof = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line'), narration = block.querySelector('.chat-work-narration'), plain = [...document.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')); const box = (node) => node.getBoundingClientRect(), font = (node) => { const seen = getComputedStyle(node); return [seen.fontFamily, seen.fontSize]; }; return { lineVisible: line.getClientRects().length > 0, lineAbove: box(line).bottom <= box(plain).top, aligned: Math.abs(box(line).left - box(plain).left) <= 6, chipVisible: block.querySelector('.chat-work-summary').getClientRects().length > 0, afterTop: box(line).top, fonts: [font(line), font(narration), font(plain)] }; });
+  const thoughtProof = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line'), narration = block.querySelector('.chat-work-narration'), plain = [...document.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')); const box = (node) => node.getBoundingClientRect(), font = (node) => { const seen = getComputedStyle(node); return [seen.fontFamily, seen.fontSize]; }; return { lineVisible: line.getClientRects().length > 0, lineAbove: box(line).bottom <= box(plain).top, aligned: Math.abs(box(line).left - box(plain).left) <= 6, chipVisible: block.querySelector('.chat-work-summary')?.getClientRects().length > 0, afterTop: box(line).top, fonts: [font(line), font(narration), font(plain)] }; });
   console.log("2tr thought closed", JSON.stringify({ beforeTop, ...thoughtProof }));
-  expect.soft(thoughtProof.lineVisible && thoughtProof.lineAbove && thoughtProof.aligned && thoughtProof.chipVisible, "thought line above and the finished-work chip remains reachable").toBe(true); expect.soft(new Set(thoughtProof.fonts.map((value) => value.join("|"))).size, "work text uses the reply font").toBe(1);
-  await expect(thoughtLine).toContainText("thought · ~2,484 tokens · 108.3 s"); await mkdir("logs/evidence/rel-1.62.84/captures", { recursive: true }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-closed.png", fullPage: true });
+  expect.soft(thoughtProof.lineVisible && thoughtProof.lineAbove && thoughtProof.aligned && !thoughtProof.chipVisible, "one thought line above the answer without a redundant finished-work chip").toBe(true); expect.soft(new Set(thoughtProof.fonts.map((value) => value.join("|"))).size, "work text uses the reply font").toBe(1);
+  await expect(thoughtLine).toContainText("Thought · 108 s"); await expect(thoughtBlock.locator(".thinking-body")).toContainText("~2,484 tokens"); await mkdir("logs/evidence/rel-1.62.84/captures", { recursive: true }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-closed.png", fullPage: true });
   await thoughtLine.click(); const thoughtBody = thoughtBlock.locator('.thinking-body'), opened = await thoughtBody.isVisible(), bodyBetween = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line').getBoundingClientRect(), body = block.querySelector('.thinking-body').getBoundingClientRect(), answer = [...block.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')).getBoundingClientRect(); return line.bottom <= body.top && body.bottom <= answer.top; }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-open.png", fullPage: true }); await thoughtLine.click(); expect.soft(opened && bodyBetween && !await thoughtBody.isVisible(), "one press opens in place and a second closes").toBe(true);
   console.log("2tr thought proof", JSON.stringify({ beforeTop, ...thoughtProof, bodyBetween }));
   await thoughtPage.context.close();

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2y9 — one row while thinking, past tense only after</title>
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<style>
+:root{color-scheme:dark;--bezel:#0D1014;--well:#080A0D;--card:#14171B;--ink:#E8EEF4;--mute:#707D8B;--soft:#B9C3CE;--signal:#3CF08A;--trace:#F2B233;--hair:rgba(112,125,139,.28);--line:#7D8794;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace}
+*{box-sizing:border-box}
+body{background:var(--bezel);color:var(--ink);font:400 14px/22px var(--sans)}
+.page{max-width:900px;margin:0 auto;padding:28px 20px 56px;display:flex;flex-direction:column;gap:28px}
+h1{margin:0;font:500 22px/28px var(--sans);text-wrap:balance}
+h2{margin:0;font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+p{margin:0;max-width:72ch;color:var(--soft)}
+section{display:flex;flex-direction:column;gap:12px}
+button{font:inherit;color:inherit;background:transparent;border:0;padding:0;cursor:pointer}
+.picker{display:flex;gap:6px}.picker button{font:500 12px/16px var(--sans);color:var(--soft);border:1px solid var(--hair);padding:6px 10px}.picker button[aria-pressed=true]{color:var(--ink);border-color:var(--line)}
+.cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.stage{background:var(--well);border:1px solid var(--hair);padding:14px;display:flex;flex-direction:column;gap:6px;min-height:150px}
+.stage>small{color:var(--mute);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+.pill{align-self:flex-start;background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:4px 10px;font:400 13px/20px var(--sans);color:var(--soft);display:flex;gap:8px;align-items:center}
+.pill.live{font:500 12px/20px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.pill i{font-style:italic;color:var(--ink)}
+.bot{width:14px;height:12px;border:1.5px solid var(--mute);border-radius:3px;position:relative;flex:none}.bot::before,.bot::after{content:"";position:absolute;top:3px;width:2px;height:2px;background:var(--signal)}.bot::before{left:2px}.bot::after{right:2px}
+.txt{color:var(--ink);font:400 14px/22px var(--sans);margin-top:4px}
+.body{align-self:stretch;background:var(--bezel);border:1px solid var(--hair);border-radius:6px;padding:8px 10px;color:var(--mute);font:400 12px/18px var(--mono)}
+table{border-collapse:collapse}td,th{padding:5px 10px;border-bottom:1px solid var(--hair);vertical-align:top;font-size:13px;line-height:18px;text-align:left}th{font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+</style>
+<div class="page">
+  <div>
+    <h1>One row while it thinks. Past tense only after it has.</h1>
+    <p>His words, 2026-11-16, with two captures: "this is how it looks while agentb is thinking. too much.. the 'thought' is supposed to appear AFTER not during, its past tense … not quite right for UX"; "add it".</p>
+  </div>
+
+  <section>
+    <h2>A reply that only thinks, then answers</h2>
+    <div class="picker"><button data-s="now" aria-pressed="false">today</button><button data-s="new" aria-pressed="true">proposed</button></div>
+    <div class="cols">
+      <div class="stage"><small>while thinking</small>
+        <span class="pill" data-show="now">Thought for a moment ▾</span>
+        <span class="pill" data-show="now">▸ <i>Thinking</i></span>
+        <span class="pill live"><span class="bot"></span><span data-show="now">Thinking · 616 tokens · 18s</span><span data-show="new">▸ Thinking · 616 tokens · 18s</span></span>
+      </div>
+      <div class="stage"><small>while thinking, opened</small>
+        <span class="pill" data-show="now">Thought for a moment ▾</span>
+        <span class="pill" data-show="now">▾ <i>Thinking</i></span>
+        <span class="pill live" data-show="new"><span class="bot"></span>▾ Thinking · 616 tokens · 18s</span>
+        <span class="body">The reasoning as it arrives…</span>
+        <span class="pill live" data-show="now"><span class="bot"></span>Thinking · 616 tokens · 18s</span>
+      </div>
+      <div class="stage"><small>finished</small>
+        <span class="pill" data-show="now">Worked 47.1 s · 1 step ▾</span>
+        <span class="pill" data-show="now">▸ <i>thought · ~1,462 tokens · 47.1 s</i></span>
+        <span class="pill" data-show="new">▸ Thought · 47 s</span>
+        <span class="txt">The answer.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>A reply with tool calls — unchanged when finished</h2>
+    <div class="cols">
+      <div class="stage"><small>while thinking between calls</small>
+        <span class="pill">Read a file, searched the web ▾</span>
+        <span class="pill live"><span class="bot"></span>▸ Thinking · 212 tokens · 6s</span>
+      </div>
+      <div class="stage"><small>finished</small>
+        <span class="pill">Worked 49.5 s · 2 steps ▸</span>
+        <span class="txt">The answer.</span>
+      </div>
+      <div class="stage"><small>finished, opened</small>
+        <span class="pill">Worked 49.5 s · 2 steps ▾</span>
+        <span class="pill">▸ <i>thought · ~275 tokens · 7.5 s</i></span>
+        <span class="pill">▸ searched the web</span>
+        <span class="txt">The answer.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What changes</h2>
+    <table>
+      <tr><th>today</th><th>after</th></tr>
+      <tr><td>The header counts a reply as a thought the moment it starts, so it reads "Thought for a moment" while the thinking is still going</td><td>A step is named in the header only once it has finished.</td></tr>
+      <tr><td>Three rows while thinking: the header, the "Thinking" fold, the robot's status line</td><td>One: the robot's status line. It opens the live reasoning.</td></tr>
+      <tr><td>Finished, thinking only: "Worked 47.1 s · 1 step" and under it "thought · ~1,462 tokens · 47.1 s"</td><td>One row: "Thought · 47 s". Opened, it shows the token count and the reasoning.</td></tr>
+    </table>
+    <p>Not changing: the status line's other words (reading, writing, calling), the header and its steps for replies with tool calls, what the reasoning fold holds, whether a fold he opened stays open.</p>
+  </section>
+</div>
+<script>
+function set(s){for(const b of document.querySelectorAll(".picker button"))b.setAttribute("aria-pressed",String(b.dataset.s===s));for(const el of document.querySelectorAll("[data-show]"))el.hidden=el.dataset.show!==s;}
+for(const b of document.querySelectorAll("[data-s]"))b.addEventListener("click",()=>set(b.dataset.s));
+set("new");
+</script>
+</body>
+</html>

@@ -102,7 +102,7 @@ export function responseHasOnlyThoughts(items = []) {
 
 export function responseSummary(items = []) {
   const tools = items.filter((item) => item?.type === "tool").length;
-  const thoughts = items.filter((item) => item?.type === "agent" && (thoughtTokens(item) > 0 || !item.done)).length;
+  const thoughts = items.filter((item) => item?.type === "agent" && item.done && thoughtTokens(item) > 0).length;
   const answers = items.filter((item) => item?.type === "agent" && item.text).length;
   const failed = items.filter(itemFailed).length;
   const duration = items.reduce((total, item) => total + itemDuration(item), 0);
@@ -119,7 +119,7 @@ export function responseSummary(items = []) {
     action.count += count;
   };
   for (const item of items) {
-    if (item?.type === "agent" && (thoughtTokens(item) > 0 || !item.done)) add("thought");
+    if (item?.type === "agent" && item.done && thoughtTokens(item) > 0) add("thought");
     else if (item?.type === "tool") add(toolActionKind(item));
     else if (item?.type === "notice" && item.event?.type === "model.retry" && item.event?.data?.reason === "announced_action") add("continued_once");
     else if (item?.type === "notice" && item.event?.type === "files.delivered") add("files.delivered", Array.isArray(item.event.data?.items) ? item.event.data.items.length : 0);

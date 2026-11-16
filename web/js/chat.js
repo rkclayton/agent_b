@@ -90,6 +90,9 @@ const composerApprovalViews = new Map();
 let composerWait = null;
 let composerRobot = null;
 let composerText = null;
+let liveThought = null;
+const thoughtCaret = document.createElement("span");
+thoughtCaret.className = "disclosure-caret";
 const queuedDrafts = new Map();
 const returningQueues = new Set();
 let mirrorTakeButton = null;
@@ -301,6 +304,7 @@ function renderBudget(session) {
 
 function renderLog(session) {
   const wasBottom = follow;
+  liveThought = null;
   thinkingRenderer.begin();
   usedEntryViews = new Set();
   usedFileViews = new Set();
@@ -597,6 +601,12 @@ function renderResponse(session, entry) {
   }
   const classified = classifyResponseBlocks(blocks);
   const directThoughts = responseHasOnlyThoughts(entry.items);
+  for (const block of classified) {
+    block.steps = block.steps.map(item => item.type === "agent" ? { ...item, onlyThought: directThoughts, liveStatus: active && !item.done && !item.text } : item);
+    for (const item of block.steps) if (item.liveStatus && (item.reasoning || item.reasoningTokens > 0)) {
+      liveThought = { key: item.key, workKey: `${entry.key}:worked`, root: thinking(item, item.reasoningTokens || Math.ceil((item.reasoning || "").length / 3.6)) };
+    }
+  }
   toggleClass(view.row, "thought-only-response", directThoughts);
   const lastWorkIndex = classified.reduce((last, block, index) => block.prose || block.steps.length ? index : last, -1);
   const alarm = classified.some((block, index) => responseStepOutcome(block.steps, { movedPast: index < lastWorkIndex }).alarm);
@@ -609,7 +619,7 @@ function renderResponse(session, entry) {
     return block.steps.length ? [{ ...block, key: `${block.key}:steps`, prose: null, interstitial: false }] : [];
   });
   for (const block of work) usedBlocks.add(block.key);
-  const nodes = work.length ? [renderFinishedWork(session, view, entry.key, entry.run_id, work, { active, defaultOpen: active && directThoughts })] : [];
+  const nodes = work.length ? [renderFinishedWork(session, view, entry.key, entry.run_id, work, { active, defaultOpen: active && directThoughts, directThoughts })] : [];
   if (final) nodes.push(renderResponseBlock(session, view, { ...final, steps: [] }, active, { final: !active }));
   reconcileChildren(view.rows, nodes);
   for (const key of view.blocks.keys()) if (!usedBlocks.has(key)) view.blocks.delete(key);
@@ -617,7 +627,7 @@ function renderResponse(session, entry) {
   return view.row;
 }
 
-function renderFinishedWork(session, view, responseKey, runID, blocks, { active = false, defaultOpen = false } = {}) {
+function renderFinishedWork(session, view, responseKey, runID, blocks, { active = false, defaultOpen = false, directThoughts = false } = {}) {
   const key = `${responseKey}:worked`;
   if (!view.work) {
     const root = document.createElement("div");
@@ -646,7 +656,8 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
   setAttribute(view.work.summaryToggle, "aria-expanded", String(open));
   const changed = new Set(items.flatMap((item) => item?.type === "tool" && ["write_file", "edit_file"].includes(item.name) && item.result?.ok === true ? [item.args?.path] : item?.name === "delegate" ? (item.result?.delegate?.applied || []) : []).filter(Boolean));
   const remaining = Number.isInteger(view.work.remaining) ? view.work.remaining : changed.size;
-  const prefix = active ? responseSummarySentence(responseSummary(items), 4, true, items.length) : `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}`;
+  const prefix = active ? responseSummarySentence(responseSummary(items)) : `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}`;
+  setProperty(view.work.head, "hidden", directThoughts || !prefix);
   if (changed.size) {
     if (view.work.runID && !view.work.fileToggle) {
       const toggle = document.createElement("span"); toggle.className = "chat-work-files-toggle"; toggle.tabIndex = 0; toggle.setAttribute("role", "button");
@@ -690,7 +701,7 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
   const latest = [...blocks].reverse().find((block) => block.interstitial && block.prose)?.prose?.text || "";
   setText(view.work.status, active ? latest : "");
   reconcileChildren(view.work.root, [view.work.controls, ...(active && latest ? [view.work.status] : []), view.work.rows]);
-  reconcileChildren(view.work.rows, open ? renderFlatWorkRows(session, view, blocks, active) : []);
+  reconcileChildren(view.work.rows, open || directThoughts ? renderFlatWorkRows(session, view, blocks, active) : []);
   view.work.root.querySelector(":scope > .chat-file-list")?.remove();
   if (view.work.filesOpen && view.work.runID) view.work.root.append(renderFileUndoList(session, view.work));
   return view.work.root;
@@ -714,6 +725,7 @@ function renderFlatWorkRows(session, view, blocks, active) {
     }
     const usedItems = new Set();
     for (const [index, item] of block.steps.entries()) {
+      if (item.liveStatus) continue;
       const itemKey = item?.key || `invalid:${index}`;
       usedItems.add(itemKey);
       try { nodes.push(renderResponseItem(session, blockView, item, itemKey, false, false, filesByCall.get(item?.callID) || [])); }
@@ -1372,7 +1384,14 @@ function renderComposer(session) {
   }
   setProperty(mirrorTakeButton, "hidden", !phoneOwned);
   setProperty(mirrorTakeButton, "disabled", !phoneOwned || store.replay);
-  reconcileChildren(notice, [composerWait, composerRobot, composerText, mirrorTakeButton]);
+  const thought = running && liveThought;
+  setText(thoughtCaret, thought && expanded.has(thought.key) ? "▾" : "▸");
+  reconcileChildren(notice, [composerWait, composerRobot, ...(thought ? [thoughtCaret] : []), composerText, mirrorTakeButton]);
+  notice.onclick = thought ? () => { if (expanded.has(thought.key)) expanded.delete(thought.key); else { expanded.add(thought.key); expanded.add(thought.workKey); } render(); } : null;
+  notice.onkeydown = thought ? event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); notice.click(); } } : null;
+  if (thought) { notice.tabIndex = 0; setAttribute(notice, "role", "button"); setAttribute(notice, "aria-expanded", String(expanded.has(thought.key))); }
+  else { notice.removeAttribute("tabindex"); notice.removeAttribute("role"); notice.removeAttribute("aria-expanded"); }
+  reconcileChildren(statusLine, [notice, ...(thought ? [thought.root] : [])]);
   setAttribute(notice, "class", `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`);
   const showStatus = !!session && (isRunning(session) || message !== "idle");
   setProperty(statusLine, "hidden", !showStatus);

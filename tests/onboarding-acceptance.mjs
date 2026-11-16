@@ -129,6 +129,9 @@ try {
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const page = await browser.newPage({ viewport: { width: 1250, height: 975 } });
   const pageErrors = [];
+  page.on("response", async (response) => {
+    if (response.url().endsWith("/probe") || (!response.ok() && response.url().includes("/api/"))) process.stdout.write(`Setup check: ${response.status()} ${await response.text()}\n`);
+  });
   page.on("pageerror", (error) => pageErrors.push(String(error.stack || error)));
   await page.goto(`${baseURL}/chat`);
   await page.waitForURL(/\/setup$/);
@@ -175,6 +178,15 @@ try {
   assert.equal(Object.keys(state.sessions || {}).length, 1);
   assert.deepEqual(pageErrors, []);
   process.stdout.write(`PASS: three-screen Setup saved the server window, assigned tested connections b then c, and reached a working chat (${requestCount} fake requests)\n`);
+} catch (error) {
+  if (args.evidence && browser) {
+    for (const page of browser.contexts().flatMap((context) => context.pages())) {
+      await page.locator("details").evaluateAll((nodes) => nodes.forEach((node) => { node.open = true; }));
+      await page.screenshot({ path: join(args.evidence, "setup-failure.png") });
+      await writeFile(join(args.evidence, "setup-failure.txt"), await page.locator("body").innerText());
+    }
+  }
+  throw error;
 } finally {
   await browser?.close().catch(() => {});
   await stopChild(app);

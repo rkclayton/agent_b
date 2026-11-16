@@ -121,10 +121,6 @@ func requestMessageAt(connection *config.Connection, s *session.Session, message
 		content = parts
 	}
 	role := message.Role
-	if role == llm.RoleHarness {
-		role = llm.RoleAssistant
-		content = "[harness note]\n" + fmt.Sprint(content)
-	}
 	converted := llm.Message{Role: role, Content: content, ToolCallID: message.ToolCallID, Name: message.Name}
 	for _, call := range message.ToolCalls {
 		converted.ToolCalls = append(converted.ToolCalls, llm.ToolCall{ID: call.ID, Type: "function", Function: llm.FunctionCall{Name: call.Name, Arguments: call.Arguments}})
@@ -395,6 +391,19 @@ func runningTurnIDs(records []events.Message, pin string) map[string]bool {
 		}
 	}
 	return ids
+}
+
+func prepareRequestHistory(messages []llm.Message, records []events.Message) ([]llm.Message, []events.Message, int) {
+	messages, order := llm.PrepareHistory(messages)
+	ordered := make([]events.Message, 0, len(order))
+	for _, index := range order {
+		if index < 0 {
+			ordered = append(ordered, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
+		} else {
+			ordered = append(ordered, records[index])
+		}
+	}
+	return normalizeAdjacentAssistants(messages, ordered)
 }
 
 // normalizeAdjacentAssistants folds an assistant message that is followed by

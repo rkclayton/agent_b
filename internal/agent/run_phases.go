@@ -386,32 +386,23 @@ func (x *runState) buildRequest() runOutcome {
 			messages = append(messages, converted)
 			requestRecords = append(requestRecords, message)
 		}
-		// rule 1: the list is checked before it is measured or sent.
-		conversation, repairedRecords, _ := normalizeAdjacentAssistants(messages, requestRecords)
-		hadUser := false
-		for _, message := range conversation {
-			if message.Role == llm.RoleUser {
-				hadUser = true
-				break
-			}
-		}
-		messages, x.budgetErr = llm.BuildMessageList(x.system, conversation)
-		requestRecords = repairedRecords
-		if x.budgetErr != nil {
-			return
-		}
-		if !hadUser {
-			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
-		}
 		if x.autoContinue {
 			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: "[harness note]\nContinue from the recorded context."})
 			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: "Continue from the recorded context."})
 			x.autoContinue = false
 		}
 		if x.retryInstruction != "" {
-			messages = append(messages, llm.Message{Role: llm.RoleAssistant, Content: "[harness note]\n" + x.retryInstruction})
+			messages = append(messages, llm.Message{Role: llm.RoleHarness, Content: x.retryInstruction})
 			requestRecords = append(requestRecords, events.Message{Role: llm.RoleHarness, Category: "history", Content: x.retryInstruction})
 		}
+		// Normalize request-only notes and their accounting records together.
+		conversation, repairedRecords, _ := prepareRequestHistory(messages, requestRecords)
+		messages, x.budgetErr = llm.BuildMessageList(x.system, conversation)
+		requestRecords = repairedRecords
+		if x.budgetErr != nil {
+			return
+		}
+
 		if x.reasoningFallbackPending {
 			prior := llm.Message{Role: llm.RoleAssistant, ReasoningContent: x.reasoningFallbackPrior}
 			if x.connection.Capabilities.Server == "vllm" || x.connection.Capabilities.Server == "ollama" {

@@ -76,7 +76,7 @@ func TestBuildRequestKeepsOnlyLeadingSystemRole(t *testing.T) {
 		{Role: "system", Content: "old abort"},
 	}}, false)
 	messages := body["messages"].([]Message)
-	if messages[0].Role != "system" || messages[2].Role != "assistant" || messages[2].Content != "[harness note]\nold abort" {
+	if messages[0].Role != "system" || messages[1].Role != "assistant" || messages[1].Content != "[harness note]\nold abort" || messages[2].Role != "user" || messages[2].Content != "hello" {
 		t.Fatalf("messages=%#v", messages)
 	}
 }

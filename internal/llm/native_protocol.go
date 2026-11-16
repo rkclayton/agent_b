@@ -87,6 +87,7 @@ func (c *Client) nativeChatStream(ctx context.Context, request Request, onDelta 
 }
 
 func nativeRequest(connection *config.Connection, request Request) (string, map[string]any) {
+	request.Messages = normalizeSystemRoles(request.Messages)
 	if connection.Protocol == config.ProtocolAnthropicMessages {
 		return "/v1/messages", anthropicRequest(connection, request)
 	}

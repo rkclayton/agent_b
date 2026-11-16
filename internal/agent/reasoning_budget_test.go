@@ -171,3 +171,27 @@ func TestRejectedBudgetDoesNotUseAnswerPassWhenTheFirstPassAnswers2xa(t *testing
 		t.Fatalf("run=(%q,%q,%d) calls=%d", reason, detail, turns, calls.Load())
 	}
 }
+
+func TestRetryInstructionDoesNotBecomeAssistantPrefill2yh(t *testing.T) {
+	var attempts atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Messages []llm.Message }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if attempts.Add(1) == 1 {
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{}, "finish_reason": "tool_calls"}}})
+			return
+		}
+		last := body.Messages[len(body.Messages)-1]
+		answer := "ANSWER: work"
+		if last.Role == llm.RoleAssistant {
+			answer = messageText(last.Content)
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": answer}, "finish_reason": "stop"}}})
+	})
+	runner, item, _, _ := reasoningBudgetRunner2xa(t, handler)
+	reason, detail, _ := runner.Run(context.Background(), item, "fixture")
+	messages := item.MessagesCopy()
+	if reason != "done" || attempts.Load() != 2 || messages[len(messages)-1].Content != "ANSWER: work" {
+		t.Fatalf("reason=%s detail=%s attempts=%d last=%v", reason, detail, attempts.Load(), messages[len(messages)-1])
+	}
+}

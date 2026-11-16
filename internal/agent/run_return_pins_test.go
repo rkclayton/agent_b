@@ -35,9 +35,9 @@ func TestUncoveredModelAnswerReturnsPinWholeRequestsAndEvents2uf(t *testing.T) {
 		name, reason, want string
 		answers            []answer
 	}{
-		{name: "malformed twice", reason: "malformed_turn", answers: []answer{{finish: "tool_calls"}, {finish: "tool_calls"}}, want: "831c7422b86a28cd328dd208825082c70c5ccff906275b17e8c93f55a31675f3"},
-		{name: "truncated tool twice", reason: "length", answers: []answer{{finish: "length", tool: "c1", name: "write_file"}, {finish: "length", tool: "c2", name: "write_file"}}, want: "b409a089d39d91d5ecf5df54fafa643925f14a88f8db6cbbc731ea6610c118e5"},
-		{name: "truncated retry changes tool", reason: "length", answers: []answer{{finish: "length", tool: "c1", name: "write_file"}, {finish: "tool_calls", tool: "c2", name: "read_file"}}, want: "78d5a110cb15a691c1a1056d050336396a36d15466461c72772d684628f4da6e"},
+		{name: "malformed twice", reason: "malformed_turn", answers: []answer{{finish: "tool_calls"}, {finish: "tool_calls"}}, want: "aefd80ec03c40cb8f35db26b939d230a57f73b35003f536d23f70f9609be6150"},
+		{name: "truncated tool twice", reason: "length", answers: []answer{{finish: "length", tool: "c1", name: "write_file"}, {finish: "length", tool: "c2", name: "write_file"}}, want: "7fec3e49448cd1943da9d3b98bb01b2d8cd461df96180505102c960e956118f1"},
+		{name: "truncated retry changes tool", reason: "length", answers: []answer{{finish: "length", tool: "c1", name: "write_file"}, {finish: "tool_calls", tool: "c2", name: "read_file"}}, want: "679193a700e71a1948ec56a091cc9177bfd1ebdea020225e83286472062b13a8"},
 		{name: "truncated final answer", reason: "length", answers: []answer{{finish: "length", text: "partial answer"}}, want: "90fed72107653d3e05e3997a1c03dbb892eec3beec55b9ab21df20cf32546a56"},
 	}
 	for _, test := range tests {

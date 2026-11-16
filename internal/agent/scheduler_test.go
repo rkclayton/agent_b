@@ -934,3 +934,59 @@ func TestIndependentConnectionsIgnoreTheOldGlobalDefault2yg(t *testing.T) {
 		t.Fatal("the fifth connection was held by the obsolete global default")
 	}
 }
+
+func TestNextUserAfterStoppedRun2yh(t *testing.T) {
+	for _, reason := range []string{"length", "aborted", "model_unreachable"} {
+		t.Run(reason, func(t *testing.T) {
+			var mu sync.Mutex
+			var sent []llm.Message
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Messages []llm.Message
+					Stream   bool
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if !body.Stream {
+					_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "title"}, "finish_reason": "stop"}}})
+					return
+				}
+				mu.Lock()
+				sent = body.Messages
+				mu.Unlock()
+				last := body.Messages[len(body.Messages)-1]
+				answer := "ANSWER: next task"
+				if last.Role == llm.RoleAssistant {
+					answer = fmt.Sprint(last.Content)
+				}
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": answer}, "finish_reason": "stop"}}})
+			}))
+			defer model.Close()
+			_, _, item, scheduler := schedulerFixture(t, model.URL)
+			item.Append(events.Message{ID: "old-user", Role: "user", Content: "earlier task", Category: "history"})
+			item.Append(events.Message{ID: "old-reply", Role: "assistant", Content: "earlier answer", Category: "history"})
+			item.SetRun(session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: "Settings reserve C:/Data detail"})
+			if _, err := scheduler.Submit(context.Background(), item.ID, "next task"); err != nil {
+				t.Fatal(err)
+			}
+			waitSchedulerIdle(t, scheduler, item.ID)
+			mu.Lock()
+			defer mu.Unlock()
+			if len(sent) == 0 || sent[len(sent)-1].Role != "user" || sent[len(sent)-1].Content != "next task" {
+				t.Fatalf("tail=%v", sent)
+			}
+			stored := item.MessagesCopy()
+			if stored[len(stored)-1].Content != "ANSWER: next task" {
+				t.Fatal(stored[len(stored)-1].Content)
+			}
+			found := false
+			for _, m := range stored {
+				if m.Role == "harness" && strings.Contains(m.Content, "The prior run") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("durable prior-run record lost")
+			}
+		})
+	}
+}

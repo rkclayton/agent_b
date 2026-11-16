@@ -309,7 +309,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	go s.runner.nameAfterFirstRun(entry.s, entry.runID)
 }
 
-// runs are admitted per model connection as well as globally. A connection
+// Runs are admitted per model connection. A connection
 // serves at most its own override, reported capacity, or one when neither is set, so a
 // planner and a worker on a shared connection never overlap unless the operator
 // has raised that connection's limit.

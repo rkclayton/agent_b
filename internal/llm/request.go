@@ -2,7 +2,6 @@ package llm
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 
@@ -111,15 +110,17 @@ func setReasoningBudget(body map[string]any, key string, budget int) {
 // Durable history is not rewritten; historical harness notes are represented
 // as explicit assistant context only in the outbound request.
 func normalizeSystemRoles(messages []Message) []Message {
-	out := append([]Message(nil), messages...)
-	for i := range out {
-		if out[i].Role != "system" || i == 0 {
-			continue
-		}
-		out[i].Role = "assistant"
-		out[i].Content = fmt.Sprintf("[harness note]\n%v", out[i].Content)
+	start := 0
+	if len(messages) > 0 && messages[0].Role == RoleSystem {
+		start = 1
 	}
-	return out
+	for _, m := range messages[start:] {
+		if m.Role == RoleHarness || m.Role == RoleSystem {
+			history, _ := PrepareHistory(messages[start:])
+			return append(append([]Message(nil), messages[:start]...), history...)
+		}
+	}
+	return messages
 }
 
 func logSystemRoleViolation(messages []Message, status int) {

@@ -1377,7 +1377,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 		}
 		messages = append(messages, converted)
 	}
-	messages, records, _ = normalizeAdjacentAssistants(messages, records)
+	messages, records, _ = prepareRequestHistory(messages, records)
 	return r.budget.Measure(ctx, p, s, r.cfg().Context, budgetInput{SystemBase: base, SystemProject: project, SystemSkills: skillsSystem, SystemWorkspaceMemory: workspaceMemory, System: system, WithoutToolSystems: r.withoutToolSystems(p, s, enabled, memoryBlock), Schemas: schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages, Records: records}, mark)
 }
 

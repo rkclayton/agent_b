@@ -9,22 +9,9 @@ export function renderMarkdown(root, text) {
       root.append(parsed.node);
       index = parsed.next;
     } else if (listLine(lines[index])) {
-      const ordered = /^\d+\./.test(listLine(lines[index]).marker);
-      const list = document.createElement(ordered ? "ol" : "ul");
-      while (index < lines.length) {
-        const match = listLine(lines[index]);
-        if (!match || /^\d+\./.test(match.marker) !== ordered) break;
-        const item = document.createElement("li");
-        inline(document, item, match.text);
-        index++;
-        while (index < lines.length && lines[index].trimStart().startsWith("```") && lines[index].search(/\S/) > match.indent) {
-          const parsed = fencedBlock(document, lines, index, lines[index].search(/\S/));
-          item.append(parsed.node);
-          index = parsed.next;
-        }
-        list.append(item);
-      }
-      root.append(list);
+      const parsed = listBlock(document, lines, index);
+      root.append(parsed.node);
+      index = parsed.next;
     } else if (headingLine(lines[index])) {
       const heading = headingLine(lines[index]);
       const node = document.createElement(`h${heading.level}`);
@@ -108,6 +95,33 @@ function tableCell(document, tagName, text, alignment) {
 function listLine(line) {
   const match = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(line);
   return match ? { indent: match[1].length, marker: match[2], text: match[3] } : null;
+}
+
+function listBlock(document, lines, start) {
+  const first = listLine(lines[start]);
+  let index = start;
+  const ordered = /^\d+\./.test(first.marker);
+  const list = document.createElement(ordered ? "ol" : "ul");
+  if (ordered) list.setAttribute("start", first.marker.slice(0, -1));
+  while (index < lines.length) {
+    const match = listLine(lines[index]);
+    if (!match || /^\d+\./.test(match.marker) !== ordered || (ordered && match.indent !== first.indent)) break;
+    const item = document.createElement("li");
+    inline(document, item, match.text);
+    index++;
+    while (index < lines.length && lines[index].trimStart().startsWith("```") && lines[index].search(/\S/) > match.indent) {
+      const parsed = fencedBlock(document, lines, index, lines[index].search(/\S/));
+      item.append(parsed.node);
+      index = parsed.next;
+    }
+    while (ordered && listLine(lines[index] || "")?.indent > match.indent && /^\d+\./.test(listLine(lines[index]).marker)) {
+      const nested = listBlock(document, lines, index);
+      item.append(nested.node); index = nested.next;
+    }
+    list.append(item);
+  }
+  if (ordered) list.setAttribute("style", `--list-digits:${String(Number(first.marker.slice(0, -1)) + list.children.length - 1).length}`);
+  return {node: list, next: index};
 }
 
 function fencedBlock(document, lines, start, indent) {

@@ -324,6 +324,7 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
   margin: 0 0 8px;
   padding-left: 20px;
 }
+.chat-content ol { padding-left: max(20px, calc(var(--list-digits, 1) * 1ch + 1em)); }
 .chat-markdown-heading {
   margin: var(--lead) 0 0;
   font-size: var(--ct);

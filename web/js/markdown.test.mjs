@@ -12,6 +12,10 @@ class FakeNode {
     this.style = {};
   }
 
+  setAttribute(name, value) {
+    (this.attributes ||= {})[name] = String(value);
+  }
+
   append(...nodes) {
     this.children.push(...nodes);
   }

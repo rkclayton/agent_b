@@ -1391,3 +1391,39 @@ test("loading managed model keeps one message on screen 2ya", async ({browser}) 
     await f.emit([{type:'agent',key:'answer',text:'Ready.',done:true}],true);await expect(f.page.locator('#chat-log .chat-user-text').getByText('Inspect the fixture.',{exact:true})).toHaveCount(1);await expect(f.page.locator('#chat-notice')).toHaveCount(0);await f.context.close();
   }
 });
+
+async function numberedListFixture(page) {
+ await page.route('http://lists.test/**',route=>new URL(route.request().url()).pathname==='/'?route.fulfill({contentType:'text/html',body:`<link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/app.css"><link rel="stylesheet" href="/css/chat.css"><style>body{margin:0;overflow:auto}.chat-log{height:100vh}.chat-content{font-family:var(--sans);line-height:var(--lead)}</style><main class="chat-page"><div class="chat-log"><section class="chat-entry chat-agent chat-response"><div class="chat-content chat-response-answer" id="reply"></div></section></div></main><script type="module">import {renderMarkdown} from '/js/markdown.js';window.draw=text=>renderMarkdown(reply,text);</script>`}):route.fulfill({path:webRoot+new URL(route.request().url()).pathname.slice(1)}));
+ await page.goto('http://lists.test/');await page.waitForFunction(()=>window.draw);await page.evaluate(()=>document.fonts.ready);
+}
+
+test('numbered lists fit every marker and retain nesting 2yi',async({page})=>{
+ test.setTimeout(120000);await numberedListFixture(page);const failures=[];
+ for(let size=9;size<=32;size++)for(const zoom of [.8,1,1.5,2])for(const [count,start] of [[9,1],[11,1],[100,1],[1000,1],[11,98]]){
+  const result=await page.evaluate(({size,zoom,count,start})=>{
+   document.documentElement.style.setProperty('--chat-size',size+'px');document.body.style.zoom=zoom;draw(Array.from({length:count},(_,i)=>`${start+i}. Item`).join('\n'));
+   const ol=reply.querySelector('ol'),items=[...ol.children],box=reply.getBoundingClientRect(),ctx=document.createElement('canvas').getContext('2d');let bad=0;const xs=[];
+   items.forEach((li,i)=>{const cs=getComputedStyle(li);ctx.font=`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;const r=document.createRange();r.selectNodeContents(li);const x=r.getBoundingClientRect().left;xs.push(x);if(x-ctx.measureText(`${ol.start+i}. `).width*zoom<box.left-1)bad++;});
+   return {bad,spread:Math.max(...xs)-Math.min(...xs),start:ol.start};
+  },{size,zoom,count,start});
+  if(result.bad||result.spread>1||result.start!==start)failures.push({size,zoom,count,start,...result});
+ }
+ expect.soft(failures).toEqual([]);
+ await page.evaluate(()=>{document.body.style.zoom=1;draw(Array.from({length:11},(_,i)=>`${i+1}. Item${i===9?'\n   1. Nested\n   2. Nested again':''}`).join('\n'));});
+ const nested=page.locator('#reply > ol > li:nth-child(10) > ol');await expect(nested).toHaveCount(1);expect((await nested.boundingBox()).x).toBeGreaterThan((await page.locator('#reply > ol').boundingBox()).x);
+});
+
+test('numbered list baseline and three sizes 2yi',async({page,browser})=>{
+ await numberedListFixture(page);const baseline=!!process.env.AGENTB_LIST_BASELINE,folder=`logs/evidence/rel-1.62.220/${baseline?'before':'captures'}`;await mkdir(folder,{recursive:true});
+ for(const [width,height] of [[304,254],[1280,860],[1920,1080]]){
+  await page.setViewportSize({width,height});await page.evaluate(()=>draw(Array.from({length:11},(_,i)=>`${i+1}. Item ${i+1}`).join('\n')));await page.screenshot({path:`${folder}/eleven-${width}.png`});await page.locator("#reply li").last().scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/eleven-tail-${width}.png`});
+ }
+ for(const size of [18,32]){await page.setViewportSize({width:304,height:700});await page.evaluate(size=>{document.documentElement.style.setProperty('--chat-size',size+'px');draw(Array.from({length:11},(_,i)=>`${i+1}. Item ${i+1}`).join('\n'));},size);await page.screenshot({path:`${folder}/eleven-size-${size}.png`});}
+ await page.evaluate(()=>document.documentElement.style.setProperty('--chat-size','12px'));
+ for(const [name,text] of [['nine',Array.from({length:9},(_,i)=>`${i+1}. Item ${i+1}`).join('\n')],['bullets','- First\n- Second\n- Third']]){
+  await page.setViewportSize({width:304,height:254});await page.evaluate(text=>draw(text),text);const png=await page.screenshot({path:`${folder}/${name}.png`});
+  if(!baseline){const legacy=await page.addStyleTag({content:".chat-content ol{padding-left:20px}"});const before=decodePNG(await page.screenshot()),after=decodePNG(png);await legacy.evaluate(node=>node.remove());expect(after.width).toBe(before.width);expect(Buffer.compare(Buffer.from(after.data),Buffer.from(before.data))).toBe(0);}
+ }
+ if(!baseline)for(const width of [304,1280,1920]){const f=await thinkingFixture(browser,width);await f.emit([{type:'agent',key:'list',text:Array.from({length:11},(_,i)=>`${i+1}. Item ${i+1}`).join('\n'),done:true}],true);await f.page.locator('#chat-log ol li').last().scrollIntoViewIfNeeded();expect(auditLayoutSnapshot(await f.page.evaluate(collectLayoutSnapshot,'#chat-log'))).toEqual([]);await f.page.screenshot({path:`${folder}/app-${width}.png`});await f.context.close();}
+
+});

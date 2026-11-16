@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -961,4 +961,29 @@ test("connection runs-at-once saves, clears, and stays whole at both widths 2v4"
   await page.locator(".connection-defaults > summary").click();
   await expect(field).toHaveValue("");
   await page.close();
+});
+
+test("installed model controls show all states and confirm removal size 2ya", async () => {
+  test.setTimeout(120_000);
+  const page = await harness.context.newPage({ viewport: { width:1280,height:860 } });
+  await page.goto(`${harness.base}/chat`); await openSettings(page); await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.evaluate(async () => {const {store,reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);const c={...store.config.connections[0],id:'installed-local',label:'local',model:'fixture-model',stop_when_idle_minutes:60};reduce({type:'config.changed',data:{config:{...store.config,connections:[c]}}});});
+  const folder='logs/evidence/rel-1.62.212/captures';await mkdir(folder,{recursive:true});
+  for(const width of [304,1280,1920]){
+    await page.setViewportSize({width,height:width===304?254:width===1920?1080:860});
+    for(const state of ['stopped','loading','running','failed']){
+      await page.evaluate(async state=>{const {reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);reduce({type:'model.state',data:{connection_id:'installed-local',state,reason:state==='failed'?'health':'requested',model:'Example model',bytes:1024**3}})},state);
+      const row=page.locator('[data-managed-model="installed-local"]');await expect(row).toContainText('This computer');await expect(row).toContainText(state==='failed'?'did not start':state);
+      await expect(row.getByRole('button',{name:['running','loading'].includes(state)?'Stop':'Start',exact:true})).toBeVisible();
+      await expect(row.locator('[data-path$="stop_when_idle_minutes"]')).toHaveValue('60');
+      await row.scrollIntoViewIfNeeded(); await page.screenshot({path:`${folder}/model-${state}-${width}.png`}); await row.screenshot({path:`${folder}/row-${state}-${width}.png`});
+      expect(await row.evaluate(el=>el.scrollWidth<=el.clientWidth&&el.getBoundingClientRect().right<=innerWidth)).toBe(true);
+      const findings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'[data-managed-model="installed-local"]')); await writeFile(`${folder}/layout-${state}-${width}.json`,JSON.stringify(findings)); expect(findings).toEqual([]);
+      if(width===304){await row.locator(".managed-model-idle").scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/idle-${state}-${width}.png`});}
+    }
+  }
+  await page.setViewportSize({width:1280,height:860});
+  await page.locator('[data-action="model-remove"]').click();await expect(page.getByRole('dialog')).toContainText(/1.*GB/);await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  let action='';await page.route('**/api/model/start',route=>{action=route.request().postDataJSON().connection_id;return route.fulfill({json:{connection_id:action,state:'running',reason:'ready',model:'Example model',bytes:1024**3}})});
+  await page.locator('[data-action="model-start"]').click();await expect.poll(()=>action).toBe('installed-local');await page.locator('[data-managed-model="installed-local"]').getByRole('button',{name:'Change',exact:true}).click();await expect(page).toHaveURL(/\/setup\?from=settings/);await page.close();
 });

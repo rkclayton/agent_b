@@ -2,7 +2,7 @@ import { api, reduce, setActive, store, subscribe } from "./bus.js";
 import { operatorStatusView } from "./operator-status.js";
 import { navigationSurfaceReady, recordViewMount } from "./navigation-telemetry.js";
 import { notePage } from "./page-health.js";
-import { connectionActions, connectionFailureSentence, renderConnectionsPage } from "./settings-connections.js";
+import { connectionActions, connectionFailureSentence, renderConnectionsPage, updateManagedModelRow } from "./settings-connections.js";
 import { aboutActions, renderAboutPage } from "./settings-about.js";
 import { chatActions, renderChatsPage } from "./settings-chats.js";
 import { generalActions, renderGeneralPage } from "./settings-general.js";
@@ -189,6 +189,11 @@ export function initSettings(entry = {}) {
     }
   });
   subscribe((_state, event) => {
+	if (event.type === "model.state") {
+	  const row = sheet.querySelector(`[data-managed-model="${CSS.escape(event.data.connection_id)}"]`);
+	  if (row) updateManagedModelRow(row,event.data); else if (open) render();
+	  return;
+	}
 	if (event.type === "notification.changed") notificationStatus = event.data || notificationStatus;
     // the walk reports each address as it lands, and the sheet
     // shows it in the one waiting element, determinate: addresses tried of the total,
@@ -1230,6 +1235,21 @@ async function runAction(event, button, action, id) {
 		return;
 	}
   if (action === "open-setup") { location.href = "/setup?from=settings"; return; }
+  if (action === "model-start" || action === "model-stop" || action === "model-remove") {
+    try {
+      if (action === "model-remove") {
+        const size = (Number(store.model_states?.[id]?.bytes || 0) / 1024 ** 3).toFixed(1);
+        if (!await requestConfirmation(`Remove model and free ${size} GB?`, {confirmLabel:"Remove",danger:true})) return;
+        await api(`/api/model-install?remove=${encodeURIComponent(id)}`, undefined, "DELETE");
+        delete store.model_states[id];
+      } else {
+        const data = await api(`/api/model/${action === "model-start" ? "start" : "stop"}`, {connection_id:id});
+        reduce({type:"model.state",data});
+      }
+      errors.delete(`connections.${id}`);
+    } catch(error) { errors.set(`connections.${id}`, error.message); }
+    render(); return;
+  }
   if (action === "config-toggle" || action === "config-choice") {
     const path = button.dataset.path;
     const value = action === "config-toggle" ? button.dataset.value === "true" : button.dataset.value;
@@ -1889,6 +1909,9 @@ async function blur(event) {
     const path = input.dataset.path;
     if (input.dataset.kind === "secret" && input.value === "•••• set") return;
     if (!drafts.has(path)) return;
+	if (path.endsWith(".stop_when_idle_minutes") && (!input.value.trim() || !Number.isInteger(Number(input.value)) || Number(input.value) < 0)) {
+	  errors.set(path,"Enter a whole number of minutes, 0 or more"); render(); return;
+	}
     settingsSaveAlarm = false;
     if (needsExplicitSave(path)) {
       settingsSaveMessage = "Unsaved — use the save beside the setting";

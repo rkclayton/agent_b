@@ -131,6 +131,7 @@ export function reduce(event) {
       break;
     // the one state every connection lamp reads.
     case "connection.health": store.connection_health = { ...(store.connection_health || {}), [data.connection_id]: data.health }; break;
+    case "model.state": (store.model_states ||= {})[data.connection_id] = data; break;
     case "agent.connection_change":
       store.agent_connection_changes ||= {};
       if (data.status === "pending" && data.change?.agent_id) store.agent_connection_changes[data.change.agent_id] = data.change;

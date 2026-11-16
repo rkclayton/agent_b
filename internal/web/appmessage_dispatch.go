@@ -62,6 +62,8 @@ var appMessageRoutes = map[string]struct {
 	"chat.mirror.since": {http.MethodPost, ""},
 	"chat.mirror.take":  {http.MethodPost, ""},
 	"skill.author":      {http.MethodPost, ""},
+	"model.start":       {http.MethodPost, "/api/model/start"},
+	"model.stop":        {http.MethodPost, "/api/model/stop"},
 }
 
 type appRequestUnit struct {
@@ -238,6 +240,8 @@ func (s *Server) executeAppMessage(deviceID string, request appRequestUnit, live
 		}
 		path += named.Name
 	case "chat.create":
+		fallthrough
+	case "model.start", "model.stop":
 		// A phone may choose one advertised agent, while released clients may still
 		// name a connection and receive the deterministic compatibility mapping.
 		if len(body) > 0 && string(body) != "null" {
@@ -246,8 +250,8 @@ func (s *Server) executeAppMessage(deviceID string, request appRequestUnit, live
 				return s.appProblem(request.ID, http.StatusBadRequest, "the chat.create body is not an object")
 			}
 			for name := range fields {
-				if name != "label" && name != "connection_id" && name != "agent_id" {
-					return s.appProblem(request.ID, http.StatusBadRequest, "chat.create carries label, agent_id and connection_id only; it does not carry "+name)
+				if (request.Route != "chat.create" && name != "connection_id") || (request.Route == "chat.create" && name != "label" && name != "connection_id" && name != "agent_id") {
+					return s.appProblem(request.ID, http.StatusBadRequest, request.Route+" does not carry "+name)
 				}
 			}
 		}

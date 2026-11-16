@@ -321,10 +321,11 @@ type Connection struct {
 	Models               []ConnectionModel `json:"-"`
 	// MaxConcurrent overrides how many runs this server serves at once;
 	// zero uses its reported capacity, then one. The global cap still applies.
-	MaxConcurrent int `json:"max_concurrent,omitempty"`
-	initialized   bool
-	exposeActive  bool
-	serverGroup   string
+	MaxConcurrent       int  `json:"max_concurrent,omitempty"`
+	StopWhenIdleMinutes *int `json:"stop_when_idle_minutes,omitempty"`
+	initialized         bool
+	exposeActive        bool
+	serverGroup         string
 }
 
 // ConnectionModel holds every value whose truth depends on which model answers.

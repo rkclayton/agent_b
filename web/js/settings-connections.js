@@ -40,6 +40,13 @@ export function connectionHealth(state, id) {
   const health = state?.connection_health?.[id];
   return health ? { lamp: health.lamp || "", word: health.word || "" } : { lamp: "", word: "checking" };
 }
+export function managedModelText(model) { return `${model.model} · ${(Number(model.bytes || 0) / 1024 ** 3).toFixed(1)} GB · ${model.state === "failed" ? "did not start" : model.state}`; }
+export function updateManagedModelRow(row, model) {
+  row.querySelector(".connection-url").textContent = managedModelText(model);
+  row.querySelector(".lamp").className = `lamp ${model.state === "running" ? "ready" : model.state === "loading" ? "amber" : model.state === "failed" ? "alarm" : ""}`;
+  const stop = model.state === "loading" || model.state === "running", button = row.querySelector('[data-action="model-start"],[data-action="model-stop"]');
+  button.dataset.action = stop ? "model-stop" : "model-start"; button.textContent = stop ? "Stop" : "Start";
+}
 
 function failedTestLine(discovery, id) {
   if (!discovery?.detail) return "";
@@ -63,6 +70,15 @@ function connections() {
   const rows = groups.map((group) => {
     const serverOpen = expanded.has(`server:${group.key}`);
     const first = group.connections[0];
+    const managed = store.model_states?.[first.id];
+    if (managed) {
+      const path = `connections.${first.id}.stop_when_idle_minutes`;
+      const idle = drafts.has(path) ? drafts.get(path) : first.stop_when_idle_minutes ?? 60;
+      const stop = managed.state === "running" || managed.state === "loading";
+      const size = `${(Number(managed.bytes || 0) / 1024 ** 3).toFixed(1)} GB`;
+      const failure = errors.get(`connections.${first.id}`) || errors.get(path);
+      return `<section class="managed-model" data-managed-model="${attr(first.id)}"><div class="managed-model-line"><span class="lamp ${managed.state === "running" ? "ready" : managed.state === "loading" ? "amber" : managed.state === "failed" ? "alarm" : ""}"></span><strong>This computer</strong><span class="connection-url">${html(managedModelText(managed))}</span><span class="managed-model-actions"><button type="button" data-action="model-${stop ? "stop" : "start"}" data-id="${attr(first.id)}">${stop ? "Stop" : "Start"}</button><button type="button" data-action="open-setup">Change</button><button type="button" data-action="model-remove" data-id="${attr(first.id)}">Remove</button></span></div><div class="setting-row managed-model-idle"><label for="model-idle-${attr(first.id)}">stop when idle</label><input id="model-idle-${attr(first.id)}" class="setting-input number" type="number" step="1" min="0" data-path="${attr(path)}" data-kind="number" value="${attr(idle)}"><span>minutes · 0 = never</span></div>${failure ? errorMarkup(failure,`connection:${first.id}:refusal`,"connection-refusal alarm") : ""}</section>`;
+    }
     const states = group.connections.map((connection) => connectionHealth(store, connection.id));
     const health = states.find((state) => state.word !== "ready") || states[0] || { lamp: "", word: "checking" };
     const serverRefusal = errors.get(`servers.${group.key}`) || "";
@@ -351,4 +367,5 @@ export const connectionActions = actionTable([
   "connection-toggle", "server-toggle", "show-key", "probe", "measure-connection",
   "recommended-connection", "add-connection", "add-server-model", "duplicate-connection",
   "remove-connection",
+  "model-start", "model-stop", "model-remove",
 ]);

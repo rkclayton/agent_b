@@ -127,6 +127,7 @@ var deviceSessionlessEvents = []string{
 	events.ChatDeleted,      // the iOS chat list removes the row
 	events.ChatListPatch,    // the iOS chat list's folders
 	events.ChatListSnapshot, // the iOS chat list's folders
+	"model.state",
 }
 
 // deviceListPage is how many chats a device's list is sent at once besides the
@@ -740,6 +741,9 @@ func (s *Server) streamToDeviceWithPushes(ctx context.Context, client deviceSink
 			s.app.NoteJoin(sent)
 		}
 		patches = subscribed
+	}
+	for _, state := range s.modelStates() {
+		send(map[string]any{"v": 1, "kind": "event", "data": events.New("model.state", "", "", state)})
 	}
 	for {
 		select {

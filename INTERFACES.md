@@ -566,6 +566,13 @@ approval registers exactly as the operator's sentence does, a decline registers 
   After verifying the GGUF, the installer reads its declared context and KV shape, reserves 1 GiB,
   rounds the largest fitting f16-KV context down to 4096-token increments with an 8192-token floor, refuses a model below that floor,
   and persists the calculation both beside the GGUF and in the installed connection.
+  The installed connection owns one hidden model process, starts it on demand before a run connects,
+  and stops it on quit or after `stop_when_idle_minutes` (default 60, zero disables idle shutdown).
+  `POST /api/model/start` and `POST /api/model/stop` take `{connection_id}` and use the same controller as
+  the paired-device requests in `docs/app-message-v1.md`. Readiness requires `/health`.
+  `DELETE /api/model-install?remove=installed-local` stops the verified process before removing its recorded files
+  and connection; agent profiles and chats remain. A replacement becomes ready before the previous process is stopped.
+  No model sign-in launcher is written; startup removes only the exact legacy launcher belonging to this install.
   `GET /api/eval/measure?connection_id=` returns `unmeasured` or current progress/result;
   `POST /api/eval/measure {connection_id}` starts the capability probe followed by at most one ten-brief,
   N=1 measurement for that connection under one five-minute deadline and stores findings plus its descriptive result without changing reasoning or context

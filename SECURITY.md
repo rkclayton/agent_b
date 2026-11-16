@@ -153,13 +153,17 @@ the browser can submit only compile-time catalog IDs; URLs, exact byte counts, S
 Production downloads require HTTPS, reject HTTPS-to-HTTP redirects, stream into `.part` files under the data root with an exact `bytes+1` ceiling,
 and are renamed only after byte-count and SHA-256 verification. Runtime zip extraction follows verification, rejects traversal and links,
 caps total declared expansion at 2 GiB, checks each extracted length,
-and requires exactly one `llama-server.exe` before writing the sign-in launcher or starting anything. The server, not browser input,
+and requires exactly one `llama-server.exe` before writing the saved command or starting anything. The server, not browser input,
 obtains the selected backend's available memory; after checksum verification it reads the GGUF context/KV metadata,
 refuses an 8192-token context that cannot fit weights plus f16 KV cache and the fixed reserve,
 and writes the derived explicit context into the launcher and connection.
 A malicious release host or DNS answer can deny service but cannot supply executable bytes that pass the pin;
 changing the browser recommendation table cannot change server-side artifacts or the memory used for context sizing.
 The installed server and GGUF deliberately run with the operator's authority, not `agentb-svc`; this is local model installation, not containment.
+Model control holds a Windows process handle after checking its executable's resolved path against the saved executable
+under the install root; adoption additionally identifies the listener on the saved port. Stop waits on that same handle,
+so PID reuse cannot redirect termination. Removal validates every recorded file against the resolved root before deleting
+it, after process exit. The paired phone receives state and may request start or stop; no command or executable path is sent.
 An interpreter's `runs as service` label means the configured service account (or a broad built-in group it belongs to) has read/execute ACL entries on the
 resolved executable; `operator-only` means that check found no such grant. This display is an onboarding hint,
 not a security boundary or a proof that every dependency is reachable. Windows ACLs remain authoritative at execution time.

@@ -76,10 +76,17 @@ sent them all. The first patch of a chat the join did not send is preceded by
 new full folder path. These list events use the existing `event` unit and do not alter a chat's
 projection cursor.
 
-A device receives these session-less events and no others: `agent.tools`, `chat.deleted`, `chat.list.patch`, `chat.list.snapshot`.
+A device receives these session-less events and no others: `agent.tools`, `chat.deleted`, `chat.list.patch`, `chat.list.snapshot`, `model.state`.
 Every other session-less event (`config.changed` among them) stays on the desktop; the desktop
 counts each one it withholds, by type, in its diagnostics export. A chat's own events are not
 affected.
+
+## Managed local model
+
+`model.state` is a session-less event sent on join and whenever a managed model changes state. Its data is `{connection_id,state,reason,model,bytes}`: `state` is `stopped`, `loading`, `running` or `failed`; `reason` is `idle`, `requested`, `ready`, `starting`, `exited`, `ownership`, `launch` or `health`. `model` is a display label and `bytes` is the size of the installed files. No command, executable path or credential is sent. Older devices ignore this unknown event type.
+
+The `model.start` and `model.stop` requests each take exactly `{connection_id}` and operate only on the installed managed connection. Their response data uses the same state shape. They use the existing request-id replay contract; repeating an id does not launch or stop twice. They require the PC to be signed in and Agent_b to be running and paired.
+Start returns the current state promptly while readiness proceeds in the background; state events report completion, and Stop remains available during loading.
 
 ## Splitting a unit that does not fit
 
@@ -144,6 +151,8 @@ did not publish. `body` is the request body `INTERFACES.md` defines for that rou
 |---|---|---|
 | `message` | `POST /api/message` | `{session_id,text,attachments?}` |
 | `skill.author` | one field-authoring model request on the desktop | `{id,texts:[string],kind:"fields"}` — one to five texts, each at most 16 KiB; added 2026-11-02 |
+| `model.start` | `POST /api/model/start` | `{connection_id}` — start the installed managed model |
+| `model.stop` | `POST /api/model/stop` | `{connection_id}` — stop the installed managed model |
 | `stop` | `POST /api/stop` | `{session_id?,all?}` |
 | `approve` | `POST /api/approve` | `{session_id,call_id,decision}` |
 | `tool` | `POST /api/tools/{name}` | `{name,enabled}` and `agent_id` or `session_id` |

@@ -2,7 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { decodePNG } from "../png.mjs";
-import { chatScaleMatrix } from "../layout-gate.mjs";
+import { auditLayoutSnapshot, collectLayoutSnapshot, chatScaleMatrix } from "../layout-gate.mjs";
 
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 
@@ -1358,4 +1358,16 @@ test("the Profiles page leaves no empty column at 1250px", async ({ page }) => {
   // two-column surface with nothing beside it.
   const narrow = geometry.kids.filter((kid) => kid.w < geometry.surface - 4);
   expect(narrow, `these sit in a partial column: ${JSON.stringify(narrow)} of ${geometry.surface}px`).toEqual([]);
+});
+
+test("loading managed model keeps one message on screen 2ya", async ({browser}) => {
+  await mkdir('logs/evidence/rel-1.62.212/captures',{recursive:true});
+  for(const width of [304,1280,1920]) {
+    const f=await thinkingFixture(browser,width);await f.emit([]);
+    await f.page.evaluate(async()=>{const {store}=await import('/static/js/bus.js');const state=structuredClone(store);state.sessions.thought.activity.stream={};state.sessions.thought.model_busy={detail:'loading model'};globalThis.thoughtEvents.emit(state)});
+    await expect(f.page.locator('#chat-notice')).toContainText(/loading model/i);await f.page.waitForTimeout(180);if(width===304)await f.page.evaluate(()=>{document.body.classList.add('chat-list-hidden');document.body.classList.remove('chat-list-visible');document.querySelector('.chat-list-panel').hidden=true;document.querySelector('.chat-list-handle').hidden=false});await expect(f.page.locator('#chat-notice')).toBeInViewport();await expect(f.page.locator('#chat-log .chat-user-text').getByText('Inspect the fixture.',{exact:true})).toHaveCount(1);
+    await f.page.screenshot({path:`logs/evidence/rel-1.62.212/captures/loading-model-${width}.png`});
+    expect(auditLayoutSnapshot(await f.page.evaluate(collectLayoutSnapshot,'#chat-log'))).toEqual([]);
+    await f.emit([{type:'agent',key:'answer',text:'Ready.',done:true}],true);await expect(f.page.locator('#chat-log .chat-user-text').getByText('Inspect the fixture.',{exact:true})).toHaveCount(1);await expect(f.page.locator('#chat-notice')).toHaveCount(0);await f.context.close();
+  }
 });

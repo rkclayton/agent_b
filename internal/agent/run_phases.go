@@ -21,6 +21,7 @@ import (
 )
 
 type runState struct {
+	releaseModel                                       func()
 	r                                                  *Runner
 	ctx                                                context.Context
 	s                                                  *session.Session
@@ -100,6 +101,11 @@ func (r *Runner) runInPhases(ctx context.Context, s *session.Session, runID stri
 		r.runHooks(context.Background(), s, runID, x.hooks, hookInput{event: "run_end", stopReason: reason})
 	}()
 	defer x.cleanupPin()
+	defer func() {
+		if x.releaseModel != nil {
+			x.releaseModel()
+		}
+	}()
 	defer x.cleanupFlight()
 	defer x.cleanupWall()
 	defer func() { x.cleanupDelivery(&reason, &detail, turns) }()
@@ -229,6 +235,12 @@ func (x *runState) start() runOutcome {
 		return x.stop("connection_not_runnable", "connection "+x.s.ConnectionID+" no longer exists", 0)
 	}
 	var windowErr error
+	if r.managedModel != nil {
+		x.releaseModel, windowErr = r.managedModel(x.ctx, x.connection, x.s.ID, x.runID)
+		if windowErr != nil {
+			return x.stop("model_unreachable", "Model did not start", 0)
+		}
+	}
 	x.connection, x.windowSource, windowErr = r.resolveWindow(x.ctx, x.connection)
 	if windowErr != nil {
 		return x.stop("connection_not_runnable", windowErr.Error(), 0)

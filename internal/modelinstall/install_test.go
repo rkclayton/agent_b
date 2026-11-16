@@ -124,7 +124,13 @@ func TestVerifiedInstallDownloadsExtractsStartsAndRegisters(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "models", "fixture", "context-sizing.json")); err != nil {
 		t.Fatalf("context sizing record: %v", err)
 	}
-	for _, path := range []string{filepath.Join(root, "models", "fixture", "model.gguf"), filepath.Join(root, "models", "llama.cpp", "fixture", "cpu", "bin", "llama-server.exe"), filepath.Join(startup, "Agent_b-model.vbs")} {
+	if spec, err := LoadSpec(filepath.Join(root, "models"), "", ""); err != nil || spec.IdleMinutes != 60 {
+		t.Fatalf("fresh idle default=%d err=%v", spec.IdleMinutes, err)
+	}
+	if _, err := os.Stat(filepath.Join(startup, "Agent_b-model.vbs")); !os.IsNotExist(err) {
+		t.Fatal("install wrote a Startup launcher")
+	}
+	for _, path := range []string{filepath.Join(root, "models", "fixture", "model.gguf"), filepath.Join(root, "models", "llama.cpp", "fixture", "cpu", "bin", "llama-server.exe")} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing %s: %v", path, err)
 		}

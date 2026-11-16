@@ -71,6 +71,7 @@ type Manager struct {
 	models       []Model
 	state        State
 	cancel       context.CancelFunc
+	done         chan struct{}
 	start        func(string, []string, string) (int, error)
 	onReady      func(context.Context, State) error
 }
@@ -117,7 +118,7 @@ func (m *Manager) set(update func(*State)) { m.mu.Lock(); update(&m.state); m.mu
 
 func (m *Manager) Start(ctx context.Context, request Request) error {
 	m.mu.Lock()
-	if m.state.Running {
+	if m.state.Running || m.done != nil {
 		m.mu.Unlock()
 		return errors.New("a model install is already running")
 	}
@@ -138,9 +139,14 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 	}
 	runContext, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
+	done := make(chan struct{})
+	m.done = done
 	m.state = State{Running: true, Phase: "queued", Text: "Preparing verified downloads", Total: total, Model: model.Label}
 	m.mu.Unlock()
-	go m.run(runContext, model, request.Backend, request.AvailableBytes, assets)
+	go func() {
+		defer func() { m.mu.Lock(); close(done); m.done = nil; m.mu.Unlock() }()
+		m.run(runContext, model, request.Backend, request.AvailableBytes, assets)
+	}()
 	return nil
 }
 
@@ -158,6 +164,17 @@ func (m *Manager) Cancel() State {
 	state := m.state
 	m.mu.Unlock()
 	return state
+}
+func (m *Manager) Close() {
+	m.mu.Lock()
+	if m.cancel != nil {
+		m.cancel()
+	}
+	done := m.done
+	m.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 }
 
 func (m *Manager) model(id string) (Model, bool) {
@@ -180,6 +197,16 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 	installRoot := filepath.Join(m.root, "models")
 	runtimeRoot := filepath.Join(installRoot, "llama.cpp", m.runtime.Version, backend)
 	modelRoot := filepath.Join(installRoot, model.ID)
+	if _, err := os.Stat(filepath.Join(installRoot, "start-model.cmd")); err == nil {
+		generation, err := os.MkdirTemp(installRoot, "replacement-")
+		if err != nil {
+			fail(err)
+			return
+		}
+		runtimeRoot = filepath.Join(generation, "runtime")
+		modelRoot = filepath.Join(generation, "model")
+	}
+	var ownedFiles []string
 	if err := os.MkdirAll(runtimeRoot, 0o700); err != nil {
 		fail(err)
 		return
@@ -202,6 +229,18 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 			fail(fmt.Errorf("extract verified runtime: %w", err))
 			return
 		}
+		ownedFiles = append(ownedFiles, archive)
+		zipFile, err := zip.OpenReader(archive)
+		if err != nil {
+			fail(err)
+			return
+		}
+		for _, entry := range zipFile.File {
+			if !entry.FileInfo().IsDir() {
+				ownedFiles = append(ownedFiles, filepath.Join(runtimeRoot, filepath.FromSlash(entry.Name)))
+			}
+		}
+		zipFile.Close()
 	}
 	modelPath := filepath.Join(modelRoot, model.Artifact.Name)
 	if err := ctx.Err(); err != nil {
@@ -239,11 +278,6 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		return
 	}
 	args := []string{"-m", modelPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port), "--ctx-size", fmt.Sprint(sizing.NCtx)}
-	launcher, err := writeAutostart(m.startupDir, installRoot, serverPath, args)
-	if err != nil {
-		fail(err)
-		return
-	}
 	pid, err := m.start(serverPath, args, installRoot)
 	if err != nil {
 		fail(fmt.Errorf("start verified llama-server: %w", err))
@@ -257,7 +291,10 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		s.Context = &sizing
 	})
 	if err := waitHealth(ctx, m.client, baseURL+"/health", 60*time.Second); err != nil {
-		fail(fmt.Errorf("llama-server did not become ready; autostart retained at %s: %w", launcher, err))
+		if p, claimErr := claimInstalled(pid, Spec{Root: installRoot, Executable: serverPath}); claimErr == nil {
+			_ = p.stop()
+		}
+		fail(fmt.Errorf("llama-server did not become ready: %w", err))
 		return
 	}
 	if err := ctx.Err(); err != nil {
@@ -267,8 +304,26 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 	// llama-server reports the loaded GGUF path as its model id. Persist that
 	// exact id so the connection created by the wizard agrees with /v1/models.
 	ready := State{Running: false, Phase: "ready", Text: "Model installed and ready", Total: m.Snapshot().Total, Downloaded: m.Snapshot().Downloaded, ConnectionID: "installed-local", BaseURL: baseURL, Model: modelPath, Context: &sizing}
+	ownedFiles = append(ownedFiles, modelPath, sizingPath)
+	var installedBytes int64
+	for _, path := range ownedFiles {
+		if info, err := os.Stat(path); err == nil {
+			installedBytes += info.Size()
+		}
+	}
+	if _, err := writeAutostart("", installRoot, serverPath, args); err != nil {
+		fail(err)
+		return
+	}
+	if err := SaveSpec(Spec{ID: ready.ConnectionID, Root: installRoot, Executable: serverPath, URL: baseURL, Label: model.Label, Args: args, Files: ownedFiles, Bytes: installedBytes, IdleMinutes: 60}); err != nil {
+		fail(err)
+		return
+	}
 	if m.onReady != nil {
 		if err := m.onReady(ctx, ready); err != nil {
+			if p, claimErr := claimInstalled(pid, Spec{Root: installRoot, Executable: serverPath}); claimErr == nil {
+				_ = p.stop()
+			}
 			fail(fmt.Errorf("create local connection: %w", err))
 			return
 		}
@@ -455,12 +510,6 @@ func waitHealth(ctx context.Context, client *http.Client, url string, timeout ti
 }
 
 func writeAutostart(startupDir, installRoot, server string, args []string) (string, error) {
-	if startupDir == "" {
-		return "", errors.New("the sign-in Startup folder is unavailable")
-	}
-	if err := os.MkdirAll(startupDir, 0o700); err != nil {
-		return "", err
-	}
 	command := filepath.Join(installRoot, "start-model.cmd")
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -469,10 +518,5 @@ func writeAutostart(startupDir, installRoot, server string, args []string) (stri
 	if err := os.WriteFile(command, []byte("@echo off\r\n\""+server+"\" "+strings.Join(quoted, " ")+"\r\n"), 0o600); err != nil {
 		return "", err
 	}
-	launcher := filepath.Join(startupDir, "Agent_b-model.vbs")
-	vbs := `CreateObject("WScript.Shell").Run """` + strings.ReplaceAll(command, `"`, `""`) + `""", 0, False` + "\r\n"
-	if err := os.WriteFile(launcher, []byte(vbs), 0o600); err != nil {
-		return "", err
-	}
-	return launcher, nil
+	return command, nil
 }

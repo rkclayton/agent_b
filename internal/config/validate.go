@@ -119,6 +119,9 @@ func (c Config) validateConnections() (map[string]bool, error) {
 			return nil, fmt.Errorf("%s.id: duplicate", prefix)
 		}
 		seen[p.ID] = true
+		if p.StopWhenIdleMinutes != nil && *p.StopWhenIdleMinutes < 0 {
+			return nil, fmt.Errorf("%s.stop_when_idle_minutes: must be a whole number, 0 or more", prefix)
+		}
 		if p.MaxConcurrent < 0 {
 			return nil, fmt.Errorf("%s.max_concurrent: cannot be negative", prefix)
 		}
@@ -189,9 +192,6 @@ func (c Config) validateConnections() (map[string]bool, error) {
 }
 
 func (c Config) validateAgents(seen map[string]bool) error {
-	if len(c.Connections) == 0 && len(c.Agents) != 0 {
-		return fmt.Errorf("agents: must be empty until a connection is configured")
-	}
 	if len(c.Connections) > 0 && len(c.Agents) == 0 {
 		return fmt.Errorf("agents: at least one agent is required")
 	}

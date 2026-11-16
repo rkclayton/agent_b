@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2ya — Agent_b owns the installed model; start and stop it from the PC or the phone</title>
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<style>
+:root{color-scheme:dark;--bezel:#0D1014;--well:#080A0D;--card:#14171B;--ink:#E8EEF4;--mute:#707D8B;--soft:#B9C3CE;--signal:#3CF08A;--trace:#F2B233;--alarm:#E4624F;--hair:rgba(112,125,139,.28);--line:#7D8794;--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace}
+*{box-sizing:border-box}
+body{background:var(--bezel);color:var(--ink);font:400 14px/22px var(--sans)}
+.page{max-width:920px;margin:0 auto;padding:28px 20px 56px;display:flex;flex-direction:column;gap:28px}
+h1{margin:0;font:500 22px/28px var(--sans);text-wrap:balance}
+h2{margin:0;font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+p{margin:0;max-width:72ch;color:var(--soft)}
+section{display:flex;flex-direction:column;gap:12px}
+button{font:inherit;color:inherit;background:transparent;border:0;padding:0;cursor:pointer}
+.picker{display:flex;gap:6px;flex-wrap:wrap}.picker button{font:500 12px/16px var(--sans);color:var(--soft);border:1px solid var(--hair);padding:6px 10px}.picker button[aria-pressed=true]{color:var(--ink);border-color:var(--line)}
+.panel{background:var(--well);border:1px solid var(--hair);padding:10px 12px;display:flex;flex-direction:column;gap:8px;max-width:780px}
+.lrow{display:grid;grid-template-columns:10px max-content 1fr max-content;gap:10px;align-items:center;min-height:30px;font:400 13px/20px var(--sans)}
+.lamp{width:8px;height:8px;background:var(--signal)}.lamp.off{background:var(--mute)}.lamp.load{background:var(--trace)}.lamp.bad{background:var(--alarm)}
+.u{color:var(--mute);font:400 12px/18px var(--mono)}
+.btn{height:26px;padding:0 10px;border-radius:6px;background:rgba(232,238,244,.10);font:500 12px/26px var(--sans);display:inline-block}
+.btns{display:flex;gap:6px}
+.sub{display:grid;grid-template-columns:140px 1fr;gap:10px;align-items:center;font:400 12px/18px var(--sans);color:var(--mute);padding-left:20px}
+.choice{display:flex;gap:4px}.choice span{padding:2px 8px;border:1px solid var(--hair);border-radius:4px;color:var(--mute)}.choice span.sel{color:var(--ink);border-color:var(--line)}
+.bad{color:var(--alarm)}
+.num{height:24px;width:56px;padding:0 8px;background:var(--bezel);border:1px solid var(--hair);border-radius:4px;color:var(--ink);font:400 12px/22px var(--mono);display:inline-block}
+.live{align-self:flex-start;background:var(--card);border:1px solid var(--hair);border-radius:8px;padding:4px 10px;font:500 12px/20px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.phone{width:300px;background:var(--well);border:1px solid var(--hair);border-radius:18px;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+.pline{display:grid;grid-template-columns:10px 1fr max-content;gap:8px;align-items:center;font:400 13px/20px var(--sans)}
+.prow{border-top:1px solid var(--hair);padding-top:6px;color:var(--soft);font:400 13px/20px var(--sans)}
+.two{display:flex;gap:16px;flex-wrap:wrap}
+table{border-collapse:collapse}td,th{padding:5px 10px;border-bottom:1px solid var(--hair);vertical-align:top;font-size:13px;line-height:18px;text-align:left}th{font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+</style>
+<div class="page">
+  <div>
+    <h1>Agent_b owns the model it installed. It runs when asked, and can be started or stopped from the PC or the phone.</h1>
+    <p>His words, 2026-11-16: "i want more agency over the models/app. can we somehow design a way to launch a model/agentb remotely via the ios/adroid app when its off"; to the first of three cases (PC on and signed in), "yes lets do it! 1." Example names throughout.</p>
+  </div>
+
+  <section>
+    <h2>The model's state</h2>
+    <div class="picker" id="p">
+      <button data-s="stopped" aria-pressed="true">stopped</button>
+      <button data-s="loading">loading</button>
+      <button data-s="running">running</button>
+      <button data-s="failed">failed to start</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>PC — Settings › Connections</h2>
+    <div class="panel">
+      <div class="lrow">
+        <span class="lamp off" data-show="stopped"></span><span class="lamp load" data-show="loading"></span><span class="lamp" data-show="running"></span><span class="lamp bad" data-show="failed"></span>
+        <b>This computer</b>
+        <span class="u"><span data-show="stopped">Qwen 9B · 6.0 GB · stopped</span><span data-show="loading">Qwen 9B · 6.0 GB · loading</span><span data-show="running">Qwen 9B · 6.0 GB · running · 5.9 GB of graphics memory</span><span data-show="failed" class="bad">Qwen 9B · did not start</span></span>
+        <span class="btns"><span class="btn" data-show="stopped failed">Start</span><span class="btn" data-show="loading running">Stop</span><span class="btn">Change</span><span class="btn">Remove</span></span>
+      </div>
+      <div class="sub"><span>stop when idle</span><span style="display:flex;gap:8px;align-items:center"><span class="num">60</span><span>minutes · 0 = never</span></span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>PC — a server he set up himself, on this computer (block 270)</h2>
+    <div class="panel">
+      <div class="lrow">
+        <span class="lamp off" data-show="stopped"></span><span class="lamp load" data-show="loading"></span><span class="lamp" data-show="running"></span><span class="lamp bad" data-show="failed"></span>
+        <b>127.0.0.1:8080</b>
+        <span class="u"><span data-show="stopped">1 model · stopped</span><span data-show="loading">1 model · loading</span><span data-show="running">1 model · running</span><span data-show="failed" class="bad">did not start</span></span>
+        <span class="btns"><span class="btn" data-show="stopped failed">Start</span><span class="btn" data-show="loading running">Stop</span></span>
+      </div>
+      <div class="sub"><span>start command</span><span class="num" style="width:100%;max-width:520px">C:\example\llama-server.exe -m C:\example\model.gguf --port 8080</span></div>
+      <div class="sub"><span>stop command</span><span class="num" style="width:100%;max-width:520px;color:var(--mute)">optional — otherwise the started process is ended</span></div>
+      <div class="sub"><span>stop when idle</span><span style="display:flex;gap:8px;align-items:center"><span class="num">60</span><span>minutes · 0 = never</span></span></div>
+    </div>
+    <p>Any server whose address is this computer can be given a start command. With one saved it gets the same Start, Stop, idle and phone control as the installed model; without one it is exactly as today. The command can be typed only here, on the PC — a phone can press Start and Stop and nothing else.</p>
+  </section>
+
+  <section>
+    <h2>PC — he sends a message while it is stopped</h2>
+    <span class="live" data-show="stopped loading">Loading model · 4s</span>
+    <span class="live" data-show="running">Thinking · 40 tokens · 1s</span>
+    <span class="live bad" data-show="failed">Model did not start</span>
+    <p>The message is kept and runs as soon as the model answers. No extra step for him.</p>
+  </section>
+
+  <section>
+    <h2>Phone — the PC's status line (iOS and Android)</h2>
+    <div class="two">
+      <div class="phone">
+        <div class="pline">
+          <span class="lamp off" data-show="stopped"></span><span class="lamp load" data-show="loading"></span><span class="lamp" data-show="running"></span><span class="lamp bad" data-show="failed"></span>
+          <span><span data-show="stopped">PC · model stopped</span><span data-show="loading">PC · model loading</span><span data-show="running">PC · Qwen 9B</span><span data-show="failed" class="bad">PC · model did not start</span></span>
+          <span class="btn" data-show="stopped failed">Start</span><span class="btn" data-show="loading running">Stop</span>
+        </div>
+        <div class="prow">Example chat one</div>
+        <div class="prow">Example chat two</div>
+      </div>
+    </div>
+    <p>Shown only when the PC's chats run on the model Agent_b installed. A PC pointed at some other server shows what it shows today.</p>
+  </section>
+
+  <section>
+    <h2>What changes</h2>
+    <table>
+      <tr><th>today</th><th>after</th></tr>
+      <tr><td>Installing writes a launcher into the Windows Startup folder; the model starts at every sign-in and holds graphics memory whether or not Agent_b is open</td><td>No launcher. Agent_b starts the model and stops it. An existing install's launcher is removed the first time the new version starts.</td></tr>
+      <tr><td>Nothing shows the model or stops it</td><td>The row above: Start / Stop, Change, Remove, and how long it may sit idle before it stops itself (60 minutes unless he changes it; 0 is never).</td></tr>
+      <tr><td>A message sent with the model down fails as unreachable</td><td>Agent_b starts the model and runs the message.</td></tr>
+      <tr><td>The phone knows only whether the PC is reachable</td><td>The phone shows the model's state and can start or stop it, over the pairing it already has.</td></tr>
+      <tr><td>Quitting Agent_b leaves the model running</td><td>Quitting Agent_b stops the model it started.</td></tr>
+    </table>
+    <p>Not in this: starting anything when nobody is signed in to Windows; waking a PC that is asleep or off; any server Agent_b did not install.</p>
+  </section>
+</div>
+<script>
+function set(s){for(const b of document.querySelectorAll("#p button"))b.setAttribute("aria-pressed",String(b.dataset.s===s));for(const el of document.querySelectorAll("[data-show]"))el.hidden=!el.dataset.show.split(" ").includes(s);}
+for(const b of document.querySelectorAll("#p button"))b.addEventListener("click",()=>set(b.dataset.s));
+set("stopped");
+</script>
+</body>
+</html>

@@ -120,6 +120,7 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"update":                   updateState,
 		"broker":                   brokerState,
 		"connection_health":        s.connectionHealthState(),
+		"model_states":             s.modelStates(),
 		"plans":                    s.planList(),
 		"signature":                s.signingState(),
 		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,

@@ -26,7 +26,9 @@
     "chat.delete",
     "chat.open",
     "chat.list.page",
-    "skill.author"
+    "skill.author",
+    "model.start",
+    "model.stop"
   ],
   "vectors": [
     {
@@ -178,6 +180,63 @@
       "bytes": "{\"body\":{\"session\":{\"id\":\"s7\",\"label\":\"from my phone\",\"role\":\"b\"}},\"id\":\"00112233445566778899aabbccddeeff\",\"kind\":\"response\",\"status\":201,\"v\":1}",
       "byte_length": 144,
       "sha256": "45f655017dcb60c1eac8c5ba497f23d16de55d76dd58a37e33fc69e591b30ccc"
+    },
+    {
+      "name": "model.state",
+      "note": "Managed local model contract.",
+      "decoded": {
+        "v": 1,
+        "kind": "event",
+        "data": {
+          "seq": 1,
+          "ts": "2026-01-01T00:00:00Z",
+          "session_id": "",
+          "run_id": "",
+          "type": "model.state",
+          "data": {
+            "connection_id": "installed-local",
+            "state": "stopped",
+            "reason": "requested",
+            "model": "Example model",
+            "bytes": 1024
+          }
+        }
+      },
+      "bytes": "{\"data\":{\"data\":{\"bytes\":1024,\"connection_id\":\"installed-local\",\"model\":\"Example model\",\"reason\":\"requested\",\"state\":\"stopped\"},\"run_id\":\"\",\"seq\":1,\"session_id\":\"\",\"ts\":\"2026-01-01T00:00:00Z\",\"type\":\"model.state\"},\"kind\":\"event\",\"v\":1}",
+      "byte_length": 235,
+      "sha256": "be533035fa496b994b09873d227797b74548af9652b5dabb9f8602156efe584d"
+    },
+    {
+      "name": "model.start",
+      "note": "Managed local model contract.",
+      "decoded": {
+        "v": 1,
+        "kind": "request",
+        "id": "11111111111111111111111111111111",
+        "route": "model.start",
+        "body": {
+          "connection_id": "installed-local"
+        }
+      },
+      "bytes": "{\"body\":{\"connection_id\":\"installed-local\"},\"id\":\"11111111111111111111111111111111\",\"kind\":\"request\",\"route\":\"model.start\",\"v\":1}",
+      "byte_length": 129,
+      "sha256": "cb23f69ed381689e570a716ee9abfb87b6ed5c43f8a8eaac49ca82e23b2c84fa"
+    },
+    {
+      "name": "model.stop",
+      "note": "Managed local model contract.",
+      "decoded": {
+        "v": 1,
+        "kind": "request",
+        "id": "22222222222222222222222222222222",
+        "route": "model.stop",
+        "body": {
+          "connection_id": "installed-local"
+        }
+      },
+      "bytes": "{\"body\":{\"connection_id\":\"installed-local\"},\"id\":\"22222222222222222222222222222222\",\"kind\":\"request\",\"route\":\"model.stop\",\"v\":1}",
+      "byte_length": 128,
+      "sha256": "56f2f934170ff8a6f3e426c7ffc3eb4aa5aa2c4e4b44e59439790120c92ce70b"
     }
   ],
   "split": {

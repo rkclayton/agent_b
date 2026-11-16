@@ -96,6 +96,7 @@ type Server struct {
 	speech             speechProbe
 	speechCommand      func(context.Context, string, ...string) *exec.Cmd
 	modelInstaller     *modelinstall.Manager
+	models             *modelinstall.Controller
 	pageMeasurements   pageMeasurementState
 	statsState         *stats.Manager
 	operatorFiles      *operatorfiles.Manager
@@ -175,6 +176,12 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 // when they run, waiting for each, so nothing writes into the data root after it returns.
 // A test's cleanup calls it before its folder is removed (item 2wr).
 func (s *Server) Close() {
+	if s.modelInstaller != nil {
+		s.modelInstaller.Close()
+	}
+	if s.models != nil {
+		s.models.Close()
+	}
 	s.stopApp()
 	s.chatState.watchMu.Lock()
 	s.chatState.stopLocked()
@@ -289,6 +296,7 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 	}
 	if runner != nil {
 		runner.SetSkillHost(s)
+		runner.SetManagedModel(s.acquireModel)
 		runner.SetModelUnreachable(func(sessionID, connectionID string) {
 			if scheduler != nil {
 				scheduler.HoldModel(sessionID)
@@ -538,6 +546,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/speech/stream", s.speechStreamHandler)
 	mux.HandleFunc("/api/speech/stop", s.replayGuard(s.speechStopHandler))
 	mux.HandleFunc("/api/model-install", s.replayGuard(s.modelInstall))
+	mux.HandleFunc("/api/model/start", s.replayGuard(s.modelControl))
+	mux.HandleFunc("/api/model/stop", s.replayGuard(s.modelControl))
 	mux.HandleFunc("/api/eval/measure", s.replayGuard(s.measureConnection))
 	mux.HandleFunc("/api/approve", s.replayGuard(s.approve))
 	mux.HandleFunc("/api/tools/", s.replayGuard(s.toggleTool))
@@ -784,10 +794,24 @@ func method(w http.ResponseWriter) { writeError(w, 405, "method not allowed", "m
 // A caller whose write IS per-profile does not belong here: it calls
 // saveProfileConfig instead, which puts the value where that scope lives.
 func (s *Server) saveMachineConfig(cfg config.Config) error {
+	var err error
 	if s.profiles == nil {
-		return cfg.Save(s.configPath)
+		err = cfg.Save(s.configPath)
+	} else {
+		err = s.profiles.SaveMachine(cfg)
 	}
-	return s.profiles.SaveMachine(cfg)
+	if err == nil && s.models != nil {
+		for _, c := range cfg.Connections {
+			if s.models.State(c.ID).ConnectionID != "" {
+				idle := 60
+				if c.StopWhenIdleMinutes != nil {
+					idle = *c.StopWhenIdleMinutes
+				}
+				_ = s.models.Configure(modelinstall.Spec{ID: c.ID, IdleMinutes: idle})
+			}
+		}
+	}
+	return err
 }
 
 // saveProfileConfig persists a change to a PER-PROFILE section, and writes the

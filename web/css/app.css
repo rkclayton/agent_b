@@ -2424,3 +2424,9 @@
   background: #fff;
 }
 .pairing-code { font-size: 11px; overflow-wrap: anywhere; }
+.managed-model { display:flex; flex-direction:column; gap:8px; padding:8px 0; min-width:0; }
+.managed-model-line,.managed-model-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.managed-model-line .connection-url { overflow-wrap:anywhere; }
+.managed-model-idle { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.managed-model-idle label { flex:none; }
+.managed-model-idle input { width:64px; }

@@ -48,6 +48,71 @@ func (s *Server) initModelInstaller() {
 		startup = filepath.Join(roaming, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
 	}
 	s.modelInstaller = modelinstall.New(s.roots.Data, startup, nil, pinnedLlamaRuntime, pinnedModels, s.installedModelReady)
+	s.models = modelinstall.NewController(func(state modelinstall.ModelState) { s.bus.Publish(events.New("model.state", "", "", state)) })
+	for _, connection := range s.cfg.Connections {
+		if connection.ID == "installed-local" {
+			spec, err := modelinstall.LoadSpec(filepath.Join(s.roots.Data, "models"), startup, connection.BaseURL)
+			if err == nil {
+				if connection.StopWhenIdleMinutes != nil {
+					spec.IdleMinutes = *connection.StopWhenIdleMinutes
+				}
+				_ = s.models.Configure(spec)
+				_ = s.models.Adopt(spec.ID)
+			}
+		}
+	}
+}
+
+func (s *Server) modelStates() map[string]modelinstall.ModelState {
+	out := map[string]modelinstall.ModelState{}
+	if s.models != nil {
+		for _, state := range s.models.States() {
+			out[state.ConnectionID] = state
+		}
+	}
+	return out
+}
+func (s *Server) acquireModel(ctx context.Context, c *config.Connection, sessionID, runID string) (func(), error) {
+	if s.models == nil || s.models.State(c.ID).ConnectionID == "" {
+		return func() {}, nil
+	}
+	idle := 60
+	if c.StopWhenIdleMinutes != nil {
+		idle = *c.StopWhenIdleMinutes
+	}
+	_ = s.models.Configure(modelinstall.Spec{ID: c.ID, IdleMinutes: idle})
+	if s.models.State(c.ID).State != "running" {
+		s.bus.Publish(events.New(events.Stage, sessionID, runID, map[string]any{"stage": "call_model", "state": "enter", "turn": 0, "ms": 0}))
+		s.bus.Publish(events.New(events.ModelBusy, sessionID, runID, map[string]any{"detail": "loading model"}))
+	}
+	return s.models.Acquire(ctx, c.ID)
+}
+func (s *Server) modelControl(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		method(w)
+		return
+	}
+	var body struct {
+		ID string `json:"connection_id"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if s.models == nil || s.models.State(body.ID).ConnectionID == "" {
+		writeError(w, 409, "connection is not managed", "model_control")
+		return
+	}
+	var err error
+	if strings.HasSuffix(r.URL.Path, "/start") {
+		err = s.models.BeginStart(body.ID)
+	} else {
+		err = s.models.Stop(body.ID, "requested")
+	}
+	if err != nil {
+		writeError(w, 409, "Model did not start or stop; check the installed files", "model_control")
+		return
+	}
+	writeJSON(w, 200, s.models.State(body.ID))
 }
 
 func (s *Server) installedModelReady(_ context.Context, state modelinstall.State) error {
@@ -55,6 +120,8 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	next := *s.cfg
 	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
 	connection := config.Connection{ID: state.ConnectionID, Label: "local", BaseURL: state.BaseURL, Model: state.Model, ProbeMode: "full", AttachmentHandling: "auto"}
+	idle := 60
+	connection.StopWhenIdleMinutes = &idle
 	if state.Context != nil {
 		connection.Context.NCtx = state.Context.NCtx
 		connection.Context.Sizing = &config.ContextSizing{WeightsBytes: state.Context.WeightsBytes, KVBytesPerToken: state.Context.KVBytesPerToken, AvailableBytes: state.Context.AvailableBytes, ReserveBytes: state.Context.ReserveBytes}
@@ -62,12 +129,16 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	replaced := false
 	for index := range next.Connections {
 		if next.Connections[index].ID == connection.ID {
+			connection.StopWhenIdleMinutes = next.Connections[index].StopWhenIdleMinutes
 			next.Connections[index] = connection
 			replaced = true
 		}
 	}
 	if !replaced {
 		next.Connections = append(next.Connections, connection)
+	}
+	if len(next.Agents) == 0 {
+		next.Agents = config.Defaults(next.Workspace).Agents
 	}
 	config.ApplyDefaults(&next)
 	if err := next.Validate(); err != nil {
@@ -82,6 +153,14 @@ func (s *Server) installedModelReady(_ context.Context, state modelinstall.State
 	masked := next.Masked()
 	s.mu.Unlock()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+	if spec, err := modelinstall.LoadSpec(filepath.Join(s.roots.Data, "models"), "", state.BaseURL); err == nil {
+		if connection.StopWhenIdleMinutes != nil {
+			spec.IdleMinutes = *connection.StopWhenIdleMinutes
+		}
+		if err := s.models.Replace(spec); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -112,6 +191,56 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusAccepted, s.modelInstaller.Snapshot())
 	case http.MethodDelete:
+		if r.URL.Query().Get("remove") == "installed-local" {
+			if err := s.models.Remove("installed-local"); err != nil {
+				writeError(w, 409, err.Error(), "connections.installed-local")
+				return
+			}
+			s.mu.Lock()
+			next := *s.cfg
+			next.Connections = nil
+			for _, c := range s.cfg.Connections {
+				if c.ID != "installed-local" {
+					if c.Fallback == "installed-local" {
+						c.Fallback = ""
+					}
+					next.Connections = append(next.Connections, c)
+				}
+			}
+			next.Agents = append([]config.Agent(nil), s.cfg.Agents...)
+			for i := range next.Agents {
+				a := &next.Agents[i]
+				if a.B == "installed-local" {
+					a.B = ""
+				}
+				if a.C == "installed-local" {
+					a.C = ""
+				}
+				if a.D == "installed-local" {
+					a.D = ""
+				}
+			}
+			if next.Images.Connection == "installed-local" {
+				next.Images.Connection = ""
+				next.Images.Model = ""
+			}
+			err := s.saveMachineConfig(next)
+			if err == nil {
+				*s.cfg = next
+			}
+			s.mu.Unlock()
+			if err != nil {
+				writeError(w, 500, err.Error(), "config")
+				return
+			}
+			s.models.Forget("installed-local")
+			if s.registry != nil {
+				s.registry.RefreshRunnable()
+			}
+			s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": next.Masked()}))
+			writeJSON(w, 200, map[string]string{"connection_id": "installed-local"})
+			return
+		}
 		writeJSON(w, http.StatusOK, s.modelInstaller.Cancel())
 	default:
 		method(w)

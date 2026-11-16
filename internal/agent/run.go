@@ -136,6 +136,7 @@ type Runner struct {
 	mailboxBoundary    func(context.Context, string, bool) BoundaryAction
 	modelUnreachable   func(string, string)
 	modelAnswered      func(string)
+	managedModel       func(context.Context, *config.Connection, string, string) (func(), error)
 	ids                atomic.Int64
 	nameAttempts       sync.Map
 	windows            sync.Map
@@ -242,8 +243,11 @@ func (r *Runner) SetSessionRenamer(fn func(string, string, string) error) { r.re
 func (r *Runner) SetMailboxBoundary(fn func(context.Context, string, bool) BoundaryAction) {
 	r.mailboxBoundary = fn
 }
-func (r *Runner) SetModelUnreachable(fn func(string, string))             { r.modelUnreachable = fn }
-func (r *Runner) SetModelAnswered(fn func(string))                        { r.modelAnswered = fn }
+func (r *Runner) SetModelUnreachable(fn func(string, string)) { r.modelUnreachable = fn }
+func (r *Runner) SetModelAnswered(fn func(string))            { r.modelAnswered = fn }
+func (r *Runner) SetManagedModel(fn func(context.Context, *config.Connection, string, string) (func(), error)) {
+	r.managedModel = fn
+}
 func (r *Runner) SetTrustedFolderWriter(fn func([]string) error)          { r.trustFolders = fn }
 func (r *Runner) SetSkillHost(host SkillHost)                             { r.skills = host }
 func (r *Runner) SetQueuedBoundary(fn func(*session.Session, string))     { r.takeQueued = fn }

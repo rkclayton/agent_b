@@ -127,7 +127,7 @@ func applyDefaults(c *Config) {
 	if c.Connections == nil {
 		c.Connections = []Connection{}
 	}
-	if len(c.Connections) == 0 {
+	if c.Agents == nil {
 		c.Agents = []Agent{}
 	}
 	if !c.Updates.initialized {

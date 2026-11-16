@@ -13,9 +13,36 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/session"
 )
+
+func TestServiceAccountPasswordBypassesToolConsent2ye(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Credentials.AskBeforeUse = true
+	cfg.Shell.ServiceAccount.Enabled = true
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	shell.SetCredentialStore(presentShellCredential{})
+	started := false
+	shell.startService = func(_ string, _ []string, _ string, _ []string, _ config.ShellServiceAccount, password []byte, _ *lockedBuffer) (runningShellProcess, error) {
+		started = true
+		if len(password) == 0 {
+			t.Error("no service credential")
+		}
+		return completedShellProcess{}, nil
+	}
+	asked := 0
+	ctx := WithCredentialApproval(context.Background(), func(context.Context, credential.Entry, string) error {
+		asked++
+		return fmt.Errorf("must not ask about service identity")
+	})
+	if _, err := shell.TestServiceAccount(ctx); err != nil || !started || asked != 0 {
+		t.Fatalf("service identity started=%t asked=%d err=%v", started, asked, err)
+	}
+}
 
 // Item 2ss: deny entries identify commands, never matching lookalike text in
 // an option or quoted argument.

@@ -8,6 +8,7 @@ export function shellGrantApproval(data = {}) {
 }
 
 export function approvalChoices(data = {}) {
+	if (data.kind === "credential") return [["session", "Yes, for this chat"], ["once", "Just once"], ["deny", "No"]];
 	if (data.kind === "cycle" || data.name === "run.cycle") return [["continue", "Continue"], ["stop", "Stop"]];
 	// the folder question is three buttons; Always trusts the folder
 	// and everything under it, as the folder choice always has.
@@ -70,6 +71,7 @@ function skillProposalDetail(args = {}) {
 }
 
 export function approvalText(data = {}) {
+	if (data.kind === "credential") return { title: "", request: "Use a stored credential?", reason: "", detail: "" };
 	const human = data.human && typeof data.human === "object" ? data.human : null;
 	const imported = boundCredential(data) + importedOperations(data);
 	if (data.kind === "question") return { title: "Question", request: data.question || "Agent_b asked a question.", reason: "The run is waiting for your answer.", detail: "" };
@@ -181,13 +183,17 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 		question.textContent = wording.question;
 		content.append(question);
 	}
+	if (data.kind === "credential") {
+	 const rows=document.createElement("dl");rows.className="credential-approval-fields";
+	 for(const [label,value] of [["credential",`${data.args?.credential || ""} · ${data.args?.credential_kind || ""}`],["goes to",data.args?.destination || ""],["for",data.args?.call || ""]]) { const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=label;dd.textContent=value;rows.append(dt,dd); } content.append(rows);
+	}
 	const technical = document.createElement("details");
 	const summary = document.createElement("summary");
 	summary.textContent = "Approval required";
 	const pre = document.createElement("pre");
 	pre.textContent = wording.detail;
 	technical.append(summary, pre);
-	content.append(technical);
+	if(data.kind !== "credential") content.append(technical);
 	if (!options.replay && options.decide) {
 		const actions = document.createElement("div");
 		actions.className = "approval-actions";

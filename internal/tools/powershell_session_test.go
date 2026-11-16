@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,39 @@ import (
 	"harness/internal/credential"
 	"harness/internal/session"
 )
+
+func TestCachedPowerShellCredentialStillAsks2ye(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "powershell"), 0700)
+	os.WriteFile(filepath.Join(root, "powershell", "default.ps1"), []byte("# credentials: example-api\n"), 0600)
+	tool := powerShellToolForTest(t, powerShellHostsForTest(t)[0], root, &powerShellTokenFixture{})
+	if err := tool.vault.Put("example-api", "https://example.org:443", "", "planted-session-secret"); err != nil {
+		t.Fatal(err)
+	}
+	item := powerShellTestSession(root, true)
+	asked := 0
+	ctx := WithCredentialApproval(context.Background(), func(ctx context.Context, entry credential.Entry, to string) error {
+		asked++
+		if to != "https://example.org:443" {
+			t.Errorf("destination=%s", to)
+		}
+		return nil
+	})
+	if _, err := tool.Call(ctx, item, map[string]any{"command": "'ok'"}); err != nil {
+		t.Fatal(err)
+	}
+	before := tool.vault.SecretReads()
+	deny := WithCredentialApproval(context.Background(), func(ctx context.Context, entry credential.Entry, to string) error {
+		asked++
+		return fmt.Errorf("credential %s not approved", entry.Name)
+	})
+	if _, err := tool.Call(deny, item, map[string]any{"command": "'must not execute'"}); err == nil || !strings.Contains(err.Error(), "credential example-api not approved") {
+		t.Fatalf("cached call=%v", err)
+	}
+	if asked != 2 || tool.vault.SecretReads() != before {
+		t.Fatal("cached use bypassed gate or reread secret")
+	}
+}
 
 type powerShellTokenFixture struct {
 	mu     sync.Mutex

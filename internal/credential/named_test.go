@@ -242,6 +242,39 @@ func TestTheVaultRefusesWhatItCannotKeepSafely2nv(t *testing.T) {
 	}
 }
 
+func TestCredentialMetadataLookupDoesNotReloadCatalog2ye(t *testing.T) {
+	vault := NewVault(t.TempDir())
+	records := map[string]Entry{}
+	for n := 0; n < 4096; n++ {
+		name := fmt.Sprintf("key-%d", n)
+		records[name] = Entry{Name: name, Kind: "key", Origin: "https://example.org:443"}
+	}
+	if err := vault.writeRecords(records); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vault.Lookup("key-4095"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(vault.recordPath(), vault.recordPath()+".held"); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	for n := 0; n < 1000000; n++ {
+		if _, err := vault.Lookup("key-4095"); err != nil {
+			t.Fatal("per-use catalog read", err)
+		}
+	}
+	t.Logf("4096 catalog records, 1000000 metadata lookups: %s", time.Since(start))
+	records["key-4095"] = Entry{Name: "key-4095", Kind: "entra", Origin: "https://example.org:443"}
+	if err := vault.writeRecords(records); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := vault.Lookup("key-4095")
+	if err != nil || entry.Kind != "entra" {
+		t.Fatal("stale metadata", entry, err)
+	}
+}
+
 func TestPublishedEntraDefinitionCannotReplaceAnExistingCredential(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("SKIPPED: credential storage is DPAPI, so this case is Windows-only.")

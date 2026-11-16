@@ -594,6 +594,12 @@ func (c *CallService) callMCP(ctx context.Context, item *session.Session, name s
 	c.mu.Unlock()
 	var client *mcpproto.Client
 	if saved != nil {
+		if scheme, ref, ok := strings.Cut(service.Auth, ":"); ok && (scheme == "stored" || scheme == "entra" || scheme == "google") {
+			if err := approveStoredCredential(ctx, c.currentVault(), strings.TrimSpace(ref), service.BaseURL); err != nil {
+				detail.Err = err
+				return detail
+			}
+		}
 		client = saved.client
 	}
 	if client == nil {
@@ -865,7 +871,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 	// a stored credential, by reference. Its binding carries the origin and
 	// the header, and the origin is checked before the secret is read.
 	if strings.HasPrefix(auth, "stored:") {
-		attached, storedErr := c.storedCredential(auth, target)
+		attached, storedErr := c.storedCredential(ctx, auth, target)
 		if storedErr != nil {
 			return "", "", nil, false, storedErr
 		}
@@ -886,6 +892,9 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 				return "", "", nil, false, fmt.Errorf("auth_error: this connector's address is not an https origin, so a credential cannot be bound to it")
 			}
 			if err := enforceDestination(origin, target); err != nil {
+				return "", "", nil, false, err
+			}
+			if err := approveStoredCredential(ctx, c.currentVault(), strings.TrimSpace(reference), target.String()); err != nil {
 				return "", "", nil, false, err
 			}
 			bound, boundErr := provider.Origin(strings.TrimSpace(reference))

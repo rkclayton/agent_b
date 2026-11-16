@@ -15,9 +15,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"harness/internal/config"
 	"harness/internal/credential"
+	mcpproto "harness/internal/mcp"
 	"harness/internal/session"
 )
 
@@ -26,6 +28,114 @@ import (
 // cases is one string, and the last case looks for it in everything this tool writes.
 
 const plantedSecret = "planted-2nv-secret-do-not-log"
+
+func TestCachedMCPCredentialStillAsks2ye(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI")
+	}
+	vault := credential.NewVault(t.TempDir())
+	vault.Put("example-api", "https://example.org:443", "", plantedSecret)
+	c := NewCallService(nil)
+	c.SetVault(vault)
+	c.mcpClients["fixture"] = &mcpServiceSession{client: mcpproto.New(nil), lastUsed: c.now()}
+	calls := 0
+	ctx := WithCredentialApproval(context.Background(), func(ctx context.Context, entry credential.Entry, to string) error {
+		calls++
+		return fmt.Errorf("credential %s not approved", entry.Name)
+	})
+	out := c.callMCP(ctx, &session.Session{}, "fixture", config.Service{BaseURL: "https://example.org:443", Auth: "stored:example-api"}, map[string]any{"list": true})
+	if calls != 1 || out.Err == nil || !strings.Contains(out.Err.Error(), "credential example-api not approved") || vault.SecretReads() != 0 {
+		t.Fatalf("cached bypass: %+v calls=%d", out, calls)
+	}
+}
+
+type credentialProvider2ye struct {
+	vault        *credential.Vault
+	name, origin string
+}
+
+func (p credentialProvider2ye) Origin(name string) (string, error) {
+	_, _, err := p.vault.Secret(name)
+	return p.origin, err
+}
+func (p credentialProvider2ye) Token(ctx context.Context, name string) (string, error) {
+	_, _, err := p.vault.Secret(name)
+	return plantedSecret, err
+}
+func TestCredentialReadWaitsForConsent2ye(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI vault")
+	}
+	for _, kind := range []string{"key", "entra", "google"} {
+		t.Run(kind, func(t *testing.T) {
+			vault := credential.NewVault(t.TempDir())
+			origin := "https://example.org:443"
+			if kind == "google" {
+				origin = "https://www.googleapis.com:443"
+			}
+			var err error
+			switch kind {
+			case "key":
+				err = vault.Put("example-api", origin, "", plantedSecret)
+			case "entra":
+				err = vault.PutEntra("example-api", origin, "organizations", "fixture-client", []string{"read"})
+			case "google":
+				err = vault.PutGoogle("example-api", origin, "fixture-client", plantedSecret, []string{"read"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := NewCallService(nil)
+			c.SetVault(vault)
+			c.SetTokenProvider(kind, credentialProvider2ye{vault: vault, origin: origin})
+			scheme := kind
+			if kind == "key" {
+				scheme = "stored"
+			}
+			service := config.Service{BaseURL: origin, Auth: scheme + ":example-api"}
+			target, _ := url.Parse(origin)
+			for _, allow := range []bool{false, true} {
+				before := vault.SecretReads()
+				waiting := make(chan struct{})
+				answer := make(chan struct{})
+				done := make(chan error, 1)
+				ctx := WithCredentialApproval(context.Background(), func(ctx context.Context, entry credential.Entry, to string) error {
+					if entry.Kind != kind || to != target.String() {
+						t.Errorf("card=%+v to=%s", entry, to)
+					}
+					close(waiting)
+					<-answer
+					if !allow {
+						return fmt.Errorf("credential example-api not approved")
+					}
+					return nil
+				})
+				go func() { _, _, _, _, err := c.authorization(ctx, "fixture", service, target); done <- err }()
+				select {
+				case <-waiting:
+				case <-time.After(time.Second):
+					t.Fatal("no approval")
+				}
+				if vault.SecretReads() != before {
+					t.Fatal("store read while waiting")
+				}
+				close(answer)
+				err := <-done
+				if allow {
+					if err != nil || vault.SecretReads() == before {
+						t.Fatalf("approved err=%v reads=%d", err, vault.SecretReads())
+					}
+				} else if err == nil || vault.SecretReads() != before {
+					t.Fatal("denied credential read")
+				}
+			}
+			before := vault.SecretReads()
+			if _, _, _, _, err = c.authorization(context.Background(), "fixture", service, target); err != nil || vault.SecretReads() == before {
+				t.Fatalf("switch-off acquisition err=%v", err)
+			}
+		})
+	}
+}
 
 // (b) and (f): the key reaches exactly its origin, as the header the binding names.
 func TestAStoredCredentialReachesItsOriginAsItsHeader2nv(t *testing.T) {

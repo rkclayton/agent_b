@@ -16,6 +16,50 @@ import (
 	"harness/internal/credential"
 )
 
+func TestCredentialConsentDefaults2ye(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	if cfg.Credentials.AskBeforeUse || cfg.Credentials.Hours() != 4 {
+		t.Fatal("defaults")
+	}
+	for _, hours := range []float64{0, 4, 8} {
+		cfg.Credentials.IdleHours = &hours
+		raw, _ := json.Marshal(cfg)
+		var back Config
+		if err := json.Unmarshal(raw, &back); err != nil {
+			t.Fatal(err)
+		}
+		if back.Credentials.Hours() != hours {
+			t.Fatal("idle hours changed")
+		}
+	}
+	negative := -1.0
+	cfg.Credentials.IdleHours = &negative
+	if cfg.Validate() == nil {
+		t.Fatal("negative idle")
+	}
+}
+
+func TestModelCredentialResolvesWithConsentEnabled2ye(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI")
+	}
+	root := t.TempDir()
+	cfg := Defaults(root)
+	cfg.Credentials.AskBeforeUse = true
+	store, err := credential.NewNamed(root, "example-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Write([]byte("planted-model-key")); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Connections[0].Credential = "example-model"
+	cfg.Connections[0].APIKey = ""
+	if err = ResolveConnectionCredentials(&cfg, root); err != nil || cfg.Connections[0].APIKey != "planted-model-key" {
+		t.Fatalf("model credential resolution failed: %v", err)
+	}
+}
+
 func TestLocalCommandsStayOnPC2yb(t *testing.T) {
 	name, err := os.Hostname()
 	if err != nil {

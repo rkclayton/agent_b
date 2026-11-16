@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/sys/windows"
+	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/events"
@@ -42,11 +43,12 @@ func init() {
 }
 
 func TestShellStoredLogin2yd(t *testing.T) {
-	for _, scenario := range []string{"match", "user", "host", "port", "refused", "host-key", "key-passphrase", "key", "forged", "phone", "reflected", "scp", "sftp"} {
+	for _, scenario := range []string{"match", "user", "host", "port", "refused", "host-key", "key-passphrase", "key", "forged", "phone", "reflected", "scp", "sftp", "consent-once", "consent-deny", "consent-hangup"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			password := "planted-login-secret-2yd"
 			var attempts atomic.Int32
+			connections := make(chan net.Conn, 4)
 			_, key, _ := ed25519.GenerateKey(rand.Reader)
 			signer, _ := ssh.NewSignerFromKey(key)
 			cfg := &ssh.ServerConfig{PasswordCallback: func(c ssh.ConnMetadata, p []byte) (*ssh.Permissions, error) {
@@ -70,6 +72,7 @@ func TestShellStoredLogin2yd(t *testing.T) {
 					if e != nil {
 						return
 					}
+					connections <- conn
 					go func() {
 						defer conn.Close()
 						conn.SetDeadline(time.Now().Add(15 * time.Second))
@@ -181,7 +184,60 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			}
 			var observed strings.Builder
 			ctx = tools.WithOutputObserver(ctx, func(line string) { observed.WriteString(line) })
-			outcome := tools.New(shell).CallDetailed(ctx, &session.Session{Workspace: root, ToolsEnabled: map[string]bool{"shell": true}}, "shell", map[string]any{"command": command, "timeout_s": 15})
+			item := &session.Session{ID: "chat", Workspace: root, ToolsEnabled: map[string]bool{"shell": true}, Run: session.RunState{Status: "running"}}
+			if strings.HasPrefix(scenario, "consent-") {
+				gateConfig := config.Defaults(root)
+				gateConfig.Credentials.AskBeforeUse = true
+				bus := events.NewBus()
+				evs, unsub := bus.Subscribe()
+				defer unsub()
+				gate := agent.NewGate(bus, func() config.Config { return gateConfig })
+				ctx = tools.WithCredentialApproval(ctx, func(wait context.Context, entry credential.Entry, to string) error {
+					return gate.WaitCredential(wait, item, "run", "call", entry, to, command)
+				})
+				go func() {
+					for {
+						select {
+						case ev := <-evs:
+							if ev.Type != events.ApprovalRequired {
+								continue
+							}
+							if vault.SecretReads() != 0 {
+								t.Error("login read before approval")
+							}
+							decision := "once"
+							if scenario == "consent-deny" {
+								decision = "deny"
+							}
+							if scenario == "consent-hangup" {
+								(<-connections).Close()
+								time.Sleep(6 * time.Second)
+								decision = "session"
+							}
+							if err := gate.Decide(item.ID, "call", decision); err != nil {
+								t.Error(err)
+							}
+							return
+						case <-ctx.Done():
+							return
+						}
+					}
+				}()
+			}
+			registry := tools.New(shell)
+			outcome := registry.CallDetailed(ctx, item, "shell", map[string]any{"command": command, "timeout_s": 15})
+			if scenario == "consent-hangup" {
+				if !strings.Contains(outcome.Content, "SSH connection closed while waiting for credential approval") {
+					t.Fatalf("missing hangup: %s", outcome.Content)
+				}
+				outcome = registry.CallDetailed(ctx, item, "shell", map[string]any{"command": command, "timeout_s": 15})
+				if !outcome.OK {
+					t.Fatalf("retry after chat approval: %s", outcome.Content)
+				}
+			}
+			if scenario == "consent-deny" && (!strings.Contains(outcome.Content, "credential example-login not approved") || vault.SecretReads() != 0) {
+				t.Fatalf("denial read or missing: %s", outcome.Content)
+			}
 			result := tools.CallDetail{Content: outcome.Content, Metadata: outcome.Metadata}
 			if !outcome.OK {
 				result.Err = errors.New("tool failed")
@@ -252,7 +308,7 @@ func TestShellStoredLogin2yd(t *testing.T) {
 				t.Fatal("secret escaped")
 			}
 			want := int32(0)
-			if scenario == "match" || scenario == "refused" || scenario == "reflected" || scenario == "scp" || scenario == "sftp" {
+			if scenario == "match" || scenario == "refused" || scenario == "reflected" || scenario == "scp" || scenario == "sftp" || scenario == "consent-once" || scenario == "consent-hangup" {
 				want = 1
 			}
 			if attempts.Load() != want {

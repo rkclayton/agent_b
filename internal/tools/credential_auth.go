@@ -12,6 +12,35 @@ import (
 
 type loginSourceKey struct{}
 
+type credentialApprovalKey struct{}
+
+// WithCredentialApproval installs the runner's existing approval gate for this call.
+func WithCredentialApproval(ctx context.Context, ask func(context.Context, credential.Entry, string) error) context.Context {
+	return context.WithValue(ctx, credentialApprovalKey{}, ask)
+}
+func approveCredential(ctx context.Context, entry credential.Entry, destination string) error {
+	if ask, ok := ctx.Value(credentialApprovalKey{}).(func(context.Context, credential.Entry, string) error); ok {
+		return ask(ctx, entry, destination)
+	}
+	return nil
+}
+func approveStoredCredential(ctx context.Context, vault *credential.Vault, name, destination string) error {
+	if _, ok := ctx.Value(credentialApprovalKey{}).(func(context.Context, credential.Entry, string) error); !ok {
+		return nil
+	}
+	if vault == nil {
+		return fmt.Errorf("credential %s not approved: store unavailable", name)
+	}
+	entry, err := vault.Lookup(name)
+	if err != nil {
+		return err
+	}
+	if destination == "" {
+		destination = entry.Origin
+	}
+	return approveCredential(ctx, entry, destination)
+}
+
 func WithLoginSource(ctx context.Context, source string) context.Context {
 	return context.WithValue(ctx, loginSourceKey{}, source)
 }
@@ -67,28 +96,21 @@ func (c *CallService) currentVault() *credential.Vault {
 // storedCredential is the stored-key provider. The binding decides BOTH the header and
 // the destination, and the destination is checked before the secret is read out of the
 // store — so a call to the wrong origin never decrypts anything.
-func (c *CallService) storedCredential(name string, target *url.URL) (credentialHeader, error) {
+func (c *CallService) storedCredential(ctx context.Context, name string, target *url.URL) (credentialHeader, error) {
 	vault := c.currentVault()
 	if vault == nil {
 		return credentialHeader{}, fmt.Errorf("auth_error: no credential store is available")
 	}
 	credentialName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(name), "stored:"))
-	entries, err := vault.List()
+	binding, err := vault.Lookup(credentialName)
 	if err != nil {
-		return credentialHeader{}, fmt.Errorf("auth_error: the credential record is unreadable")
-	}
-	var binding credential.Entry
-	found := false
-	for _, entry := range entries {
-		if entry.Name == credentialName {
-			binding, found = entry, true
-		}
-	}
-	if !found {
 		return credentialHeader{}, fmt.Errorf("auth_error: no credential named %q is stored; add it in Settings → Security", credentialName)
 	}
 	if err := credential.AllowsOrigin(binding.Origin, target); err != nil {
 		return credentialHeader{}, fmt.Errorf("auth_error: %w", err)
+	}
+	if err := approveCredential(ctx, binding, target.String()); err != nil {
+		return credentialHeader{}, err
 	}
 	secret, _, err := vault.Secret(credentialName)
 	if err != nil {

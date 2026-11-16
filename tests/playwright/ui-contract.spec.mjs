@@ -12,6 +12,14 @@ const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url
 const chatJS = await readFile(new URL("../../web/js/chat.js", import.meta.url), "utf8");
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
 
+test("credential approval uses the shared card with complete call text 2ye",async({page})=>{
+ const folder='logs/evidence/rel-1.62.216/captures';await mkdir(folder,{recursive:true});
+ await page.route('http://credential.test/**',route=>new URL(route.request().url()).pathname==='/'?route.fulfill({contentType:'text/html',body:`<style>${tokensCSS}${appCSS}${chatCSS}body{background:var(--well);color:var(--ink);padding:8px;overflow:auto}.approval-card{max-width:720px}</style><main id="fixture"></main><script type="module">import {createApprovalCard} from '/js/approval.js';fixture.append(createApprovalCard(document,{data:{kind:'credential',name:'credential',call_id:'call',args:{credential:'example-login',credential_kind:'login',destination:'someone@example.org:22',call:'ssh someone@example.org show version'}}},{decide:(id,decision)=>document.body.dataset.decision=decision}));</script>`}):route.fulfill({path:webRoot+new URL(route.request().url()).pathname.slice(1)}));
+ await page.goto('http://credential.test/');await expect(page.locator('.approval-actions button')).toHaveText(['Yes, for this chat','Just once','No']);await expect(page.locator('.credential-approval-fields')).toContainText('ssh someone@example.org show version');
+ for(const width of [304,1280,1920]){await page.setViewportSize({width,height:width===304?254:width===1280?860:1080});await page.screenshot({path:`${folder}/card-${width}.png`});expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'#fixture'))).toEqual([]);}
+ await page.getByRole('button',{name:'Just once',exact:true}).click();await expect(page.locator('body')).toHaveAttribute('data-decision','once');
+});
+
 async function thinkingFixture(browser, width = 1280) {
   const context = await browser.newContext({ viewport: { width, height: width === 304 ? 254 : width === 1920 ? 1080 : 860 } });
   const state = { sessions: { thought: { schema_version: 1, complete: true, id: "thought", agent_id: "agent_b", role: "b", runnable: true, run: { status: "running", run_id: "run" }, activity: {}, chat: [], cursor: { generation: "thought", offset: 0 } } }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, profiles: { names: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], build: {} };

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,10 +16,133 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/session"
 	toolpkg "harness/internal/tools"
 )
+
+func TestRunnerCredentialGateBeforeVaultRead2ye(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI")
+	}
+	stub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer planted-consent-secret" {
+			t.Error("credential not delivered")
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer stub.Close()
+	cfg := config.Defaults(t.TempDir())
+	cfg.Credentials.AskBeforeUse = true
+	cfg.Approval.Mode = config.ApprovalModeOff
+	cfg.Services = map[string]config.Service{"fixture": {BaseURL: stub.URL, Auth: "stored:example-api", AllowedMethods: []string{"GET"}, TimeoutS: 10, MaxBodyKB: 16}}
+	vault := credential.NewVault(t.TempDir())
+	if err := vault.Put("example-api", stub.URL, "", "planted-consent-secret"); err != nil {
+		t.Fatal(err)
+	}
+	c := toolpkg.NewCallService(cfg.Services)
+	c.SetVault(vault)
+	c.SetHTTPClientForTest(stub.Client())
+	bus := events.NewBus()
+	evs, unsub := bus.Subscribe()
+	defer unsub()
+	runner := NewRunner(bus, toolpkg.New(c), nil, nil, func() config.Config { return cfg })
+	s := &session.Session{ID: "fixture", Workspace: cfg.Workspace, ToolsEnabled: map[string]bool{"call_service": true}, ToolCalls: map[string]int{}}
+	args := map[string]any{"service": "fixture", "method": "GET", "path": "check"}
+	for _, decision := range []string{"deny", "once", "session"} {
+		before := vault.SecretReads()
+		done := make(chan toolpkg.CallOutcome, 1)
+		go func() { done <- runner.executeTool(context.Background(), s, "run", "call", "call_service", args) }()
+		var card events.Event
+		for card.Type != events.ApprovalRequired {
+			select {
+			case card = <-evs:
+			case out := <-done:
+				t.Fatalf("call ended before card: %+v", out)
+			case <-time.After(10 * time.Second):
+				t.Fatal("no credential card")
+			}
+		}
+		raw, _ := json.Marshal(card)
+		if strings.Contains(string(raw), "planted-consent-secret") || vault.SecretReads() != before {
+			t.Fatal("secret read or exposed before answer")
+		}
+		if err := runner.gate.Decide(s.ID, "call", decision); err != nil {
+			t.Fatal(err)
+		}
+		out := <-done
+		if decision == "deny" {
+			if out.OK || !strings.Contains(out.Content, "credential example-api not approved") || vault.SecretReads() != before {
+				t.Fatalf("deny=%+v", out)
+			}
+		} else if !out.OK {
+			t.Fatalf("approved=%+v", out)
+		}
+	}
+	if out := runner.executeTool(context.Background(), s, "run", "next", "call_service", args); !out.OK {
+		t.Fatal(out)
+	}
+}
+
+func TestCredentialApprovalScopes2ye(t *testing.T) {
+	for _, kind := range []string{"key", "entra", "google", "login"} {
+		t.Run(kind, func(t *testing.T) {
+			cfg := config.Defaults(t.TempDir())
+			cfg.Credentials.AskBeforeUse = true
+			bus := events.NewBus()
+			ch, unsub := bus.Subscribe()
+			defer unsub()
+			gate := NewGate(bus, func() config.Config { return cfg })
+			s := &session.Session{ID: "chat", Run: session.RunState{Status: "running"}}
+			entry := credential.Entry{Name: "example-api", Kind: kind, Origin: "https://example.org:443"}
+			ask := func(decision string) {
+				t.Helper()
+				done := make(chan error, 1)
+				go func() {
+					done <- gate.WaitCredential(context.Background(), s, "run", "call", entry, entry.Origin, "whole command")
+				}()
+				ev := nextApprovalEvent(t, ch).Data.(map[string]any)
+				if ev["kind"] != "credential" {
+					t.Fatalf("card=%v", ev)
+				}
+				if err := gate.Decide(s.ID, "call", "approve"); err == nil {
+					t.Fatal("Always accepted")
+				}
+				if err := gate.Decide(s.ID, "call", decision); err != nil {
+					t.Fatal(err)
+				}
+				err := <-done
+				if (err != nil) != (decision == "deny") {
+					t.Fatalf("decision=%s err=%v", decision, err)
+				}
+			}
+			ask("once")
+			ask("once")
+			ask("deny")
+			ask("session")
+			if err := gate.WaitCredential(context.Background(), s, "run", "call", entry, entry.Origin, "whole command"); err != nil {
+				t.Fatal(err)
+			}
+			entry.Name = "another-key"
+			ask("once")
+			entry.Name = "example-api"
+			entry.StoredAt = "2026-11-16T12:00:00Z"
+			ask("once")
+			entry.StoredAt = ""
+			s = &session.Session{ID: "other", Run: session.RunState{Status: "running"}}
+			ask("once")
+			s.Unattended = true
+			if err := gate.WaitCredential(context.Background(), s, "run", "call", entry, entry.Origin, "whole command"); err == nil || !strings.Contains(err.Error(), "credential example-api not approved") {
+				t.Fatalf("unattended=%v", err)
+			}
+			cfg.Credentials.AskBeforeUse = false
+			if err := gate.WaitCredential(context.Background(), s, "run", "call", entry, entry.Origin, "whole command"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func skillApprovalFixture2vh(t *testing.T) (*Runner, *session.Session, <-chan events.Event, func()) {
 	t.Helper()

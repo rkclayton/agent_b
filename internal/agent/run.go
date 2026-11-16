@@ -692,6 +692,16 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	}
 	cfg := r.cfg()
 	eventArgs := sanitizedToolArguments(name, args)
+	if cfg.Credentials.AskBeforeUse {
+		text, _ := json.Marshal(args)
+		callText := name + " " + string(text)
+		if command, ok := args["command"].(string); ok {
+			callText = command
+		}
+		ctx = tools.WithCredentialApproval(ctx, func(wait context.Context, entry credential.Entry, destination string) error {
+			return r.gate.WaitCredential(wait, s, runID, callID, entry, destination, callText)
+		})
+	}
 	if name == "call_service" {
 		eventArgs["approval_action"] = callServiceApprovalAction(args)
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/session"
 )
@@ -47,6 +48,7 @@ const (
 	approvalPolicyScopes
 	approvalCycle
 	approvalQuestion
+	approvalCredential
 )
 
 type Gate struct {
@@ -78,6 +80,39 @@ func (g *Gate) WaitQuestion(ctx context.Context, s *session.Session, runID, call
 	g.sequenceMu.Unlock()
 	defer cleanup()
 	return g.awaitDecision(ctx, s, runID, callID, wait)
+}
+
+func (g *Gate) WaitCredential(ctx context.Context, s *session.Session, runID, callID string, entry credential.Entry, destination, call string) error {
+	cfg := g.cfg().Credentials
+	if !cfg.AskBeforeUse {
+		return nil
+	}
+	denied := fmt.Errorf("credential %s not approved", entry.Name)
+	args := map[string]any{"credential": entry.Name, "credential_kind": entry.Kind, "destination": destination, "call": call}
+	if g.unattended(s) {
+		g.refuseUnattended(s, runID, callID, boundaryPolicy, "credential", args)
+		return denied
+	}
+	grantKey := entry.Name + "\x00" + entry.Kind + "\x00" + entry.Origin + "\x00" + entry.StoredAt
+	if s.CredentialApproved(grantKey, time.Now(), cfg.Hours()) {
+		return nil
+	}
+	g.sequenceMu.Lock()
+	wait, cleanup := g.beginWait(s, runID, callID, approvalCredential, StandingGrant{})
+	wait.name = "credential"
+	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, workerApproval(s, map[string]any{"call_id": callID, "name": "credential", "kind": "credential", "args": args, "boundary_escape": false})))
+	g.sequenceMu.Unlock()
+	defer cleanup()
+	decision, err := g.awaitDecision(ctx, s, runID, callID, wait)
+	if err != nil || (decision != "once" && decision != "session") {
+		return denied
+	}
+	if decision == "session" {
+		if err := s.ApproveCredential(grantKey); err != nil {
+			return fmt.Errorf("credential %s not approved: this chat has 4096 credential approvals; use Just once", entry.Name)
+		}
+	}
+	return nil
 }
 
 func NewGate(bus *events.Bus, cfg func() config.Config) *Gate {
@@ -396,6 +431,9 @@ func (g *Gate) DecideWith(sessionID, callID, decision string, before func()) err
 	}
 	if decision == "session" && wait.scopeKind == approvalNoScopes {
 		return fmt.Errorf("decision %s requires a scoped approval", decision)
+	}
+	if wait.scopeKind == approvalCredential && decision != "session" && decision != "once" && decision != "deny" {
+		return fmt.Errorf("credential decision must be session, once, or deny")
 	}
 	if decision == "operator_mode" && wait.scopeKind != approvalShellScopes {
 		return fmt.Errorf("decision %s is only valid for a shell approval", decision)

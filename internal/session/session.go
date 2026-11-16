@@ -169,6 +169,9 @@ type Session struct {
 	submitting           int
 	runPinID             string
 	workerJob            WorkerJob
+	credentialGrants     map[string]bool
+	credentialIdleSince  time.Time
+	credentialIdleGap    time.Duration
 	planPage             bool
 	planAccept           bool
 	mu                   sync.Mutex
@@ -596,6 +599,7 @@ func (s *Session) Close() error {
 		return fmt.Errorf("session is running; stop the run before closing")
 	}
 	s.Closed = true
+	s.credentialGrants = nil
 	return nil
 }
 func (s *Session) BeginSubmission() bool {
@@ -846,10 +850,64 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 }
 func (s *Session) Append(message events.Message) {
 	s.mu.Lock()
+	if message.Role == "user" {
+		s.credentialActivity(time.Now())
+	}
 	s.Messages = append(s.Messages, message)
 	s.mu.Unlock()
 }
-func (s *Session) SetRun(state RunState)          { s.mu.Lock(); s.Run = state; s.mu.Unlock() }
+func (s *Session) SetRun(state RunState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.credentialActivity(time.Now())
+	s.Run = state
+}
+
+// Credential grants never enter snapshots or durable chat state.
+func (s *Session) CredentialApproved(name string, now time.Time, hours float64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Closed {
+		return false
+	}
+	gap := s.credentialIdleGap
+	if !s.credentialRunActive() && !s.credentialIdleSince.IsZero() {
+		gap = max(gap, now.Sub(s.credentialIdleSince))
+	}
+	if hours > 0 && gap >= time.Duration(hours*float64(time.Hour)) {
+		s.credentialGrants = nil
+		s.credentialIdleGap = 0
+	}
+	return s.credentialGrants[name]
+}
+func (s *Session) ApproveCredential(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Closed {
+		return fmt.Errorf("credential %s not approved: chat closed", name)
+	}
+	if s.credentialGrants == nil {
+		s.credentialGrants = map[string]bool{}
+	}
+	if len(s.credentialGrants) >= 4096 && !s.credentialGrants[name] {
+		return fmt.Errorf("credential %s not approved: this chat has 4096 credential approvals; use Just once", name)
+	}
+	s.credentialGrants[name] = true
+	return nil
+}
+func (s *Session) credentialActivity(now time.Time) {
+	if len(s.credentialGrants) > 0 && !s.credentialRunActive() && !s.credentialIdleSince.IsZero() {
+		s.credentialIdleGap = max(s.credentialIdleGap, now.Sub(s.credentialIdleSince))
+	}
+	s.credentialIdleSince = now
+}
+func (s *Session) credentialRunActive() bool {
+	switch s.Run.Status {
+	case "running", "queued", "paused", "stopping", "held":
+		return true
+	}
+	return false
+}
 func (s *Session) UpdatePartial(partial string)   { s.mu.Lock(); s.Run.Partial = partial; s.mu.Unlock() }
 func (s *Session) SetBudget(budget events.Budget) { s.mu.Lock(); s.Budget = budget; s.mu.Unlock() }
 func (s *Session) SetQueuedMessages(count int)    { s.mu.Lock(); s.queuedMessages = count; s.mu.Unlock() }

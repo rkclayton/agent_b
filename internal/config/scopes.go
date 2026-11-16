@@ -58,6 +58,7 @@ var scopes = map[string]Scope{
 	"telemetry":      ScopeMachine, // the install id identifies an install
 	"operator_files": ScopeMachine, // the mailbox lives in the data root
 	"approval":       ScopeMachine, // what may run unattended is a safety decision
+	"credentials":    ScopeMachine, // consent to use this machine's stored credentials
 	"tools":          ScopeMachine, // limits and guards on what tools may do
 	// the broker this machine dials out to. It is the machine's because
 	// the pairing it carries is this INSTALL's pairing with one phone, and because a

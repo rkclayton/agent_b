@@ -2445,3 +2445,9 @@
 .managed-model-idle { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .managed-model-idle label { flex:none; }
 .managed-model-idle input { width:64px; }
+.credential-approval-fields { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 8px; margin:0; }
+.credential-approval-fields dt { color:var(--mute); }
+.credential-approval-fields dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.setting-row:has([data-path^="credentials."]) { grid-template-columns:max-content minmax(0,1fr); }
+.settings-content .setting-row [data-path="credentials.idle_hours"] { width:64px; flex:0 0 64px; }
+.setting-row:has([data-path="credentials.idle_hours"]) > div { flex-wrap:wrap; }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -54,9 +55,11 @@ type GoogleDefinition struct {
 
 // Vault is the named-credential store under one data root.
 type Vault struct {
-	root   string
-	mu     sync.Mutex
-	logins map[string]Entry
+	root        string
+	mu          sync.Mutex
+	logins      map[string]Entry
+	secretReads atomic.Uint64
+	entries     map[string]Entry
 }
 
 func NewVault(dataRoot string) *Vault {
@@ -65,6 +68,9 @@ func NewVault(dataRoot string) *Vault {
 	}
 	return &Vault{root: dataRoot}
 }
+
+// SecretReads counts vault acquisitions without retaining names or values.
+func (v *Vault) SecretReads() uint64 { return v.secretReads.Load() }
 
 func (v *Vault) store(name string) (*Store, error) {
 	if !credentialName.MatchString(name) {
@@ -95,6 +101,7 @@ func (v *Vault) readRecords() (map[string]Entry, error) {
 
 func (v *Vault) writeRecords(records map[string]Entry) error {
 	v.logins = nil
+	v.entries = nil
 	raw, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
@@ -107,6 +114,27 @@ func (v *Vault) writeRecords(records map[string]Entry) error {
 		return err
 	}
 	return os.Rename(temporary, v.recordPath())
+}
+
+// Lookup reads metadata once per vault change, never decrypting a credential.
+func (v *Vault) Lookup(name string) (Entry, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.lookup(name)
+}
+func (v *Vault) lookup(name string) (Entry, error) {
+	if v.entries == nil {
+		records, err := v.readRecords()
+		if err != nil {
+			return Entry{}, err
+		}
+		v.entries = records
+	}
+	entry, ok := v.entries[name]
+	if !ok {
+		return Entry{}, fmt.Errorf("no credential named %q is stored", name)
+	}
+	return entry, nil
 }
 
 // Login metadata is indexed once; password requests read one DPAPI record.
@@ -214,6 +242,7 @@ func (v *Vault) LoginPassword(name, user, host string, port int) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	v.secretReads.Add(1)
 	return store.Read()
 }
 
@@ -495,18 +524,15 @@ func (v *Vault) Delete(name string) error {
 func (v *Vault) Secret(name string) (string, Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	records, err := v.readRecords()
+	entry, err := v.lookup(name)
 	if err != nil {
 		return "", Entry{}, err
-	}
-	entry, present := records[name]
-	if !present {
-		return "", Entry{}, fmt.Errorf("no credential named %q is stored", name)
 	}
 	store, err := v.store(name)
 	if err != nil {
 		return "", Entry{}, err
 	}
+	v.secretReads.Add(1)
 	value, err := store.Read()
 	if err != nil {
 		return "", Entry{}, err

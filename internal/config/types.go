@@ -22,6 +22,7 @@ type Config struct {
 	Run           RunConfig               `json:"run"`
 	Cron          Cron                    `json:"cron"`
 	Approval      Approval                `json:"approval"`
+	Credentials   CredentialApproval      `json:"credentials"`
 	Context       GlobalContext           `json:"context"`
 	Memory        Memory                  `json:"memory"`
 	Tools         Tools                   `json:"tools"`
@@ -40,6 +41,18 @@ type Config struct {
 	Broker      Broker   `json:"broker,omitempty"`
 	Signing     Signing  `json:"signing"`
 	LoadNotices []string `json:"-"`
+}
+
+type CredentialApproval struct {
+	AskBeforeUse bool     `json:"ask_before_use"`
+	IdleHours    *float64 `json:"idle_hours"`
+}
+
+func (c CredentialApproval) Hours() float64 {
+	if c.IdleHours == nil {
+		return 4
+	}
+	return *c.IdleHours
 }
 
 type Hook struct {

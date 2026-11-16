@@ -297,6 +297,9 @@ func (c Config) validateRun() error {
 	if !oneOf(c.Approval.Mode, ApprovalModeBoundaryOnly, ApprovalModeMutating, ApprovalModeAll, ApprovalModeOff) {
 		return fmt.Errorf("approval.mode: invalid")
 	}
+	if !(c.Credentials.Hours() >= 0 && c.Credentials.Hours() <= 2562047) {
+		return fmt.Errorf("credentials.idle_hours: must be a nonnegative number of hours")
+	}
 	if !(c.Context.SoftPct > 0 && c.Context.SoftPct <= 1 && c.Context.SummaryPct > 0 && c.Context.SummaryPct <= 1) {
 		return fmt.Errorf("context: require soft_pct and summary_pct in (0, 1]")
 	}

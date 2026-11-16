@@ -357,6 +357,20 @@ func TestBrowserAndConfigReadsDoNotResetIdleTimeout(t *testing.T) {
 	}
 }
 
+func TestCredentialConsentSettingsRequireOperator2ye(t *testing.T) {
+	server, _, _ := operatorTestServer(t)
+	server.operatorState.request = func(*http.Request) error { return errors.New("not operator") }
+	for _, body := range []string{`{"credentials":{"ask_before_use":false}}`, `{"credentials":{"idle_hours":0}}`} {
+		request := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(body))
+		authorizeMutation(request, server)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "credentials.") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body)
+		}
+	}
+}
+
 func TestOperatorContextPatchMustBeIsolatedAndTimeoutIsProtected(t *testing.T) {
 	server, _, _ := operatorTestServer(t)
 	server.operatorState.request = func(*http.Request) error { return nil }

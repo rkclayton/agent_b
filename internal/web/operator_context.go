@@ -185,6 +185,13 @@ func (s *Server) applyOperatorContextPatch(w http.ResponseWriter, r *http.Reques
 }
 
 func protectedShellConfigField(patch map[string]any) string {
+	if raw, ok := patch["credentials"].(map[string]any); ok {
+		for _, field := range []string{"ask_before_use", "idle_hours"} {
+			if _, present := raw[field]; present {
+				return "credentials." + field
+			}
+		}
+	}
 	if raw, ok := patch["operator_files"].(map[string]any); ok {
 		if _, present := raw["allow_mailbox_approvals"]; present {
 			return "operator_files.allow_mailbox_approvals"

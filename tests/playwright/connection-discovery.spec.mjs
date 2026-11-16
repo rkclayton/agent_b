@@ -46,6 +46,17 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
+test("stored credential consent switch and idle hours persist 2ye", async () => {
+ const page=await harness.context.newPage({viewport:{width:1280,height:860}});
+ await page.route('**/api/broker/status',route=>route.fulfill({json:{state:'not paired',log_path:'C:\\Data\\logs\\pairing.log'}}));
+ await page.goto(`${harness.base}/chat`);await openSettings(page);await page.locator('.settings-nav [data-id="shell"]').click();
+ const toggle=page.locator('[data-path="credentials.ask_before_use"]');await expect(toggle).toHaveAttribute('aria-checked','false');await expect(page.locator('[data-path="credentials.idle_hours"]')).toHaveCount(0);
+ await toggle.click();await expect(page.locator('[data-path="credentials.idle_hours"]')).toHaveValue('4');await page.locator('[data-path="credentials.idle_hours"]').fill('0');await page.locator('[data-path="credentials.idle_hours"]').blur();await page.reload();await page.locator('.settings-nav [data-id="shell"]').click();await expect(page.locator('[data-path="credentials.idle_hours"]')).toHaveValue('0');
+ const folder='logs/evidence/rel-1.62.216/captures';await mkdir(folder,{recursive:true});
+ for(const width of [304,1280,1920]){await page.setViewportSize({width,height:width===304?254:width===1280?860:1080});await toggle.scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/settings-${width}.png`});const findings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'.settings-content'));await writeFile(`${folder}/settings-${width}.json`,JSON.stringify(findings));expect(findings).toEqual([]);}
+ await toggle.click();await expect(page.locator('[data-path="credentials.idle_hours"]')).toHaveCount(0);await page.close();
+});
+
 test("stored login uses the existing Credentials row 2yd", async () => {
   test.setTimeout(120_000);
   const page=await harness.context.newPage({viewport:{width:1280,height:860}});
@@ -114,6 +125,7 @@ test("thinking effort lives on the profile and the connection keeps only its adv
   await openSettings(page);
   await page.locator('.settings-nav [data-id="profiles"]').click();
   await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  await expect(page.locator('[data-field="name"]')).toHaveValue("Private fixture");
   if (await page.locator('[data-action="thinking"]').getAttribute("aria-checked") === "false") {
     const enabled = page.waitForResponse((response) => response.url().endsWith("/api/agents") && response.request().method() === "POST");
     await page.locator('[data-action="thinking"]').click();
@@ -121,6 +133,7 @@ test("thinking effort lives on the profile and the connection keeps only its adv
     await page.reload();
     await page.locator('.settings-nav [data-id="profiles"]').click();
     await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+    await expect(page.locator('[data-field="name"]')).toHaveValue("Private fixture");
   }
   const effort = page.locator(".profile-effort");
   await expect(effort.getByRole("button")).toHaveText(["model default", "low", "medium", "high"]);
@@ -129,6 +142,7 @@ test("thinking effort lives on the profile and the connection keeps only its adv
   await page.reload();
   await page.locator('.settings-nav [data-id="profiles"]').click();
   await page.locator('#panel-agent').selectOption({ label: "Private fixture" });
+  await expect(page.locator('[data-field="name"]')).toHaveValue("Private fixture");
   await expect(page.locator('.profile-effort').getByRole("button", { name: "low", exact: true })).toHaveClass(/selected/);
   await page.locator('[data-action="thinking"]').click();
   await expect(page.locator(".profile-effort")).toHaveCount(0);

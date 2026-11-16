@@ -34,13 +34,14 @@ var powerShellPrelude string
 var powerShellSessionName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 type persistentPowerShellProcess struct {
-	process  runningShellProcess
-	input    interactiveShellProcess
-	output   *lockedBuffer
-	offset   int64
-	done     chan struct{}
-	lastUsed atomic.Int64
-	mu       sync.Mutex
+	process     runningShellProcess
+	input       interactiveShellProcess
+	output      *lockedBuffer
+	offset      int64
+	done        chan struct{}
+	lastUsed    atomic.Int64
+	mu          sync.Mutex
+	credentials []string
 }
 
 type powerShellCommandFailure string
@@ -194,6 +195,11 @@ func (p *PowerShellSession) open(ctx context.Context, item *session.Session, nam
 	if current := p.sessions[key]; current != nil {
 		if time.Since(time.Unix(0, current.lastUsed.Load())) < p.idleLimit {
 			p.mu.Unlock()
+			for _, credentialName := range current.credentials {
+				if err := approveStoredCredential(ctx, p.vault, credentialName, ""); err != nil {
+					return nil, err
+				}
+			}
 			return current, nil
 		}
 		delete(p.sessions, key)
@@ -204,6 +210,11 @@ func (p *PowerShellSession) open(ctx context.Context, item *session.Session, nam
 	bootstrap, credentials, err := p.bootstrap(name)
 	if err != nil {
 		return nil, err
+	}
+	for _, credentialName := range credentials {
+		if err := approveStoredCredential(ctx, p.vault, credentialName, ""); err != nil {
+			return nil, err
+		}
 	}
 	output := newProcessWindow(powerShellOutputWindow)
 	host := shellHostFor(p.shell.config())
@@ -221,7 +232,7 @@ func (p *PowerShellSession) open(ctx context.Context, item *session.Session, nam
 		running.KillTree()
 		return nil, errors.New("persistent PowerShell host has no input pipe")
 	}
-	process := &persistentPowerShellProcess{process: running, input: input, output: output, done: make(chan struct{})}
+	process := &persistentPowerShellProcess{process: running, input: input, output: output, done: make(chan struct{}), credentials: credentials}
 	process.lastUsed.Store(time.Now().UnixNano())
 	go func() { _, _ = running.Wait(); close(process.done) }()
 

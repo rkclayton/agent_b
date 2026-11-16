@@ -35,20 +35,22 @@ type sshLoginAttempt struct {
 	answered, refused bool
 }
 type sshLoginCall struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	vault       *credential.Vault
-	output      *lockedBuffer
-	path, exe   string
-	armed       chan struct{}
-	done        chan struct{}
-	root        uint32
-	rootCreated int64
-	mu          sync.Mutex
-	pipe        windows.Handle
-	attempts    map[uint32]*sshLoginAttempt
-	notices     map[string]bool
-	ready       chan error
+	ctx          context.Context
+	cancel       context.CancelFunc
+	vault        *credential.Vault
+	output       *lockedBuffer
+	path, exe    string
+	armed        chan struct{}
+	done         chan struct{}
+	root         uint32
+	rootCreated  int64
+	mu           sync.Mutex
+	pipe         windows.Handle
+	attempts     map[uint32]*sshLoginAttempt
+	notices      map[string]bool
+	ready        chan error
+	approvalDone chan struct{}
+	asked        bool
 }
 
 func init() { newLoginCall = startSSHLogin; SSHAskpassMain = sshAskpassMain }
@@ -84,6 +86,15 @@ func (c *sshLoginCall) Arm(pid int) {
 	close(c.armed)
 }
 func (c *sshLoginCall) Close() {
+	c.mu.Lock()
+	pending := c.approvalDone
+	c.mu.Unlock()
+	if pending != nil {
+		select {
+		case <-pending:
+		case <-c.ctx.Done():
+		}
+	}
 	c.cancel()
 	c.mu.Lock()
 	if c.pipe != 0 {
@@ -95,6 +106,12 @@ func (c *sshLoginCall) Close() {
 	<-c.done
 }
 func (c *sshLoginCall) Result(d CallDetail) CallDetail {
+	if c.asked && d.Err != nil {
+		message := strings.ToLower(d.Err.Error())
+		if strings.Contains(message, "connection closed") || strings.Contains(message, "connection reset") || strings.Contains(message, "connection timed out") || strings.Contains(message, "ssh_dispatch_run_fatal: connection to") {
+			c.notice("SSH connection closed while waiting for credential approval")
+		}
+	}
 	for _, a := range c.attempts {
 		if a.answered {
 			c.notice("login: " + a.name)
@@ -164,7 +181,7 @@ func (c *sshLoginCall) serve() {
 		err = windows.ConnectNamedPipe(h, nil)
 		if err == nil || errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
 			timer := time.AfterFunc(5*time.Second, func() { windows.CancelIoEx(h, nil) })
-			c.answer(h)
+			c.answer(h, func() { timer.Stop() })
 			timer.Stop()
 		}
 		c.mu.Lock()
@@ -176,7 +193,7 @@ func (c *sshLoginCall) serve() {
 		c.mu.Unlock()
 	}
 }
-func (c *sshLoginCall) answer(pipe windows.Handle) {
+func (c *sshLoginCall) answer(pipe windows.Handle, readComplete func()) {
 	var client uint32
 	if windows.GetNamedPipeClientProcessId(pipe, &client) != nil {
 		return
@@ -246,6 +263,7 @@ func (c *sshLoginCall) answer(pipe windows.Handle) {
 	if json.NewDecoder(io.LimitReader(file, 8192)).Decode(&request) != nil {
 		return
 	}
+	readComplete()
 	if c.ctx.Value(loginSourceKey{}) == "phone" {
 		return
 	}
@@ -292,6 +310,30 @@ func (c *sshLoginCall) answer(pipe windows.Handle) {
 	if name == "" {
 		c.notice("no stored login for " + target)
 		return
+	}
+	if _, enabled := c.ctx.Value(credentialApprovalKey{}).(func(context.Context, credential.Entry, string) error); enabled {
+		c.asked = true
+		pending := make(chan struct{})
+		c.mu.Lock()
+		c.approvalDone = pending
+		c.mu.Unlock()
+		entry, lookupErr := c.vault.Lookup(name)
+		if lookupErr != nil {
+			close(pending)
+			return
+		}
+		err = approveCredential(c.ctx, entry, target+":"+strconv.Itoa(request.Port))
+		close(pending)
+		if err != nil {
+			c.notice(err.Error())
+			return
+		}
+		var state uint32
+		state, err = windows.WaitForSingleObject(sshHandle, 0)
+		if err != nil || state != uint32(windows.WAIT_TIMEOUT) {
+			c.notice("SSH connection closed while waiting for credential approval")
+			return
+		}
 	}
 	secret, err := c.vault.LoginPassword(name, user, host, request.Port)
 	if err != nil {

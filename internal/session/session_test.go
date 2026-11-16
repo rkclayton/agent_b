@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,51 @@ import (
 	"harness/internal/events"
 	workspaceinfo "harness/internal/workspace"
 )
+
+func TestCredentialGrantIdleAndBound2ye(t *testing.T) {
+	now := time.Now()
+	for _, hours := range []float64{0, 4, 8} {
+		s := &Session{Run: RunState{Status: "idle"}, credentialIdleSince: now.Add(-5 * time.Hour)}
+		if err := s.ApproveCredential("example-api"); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.CredentialApproved("example-api", now, hours); got != (hours != 4) {
+			t.Fatalf("hours=%v approved=%t", hours, got)
+		}
+	}
+	s := &Session{Run: RunState{Status: "idle"}, credentialIdleSince: now.Add(-5 * time.Hour)}
+	s.ApproveCredential("example-api")
+	s.SetRun(RunState{Status: "running"})
+	if s.CredentialApproved("example-api", now, 4) {
+		t.Fatal("starting a run hid past idle")
+	}
+	s.ApproveCredential("example-api")
+	s.credentialIdleSince = now.Add(-8 * time.Hour)
+	if !s.CredentialApproved("example-api", now, 4) {
+		t.Fatal("active run expired")
+	}
+	s.SetRun(RunState{Status: "idle"})
+	s.Close()
+	if s.CredentialApproved("example-api", now, 0) {
+		t.Fatal("closed grant survived")
+	}
+	full := &Session{Run: RunState{Status: "running"}}
+	for n := 0; n < 4096; n++ {
+		if err := full.ApproveCredential(fmt.Sprintf("key-%d", n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := time.Now()
+	for n := 0; n < 1000000; n++ {
+		if !full.CredentialApproved("key-4095", now, 4) {
+			t.Fatal("grant lost")
+		}
+	}
+	t.Logf("4096 grants, 1000000 lookups: %s", time.Since(start))
+	if err := full.ApproveCredential("overflow"); err == nil {
+		t.Fatal("unbounded grants")
+	}
+}
 
 func TestNotRunnableAlwaysHasAReason2qr(t *testing.T) {
 	item := &Session{Runnable: true}

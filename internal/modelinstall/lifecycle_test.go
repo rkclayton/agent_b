@@ -105,6 +105,13 @@ func TestManagedExecutableOwnershipAdoptionAndQuit(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	s := Spec{ID: "installed-local", Root: root, Executable: own, Args: []string{"-test.run=TestManagedStandIn", "--", "--model-standin", fmt.Sprint(port)}, URL: fmt.Sprintf("http://127.0.0.1:%d", port), IdleMinutes: 60}
+	if err = SaveSpec(s); err != nil {
+		t.Fatal(err)
+	}
+	s, err = LoadSpec(root, "", s.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c := NewController(nil)
 	defer c.Close()
 	if err = c.Configure(s); err != nil {
@@ -152,6 +159,64 @@ func TestManagedExecutableOwnershipAdoptionAndQuit(t *testing.T) {
 		t.Fatal("foreign executable started")
 	}
 	t.Logf("stand-in executable bytes=%d; one managed entry, no retained history", len(b))
+}
+
+func TestManagedReplacementKeepsOldUntilNewReady(t *testing.T) {
+	root := t.TempDir()
+	original, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := func(name string) Spec {
+		t.Helper()
+		exe := filepath.Join(root, name+".exe")
+		if err := os.WriteFile(exe, body, 0700); err != nil {
+			t.Fatal(err)
+		}
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		return Spec{ID: "installed-local", Root: root, Executable: exe, Args: []string{"-test.run=TestManagedStandIn", "--", "--model-standin", fmt.Sprint(port)}, URL: fmt.Sprintf("http://127.0.0.1:%d", port), IdleMinutes: 60, Files: []string{exe}}
+	}
+	old, next := spec("old"), spec("next")
+	c := NewController(nil)
+	defer c.Close()
+	_ = c.Configure(old)
+	if err := c.Start(context.Background(), old.ID); err != nil {
+		t.Fatal(err)
+	}
+	p, err := launchManaged(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.stop()
+	if err = waitHealth(context.Background(), http.DefaultClient, next.URL+"/health", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.Get(old.URL + "/health")
+	if err != nil {
+		t.Fatal("old model stopped before replacement ready")
+	}
+	response.Body.Close()
+	if err = c.Replace(next); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" && c.State(next.ID).State != "running" {
+		t.Fatal("replacement not adopted")
+	}
+	if _, err = os.Stat(old.Executable); !os.IsNotExist(err) {
+		t.Fatal("previous downloaded executable retained")
+	}
+	if _, err = os.Stat(next.Executable); err != nil {
+		t.Fatal("replacement deleted")
+	}
 }
 func TestManagedFailureAndIdleChoices(t *testing.T) {
 	for _, minutes := range []int{5, 0} {

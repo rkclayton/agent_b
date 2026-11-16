@@ -72,6 +72,20 @@ func TestAnUnknownResendIsDeclinedOnce2wr(t *testing.T) {
 	b := newStandIn(t)
 	b.expiry, b.deadline = 30*time.Second, 10*time.Second // the real broker: 5 min, 90 s
 	agent, _ := linkThrough(t, b, echo, func([]byte) {})
+	// The client can observe readiness before the stand-in finishes processing
+	// SESSION_READY. Wait for that handler's intent scan before planting the
+	// explicit RESEND, otherwise the fixture sends the same request twice.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		b.mu.Lock()
+		ready := b.sessionUp
+		b.mu.Unlock()
+		if ready {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("stand-in did not finish session readiness")
+		}
+	}
 	for _, role := range []string{"agent", "device"} {
 		id := randomHex(t)
 		b.mu.Lock()

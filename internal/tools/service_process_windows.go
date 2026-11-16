@@ -91,6 +91,7 @@ func startServiceAccountBackgroundProcess(executable string, argv []string, work
 }
 
 func startServiceAccountProcessMode(executable string, argv []string, workspace string, environment []string, account config.ShellServiceAccount, password, input []byte, output *lockedBuffer, keepInput bool) (runningShellProcess, error) {
+	environment = append(environment, output.loginEnv...)
 	qualified := account.Account
 	if account.Domain != "" && account.Domain != "." {
 		qualified = account.Domain + `\` + account.Account

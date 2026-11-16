@@ -46,6 +46,21 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
+test("stored login uses the existing Credentials row 2yd", async () => {
+  test.setTimeout(120_000);
+  const page=await harness.context.newPage({viewport:{width:1280,height:860}});
+  await page.route('**/api/broker/status',route=>route.fulfill({json:{state:'not paired',log_path:'C:\\Data\\logs\\pairing.log'}}));
+  await page.goto(`${harness.base}/chat`);await openSettings(page);await page.locator('.settings-nav [data-id="shell"]').click();
+  await expect(page.locator('#credential-login-password')).toHaveAttribute('type','password');
+  await page.locator('#credential-login-name').fill('example-login');await page.locator('#credential-login-user').fill('someone');await page.locator('#credential-login-host').fill('example.org');await page.locator('#credential-login-password').fill('planted-login-secret');
+  let sent;await page.route('**/api/credentials',route=>{sent=route.request().postDataJSON();return route.fulfill({json:{credentials:[{name:'example-login',kind:'login',origin:'someone@example.org:22',stored_at:'2026-11-16'}]}})});
+  await page.locator('[data-action="credential-login-add"]').click();expect(sent).toMatchObject({action:'add_login',user:'someone',host:'example.org',port:'',secret:'planted-login-secret'});
+  await expect(page.locator('#settings-page')).toContainText('example-login · login · someone@example.org:22');await expect(page.locator('#credential-login-password')).toHaveValue('');
+  const folder='logs/evidence/rel-1.62.215/captures';await mkdir(folder,{recursive:true});
+  for(const width of [304,1280,1920]){await page.setViewportSize({width,height:width===304?254:width===1920?1080:860});await page.locator('.credential-login-entry').scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/stored-${width}.png`});const field=page.locator('#credential-login-name');await field.scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/login-${width}.png`});const row=field.locator('xpath=ancestor::*[contains(concat(" ",normalize-space(@class)," ")," setting-row ")][1]');await row.screenshot({path:`${folder}/row-${width}.png`});expect(await field.evaluate(el=>el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(100);await page.locator('#credential-login-password').scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/password-${width}.png`});const findings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'.settings-content'));await writeFile(`${folder}/layout-${width}.json`,JSON.stringify(findings));expect(findings).toEqual([]);}
+  await page.close();
+});
+
 test("persistent PowerShell mode round-trips on the Profiles editor 2xj", async () => {
   const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
   await page.goto(`${harness.base}/chat`);

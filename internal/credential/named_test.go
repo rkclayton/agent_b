@@ -1,13 +1,77 @@
 package credential
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestLoginBound2yd(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI")
+	}
+	v := NewVault(t.TempDir())
+	for i := 0; i < 256; i++ {
+		if e := v.PutLogin(fmt.Sprintf("login-%d", i), "someone", "example.org", fmt.Sprint(i+1), "fixture-secret"); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e := v.PutLogin("overflow", "someone-else", "example.org", "22", "fixture-secret"); e == nil {
+		t.Fatal("unbounded logins")
+	}
+	v.LoginName("someone", "example.org", 256)
+	start := time.Now()
+	for i := 0; i < 10000; i++ {
+		name, e := v.LoginName("someone", "example.org", 256)
+		if e != nil || name != "login-255" {
+			t.Fatal(name, e)
+		}
+	}
+	t.Logf("full bound=256; 10000 indexed binding lookups=%s", time.Since(start))
+}
+
+func TestStoredLogin2yd(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DPAPI")
+	}
+	v := NewVault(t.TempDir())
+	if err := v.PutLogin("example-login", "someone", "example.org", "", "planted-login-secret"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := v.List()
+	if err != nil || len(entries) != 1 || entries[0].Kind != "login" || entries[0].Origin != "someone@example.org:22" {
+		t.Fatalf("listing: %v %v", entries, err)
+	}
+	data, _ := json.Marshal(entries)
+	if strings.Contains(string(data), "planted-login-secret") {
+		t.Fatal("secret in listing")
+	}
+	name, err := v.LoginName("someone", "example.org", 22)
+	if err != nil || name != "example-login" {
+		t.Fatal(name, err)
+	}
+	for _, values := range [][3]string{{"someone-else", "example.org", "22"}, {"someone", "other.example", "22"}, {"someone", "example.org", "23"}} {
+		port := 22
+		if values[2] == "23" {
+			port = 23
+		}
+		if n, _ := v.LoginName(values[0], values[1], port); n != "" {
+			t.Fatal("mismatched login")
+		}
+	}
+	if err = v.Delete("example-login"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := v.LoginName("someone", "example.org", 22); n != "" {
+		t.Fatal("deleted login")
+	}
+}
 
 // Item 2nv (a): STORAGE and DESTINATION ENFORCEMENT are two parts with a narrow seam, and
 // these are their cases. Storage keeps a secret the way the rest of this package already

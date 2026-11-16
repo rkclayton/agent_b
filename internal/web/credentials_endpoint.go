@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -83,6 +84,10 @@ func credentialEntry(entries []credential.Entry, name string) (credential.Entry,
 }
 
 func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-AgentB-Mutation-Token")), []byte(s.mutationToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, "the page token is required", "credentials")
+		return
+	}
 	// secret entry is the OPERATOR'S PAGE and nothing else. A broker-paired phone
 	// is a full-authority surface for chatting, deliberately — but it is not where a
 	// credential is typed, read or removed, so it is refused here by name rather than
@@ -114,6 +119,9 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 			Origin       string `json:"origin"`
 			Header       string `json:"header"`
 			Secret       string `json:"secret"`
+			User         string `json:"user"`
+			Host         string `json:"host"`
+			Port         string `json:"port"`
 			Tenant       string `json:"tenant"`
 			ClientID     string `json:"client_id"`
 			Scopes       string `json:"scopes"`
@@ -125,6 +133,11 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		name := strings.TrimSpace(body.Name)
 		switch strings.TrimSpace(body.Action) {
+		case "add_login":
+			if err := vault.PutLogin(name, body.User, body.Host, body.Port, body.Secret); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+				return
+			}
 		case "add":
 			if err := vault.Put(name, body.Origin, body.Header, body.Secret); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")

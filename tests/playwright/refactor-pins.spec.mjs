@@ -15,7 +15,7 @@ const settingsActions = [
   "broker-confirm", "broker-pair", "broker-revoke", "check-update",
   "clear-notification", "clear-shell-credential", "close", "close-error-details",
   "close-session", "config-choice", "config-toggle", "connection-toggle", "copy",
-  "create-profile", "credential-add", "credential-device-code", "credential-entra-add",
+  "create-profile", "credential-add", "credential-device-code", "credential-entra-add", "credential-login-add",
   "credential-remove", "credential-sign-in", "credential-sign-out", "delete-all-chats",
   "disable-service-account", "duplicate-connection", "empty-operator-attachments",
   "error-details", "export-diagnostics", "hermes-confirm", "hermes-preview",

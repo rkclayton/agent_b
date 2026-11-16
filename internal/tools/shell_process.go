@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 
 	"harness/internal/config"
@@ -59,6 +60,9 @@ func startHarnessProcess(executable string, argv []string, workspace string, out
 
 func startHarnessProcessWithInput(executable string, argv []string, workspace string, input []byte, output *lockedBuffer) (runningShellProcess, error) {
 	cmd := exec.Command(executable, argv...)
+	if len(output.loginEnv) > 0 {
+		cmd.Env = append(os.Environ(), output.loginEnv...)
+	}
 	cmd.Dir = workspace
 	setupProcess(cmd)
 	cmd.Stdout, cmd.Stderr = output, output

@@ -95,6 +95,7 @@ func (a *harnessApp) wireTools() {
 	// the operator data root, and the tool reads it through one seam.
 	vault := credential.NewVault(a.paths.Data)
 	callServiceTool.SetVault(vault)
+	shellTool.SetLoginVault(vault)
 	entraManager := entra.New(vault)
 	callServiceTool.SetTokenProvider("entra", entraManager)
 	googleManager := googleidentity.New(vault)

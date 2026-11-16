@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/session"
 )
 
@@ -46,6 +47,7 @@ type Shell struct {
 	sandboxUnavailable func(string) error
 	fileCoordinator    *FileCoordinator
 	credential         shellCredentialReader
+	loginVault         *credential.Vault
 	startService       serviceProcessStarter
 	startServiceInput  serviceProcessInputStarter
 	identityMu         sync.RWMutex
@@ -150,6 +152,21 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 	}
 	argv := append(append([]string(nil), cfg.Command[1:]...), executed)
 	output := newLockedBuffer(ctx)
+	s.mu.RLock()
+	loginVault := s.loginVault
+	s.mu.RUnlock()
+	var login loginCall
+	if loginVault != nil && newLoginCall != nil {
+		var loginErr error
+		login, loginErr = newLoginCall(ctx, loginVault, output)
+		if loginErr != nil {
+			return CallDetail{Err: loginErr}
+		}
+		if login != nil {
+			output.loginEnv = login.Environment()
+			defer func() { login.Close(); detail = login.Result(detail) }()
+		}
+	}
 	var process runningShellProcess
 	var usedService bool
 	var err error
@@ -189,6 +206,11 @@ func (s *Shell) call(ctx context.Context, item *session.Session, args map[string
 			}
 		}
 		return CallDetail{Err: err}
+	}
+	if login != nil {
+		if p, ok := process.(interface{ PID() int }); ok {
+			login.Arm(p.PID())
+		}
 	}
 	return waitShellProcess(ctx, process, usedService, timeout, cfg, output, command)
 }
@@ -351,14 +373,16 @@ func cleanConsoleOutput(value string) string {
 }
 
 type lockedBuffer struct {
-	mu       sync.Mutex
-	b        bytes.Buffer
-	ring     []byte
-	start    int
-	size     int
-	total    int64
-	partial  string
-	observer func(string)
+	loginEnv     []string
+	loginSecrets []string
+	mu           sync.Mutex
+	b            bytes.Buffer
+	ring         []byte
+	start        int
+	size         int
+	total        int64
+	partial      string
+	observer     func(string)
 }
 
 func newLockedBuffer(ctx context.Context) *lockedBuffer {
@@ -384,6 +408,11 @@ func (b *lockedBuffer) Write(p []byte) (int, error) {
 		b.total += int64(len(p))
 	}
 	observer := b.observer
+	// No live output after a login is released: a remote server may reflect it,
+	// including across writes. The final bounded output is scrubbed before use.
+	if len(b.loginSecrets) > 0 {
+		observer = nil
+	}
 	line := ""
 	if observer != nil {
 		chunk := strings.ReplaceAll(strings.ToValidUTF8(string(p), "�"), "\r", "")
@@ -412,9 +441,20 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.ring) == 0 {
-		return b.b.String()
+		value := b.b.String()
+		for _, secret := range b.loginSecrets {
+			value = strings.ReplaceAll(value, secret, "[redacted]")
+		}
+		return value
 	}
-	return string(b.ringBytes())
+	value := string(b.ringBytes())
+	for _, secret := range b.loginSecrets {
+		value = strings.ReplaceAll(value, secret, "[redacted]")
+	}
+	if len(b.loginEnv) > 0 && b.total > int64(b.size) {
+		value = fmt.Sprintf("[... %d output bytes omitted at the 1 MiB capture bound ...]\n", b.total-int64(b.size)) + value
+	}
+	return value
 }
 func (b *lockedBuffer) ringBytes() []byte {
 	out := make([]byte, b.size)

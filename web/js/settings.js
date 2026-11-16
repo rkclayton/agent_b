@@ -1475,6 +1475,16 @@ async function runAction(event, button, action, id) {
 		}
 		return render();
 	}
+	if (action === "credential-login-add") {
+		const field = id => sheet.querySelector(`#credential-login-${id}`)?.value || "";
+		credentialMessage = ""; credentialAlarm = false;
+		try {
+			credentialList = (await api("/api/credentials", {action:"add_login",name:field("name").trim(),user:field("user").trim(),host:field("host").trim(),port:field("port").trim(),secret:field("password")})).credentials || [];
+			for (const id of ["name","user","host","port","password"]) {const input=sheet.querySelector(`#credential-login-${id}`);if(input) input.value="";actionDrafts.delete(`credential-login-${id}`);}
+			credentialMessage="stored";
+		} catch(error) {credentialMessage=error.message;credentialAlarm=true;}
+		return render();
+	}
 	if (action === "credential-entra-add") {
 		const field = (selector) => sheet.querySelector(selector)?.value?.trim() || "";
 		credentialMessage = "";

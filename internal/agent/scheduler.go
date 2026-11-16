@@ -13,6 +13,7 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/session"
+	"harness/internal/tools"
 )
 
 type queuedRun struct {
@@ -247,6 +248,7 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 		s.bus.Publish(events.New(events.MessageAppended, entry.s.ID, entry.runID, map[string]any{"message": message}))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = tools.WithLoginSource(ctx, entry.source)
 	active := &activeRun{cancel: cancel, runID: entry.runID, done: make(chan struct{}), userMessageID: entry.userMessageID, source: entry.source}
 	s.active[entry.s.ID] = active
 	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID})

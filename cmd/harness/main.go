@@ -31,6 +31,9 @@ import (
 )
 
 func main() {
+	if tools.SSHAskpassMain() {
+		return
+	}
 	if executable, err := os.Executable(); err == nil {
 		_ = os.Setenv("AGENTB_EXE", executable)
 	}

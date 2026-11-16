@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -8,6 +9,24 @@ import (
 	"harness/internal/credential"
 	"harness/internal/identity"
 )
+
+type loginSourceKey struct{}
+
+func WithLoginSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, loginSourceKey{}, source)
+}
+
+type loginCall interface {
+	Environment() []string
+	Arm(int)
+	Close()
+	Result(CallDetail) CallDetail
+}
+
+var newLoginCall func(context.Context, *credential.Vault, *lockedBuffer) (loginCall, error)
+var SSHAskpassMain = func() bool { return false }
+
+func (s *Shell) SetLoginVault(v *credential.Vault) { s.mu.Lock(); s.loginVault = v; s.mu.Unlock() }
 
 type TokenProvider = identity.TokenProvider
 

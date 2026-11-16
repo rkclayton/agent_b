@@ -402,6 +402,50 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 	}
 }
 
+func TestLoginManagement2yd(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	SetCredentialVault(credential.NewVault(root))
+	t.Cleanup(func() { SetCredentialVault(nil) })
+	for _, action := range []string{"add_login", "remove", "list"} {
+		for _, mode := range []string{"no-session", "no-token", "phone", "page"} {
+			t.Run(action+"/"+mode, func(t *testing.T) {
+				body := `{"action":"` + action + `","name":"example-login","user":"someone","host":"example.org","secret":"planted-login-secret"}`
+				method := http.MethodPost
+				if action == "list" {
+					method = http.MethodGet
+				}
+				r := httptest.NewRequest(method, "/api/credentials", strings.NewReader(body))
+				authorizeMutation(r, server)
+				if mode == "no-session" {
+					r.Header.Del("Cookie")
+				}
+				if mode == "no-token" {
+					r.Header.Del("X-AgentB-Mutation-Token")
+				}
+				if mode == "phone" {
+					r = r.WithContext(context.WithValue(r.Context(), pairedDeviceContextKey{}, "fixture-device"))
+				}
+				if mode == "page" && runtime.GOOS != "windows" {
+					t.Skip("DPAPI")
+				}
+				w := httptest.NewRecorder()
+				server.Handler().ServeHTTP(w, r)
+				if (w.Code == 200) != (mode == "page") {
+					t.Fatalf("status=%d body=%s", w.Code, w.Body)
+				}
+				if strings.Contains(w.Body.String(), "planted-login-secret") {
+					t.Fatal("secret exposed")
+				}
+				if mode == "page" && action == "add_login" && !strings.Contains(w.Body.String(), `"kind":"login"`) {
+					t.Fatal(w.Body.String())
+				}
+			})
+		}
+	}
+}
+
 func TestOperatorsPageRevealsOneStoredConnectionKey2qn(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("DPAPI is Windows-only")

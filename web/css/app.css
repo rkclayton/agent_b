@@ -1604,6 +1604,18 @@
 .setting-row .settings-actions {
   margin-top: 0;
 }
+.setting-row .credential-login-fields { flex-wrap: wrap; justify-content: flex-start; max-width: 100%; }
+.setting-row:has(.credential-login-fields) { grid-template-columns: max-content minmax(0, 1fr); align-items: start; }
+.setting-row:has(.credential-login-fields) > label { padding-top: 5px; }
+.credential-login-entry { overflow-wrap: anywhere; }
+.setting-row .credential-key-fields { flex-wrap: wrap; justify-content: flex-start; max-width: 100%; }
+.setting-row:has(.credential-key-fields), .setting-row:has(.credential-login-entry) { grid-template-columns: max-content minmax(0, 1fr); align-items: start; }
+.setting-row:has(.credential-key-fields) > label, .setting-row:has(.credential-login-entry) > label { padding-top: 5px; }
+.settings-content .credential-key-fields input { width: 120px; min-width: min(120px, 100%); flex: 0 1 120px; }
+.settings-content .credential-key-fields #credential-origin { width: 160px; min-width: min(160px, 100%); flex-basis: 160px; }
+.settings-content .credential-key-fields #credential-header { width: 208px; min-width: min(208px, 100%); flex-basis: 208px; }
+.settings-content .credential-login-fields input { width: 120px; min-width: min(120px, 100%); flex: 0 1 120px; }
+.settings-content .credential-login-fields #credential-login-port { width: 80px; min-width: min(80px, 100%); flex-basis: 80px; }
 .setting-row > .profile-user-actions, .setting-row > .profile-create-actions, .setting-row > .profile-skill-import-actions, .setting-row > .profile-hermes-actions {
   display: grid;
   gap: 8px;

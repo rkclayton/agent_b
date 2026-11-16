@@ -163,6 +163,7 @@ function credentialRows() {
 	const listed = entries.length
 		? `<span class="settings-actions vertical">${entries.map((entry) => {
 			const remove = `<button type="button" data-action="credential-remove" data-id="${attr(entry.name)}" data-confirm="the credential ${attr(entry.name)}">Remove</button>`;
+			if (entry.kind === "login") return `<span class="credential-login-entry">${html(entry.name)} · login · ${html(entry.origin)} · stored ${html((entry.stored_at || "").slice(0, 10))} ${remove}</span>`;
 			if (entry.kind !== "entra" && entry.kind !== "google") return `<span>${html(entry.name)} · ${html(entry.origin)}${entry.header ? ` · ${html(entry.header)}` : " · bearer"} · stored ${html((entry.stored_at || "").slice(0, 10))} ${remove}</span>`;
 			const account = entry.account ? `signed in as ${html(entry.account)}` : "sign-in needed";
 			const device = entry.kind === "entra" && credentialDevice.name === entry.name && credentialDevice.user_code
@@ -174,7 +175,8 @@ function credentialRows() {
 		: '<span class="account-status">none stored</span>';
 	return `${subhead("Credentials", "Keys and signed-in accounts this machine holds for the services you connect to. Each one goes only to the address you approve for it — scheme, host and port — and to nothing else. A connector names a credential; it never carries its value.")}
 	${row("stored", listed)}
-	${row("add key", `<span class="settings-actions"><input id="credential-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-origin" type="text" placeholder="https://host:port" autocomplete="off" spellcheck="false"><input id="credential-header" type="text" placeholder="header (blank = bearer)" autocomplete="off" spellcheck="false"><input id="credential-secret" type="password" placeholder="the key" autocomplete="new-password" spellcheck="false"><button type="button" data-action="credential-add">Add</button></span>`, "", "The key is never shown again once stored, and never leaves this machine except to the address above. Windows protects it for your account: that is protection at rest and from other users, not from programs running as you.")}
+	${row("add key", `<span class="settings-actions credential-key-fields"><input id="credential-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-origin" type="text" placeholder="https://host:port" autocomplete="off" spellcheck="false"><input id="credential-header" type="text" placeholder="header (blank = bearer)" autocomplete="off" spellcheck="false"><input id="credential-secret" type="password" placeholder="the key" autocomplete="new-password" spellcheck="false"><button type="button" data-action="credential-add">Add</button></span>`, "", "The key is never shown again once stored, and never leaves this machine except to the address above. Windows protects it for your account: that is protection at rest and from other users, not from programs running as you.")}
+	${row("add login", `<span class="settings-actions credential-login-fields">${[["name","text"],["user","text"],["host","text"],["port","text"],["password","password"]].map(([id,type]) => `<input id="credential-login-${id}" type="${type}" placeholder="${id === "port" ? "port (22)" : id}" autocomplete="${type === "password" ? "new-password" : "off"}" spellcheck="false">`).join("")}<button type="button" data-action="credential-login-add">Add</button></span>`, "", "Used only when ssh asks for this user's password at this host. Never shown again, never given to the model, never sent to a phone. Windows protects it for your account: protection at rest and from other users, not from programs running as you.")}
 	<details class="settings-advanced"><summary>Add signed-in credential</summary>
 	${row("provider", `<select id="credential-provider"><option value="entra"${credentialProvider === "entra" ? " selected" : ""}>Microsoft Entra</option><option value="google"${credentialProvider === "google" ? " selected" : ""}>Google</option></select>`)}
 	${credentialProvider === "entra" ? `
@@ -278,7 +280,7 @@ export const securityActions = actionTable([
   "test-shell-credential", "clear-shell-credential", "setup-service-account",
   "service-identity-toggle", "disable-service-account", "refresh-service-account",
   "broker-pair", "broker-confirm", "broker-revoke", "broker-cancel",
-  "credential-add", "credential-entra-add", "credential-google-add", "credential-sign-in",
+  "credential-add", "credential-login-add", "credential-entra-add", "credential-google-add", "credential-sign-in",
   "credential-device-code", "credential-sign-out", "credential-remove",
   "apply-hardening", "verify-hardening", "refresh-hardening", "remove-hardening",
 ]);

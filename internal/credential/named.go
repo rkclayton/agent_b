@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,8 +54,9 @@ type GoogleDefinition struct {
 
 // Vault is the named-credential store under one data root.
 type Vault struct {
-	root string
-	mu   sync.Mutex
+	root   string
+	mu     sync.Mutex
+	logins map[string]Entry
 }
 
 func NewVault(dataRoot string) *Vault {
@@ -92,6 +94,7 @@ func (v *Vault) readRecords() (map[string]Entry, error) {
 }
 
 func (v *Vault) writeRecords(records map[string]Entry) error {
+	v.logins = nil
 	raw, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
@@ -104,6 +107,114 @@ func (v *Vault) writeRecords(records map[string]Entry) error {
 		return err
 	}
 	return os.Rename(temporary, v.recordPath())
+}
+
+// Login metadata is indexed once; password requests read one DPAPI record.
+func (v *Vault) loginIndex() error {
+	if v.logins != nil {
+		return nil
+	}
+	records, err := v.readRecords()
+	if err != nil {
+		return err
+	}
+	v.logins = make(map[string]Entry)
+	for _, entry := range records {
+		if entry.Kind == "login" {
+			v.logins[entry.Origin] = entry
+		}
+	}
+	return nil
+}
+
+func loginOrigin(user, host, port string) (string, error) {
+	if port == "" {
+		port = "22"
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 || user == "" || host == "" || strings.ContainsAny(user, "@\r\n\x00 /\\") || strings.ContainsAny(host, "@\r\n\x00 /\\") {
+		return "", errors.New("a login needs a user, host and port from 1 to 65535")
+	}
+	return user + "@" + host + ":" + strconv.Itoa(n), nil
+}
+
+func (v *Vault) PutLogin(name, user, host, port, password string) error {
+	origin, err := loginOrigin(user, host, port)
+	if err != nil {
+		return err
+	}
+	if password == "" || len(password) > 16384 || strings.ContainsAny(password, "\x00\r\n") {
+		return errors.New("a login needs a single-line password")
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err = v.loginIndex(); err != nil {
+		return err
+	}
+	if existing, ok := v.logins[origin]; ok && existing.Name != name {
+		return errors.New("a login for that user, host and port is already stored")
+	}
+	if len(v.logins) >= 256 {
+		if _, ok := v.logins[origin]; !ok {
+			return errors.New("the 256 stored logins are full")
+		}
+	}
+	store, err := v.store(name)
+	if err != nil {
+		return err
+	}
+	records, err := v.readRecords()
+	if err != nil {
+		return err
+	}
+	if old, ok := records[name]; ok && old.Kind != "login" {
+		return errors.New("that name belongs to another credential kind")
+	}
+	if err = store.Write([]byte(password)); err != nil {
+		return err
+	}
+	check, err := store.Read()
+	if err != nil {
+		return err
+	}
+	if string(check) != password {
+		return errors.New("the login did not read back as stored")
+	}
+	records[name] = Entry{Name: name, Kind: "login", Origin: origin, StoredAt: time.Now().UTC().Format(time.RFC3339)}
+	return v.writeRecords(records)
+}
+
+func (v *Vault) LoginName(user, host string, port int) (string, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.loginIndex(); err != nil {
+		return "", err
+	}
+	origin, err := loginOrigin(user, host, strconv.Itoa(port))
+	if err != nil {
+		return "", err
+	}
+	return v.logins[origin].Name, nil
+}
+
+func (v *Vault) LoginPassword(name, user, host string, port int) ([]byte, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.loginIndex(); err != nil {
+		return nil, err
+	}
+	origin, err := loginOrigin(user, host, strconv.Itoa(port))
+	if err != nil {
+		return nil, err
+	}
+	if entry, ok := v.logins[origin]; !ok || entry.Name != name {
+		return nil, errors.New("login binding changed")
+	}
+	store, err := v.store(name)
+	if err != nil {
+		return nil, err
+	}
+	return store.Read()
 }
 
 // List is what Settings shows: every credential by name, kind, origin and date.

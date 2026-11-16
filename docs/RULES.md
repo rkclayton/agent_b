@@ -59,6 +59,9 @@ This page describes the build of 2026-10-16.
 | Scope required | A saved note omits its scope. | `error: scope is required: user, repository, environment, or planner` | always | operator 2026-10-08 |
 | **Scheduling** |  |  |  |  |
 
+| Stored SSH password once | The verified SSH child repeats its password prompt after receiving a stored login. | stored login for user@host was refused | stored login | operator 2026-11-16, item 2yd |
+| Only the matching SSH password prompt | A prompt is for another user/host/port, a host key, a key passphrase or anything else. No password is sent; only this call's verified SSH child is ended so Windows SSH cannot send an empty password instead. No command option is refused. | no stored login for user@host for a password mismatch; otherwise the SSH failure | stored login | operator 2026-11-16, item 2yd |
+
 ## 3 A RESULT IS CHANGED
 
 | Rule | When | You see | Set where | Asked by |
@@ -76,6 +79,7 @@ This page describes the build of 2026-10-16.
 | **Scheduling** |  |  |  |  |
 
 ## WHAT IS NOT A RULE
+
 
 
 The per-result window pointer tells the model where the saved remainder is; it adds no stop or refusal.

@@ -664,3 +664,27 @@ func TestInstallerVerificationOutcome2y6(t *testing.T) {
 		t.Fatalf("verification outcome=%+v", outcome)
 	}
 }
+
+func TestNativeSwapWaitsForTransientSharingHandle(t *testing.T) {
+	root := t.TempDir()
+	old, next := filepath.Join(root, "app.exe"), filepath.Join(root, "next.exe")
+	os.WriteFile(old, []byte("old"), 0600)
+	os.WriteFile(next, []byte("new"), 0600)
+	attempts := 0
+	err := swapNativeFile(next, old, func(from, to string) error {
+		if from == old {
+			attempts++
+			if attempts < 3 {
+				return &os.PathError{Op: "rename", Path: from, Err: syscall.Errno(32)}
+			}
+		}
+		return os.Rename(from, to)
+	}, os.Remove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(old)
+	if err != nil || string(data) != "new" || attempts != 3 {
+		t.Fatalf("swap bytes=%q attempts=%d err=%v", data, attempts, err)
+	}
+}

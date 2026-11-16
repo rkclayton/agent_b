@@ -184,6 +184,7 @@ func pathWithin(child, parent string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
 }
+
 // replaceDirectory copies the new tree beside the old one and swaps it in by
 // rename, so a failure leaves the installed folder as it was. Item 2x0: removing
 // the old tree first met a script still held for a moment after its process
@@ -313,14 +314,14 @@ func swapNativeFile(temporary, destination string, rename func(string, string) e
 		if err := remove(backup); err != nil && !os.IsNotExist(err) {
 			return nativeFileFailure{"remove stale replacement backup", backup, err}
 		}
-		if err := rename(destination, backup); err != nil {
+		if err := retryNativeRename(rename, destination, backup); err != nil {
 			return nativeFileFailure{"rename installed file aside", destination, err}
 		}
 	}
-	if err := rename(temporary, destination); err != nil {
+	if err := retryNativeRename(rename, temporary, destination); err != nil {
 		failure := nativeFileFailure{"rename staged file into place", destination, err}
 		if oldExists {
-			if restoreErr := rename(backup, destination); restoreErr != nil {
+			if restoreErr := retryNativeRename(rename, backup, destination); restoreErr != nil {
 				return fmt.Errorf("%w; restore failed: %v", failure, nativeFileFailure{"restore installed file", destination, restoreErr})
 			}
 		}
@@ -369,4 +370,17 @@ func treeBytes(root string) (int64, error) {
 }
 func quoteWindowsArgument(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+// A stopped process can leave a transient image-sharing handle behind.
+func retryNativeRename(rename func(string, string) error, from, to string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := rename(from, to)
+		var code syscall.Errno
+		if err == nil || !errors.As(err, &code) || (code != 32 && code != 33) || !time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

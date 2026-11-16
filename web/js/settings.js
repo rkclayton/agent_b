@@ -1891,6 +1891,9 @@ async function blur(event) {
     if (input.dataset.kind === "secret" && !input.value) return;
     const ids = String(input.dataset.serverIds || "").split(",").filter(Boolean);
     const field = input.dataset.serverField;
+    if (field === "stop_when_idle_minutes" && (!input.value.trim() || !Number.isInteger(Number(input.value)) || Number(input.value) < 0)) {
+      errors.set(`servers.${input.dataset.serverKey}`, "Enter a whole number of minutes, 0 or more"); render(); return;
+    }
     const paths = ids.map((id) => `connections.${id}.${field}`);
     // Input already records the draft. A redraw can move focus from a fresh
     // copy of the same field; that is not a second edit and must not write the

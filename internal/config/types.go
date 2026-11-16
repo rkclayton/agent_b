@@ -321,11 +321,14 @@ type Connection struct {
 	Models               []ConnectionModel `json:"-"`
 	// MaxConcurrent overrides how many runs this server serves at once;
 	// zero uses its reported capacity, then one. The global cap still applies.
-	MaxConcurrent       int  `json:"max_concurrent,omitempty"`
-	StopWhenIdleMinutes *int `json:"stop_when_idle_minutes,omitempty"`
-	initialized         bool
-	exposeActive        bool
-	serverGroup         string
+	MaxConcurrent                   int    `json:"max_concurrent,omitempty"`
+	StopWhenIdleMinutes             *int   `json:"stop_when_idle_minutes,omitempty"`
+	StartCommand                    string `json:"start_command,omitempty"`
+	StopCommand                     string `json:"stop_command,omitempty"`
+	startCommandSet, stopCommandSet bool
+	initialized                     bool
+	exposeActive                    bool
+	serverGroup                     string
 }
 
 // ConnectionModel holds every value whose truth depends on which model answers.
@@ -636,5 +639,7 @@ func (p Connection) MarshalJSON() ([]byte, error) {
 	if p.serverGroup != "" {
 		document["server_group"] = p.serverGroup
 	}
+	document["local_server"] = LocalServerAddress(p.BaseURL)
+	document["start_command_set"], document["stop_command_set"] = p.startCommandSet, p.stopCommandSet
 	return json.Marshal(document)
 }

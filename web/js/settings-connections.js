@@ -42,7 +42,11 @@ export function connectionHealth(state, id) {
 }
 export function managedModelText(model) { return `${model.model} · ${(Number(model.bytes || 0) / 1024 ** 3).toFixed(1)} GB · ${model.state === "failed" ? "did not start" : model.state}`; }
 export function updateManagedModelRow(row, model) {
+  if (row.classList.contains("server-row")) {
+    row.querySelector(".connection-state").textContent = model.state === "failed" ? "did not start" : model.state;
+  } else {
   row.querySelector(".connection-url").textContent = managedModelText(model);
+  }
   row.querySelector(".lamp").className = `lamp ${model.state === "running" ? "ready" : model.state === "loading" ? "amber" : model.state === "failed" ? "alarm" : ""}`;
   const stop = model.state === "loading" || model.state === "running", button = row.querySelector('[data-action="model-start"],[data-action="model-stop"]');
   button.dataset.action = stop ? "model-stop" : "model-start"; button.textContent = stop ? "Stop" : "Start";
@@ -70,8 +74,8 @@ function connections() {
   const rows = groups.map((group) => {
     const serverOpen = expanded.has(`server:${group.key}`);
     const first = group.connections[0];
-    const managed = store.model_states?.[first.id];
-    if (managed) {
+    const managed = first.id === "installed-local" || first.start_command_set ? store.model_states?.[first.id] : null;
+    if (managed && first.id === "installed-local") {
       const path = `connections.${first.id}.stop_when_idle_minutes`;
       const idle = drafts.has(path) ? drafts.get(path) : first.stop_when_idle_minutes ?? 60;
       const stop = managed.state === "running" || managed.state === "loading";
@@ -92,11 +96,13 @@ function connections() {
       return first[field] ?? "";
     };
     const serverProtocol = String(serverValue("protocol"));
+    const commandFields = first.local_server ? ["start_command", "stop_command"].map(field => `<div class="setting-row"><label>${field === "start_command" ? "start command" : "stop command"}</label><input class="setting-input" type="password" autocomplete="off" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="${field}" data-kind="text" value="" placeholder="${first[`${field}_set`] ? "stored" : field === "stop_command" ? "optional" : ""}"></div>`).join("") + (first.start_command_set ? `<div class="setting-row"><label>stop when idle</label><input class="setting-input number" type="number" min="0" step="1" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="stop_when_idle_minutes" data-kind="number" value="${attr(serverValue("stop_when_idle_minutes") === "" ? 60 : serverValue("stop_when_idle_minutes"))}"><span>minutes · 0 = never</span></div>` : "") : "";
     const serverEditor = serverOpen ? `<section class="connection-editor server-editor" aria-label="${attr(address)} server settings"><div class="connection-fields connection-server-fields">
       <div class="setting-row"><label>address</label><input class="setting-input" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="base_url" data-kind="text" value="${attr(serverValue("base_url"))}"></div>
       <div class="setting-row"><label>key</label><input class="setting-input" type="password" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="api_key" data-kind="secret" value="" placeholder="${first.api_key ? "stored" : ""}"></div>
       <div class="setting-row"><label>protocol</label><select class="setting-input" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="protocol" data-kind="text">${["chat-completions", "anthropic-messages", "openai-responses"].map((value) => `<option value="${value}" ${serverProtocol === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>
       <div class="setting-row"><label>timeout</label><input class="setting-input number" type="number" step="1" data-server-key="${attr(group.key)}" data-server-ids="${attr(ids)}" data-server-field="request_timeout_s" data-kind="number" value="${attr(serverValue("request_timeout_s"))}"></div>
+      ${commandFields}
     </div></section>` : "";
     const models = group.connections.map((connection) => {
       const isOpen = expanded.has(connection.id);
@@ -111,7 +117,8 @@ function connections() {
         <span class="connection-actions"><button type="button" class="row-action" data-action="duplicate-connection" data-id="${attr(connection.id)}" aria-label="Duplicate ${attr(connection.label)}" title="Duplicate ${attr(connection.label)}">${connectionIcons.duplicate}</button><button type="button" class="row-action" data-action="remove-connection" data-id="${attr(connection.id)}" data-confirm="${attr(connection.label)}" aria-label="Delete ${attr(connection.label)}" title="Delete ${attr(connection.label)}">${connectionIcons.trash}</button></span>
         ${refusal ? errorMarkup(refusal, `connection:${connection.id}:refusal`, "connection-refusal alarm") : ""}${!isOpen ? failedTestLine(feedback, connection.id) : ""}</div>${editor}`;
     }).join("");
-    return `<div class="connection-row server-row ${serverOpen ? "selected" : ""} ${serverRefusal ? "refused" : ""}" data-action="server-toggle" data-id="${attr(group.key)}" role="button" tabindex="0" aria-expanded="${serverOpen}"><span class="connection-summary"><span class="lamp ${health.lamp}"></span><strong>${html(address)}</strong><span class="connection-url">${group.connections.length} model${group.connections.length === 1 ? "" : "s"}</span><span class="connection-state">${html(health.word)}</span></span>${serverRefusal ? errorMarkup(serverRefusal, `server:${group.key}:refusal`, "connection-refusal alarm") : ""}</div>${serverEditor}${models}<button type="button" class="connection-add-model" data-action="add-server-model" data-id="${attr(first.id)}">+ Add model</button>`;
+    const managedAction = managed ? `<button type="button" data-action="model-${["running","loading"].includes(managed.state) ? "stop" : "start"}" data-id="${attr(first.id)}">${["running","loading"].includes(managed.state) ? "Stop" : "Start"}</button>` : "";
+    return `<div class="connection-row server-row ${serverOpen ? "selected" : ""} ${serverRefusal ? "refused" : ""}" ${managed ? `data-managed-model="${attr(first.id)}"` : ""} data-action="server-toggle" data-id="${attr(group.key)}" role="button" tabindex="0" aria-expanded="${serverOpen}"><span class="connection-summary"><span class="lamp ${managed ? managed.state === "running" ? "ready" : managed.state === "loading" ? "amber" : managed.state === "failed" ? "alarm" : "" : health.lamp}"></span><strong>${html(address)}</strong><span class="connection-url">${group.connections.length} model${group.connections.length === 1 ? "" : "s"}</span><span class="connection-state">${html(managed ? managed.state === "failed" ? "did not start" : managed.state : health.word)}</span></span>${managedAction}${serverRefusal ? errorMarkup(serverRefusal, `server:${group.key}:refusal`, "connection-refusal alarm") : ""}</div>${serverEditor}${models}<button type="button" class="connection-add-model" data-action="add-server-model" data-id="${attr(first.id)}">+ Add model</button>`;
   }).join("");
   const connectionPath = "images.connection";
   const modelPath = "images.model";

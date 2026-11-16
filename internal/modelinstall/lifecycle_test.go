@@ -4,15 +4,63 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"harness/internal/quietproc"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestCustomAlreadyAnsweringNeedsStopCommand2yb(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	defer server.Close()
+	c := NewController(nil)
+	defer c.Close()
+	_ = c.Configure(Spec{ID: "custom", URL: server.URL, StartCommand: "must never run", IdleMinutes: 0})
+	if err := c.Start(context.Background(), "custom"); err != nil {
+		t.Fatal(err)
+	}
+	if c.State("custom").State != "running" {
+		t.Fatal("not running")
+	}
+	if err := c.Stop("custom", "requested"); !errors.Is(err, ErrStopCommandRequired) {
+		t.Fatal("unowned server needs explicit stop command")
+	}
+	if c.State("custom").State != "running" {
+		t.Fatal("still answering server lost running state")
+	}
+}
+
+func TestCommandConfigurationRetainsOnlyCurrentEntries2yb(t *testing.T) {
+	c := NewController(nil)
+	defer c.Close()
+	for i := range 30 {
+		_ = c.Configure(Spec{ID: fmt.Sprintf("saved-%d", i), StartCommand: "fixture", IdleMinutes: 0})
+	}
+	began := time.Now()
+	for i := range 10000 {
+		id := fmt.Sprint(i)
+		_ = c.Configure(Spec{ID: id, StartCommand: "fixture", IdleMinutes: 0})
+		c.UnconfigureCommand(id)
+	}
+	if len(c.States()) != 30 {
+		t.Fatal("removed command configurations retained")
+	}
+	t.Logf("30 configured connections, 10000 configure/remove cycles: %s, retained entries=30", time.Since(began))
+	for _, state := range c.States() {
+		c.UnconfigureCommand(state.ConnectionID)
+	}
+	if len(c.States()) != 0 {
+		t.Fatal("cleared table retains entries")
+	}
+}
 
 func TestManagedMigrationOnlyOwnLauncher(t *testing.T) {
 	root, startup := t.TempDir(), t.TempDir()
@@ -78,11 +126,90 @@ func TestManagedStopWhileLoadingAndBoundedStarts(t *testing.T) {
 
 func TestManagedStandIn(t *testing.T) {
 	args := os.Args
+	if len(args) >= 3 && args[len(args)-2] == "--model-stop" {
+		response, err := http.Get(args[len(args)-1] + "/stop")
+		if err == nil {
+			response.Body.Close()
+		}
+		os.Exit(0)
+	}
 	if len(args) < 3 || args[len(args)-2] != "--model-standin" {
 		return
 	}
-	_ = http.ListenAndServe("127.0.0.1:"+args[len(args)-1], http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok") }))
+	_ = http.ListenAndServe("127.0.0.1:"+args[len(args)-1], http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stop" {
+			go func() { time.Sleep(10 * time.Millisecond); os.Exit(0) }()
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
 	os.Exit(0)
+}
+
+func TestSavedCommandTreeStopAndIdle2yb(t *testing.T) {
+	root := t.TempDir()
+	executable, _ := os.Executable()
+	content, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "stand-in")
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	if err := os.WriteFile(path, content, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"idle", "stop-command", "already-running"} {
+		t.Run(mode, func(t *testing.T) {
+			explicit := mode != "idle"
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			port := listener.Addr().(*net.TCPAddr).Port
+			listener.Close()
+			s := Spec{ID: "command", Root: root, URL: fmt.Sprintf("http://127.0.0.1:%d", port), IdleMinutes: 1, StartCommand: fmt.Sprintf(`"%s" -test.run=TestManagedStandIn -- --model-standin %d`, path, port)}
+			if explicit {
+				s.StopCommand = fmt.Sprintf(`"%s" -test.run=TestManagedStandIn -- --model-stop %s`, path, s.URL)
+			}
+			if mode == "already-running" {
+				outside, err := launchCommand(s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer outside.stop()
+				if err := waitHealth(context.Background(), &http.Client{Timeout: time.Second}, s.URL+"/health", 10*time.Second); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c := NewController(nil)
+			defer c.Close()
+			if err := c.Configure(s); err != nil {
+				t.Fatal(err)
+			}
+			release, err := c.Acquire(context.Background(), s.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.State(s.ID).State != "running" {
+				t.Fatal("command not ready")
+			}
+			release()
+			if explicit {
+				if err := c.Stop(s.ID, "requested"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				c.mu.Lock()
+				c.entries[s.ID].last = time.Now().Add(-2 * time.Minute)
+				c.mu.Unlock()
+				c.Tick()
+			}
+			if c.State(s.ID).State != "stopped" || commandReady(context.Background(), s) {
+				t.Fatal("launched child survived stop")
+			}
+		})
+	}
 }
 func TestManagedExecutableOwnershipAdoptionAndQuit(t *testing.T) {
 	root := t.TempDir()
@@ -111,6 +238,21 @@ func TestManagedExecutableOwnershipAdoptionAndQuit(t *testing.T) {
 	s, err = LoadSpec(root, "", s.URL)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		cmd := quietproc.Quiet(exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", `(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:MODEL_FIXTURE_ROOT).ShortPath`))
+		cmd.Env = append(os.Environ(), "MODEL_FIXTURE_ROOT="+root)
+		short, err := cmd.Output()
+		if err != nil {
+			t.Fatal("fixture short path unavailable")
+		}
+		alias := strings.TrimSpace(string(short))
+		if alias == "" {
+			t.Fatal("fixture short path empty")
+		}
+		s.Root = alias
+		s.Executable = filepath.Join(alias, filepath.Base(own))
+		t.Logf("short path spelling differs=%v", !strings.EqualFold(alias, root))
 	}
 	c := NewController(nil)
 	defer c.Close()

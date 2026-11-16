@@ -42,6 +42,7 @@ This page describes the build of 2026-10-16.
 
 | Rule | When | You see | Set where | Asked by |
 | --- | --- | --- | --- | --- |
+| Local server ownership | Stop targets a server the app did not launch and no stop command is saved. | Save a stop command for a server started outside this app | Connections → server → stop command | operator 2026-11-16, item 2yb |
 | **Your approval** |  |  |  |  |
 | Elevated application start | Agent_b starts with an elevated Administrator token. | SECURITY: Agent_b refuses to run with an elevated Administrator token; local administrators can launch it normally by double-clicking start-Agent_b.cmd in File Explorer (do not use Run as administrator) | always | item 2as |
 | User override unavailable | A tool has no implementation for running as the signed-in user. | `error: tool %s has no user-identity override` | always | built-in |
@@ -75,6 +76,7 @@ This page describes the build of 2026-10-16.
 | **Scheduling** |  |  |  |  |
 
 ## WHAT IS NOT A RULE
+
 
 The per-result window pointer tells the model where the saved remainder is; it adds no stop or refusal.
 The engine-benched header reports the dated engine state; it adds no restriction beyond the row above.

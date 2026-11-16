@@ -86,6 +86,7 @@ affected.
 `model.state` is a session-less event sent on join and whenever a managed model changes state. Its data is `{connection_id,state,reason,model,bytes}`: `state` is `stopped`, `loading`, `running` or `failed`; `reason` is `idle`, `requested`, `ready`, `starting`, `exited`, `ownership`, `launch` or `health`. `model` is a display label and `bytes` is the size of the installed files. No command, executable path or credential is sent. Older devices ignore this unknown event type.
 
 The `model.start` and `model.stop` requests each take exactly `{connection_id}` and operate only on the installed managed connection. Their response data uses the same state shape. They use the existing request-id replay contract; repeating an id does not launch or stop twice. They require the PC to be signed in and Agent_b to be running and paired.
+The same state and requests also cover local servers with a saved start command; command text stays on the PC and cannot be read or set by a device.
 Start returns the current state promptly while readiness proceeds in the background; state events report completion, and Stop remains available during loading.
 
 ## Splitting a unit that does not fit

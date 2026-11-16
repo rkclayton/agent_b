@@ -124,6 +124,9 @@ export function reduce(event) {
     case "config.changed":
       store.config = data.config;
       store.connections = data.config.connections || store.connections;
+      for (const id of Object.keys(store.model_states || {})) {
+        if (!store.connections.some(connection => connection.id === id && (id === "installed-local" || connection.start_command_set))) delete store.model_states[id];
+      }
       store.profiles = data.profiles || data.config.profiles || store.profiles;
       if (typeof data.config.shell?.operator_context === "boolean") {
         store.shell_identity = { ...(store.shell_identity || {}), operator_context: data.config.shell.operator_context };

@@ -22,6 +22,8 @@ type Spec struct {
 	Args, Files                      []string
 	Bytes                            int64
 	IdleMinutes                      int
+	StartCommand, StopCommand        string `json:"-"`
+	APIKey                           string `json:"-"`
 }
 type ModelState struct {
 	ConnectionID string `json:"connection_id"`
@@ -31,9 +33,19 @@ type ModelState struct {
 	Bytes        int64  `json:"bytes"`
 }
 type managedProcess struct {
-	stop   func() error
-	exited func() bool
+	stop        func() error
+	exited      func() bool
+	commandStop func(string) error
+	release     func()
 }
+
+func (e *managedEntry) stopProcess() error {
+	if e.process.commandStop != nil {
+		return e.process.commandStop(e.spec.StopCommand)
+	}
+	return e.process.stop()
+}
+
 type managedEntry struct {
 	asyncDone   chan struct{}
 	asyncCancel context.CancelFunc
@@ -60,6 +72,20 @@ type Controller struct {
 func NewController(changed func(ModelState)) *Controller {
 	c := &Controller{entries: map[string]*managedEntry{}, changed: changed, now: time.Now, launch: launchManaged, find: findManaged, quit: make(chan struct{})}
 	c.health = func(ctx context.Context, s Spec) error {
+		if s.StartCommand != "" {
+			deadline, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+			for {
+				if commandReady(deadline, s) {
+					return nil
+				}
+				select {
+				case <-deadline.Done():
+					return deadline.Err()
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+		}
 		return waitHealth(ctx, &http.Client{Timeout: time.Second}, s.URL+"/health", 60*time.Second)
 	}
 	go func() {
@@ -84,10 +110,16 @@ func (c *Controller) Configure(s Spec) error {
 	defer c.mu.Unlock()
 	if e := c.entries[s.ID]; e != nil {
 		e.spec.IdleMinutes = s.IdleMinutes
+		if s.StartCommand != "" {
+			e.spec = s
+		}
 		return nil
 	}
 	// Connections are bounded by configuration; no historical states are retained.
 	c.entries[s.ID] = &managedEntry{spec: s, state: ModelState{s.ID, "stopped", "requested", s.Label, s.Bytes}, last: c.now()}
+	if s.StartCommand != "" {
+		c.set(c.entries[s.ID], "stopped", "requested")
+	}
 	return nil
 }
 func (c *Controller) set(e *managedEntry, state, reason string) {
@@ -308,7 +340,11 @@ func (c *Controller) Stop(id, reason string) error {
 		return c.Stop(id, reason)
 	}
 	if e.process != nil {
-		if err := e.process.stop(); err != nil {
+		if err := e.stopProcess(); err != nil {
+			if errors.Is(err, ErrStopCommandRequired) {
+				c.mu.Unlock()
+				return err
+			}
 			c.set(e, "failed", "ownership")
 			c.mu.Unlock()
 			return err
@@ -319,6 +355,58 @@ func (c *Controller) Stop(id, reason string) error {
 	c.mu.Unlock()
 	return nil
 }
+
+var ErrStopCommandRequired = errors.New("Save a stop command for a server started outside this app")
+
+func commandReady(ctx context.Context, s Spec) bool {
+	client := &http.Client{Timeout: 250 * time.Millisecond, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	base := strings.TrimRight(s.URL, "/")
+	for _, endpoint := range []string{strings.TrimSuffix(base, "/v1") + "/health", base + "/models", strings.TrimSuffix(base, "/v1") + "/v1/models"} {
+		r, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+		if err != nil {
+			continue
+		}
+		if s.APIKey != "" {
+			r.Header.Set("Authorization", "Bearer "+s.APIKey)
+		}
+		response, err := client.Do(r)
+		if err == nil {
+			response.Body.Close()
+			if response.StatusCode >= 200 && response.StatusCode < 300 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func findCommand(s Spec) (*managedProcess, error) {
+	if !commandReady(context.Background(), s) {
+		return nil, nil
+	}
+	stop := func(command string) error {
+		if command == "" {
+			return ErrStopCommandRequired
+		}
+		copy := s
+		copy.StopCommand = command
+		if err := runStopCommand(copy); err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for commandReady(ctx, s) {
+			select {
+			case <-ctx.Done():
+				return errors.New("server still answers after stop command")
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+		return ctx.Err()
+	}
+	return &managedProcess{exited: func() bool { return !commandReady(context.Background(), s) }, stop: func() error { return stop(s.StopCommand) }, commandStop: stop}, nil
+}
+
 func (c *Controller) Acquire(ctx context.Context, id string) (func(), error) {
 	c.mu.Lock()
 	e := c.entries[id]
@@ -355,7 +443,7 @@ func (c *Controller) Tick() {
 			if err == nil {
 				c.set(e, "running", "ready")
 			} else if c.now().Sub(e.last) >= 60*time.Second {
-				if e.process.stop() == nil {
+				if e.stopProcess() == nil {
 					e.process = nil
 				}
 				c.set(e, "failed", "health")
@@ -363,7 +451,7 @@ func (c *Controller) Tick() {
 			continue
 		}
 		if e.active == 0 && e.spec.IdleMinutes > 0 && c.now().Sub(e.last)/time.Minute >= time.Duration(e.spec.IdleMinutes) {
-			if e.process.stop() == nil {
+			if e.stopProcess() == nil {
 				e.process = nil
 				c.set(e, "stopped", "idle")
 			}
@@ -419,6 +507,38 @@ func (c *Controller) Forget(id string) {
 	if e := c.entries[id]; e != nil && e.process == nil && e.done == nil {
 		delete(c.entries, id)
 	}
+}
+
+// Removing command configuration relinquishes control; it does not stop an
+// already running server. In-flight starts finish cancellation before removal.
+func (c *Controller) UnconfigureCommand(id string) {
+	c.mu.Lock()
+	e := c.entries[id]
+	if e == nil || e.spec.StartCommand == "" {
+		c.mu.Unlock()
+		return
+	}
+	if e.asyncDone != nil {
+		e.asyncCancel()
+		done := e.asyncDone
+		c.mu.Unlock()
+		<-done
+		c.UnconfigureCommand(id)
+		return
+	}
+	if e.done != nil {
+		e.cancel()
+		done := e.done
+		c.mu.Unlock()
+		<-done
+		c.UnconfigureCommand(id)
+		return
+	}
+	if e.process != nil && e.process.release != nil {
+		e.process.release()
+	}
+	delete(c.entries, id)
+	c.mu.Unlock()
 }
 func insideRoot(root, path string) bool {
 	root, err := filepath.EvalSymlinks(root)

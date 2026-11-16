@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"harness/internal/broker"
 	"harness/internal/credential"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -287,6 +289,9 @@ func (c Config) Masked() Config {
 	out.Connections = make([]Connection, len(c.Connections))
 	copy(out.Connections, c.Connections)
 	for i := range out.Connections {
+		out.Connections[i].startCommandSet = out.Connections[i].StartCommand != ""
+		out.Connections[i].stopCommandSet = out.Connections[i].StopCommand != ""
+		out.Connections[i].StartCommand, out.Connections[i].StopCommand = "", ""
 		out.Connections[i].exposeActive = true
 		key := "none"
 		if out.Connections[i].Credential != "" {
@@ -301,6 +306,20 @@ func (c Config) Masked() Config {
 		}
 	}
 	return out
+}
+
+// LocalServerAddress does not resolve arbitrary DNS names into launch authority.
+func LocalServerAddress(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	name, _ := os.Hostname()
+	return host == "localhost" || (name != "" && strings.EqualFold(host, strings.TrimSuffix(name, ".")))
 }
 
 func (c Config) Connection(id string) (*Connection, bool) {

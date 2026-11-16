@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,43 @@ import (
 
 	"harness/internal/credential"
 )
+
+func TestLocalCommandsStayOnPC2yb(t *testing.T) {
+	name, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !LocalServerAddress("http://" + strings.ToUpper(name) + ".:8080") {
+		t.Fatal("machine hostname was not recognized")
+	}
+	for _, address := range []string{"http://localhost:8080", "http://127.4.3.2:8080", "http://[::1]:8080", "http://[::ffff:127.0.0.1]:8080"} {
+		if !LocalServerAddress(address) {
+			t.Errorf("not local: %s", address)
+		}
+	}
+	userinfo := &url.URL{Scheme: "http", Host: "localhost:8080", User: url.User("someone")}
+	if LocalServerAddress(userinfo.String()) {
+		t.Fatal("userinfo address accepted")
+	}
+	for _, address := range []string{"https://example.test", "http://localhost.example.test", "http://192.0.2.1", "http://someone@example.org"} {
+		if LocalServerAddress(address) {
+			t.Errorf("remote accepted: %s", address)
+		}
+	}
+	cfg := Defaults(t.TempDir())
+	cfg.Connections = []Connection{{ID: "local", BaseURL: "http://localhost:8080", StartCommand: "planted-start-secret", StopCommand: "planted-stop-secret"}}
+	public, err := json.Marshal(cfg.Masked())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(public, []byte("planted-")) {
+		t.Fatal("command escaped in public config")
+	}
+	private, _ := json.Marshal(cfg)
+	if !bytes.Contains(private, []byte("planted-start-secret")) {
+		t.Fatal("command not persisted")
+	}
+}
 
 func TestSaveSkipsByteIdenticalConfig2l0(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")

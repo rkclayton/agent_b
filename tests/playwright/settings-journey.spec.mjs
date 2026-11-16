@@ -861,7 +861,7 @@ test("servers group their models and add one without repeating server fields 2y4
   await page.locator('.model-row[data-id="ui-second"]').click();
   await page.locator(".server-row").first().click();
   const server = page.locator(".server-editor");
-  await expect(server.locator("[data-server-field]")).toHaveCount(4);
+  expect(await server.locator("[data-server-field]").evaluateAll(fields => fields.map(field => field.dataset.serverField))).toEqual(["base_url", "api_key", "protocol", "request_timeout_s", "start_command", "stop_command"]);
   for (const [name, width, height] of [["narrow", 304, 700], ["medium", 1280, 800], ["wide", 1920, 1080]]) { await page.setViewportSize({ width, height }); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]); await page.screenshot({ path: join(evidence, `2y4-server-open-${name}.png`) }); }
   const address = server.locator('[data-server-field="base_url"]');
   const original = await address.inputValue();

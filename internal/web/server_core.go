@@ -801,6 +801,7 @@ func (s *Server) saveMachineConfig(cfg config.Config) error {
 		err = s.profiles.SaveMachine(cfg)
 	}
 	if err == nil && s.models != nil {
+		s.configureCommandModels(cfg)
 		for _, c := range cfg.Connections {
 			if s.models.State(c.ID).ConnectionID != "" {
 				idle := 60

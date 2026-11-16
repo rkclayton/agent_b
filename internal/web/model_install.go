@@ -61,6 +61,34 @@ func (s *Server) initModelInstaller() {
 			}
 		}
 	}
+	s.configureCommandModels(*s.cfg)
+}
+
+func (s *Server) configureCommandModels(cfg config.Config) {
+	keep := map[string]bool{"installed-local": true}
+	for _, connection := range cfg.Connections {
+		if connection.ID == "installed-local" {
+			continue
+		}
+		if connection.StartCommand == "" || !config.LocalServerAddress(connection.BaseURL) {
+			continue
+		}
+		keep[connection.ID] = true
+		idle := 60
+		if connection.StopWhenIdleMinutes != nil {
+			idle = *connection.StopWhenIdleMinutes
+		}
+		fresh := s.models.State(connection.ID).ConnectionID == ""
+		_ = s.models.Configure(modelinstall.Spec{ID: connection.ID, Root: s.profileRoot(), URL: connection.BaseURL, Label: connection.Model, IdleMinutes: idle, StartCommand: connection.StartCommand, StopCommand: connection.StopCommand, APIKey: connection.APIKey})
+		if fresh {
+			_ = s.models.Adopt(connection.ID)
+		}
+	}
+	for _, state := range s.models.States() {
+		if !keep[state.ConnectionID] {
+			s.models.UnconfigureCommand(state.ConnectionID)
+		}
+	}
 }
 
 func (s *Server) modelStates() map[string]modelinstall.ModelState {
@@ -109,6 +137,14 @@ func (s *Server) modelControl(w http.ResponseWriter, r *http.Request) {
 		err = s.models.Stop(body.ID, "requested")
 	}
 	if err != nil {
+		if errors.Is(err, modelinstall.ErrStopCommandRequired) {
+			writeError(w, 409, err.Error(), "model_control")
+			return
+		}
+		if connection, ok := s.ConfigSnapshot().Connection(body.ID); ok && connection.StartCommand != "" {
+			writeError(w, 409, "Server did not start or stop; check the saved commands", "model_control")
+			return
+		}
 		writeError(w, 409, "Model did not start or stop; check the installed files", "model_control")
 		return
 	}

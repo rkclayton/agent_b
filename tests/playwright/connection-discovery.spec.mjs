@@ -963,6 +963,45 @@ test("connection runs-at-once saves, clears, and stays whole at both widths 2v4"
   await page.close();
 });
 
+test("local command editor stays private and remote rows have no fields 2yb", async () => {
+  const page=await harness.context.newPage({viewport:{width:1280,height:860}});
+  await page.addInitScript(()=>{const Original=EventSource;window.fixtureSources=[];window.EventSource=class extends Original{constructor(...args){super(...args);window.fixtureSources.push(this)}}});
+  await page.goto(`${harness.base}/chat`);await openSettings(page);await page.locator('.settings-nav [data-id="connections"]').click();
+  await expect(page.locator('.server-row .connection-state').first()).not.toHaveText('checking');
+  await page.evaluate(()=>window.fixtureSources.forEach(source=>source.close()));
+  await page.evaluate(async()=>{const {store,reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);const base=store.config.connections[0];reduce({type:'config.changed',data:{config:{...store.config,connections:[{...base,id:'custom',base_url:'http://localhost:8080',local_server:true,server_group:'local',start_command_set:false},{...base,id:'remote',base_url:'https://example.test',local_server:false,server_group:'remote'}]}}});});
+  await expect(page.locator('[data-action="model-start"]')).toHaveCount(0);
+  await page.locator('[data-action="server-toggle"][data-id="local"]').click();
+  await expect(page.locator('[data-server-field="start_command"]')).toBeVisible();await expect(page.locator('[data-server-field="stop_command"]')).toBeVisible();
+  await expect(page.locator('[data-server-field="stop_when_idle_minutes"]')).toHaveCount(0);
+  await page.locator('[data-action="server-toggle"][data-id="remote"]').click();
+  await expect(page.locator('.server-editor').filter({has:page.locator('[data-server-ids="remote"]')}).locator('[data-server-field="start_command"]')).toHaveCount(0);
+  await page.locator('[data-action="server-toggle"][data-id="remote"]').click();
+  await page.evaluate(async()=>{const {store,reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);reduce({type:'config.changed',data:{config:{...store.config,connections:store.config.connections.map(c=>c.id==='custom'?{...c,start_command_set:true}:c)}}});});
+  const folder='logs/evidence/rel-1.62.213/captures';await mkdir(folder,{recursive:true});
+  for(const width of [304,1280,1920]){
+    await page.setViewportSize({width,height:width===304?254:width===1920?1080:860});
+    const editor=page.locator('.server-editor').filter({has:page.locator('[data-server-ids="custom"]')});
+    await expect(editor.locator('[data-server-field="stop_when_idle_minutes"]')).toHaveValue('60');
+    await editor.screenshot({path:`${folder}/editor-${width}.png`});
+    for(const field of ['start_command','stop_command','stop_when_idle_minutes']) {
+      await editor.locator(`[data-server-field="${field}"]`).locator('..').scrollIntoViewIfNeeded();
+      await page.screenshot({path:`${folder}/editor-${field}-${width}.png`});
+    }
+    const editorFindings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'.server-editor'));
+    await writeFile(`${folder}/layout-editor-${width}.json`,JSON.stringify(editorFindings));expect(editorFindings).toEqual([]);
+    for(const state of ['stopped','loading','running','failed']){
+      await page.evaluate(async state=>{const {reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);reduce({type:'model.state',data:{connection_id:'custom',state,reason:'requested',model:'Example model',bytes:0}})},state);
+      const row=page.locator('[data-managed-model="custom"]');await expect(row).toContainText(state==='failed'?'did not start':state);
+      await expect(row.locator('.connection-state')).toBeVisible();
+      await expect(row.getByRole('button',{name:['loading','running'].includes(state)?'Stop':'Start',exact:true})).toBeVisible();
+      await row.screenshot({path:`${folder}/row-${state}-${width}.png`});
+      const findings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'[data-managed-model="custom"]'));await writeFile(`${folder}/layout-${state}-${width}.json`,JSON.stringify(findings));expect(findings).toEqual([]);
+    }
+  }
+  await page.close();
+});
+
 test("installed model controls show all states and confirm removal size 2ya", async () => {
   test.setTimeout(120_000);
   const page = await harness.context.newPage({ viewport: { width:1280,height:860 } });

@@ -100,6 +100,9 @@ func (s *Server) profileEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := s.profileState()
+	if s.models != nil {
+		s.configureCommandModels(s.ConfigSnapshot())
+	}
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked, "profiles": state}))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "profiles": state, "config": masked})
 }

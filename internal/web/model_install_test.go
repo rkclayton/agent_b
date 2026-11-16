@@ -63,7 +63,14 @@ func managedWebFixture(t *testing.T) (agentConnectionFixture, modelinstall.Spec)
 	return f, s
 }
 func TestManagedModelOnDemandKeepsMessageOnce(t *testing.T) {
+	testManagedOnDemand(t, false)
+}
+func TestSavedCommandOnDemand2yb(t *testing.T) { testManagedOnDemand(t, true) }
+func testManagedOnDemand(t *testing.T, command bool) {
 	f, s := managedWebFixture(t)
+	if command {
+		configureTestCommand(t, f, s)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stream := f.server.bus.Listen(ctx, "managed test")
@@ -84,7 +91,11 @@ func TestManagedModelOnDemandKeepsMessageOnce(t *testing.T) {
 	}
 	waitFor(t, func() bool { return !f.scheduler.Active(f.session.ID) }, "managed run did not finish")
 	count := 0
+	answered := false
 	for _, m := range f.session.Snapshot().Messages {
+		if m.Role == "assistant" && m.Content == "done" {
+			answered = true
+		}
 		if m.Role == "user" && m.Content == "one managed message" {
 			count++
 		}
@@ -92,6 +103,72 @@ func TestManagedModelOnDemandKeepsMessageOnce(t *testing.T) {
 	if count != 1 || f.server.models.State(s.ID).State != "running" {
 		t.Fatalf("message count=%d state=%+v", count, f.server.models.State(s.ID))
 	}
+	if !answered || f.session.Snapshot().Run.LastStopReason != "done" {
+		t.Fatal("managed message did not finish with the stand-in answer")
+	}
+}
+func configureTestCommand(t *testing.T, f agentConnectionFixture, s modelinstall.Spec) {
+	t.Helper()
+	f.server.models.Forget(s.ID)
+	f.server.mu.Lock()
+	for i := range f.server.cfg.Connections {
+		c := &f.server.cfg.Connections[i]
+		if c.ID == s.ID {
+			c.StartCommand = fmt.Sprintf(`"%s" -test.run=TestWebModelStandIn -- --managed-model %s`, s.Executable, s.Args[len(s.Args)-1])
+		}
+	}
+	f.server.configureCommandModels(*f.server.cfg)
+	f.server.mu.Unlock()
+}
+func TestCustomPhoneAndAllPublicViewsHideCommands2yb(t *testing.T) {
+	f, s := managedWebFixture(t)
+	configureTestCommand(t, f, s)
+	start := dispatch(t, f.server, fmt.Sprintf(`{"v":1,"kind":"request","id":"custom-start","route":"model.start","body":{"connection_id":%q}}`, s.ID))
+	if start.Status != 200 {
+		t.Fatal("custom phone start failed")
+	}
+	waitFor(t, func() bool { return f.server.models.State(s.ID).State == "running" }, "custom phone not running")
+	stop := dispatch(t, f.server, fmt.Sprintf(`{"v":1,"kind":"request","id":"custom-stop","route":"model.stop","body":{"connection_id":%q}}`, s.ID))
+	if stop.Status != 200 || f.server.models.State(s.ID).State != "stopped" {
+		t.Fatal("custom phone stop failed")
+	}
+	f.server.mu.Lock()
+	for i := range f.server.cfg.Connections {
+		f.server.cfg.Connections[i].StartCommand = "planted-command-private-start"
+		f.server.cfg.Connections[i].StopCommand = "planted-command-private-stop"
+	}
+	f.server.mu.Unlock()
+	cfg := f.server.ConfigSnapshot()
+	for name, value := range map[string]any{"snapshot": f.server.snapshot(), "phone": f.server.phoneConnections(), "telemetry": settingsShape(cfg), "export": f.server.diagnosticsExport(), "event": events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked()})} {
+		b, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(b, []byte("planted-command-private")) {
+			t.Fatalf("command escaped through %s", name)
+		}
+	}
+	f.server.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": cfg.Masked()}))
+	for route := range appMessageRoutes {
+		request, _ := json.Marshal(map[string]any{"v": 1, "kind": "request", "id": "privacy-" + route, "route": route, "body": map[string]any{"start_command": "attempted-replacement", "stop_command": "attempted-replacement"}})
+		answer := f.server.DispatchAppMessage("paired-privacy", request)
+		if bytes.Contains(answer, []byte("planted-command-private")) {
+			t.Fatalf("command escaped on %s", route)
+		}
+	}
+	if f.server.ConfigSnapshot().Connections[0].StartCommand != "planted-command-private-start" {
+		t.Fatal("phone changed command")
+	}
+	_ = filepath.WalkDir(filepath.Join(f.server.roots.Data, "logs"), func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := os.ReadFile(path)
+			if bytes.Contains(b, []byte("planted-command-private")) {
+				t.Error("command leaked to log")
+			}
+		}
+		return nil
+	})
+	f.server.models.UnconfigureCommand(s.ID)
 }
 func TestManagedModelPublicPhoneDispatch(t *testing.T) {
 	f, s := managedWebFixture(t)

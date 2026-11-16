@@ -570,6 +570,7 @@ approval registers exactly as the operator's sentence does, a decline registers 
   and stops it on quit or after `stop_when_idle_minutes` (default 60, zero disables idle shutdown).
   `POST /api/model/start` and `POST /api/model/stop` take `{connection_id}` and use the same controller as
   the paired-device requests in `docs/app-message-v1.md`. Readiness requires `/health`.
+  A local connection can save `start_command` and optional `stop_command`; the same controller starts it hidden in the active profile directory with the application's own identity and environment. Custom servers become ready on a successful health or model-list response. Stop uses the saved stop command, or the retained job containing only the process tree started by the controller; a server already answering requires a stop command. Emptying the start command relinquishes control without ending a running server. Commands are omitted from public config, events, exports and phone data; Settings exposes replacement fields and saved-value indicators.
   `DELETE /api/model-install?remove=installed-local` stops the verified process before removing its recorded files
   and connection; agent profiles and chats remain. A replacement becomes ready before the previous process is stopped.
   No model sign-in launcher is written; startup removes only the exact legacy launcher belonging to this install.

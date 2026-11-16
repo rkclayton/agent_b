@@ -1268,6 +1268,13 @@
   flex: none;
   text-align: right;
 }
+[data-general-advanced] .setting-row, .connection-context { align-items: start; }
+[data-general-advanced] .setting-row > label, .connection-context > label { padding-top: 4px; }
+[data-general-advanced] input.number { width: calc(10ch + 24px); }
+@media (max-width: 600px) {
+  [data-general-advanced] .setting-row > div { flex-wrap: wrap; }
+  [data-general-advanced] .control-note { flex-basis: 100%; }
+}
 .setting-row.invalid > label,
 .setting-row.invalid input {
   color: var(--alarm);

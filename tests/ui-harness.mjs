@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [] }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768 }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -83,7 +83,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   let model = null;
   if (reachable) {
     model = createServer(async (request, response) => {
-      if (request.url === "/props") return void response.end(JSON.stringify({ connection: "ui-harness", n_ctx: 32768 }));
+      if (request.url === "/props") return void response.end(JSON.stringify({ connection: "ui-harness", n_ctx: reportedContext }));
       if (request.url === "/v1/models") return void response.end(JSON.stringify({ data: modelIDs.map((id) => ({ id })) }));
       if (request.url === "/tokenize") return void response.end(JSON.stringify({ tokens: [1] }));
       if (request.url === "/apply-template") return void response.end(JSON.stringify({ prompt: "ui harness" }));
@@ -125,6 +125,8 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   const appPort = await freePort();
   const configPath = join(dataRoot, "harness.json");
   let config = configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL, memoryEnabled, validEfforts });
+  config.connections[0].context.n_ctx = contextSize;
+  config.connections[0].capabilities.n_ctx = reportedContext;
   if (reuseConfig) {
 		config = JSON.parse(await readFile(configPath, "utf8"));
 		config.listen = `127.0.0.1:${appPort}`;

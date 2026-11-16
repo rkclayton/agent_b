@@ -46,6 +46,37 @@ func reasoningBudgetRunner2xa(t *testing.T, handler http.Handler, configure ...f
 	return runner, item, bus, &calls
 }
 
+func TestReportedContextRunsWithoutSavedSize2yg(t *testing.T) {
+	for _, tc := range []struct{ saved, reported int }{{0, 32768}, {0, 0}, {64000, 32768}} {
+		saved := tc.saved
+		runner, s, bus, _ := reasoningBudgetRunner2xa(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/props" {
+				_ = json.NewEncoder(w).Encode(map[string]any{"n_ctx": 32768})
+				return
+			}
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "answer"}, "finish_reason": "stop"}}})
+		}), func(c *config.Connection) { c.Context.NCtx = saved; c.Capabilities.NCtx = tc.reported })
+		if reason, detail, _ := runner.Run(context.Background(), s, "fixture"); reason != "done" {
+			t.Fatalf("%s: %s", reason, detail)
+		}
+		want := saved
+		if want == 0 {
+			want = 32768
+		}
+		found := false
+		for _, e := range bus.Recent(s.ID) {
+			if e.Type == events.BudgetEvent {
+				if b, ok := e.Data.(events.Budget); ok && b.NCtx == want {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("no budget at %d", want)
+		}
+	}
+}
+
 func TestLargerReplyDoesNotEnlargeThinking2yf(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var body map[string]any

@@ -161,7 +161,7 @@ test.describe("setup wizard 2xz", () => {
 		const model = await standIn({ window: 32768 }); const page = await wizardHarness.context.newPage();
 		try {
 			await openSetup(page); await expect(page.locator("body")).not.toContainText(/Skip|Later|Open Chat|Evaluation Harness|separate Windows account/); await connect(page, model.url); await page.getByRole("button", { name: "Next" }).click(); await expect(page.getByRole("heading", { name: "Agent_b is ready" })).toBeVisible(); await expect(page.locator(".setup-main button.setup-primary")).toHaveText("Finish");
-			await page.goto(`${wizardHarness.base}/chat#settings/connections`); await page.locator('.model-row[data-id="ui"]').click(); await expect(page.getByRole("button", { name: "Eval", exact: true }).first()).toBeVisible(); await page.locator('.settings-nav [data-id="shell"]').click(); await expect(page.locator(".settings-content")).toContainText("Experimental");
+			await page.goto(`${wizardHarness.base}/chat#settings/connections`); await page.locator('.model-row[data-id="ui"]').click(); await page.locator('.connection-defaults > summary').click(); await expect(page.getByRole("button", { name: "Eval", exact: true }).first()).toBeVisible(); await page.locator('.settings-nav [data-id="shell"]').click(); await expect(page.locator(".settings-content")).toContainText("Experimental");
 		} finally { await page.close(); await model.close(); }
 	});
 
@@ -235,7 +235,7 @@ test("only the dimmed chat closes Settings; the strip does not 2sy", async () =>
 	await page.locator("#settings-backdrop").click({ position: { x: 4, y: 4 } }); await expect(page.locator("#settings-page")).toBeHidden(); await page.close();
 });
 
-test("Chats shows only profile reading approval context and delete 2sb", async () => {
+test("Chats keeps profile reading approval context delete and General Advanced 2sb", async () => {
 	test.setTimeout(120_000);
 	const page = await harness.context.newPage();
 	await page.goto(`${harness.base}/chat`);
@@ -265,7 +265,7 @@ test("Chats shows only profile reading approval context and delete 2sb", async (
 	await expect(page.locator('.settings-nav [data-id="plan"]')).toBeVisible();
 	const text = (await page.locator(".settings-content").innerText()).toLowerCase();
 	for (const absent of ["root path", "tabs", "repeat limit", "queue depth", "reflection floor", "max concurrent", "cycle window"]) expect(text).not.toContain(absent);
-	expect(await page.locator(".settings-subhead").allTextContents()).toEqual(["Reading", "Context", "Delete"]);
+	expect(await page.locator(".settings-subhead").allTextContents()).toEqual(["Reading", "Context", "Delete", "General"]);
 	await expect(page.locator(".settings-subhead-note")).toHaveCount(0);
 	const size = page.locator('[data-path="chat.text_size"]');
 	for (const invalid of ["8", "33"]) {
@@ -813,7 +813,7 @@ test("the probe verdict is a dated fact and Test names what it sent and got 2wb"
   await page.close();
 });
 
-test("the model sheet keeps its five ordered fields above its actions and Advanced", async () => {
+test("the model sheet keeps required fields above Test and derived controls under Advanced 2yg", async () => {
   test.setTimeout(120000);
   const page = await harness.context.newPage();
   await page.goto(`${harness.base}/chat`);
@@ -824,14 +824,15 @@ test("the model sheet keeps its five ordered fields above its actions and Advanc
   const id = (await editor.locator("[data-path$='.model']").getAttribute("data-path")).split(".")[1];
 
 	const labels = async () => (await editor.locator(":scope > .connection-fields > .connection-primary > .setting-row > label").allTextContents()).filter(Boolean);
-	expect(await labels()).toEqual(["name", "agent profile", "model", "context size", "reads images"]);
+	expect(await labels()).toEqual(["name", "agent profile", "model", "context size"]);
   await expect(page.locator(".connection-defaults")).not.toHaveAttribute("open", /.*/);
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Advanced");
-  await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test", "Eval", "Recommended"]);
+  await expect(editor.locator(".connection-primary-actions button")).toHaveText(["Test"]);
 
-	// The empty new connection does not collapse or reorder the fields.
+	// Unknown context stays required; Eval is available one fold deeper.
+  await page.locator(".connection-defaults > summary").click();
 	await expect(page.locator(`.connection-editor [data-action="measure-connection"][data-id="${id}"]`)).toBeVisible();
-	expect(await labels()).toEqual(["name", "agent profile", "model", "context size", "reads images"]);
+	expect(await labels()).toEqual(["name", "agent profile", "model", "context size"]);
   await page.close();
 });
 

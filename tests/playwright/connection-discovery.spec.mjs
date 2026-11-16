@@ -118,6 +118,34 @@ test("custom profile thinking applies alone and a refusal sits beside its switch
   await page.close();
 });
 
+test("derived connection controls stay under Advanced 2yg",async()=>{
+ const page=await harness.context.newPage();await page.goto(`${harness.base}/chat#settings/connections`);await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+ for(const selector of ['[data-path$="context.n_ctx"]','[data-path$="reads_images"]','[data-action="measure-connection"]','[data-action="recommended-connection"]']){await expect(page.locator('.connection-primary').locator(selector)).toHaveCount(0);await expect(page.locator('.connection-defaults').locator(selector)).toHaveCount(1);}
+ await expect(page.locator('.connection-defaults')).not.toHaveAttribute('open');await page.close();
+});
+test("General and Context numbers use existing Advanced folds 2yg",async()=>{
+ const page=await harness.context.newPage();await page.goto(`${harness.base}/chat#settings/chats`);
+ const general=page.locator('[data-general-advanced]');await expect(general).toBeAttached();await expect(general).not.toHaveAttribute('open');await expect(general.locator('input[type="number"]')).toHaveCount(11);await expect(page.locator('[data-path="run.max_concurrent"]')).toHaveCount(0);
+ await expect(page.locator('[data-context-advanced] [data-path="context.summary_pct"]')).toHaveCount(1);
+ await general.locator('summary').click();const bytes=general.locator('[data-path="tools.read_file.default_limit"]');await expect(bytes).toHaveValue('');const overridden=page.waitForResponse(r=>r.url().endsWith('/api/config')&&r.request().method()==='POST');await bytes.fill('12345');await bytes.blur();expect((await overridden).status()).toBe(200);await expect(bytes.locator('xpath=ancestor::div[contains(@class,"setting-row")]').locator('.setting-applied')).toBeVisible();await expect(bytes).toHaveValue('12345');await expect(general).toHaveAttribute('open');const saved=page.waitForResponse(r=>r.url().endsWith('/api/config')&&r.request().method()==='POST');await bytes.fill('');await bytes.blur();expect((await saved).status()).toBe(200);await expect(bytes).toHaveValue('');await expect(general).toHaveAttribute('open');await page.reload();await openSettings(page);await page.locator('.settings-nav [data-id="chats"]').click();await expect(bytes).toHaveValue('');await general.locator('summary').click();await page.close();
+});
+
+test("unknown server context stays in the base connection 2yg",async()=>{
+ const other=await start({exe:join(root,'Agent_b.exe'),appRoot:repo,data:join(root,'unknown-context'),contextSize:0,reportedContext:0});
+ try {const page=await other.context.newPage();await page.goto(`${other.base}/chat#settings/connections`);await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();await expect(page.locator('.connection-primary [data-path$="context.n_ctx"]')).toBeVisible();await expect(page.locator('.connection-primary')).toContainText('context unknown');}finally{await other.stop();}
+});
+
+test("settings folds measured at three sizes 2yg",async()=>{
+ test.setTimeout(120000);const page=await harness.context.newPage();const folder='logs/evidence/rel-1.62.218/captures';await mkdir(folder,{recursive:true});
+ for(const width of [304,1280,1920]){await page.setViewportSize({width,height:width===304?254:width===1280?860:1080});
+ await page.goto(`${harness.base}/chat#settings/connections`);await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+ const advanced=page.locator('.connection-defaults');if(await advanced.getAttribute('open')!==null)await advanced.locator('summary').click();
+ for(const state of ['closed','open']){if(state==='open')await advanced.locator('summary').click();await (state==='open'?page.locator('[data-path$="context.n_ctx"]'):page.locator('[data-path$=".label"]')).scrollIntoViewIfNeeded();expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'.settings-content'))).toEqual([]);await page.screenshot({path:`${folder}/connection-${state}-${width}.png`});}
+ await page.goto(`${harness.base}/chat#settings/chats`);
+ for(const name of ['general','context']){const fold=page.locator(`[data-${name}-advanced]`);if(await fold.getAttribute('open')!==null)await fold.locator('summary').click();for(const state of ['closed','open']){if(state==='open')await fold.locator('summary').click();await fold.locator('summary').evaluate(el=>el.scrollIntoView({block:'start'}));expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'.settings-content'))).toEqual([]);await page.screenshot({path:`${folder}/${name}-${state}-${width}.png`});}}
+ }await page.close();
+});
+
 test("connection has no output reserve setting 2yf",async()=>{
  const page=await harness.context.newPage();await page.goto(`${harness.base}/chat#settings/connections`);await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();await page.locator('.connection-defaults > summary').click();
  await expect(page.locator('[data-path$=".context.reserve_output"]')).toHaveCount(0);
@@ -319,10 +347,11 @@ test("the install step preselects the largest model that fits 8 GiB 2wa", async 
 
 test("Settings Context shows the server recommendation without changing the field 2sx", async () => {
 	await mkdir(join(repo, "test-results"), { recursive: true });
-	for (const [name, saved, expected] of [["saved", 65536, "server recommends 32768 tokens; saved value is kept"], ["empty", 0, "server context: 32768 tokens"]]) {
+	for (const [name, saved, expected] of [["saved", 65536, "blank: what the server reports (32768)"], ["empty", 0, "blank: what the server reports (32768)"]]) {
 		const page = await harness.context.newPage();
 		await page.goto(`${harness.base}/chat#settings/connections`);
 		await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+		await page.locator(".connection-defaults > summary").click();
 		await page.locator('[data-path="connections.ui.context.n_ctx"]').fill(saved ? String(saved) : ""); await page.locator('[data-path="connections.ui.context.n_ctx"]').press("Enter");
 		await expect(page.locator('[data-path="connections.ui.context.n_ctx"]')).toHaveValue(saved ? String(saved) : "");
 		await expect(page.getByText(expected, { exact: true })).toBeVisible();
@@ -341,7 +370,7 @@ test("a failed model list keeps the saved model and names the reason 2r7", async
 	await page.close();
 });
 
-test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw", async () => {
+test("Eval and Recommended stay adjacent under Advanced at wide and narrow sizes 2qw", async () => {
   const page = await harness.context.newPage({ viewport: { width: 1400, height: 900 } });
   let models = [
     "Huihui-Qwen3.8-27B-abliterated-UD-Q3_K_XL",
@@ -358,8 +387,10 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   });
   expect(measured.columns, JSON.stringify(measured)).toBe(2);
   expect(measured.boxes.find((x) => x.path?.endsWith(".label")).width).toBeLessThanOrEqual(260);
-  const actions = page.locator(".connection-primary-actions");
-  await expect(actions.locator("button")).toHaveText(["Test", "Eval", "Recommended"]);
+  await expect(page.locator(".connection-primary-actions button")).toHaveText(["Test"]);
+  await page.locator(".connection-defaults > summary").click();
+  const actions = page.locator(".connection-defaults .settings-actions");
+  await expect(actions.locator("button")).toHaveText(["Eval", "Recommended"]);
   const geometry = await actions.evaluate((node) => ({
     tops: [...node.querySelectorAll("button")].map((button) => Math.round(button.getBoundingClientRect().top)),
     inside: [...node.querySelectorAll("button")].every((button) => button.getBoundingClientRect().right <= document.documentElement.clientWidth + 1),
@@ -381,8 +412,10 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   const small = await narrow.newPage();
   await small.goto(`${harness.base}/chat#settings/connections`);
   await small.locator('[data-action="connection-toggle"][data-id="ui"]').click();
-  const narrowActions = small.locator(".connection-primary-actions");
-  await expect(narrowActions.locator("button")).toHaveText(["Test", "Eval", "Recommended"]);
+  await expect(small.locator(".connection-primary-actions button")).toHaveText(["Test"]);
+  await small.locator(".connection-defaults > summary").click();
+  const narrowActions = small.locator(".connection-defaults .settings-actions");
+  await expect(narrowActions.locator("button")).toHaveText(["Eval", "Recommended"]);
   const narrowGeometry = await narrowActions.evaluate((node) => ({
     tops: [...node.querySelectorAll("button")].map((button) => Math.round(button.getBoundingClientRect().top)),
     inside: [...node.querySelectorAll("button")].every((button) => button.getBoundingClientRect().right <= document.documentElement.clientWidth + 1),
@@ -397,7 +430,7 @@ test("Test Eval Recommended stay adjacent at 1400px and the narrowest width 2qw"
   await narrow.close();
 });
 
-test("2qx eight-field editor and closed Advanced fit wide and narrow", async () => {
+test("2qx base editor and closed Advanced fit wide and narrow", async () => {
   const evidence = process.env.AGENTB_EVIDENCE_DIR;
   for (const width of [1400, 304]) {
     const context = await harness.browser.newContext({ viewport: { width, height: width === 304 ? 700 : 900 } });
@@ -406,7 +439,7 @@ test("2qx eight-field editor and closed Advanced fit wide and narrow", async () 
     await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
     const editor = page.locator(".connection-editor");
     const visibleLabels = editor.locator(':scope > .connection-fields > .connection-primary > .setting-row > label');
-    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "agent profile", "model", "context size", "reads images"]);
+    expect((await visibleLabels.allTextContents()).filter(Boolean)).toEqual(["name", "agent profile", "model"]);
     const defaults = editor.locator("details.connection-defaults");
     await expect(defaults.locator(":scope > summary")).toHaveText("Advanced");
     await expect(defaults).not.toHaveAttribute("open", "");
@@ -837,6 +870,7 @@ test("one in-place editor and Recommended persist without another action 2r9", a
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   expect(await page.locator('.connection-row[data-id="ui"]').evaluate((row) => row.nextElementSibling?.classList.contains("connection-editor"))).toBe(true);
   await page.route("**/api/connections/ui/recommended", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ values: { "context.n_ctx": 48000, "reads_images": false }, sources: { "context.n_ctx": "server", "reads_images": "Eval" } }) }));
+  await page.locator(".connection-defaults > summary").click();
   await page.locator('[data-action="recommended-connection"][data-id="ui"]').click();
   await expect.poll(async () => ((await (await page.request.get(`${harness.base}/api/state`)).json()).config.connections.find((item) => item.id === "ui").context.n_ctx)).toBe(48000);
   await expect(page.locator(".connection-editor")).toContainText("changed: context size, reads images");
@@ -946,13 +980,13 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
         expect([field.background, field.border, field.family, field.size, field.height, field.weight], field.element).toEqual([fieldReference.background, fieldReference.border, fieldReference.family, fieldReference.size, fieldReference.height, fieldReference.weight]);
       }
     }
-    const connectionSwitch = page.locator('.connection-primary button.switch').first();
+    await page.locator('.connection-defaults summary').click();
+    const connectionSwitch = page.locator('.connection-defaults button.switch').first();
     await connectionSwitch.hover();
     await settle(page);
     expect(await connectionSwitch.evaluate(switchPaint)).toEqual(settingsPaint);
     const positions = async () => page.locator('.connection-primary').evaluate((root) => [...root.querySelectorAll(':scope > .setting-row')].map((row) => ({ label: row.querySelector(':scope > label')?.textContent.trim() || 'actions', left: row.getBoundingClientRect().left })));
     const before = await positions();
-    await page.locator('.connection-defaults summary').click();
     const reserve = page.locator('[data-path$="reasoning.max_tokens"]');
     await reserve.evaluate((node) => { node.value = '10240'; node.style.width = '8ch'; });
     const cut = auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, '.settings-content'));

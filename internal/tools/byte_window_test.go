@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/session"
 )
 
@@ -202,4 +203,63 @@ func TestModelVisibleByteWindowDescriptionsNameCursorParameter(t *testing.T) {
 			t.Errorf("%s description does not explain cursor reuse: %q", function["name"], description)
 		}
 	}
+}
+
+func TestContextScaledFileAndSearchCalls2yg(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	path := filepath.Join(root, "long.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 300000)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "entries")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1201; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%04d.txt", i)), []byte("match"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := &session.Session{Workspace: root, LastSeen: map[string]time.Time{}}
+	started := time.Now()
+	for _, window := range []int{0, 16384, 32768, 131072} {
+		s.SetBudget(events.Budget{NCtx: window})
+		factor := 1
+		if window > 32768 {
+			factor = 4
+		}
+		for _, override := range []bool{false, true} {
+			readCfg, listCfg, grepCfg := cfg.Tools.ReadFile, cfg.Tools.ListDir, cfg.Tools.Grep
+			def, max, entries, matches := 16384*factor, 65536*factor, 300*factor, 50*factor
+			if override {
+				readCfg.DefaultLimit, readCfg.MaxLimit, listCfg.MaxEntries, grepCfg.MaxMatches = 19, 29, 7, 9
+				def, max, entries, matches = 19, 29, 7, 9
+			}
+			tool := NewReadFile(readCfg)
+			for _, tc := range []struct{ limit, want int }{{0, def}, {max, max}} {
+				args := map[string]any{"path": path}
+				if tc.limit > 0 {
+					args["limit"] = tc.limit
+				}
+				result, err := tool.Call(context.Background(), s, args)
+				if err != nil || !strings.Contains(result, fmt.Sprintf("bytes=%d ", tc.want)) {
+					t.Fatalf("read window=%d override=%t want=%d err=%v", window, override, tc.want, err)
+				}
+			}
+			props := tool.SchemaForWindow(window)["properties"].(map[string]any)["limit"].(map[string]any)
+			if props["default"] != def || props["maximum"] != max {
+				t.Fatal(props)
+			}
+			result, err := NewListDir(listCfg).Call(context.Background(), s, map[string]any{"path": dir})
+			if err != nil || len(strings.Split(result, "\n")) != entries+1 {
+				t.Fatalf("list window=%d count=%d err=%v", window, len(strings.Split(result, "\n")), err)
+			}
+			result, err = NewGrep(grepCfg, listCfg).Call(context.Background(), s, map[string]any{"path": dir, "pattern": "match"})
+			if err != nil || len(strings.Split(result, "\n")) != matches+1 {
+				t.Fatalf("search window=%d count=%d err=%v", window, len(strings.Split(result, "\n")), err)
+			}
+		}
+	}
+	t.Logf("four windows, overrides, full 256 KiB read / 1200 entries / 200 matches: %s", time.Since(started))
 }

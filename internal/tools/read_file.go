@@ -28,13 +28,22 @@ func (*ReadFile) Description() string {
 	return "Read numbered local UTF-8 text or list a .zip and read its members in memory. Use byte mode with byte offset/limit, line mode with one-based line/lines, or windows for multiple ordered labelled windows on one file. When more is true, pass returned next_offset as offset to advance or continue at next_line."
 }
 func (r *ReadFile) Schema() map[string]any {
+	return r.SchemaForWindow(0)
+}
+func (r *ReadFile) limits(window int) config.ReadFileTool {
 	cfg := r.config()
+	cfg.DefaultLimit = config.ContextToolLimit(cfg.DefaultLimit, 16<<10, window)
+	cfg.MaxLimit = config.ContextToolLimit(cfg.MaxLimit, 64<<10, window)
+	return cfg
+}
+func (r *ReadFile) SchemaForWindow(nctx int) map[string]any {
+	cfg := r.limits(nctx)
 	defaultLimit := min(cfg.DefaultLimit, cfg.MaxLimit)
 	window := map[string]any{"type": "object", "properties": map[string]any{"label": map[string]any{"type": "string", "description": "Short result label"}, "offset": map[string]any{"type": "integer", "description": "One-based byte offset", "default": 1}, "limit": map[string]any{"type": "integer", "description": "Maximum bytes", "default": defaultLimit, "maximum": cfg.MaxLimit}, "line": map[string]any{"type": "integer", "description": "One-based starting line", "minimum": 1}, "lines": map[string]any{"type": "integer", "description": "Maximum lines", "default": 200, "minimum": 1, "maximum": 2000}}}
 	return map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "description": "One-based byte offset; byte mode only", "default": 1}, "limit": map[string]any{"type": "integer", "description": "Maximum bytes to return; byte mode only", "default": defaultLimit, "maximum": cfg.MaxLimit}, "line": map[string]any{"type": "integer", "description": "One-based starting line; line mode only", "minimum": 1}, "lines": map[string]any{"type": "integer", "description": "Maximum lines to return; line mode only", "default": 200, "minimum": 1, "maximum": 2000}, "windows": map[string]any{"type": "array", "description": "Ordered byte or line windows on this file", "items": window, "minItems": 1, "maxItems": 32}}, "required": []string{"path"}}
 }
 func (r *ReadFile) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
-	cfg := r.config()
+	cfg := r.limits(toolWindow(s))
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
 		return "", fmt.Errorf("path is required")

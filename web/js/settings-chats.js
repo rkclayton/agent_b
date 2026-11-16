@@ -1,3 +1,4 @@
+import { renderGeneralPage } from "./settings-general.js";
 import { renderContextPage } from "./settings-context.js";
 import { renderRunPage } from "./settings-run.js";
 
@@ -32,7 +33,7 @@ export function renderChatsPage(active, context) {
     ${renderContextPage(active, context)}
     ${context.subhead("Delete")}
     ${deleteError ? context.errorMarkup(deleteError, "group:chat_root", "settings-group-error field-error") : ""}
-    ${context.row("all chats", `<button type="button" class="delete-all-chats" data-action="delete-all-chats" ${chatCount ? "" : "disabled"}>Delete all chats</button>`, "", `${chatCount} chat${chatCount === 1 ? "" : "s"}`)}`;
+    ${context.row("all chats", `<button type="button" class="delete-all-chats" data-action="delete-all-chats" ${chatCount ? "" : "disabled"}>Delete all chats</button>`, "", `${chatCount} chat${chatCount === 1 ? "" : "s"}`)}${context.subhead("General")}${renderGeneralPage("limits",active,context)}`;
 }
 import { actionTable } from "./settings-action-table.js";
 

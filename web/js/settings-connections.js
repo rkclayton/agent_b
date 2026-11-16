@@ -305,24 +305,22 @@ function connectionFields(connection, reason, discovery, modelOnly = false) {
 	const imageControl = row("reads images", switchControl(imagePath, readsImages, "reads images"), "", false);
 	const serverWindow = Number(store?.connection_health?.[id]?.window || caps.n_ctx || 0);
 	const contextProblem = reason?.startsWith("context ") ? reason : "";
-	const contextFact = serverWindow > 0 && !Number(shown.context.n_ctx || 0)
-	  ? `server context: ${serverWindow} tokens`
-	  : serverWindow > 0 && Number(shown.context.n_ctx) > serverWindow
-	    ? `server recommends ${serverWindow} tokens; saved value is kept`
-	    : "";
+	const contextFact = serverWindow > 0 ? `blank: what the server reports (${serverWindow})` : "";
 	const contextNote = contextFact || !contextProblem ? contextFact ? `<p class="settings-note">${html(contextFact)}</p>` : "" : `<p class="${contextProblem.startsWith("context unknown") ? "settings-note" : "field-error"}">${html(contextProblem)}</p>`;
 	const contextControl = row("context size", `<input class="setting-input number" type="number" step="1" data-path="${attr(`${p}.context.n_ctx`)}" data-kind="number" value="${attr(shown.context.n_ctx || "")}">${contextNote}`, "connection-context", false);
 	const probing = !!discovery?.walking;
-	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${probing ? "disabled" : ""}>${probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
+	const primaryActions = `<div class="connection-primary-actions settings-actions"><button type="button" class="connection-test ${probing ? "has-wait" : ""}" data-action="probe" data-id="${attr(id)}" ${probing ? "disabled" : ""}>${probing ? `<span class="probe-wait" data-probe-wait="${attr(id)}"></span>` : "Test"}</button></div>`;
+	const advancedActions = `<div class="settings-actions"><button type="button" class="${discovery?.measureRunning ? "has-wait" : ""}" data-action="measure-connection" data-id="${attr(id)}">${discovery?.measureRunning ? `Stop<span class="probe-wait" data-harness-wait="${attr(id)}"></span>` : "Eval"}</button><button type="button" data-action="recommended-connection" data-id="${attr(id)}">Recommended</button></div>`;
 	return `<div class="connection-fieldset connection-primary">${text(`${p}.label`, "name", connection.label, "text", false)}
     ${modelOnly ? "" : text(`${p}.base_url`, "address", connection.base_url, "text", false)}
     ${profileControl}
 	${modelOnly ? "" : secret(`${p}.api_key`, "key", connection.api_key, id, false)}
-	${modelControl}${contextControl}${imageControl}
+	${modelControl}${serverWindow > 0 ? "" : contextControl}
 	${row("", primaryActions, "connection-primary-row", false)}${discoveryNote}</div>
 	${feedback}${measurementResult}
 	    <details class="connection-defaults" data-connection-advanced="${attr(id)}" ${advancedConnections.has(id) ? "open" : ""}><summary>Advanced</summary>
 	    <div class="connection-fieldset connection-identity"><h4>Connection</h4>
+	${serverWindow > 0 ? contextControl : ""}${imageControl}${advancedActions}
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
 	${modelOnly ? "" : choices(`${p}.protocol`, "protocol", ["chat-completions", "anthropic-messages", "openai-responses"], connection.protocol || "chat-completions", false)}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], shown.attachment_handling || "auto", false)}

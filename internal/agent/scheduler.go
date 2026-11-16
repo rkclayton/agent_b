@@ -353,9 +353,6 @@ func (s *Scheduler) runningLocked() int {
 }
 
 func (s *Scheduler) admitLocked(item *session.Session) bool {
-	if s.runningLocked() >= s.cfg().Run.MaxConcurrent {
-		return false
-	}
 	count, _ := s.connectionRunsLocked(item.ConnectionID)
 	return count < s.connectionLimit(item.ConnectionID)
 }
@@ -375,7 +372,7 @@ func (s *Scheduler) drainLocked() {
 		delete(s.paused, waiter.sessionID)
 		close(waiter.ready)
 	}
-	for index := 0; index < len(s.queue) && s.runningLocked() < s.cfg().Run.MaxConcurrent; {
+	for index := 0; index < len(s.queue); {
 		next := s.queue[index]
 		if !s.admitLocked(next.s) {
 			index++

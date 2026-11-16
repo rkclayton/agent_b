@@ -270,9 +270,6 @@ func (c Config) validateRun() error {
 	if c.Run.MaxWallClockSeconds < 1 {
 		return fmt.Errorf("run.max_wall_clock_seconds: must be positive")
 	}
-	if c.Run.MaxConcurrent < 1 {
-		return fmt.Errorf("run.max_concurrent: must be positive")
-	}
 	if c.Run.QueueDepth < 0 {
 		return fmt.Errorf("run.queue_depth: cannot be negative")
 	}

@@ -437,6 +437,23 @@ func (c Config) DefaultAgentID() string {
 	return AgentID(c.Agents[0].Name)
 }
 
+// ContextToolLimit scales only an automatic (shipped or blank) tool limit.
+func ContextToolLimit(saved, shipped, window int) int {
+	if saved > 0 && saved != shipped {
+		return saved
+	}
+	if window <= 32768 {
+		return shipped
+	}
+	whole, part := window/32768, window%32768
+	maximum := int(^uint(0) >> 1)
+	extra := shipped * part / 32768
+	if whole > (maximum-extra)/shipped {
+		return maximum
+	}
+	return shipped*whole + extra
+}
+
 // ReserveOutputFor is the output allowance a probe proposes for a connection
 // whose window it has just learned. a fixed 10,240 tokens is 3.9%
 // of a 262,144-token window, and the operator lost a 672-second answer to it. The

@@ -343,7 +343,7 @@ func (x *runState) turnBoundary() runOutcome {
 	for _, name := range x.toolNames {
 		x.enabled[name] = true
 	}
-	x.schemas = r.tools.Schemas(x.enabled)
+	x.schemas = r.tools.Schemas(x.enabled, x.connection.Context.NCtx)
 	x.system = ""
 	x.budgetBusy = false
 	// the trust flag is per TURN, so it clears here. A note is
@@ -421,7 +421,7 @@ func (x *runState) buildRequest() runOutcome {
 			requestRecords = append(requestRecords, events.Message{Role: llm.RoleAssistant, Reasoning: x.reasoningFallbackPrior, Category: "history"})
 		}
 		x.request = llm.Request{Messages: messages, Tools: x.schemas, ToolChoice: "auto", Thinking: x.connection.Reasoning.Enabled && !x.reasoningFallbackPending}
-		x.budget, x.budgetErr = r.budget.MeasureWithBusy(x.ctx, x.connection, x.s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: x.system, WithoutToolSystems: r.withoutToolSystems(x.connection, x.s, x.enabled, workspaceMemory), Schemas: x.schemas, AllSchemas: r.tools.AllSchemas(), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
+		x.budget, x.budgetErr = r.budget.MeasureWithBusy(x.ctx, x.connection, x.s, r.cfg().Context, budgetInput{SystemBase: systemBase, SystemProject: systemProject, SystemSkills: systemSkills, SystemWorkspaceMemory: systemWorkspaceMemory, System: x.system, WithoutToolSystems: r.withoutToolSystems(x.connection, x.s, x.enabled, workspaceMemory), Schemas: x.schemas, AllSchemas: r.tools.AllSchemas(x.connection.Context.NCtx), Messages: messages[1:], Records: requestRecords}, false, func(err error) {
 			x.budgetBusy = true
 			r.bus.Publish(events.New(events.ModelBusy, x.s.ID, x.runID, map[string]any{"host": modelHost(x.connection), "detail": err.Error()}))
 		})

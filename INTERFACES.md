@@ -377,7 +377,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
 - `log.retention` is the global startup/daily prune record `{days,files,count}`. `files` contains removed top-level operational JSONL basenames;
   evidence archives and retained chat journals are never candidates.
 - `run.queued` [4] `{run_id,position,behind?}` — `behind` (`agent_<role>`) when the run waits because its model connection is serving as many runs as
-  `connections[].max_concurrent` overrides the connection's probed parallel capacity; when both are absent the limit is one. `run.max_concurrent` still caps the total, projected as the run's `waiting_behind`.
+  `connections[].max_concurrent` overrides the connection's probed parallel capacity; when both are absent the limit is one. The legacy `run.max_concurrent` is ignored; only each connection limits admission, projected as the run's `waiting_behind`.
   A run paused on a card holds no model slot, per connection or in total (item 2fs): once answered it takes one back, ahead of queued runs,
   and when none is free it reports `run.queued` with `resuming:true` and then `run.resumed` `{run_id}` — which returns it to `running` without resetting it —
   when it has one; `run.started` [4] `{run_id,user_message_id,backstops:{wall_clock_seconds}}`; `run.stopping` `{reason}`;
@@ -877,3 +877,5 @@ Desktop pin state is durable `chat.json` metadata exposed by `/api/chats/tree`; 
 unsafe member names and over-limit archives are refused.
 
 Stored-credential approval (operator 2026-11-16, item 2ye): credentials.ask_before_use defaults false; credentials.idle_hours defaults 4, with 0 disabling idle expiry. Before model-tool acquisition or cached reuse of a key, signed-in account or login, approval.required uses kind=credential and args containing credential, credential_kind, destination and call (the complete tool-call text), with no secret. The existing approval endpoint accepts session, once or deny for this card; no standing grant. Session grants are memory-only, credential-specific, cleared on close/restart or the configured interval without a user message or run. Model-connection and service-account credentials are outside this seam. Unattended refusal and paired-phone approval routes are unchanged.
+
+Tool output defaults at context 32,768 are read_file 16,384/65,536 bytes, list_dir 300 entries, search 50 matches, and shell 60/40 head/tail lines. Those six scale proportionally above 32,768 (rounded down), never below their defaults. A blank or shipped value is automatic; any other saved positive value overrides scaling. The run's resolved context drives both execution and the read_file schema. Upload bytes, match-line length, timeouts and memory tokens keep their independent bounds. The existing free-context cut and saved full tool output remain the last prompt bound.

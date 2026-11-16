@@ -910,6 +910,7 @@ func (s *Session) credentialRunActive() bool {
 }
 func (s *Session) UpdatePartial(partial string)   { s.mu.Lock(); s.Run.Partial = partial; s.mu.Unlock() }
 func (s *Session) SetBudget(budget events.Budget) { s.mu.Lock(); s.Budget = budget; s.mu.Unlock() }
+func (s *Session) ContextWindow() int             { s.mu.Lock(); defer s.mu.Unlock(); return s.Budget.NCtx }
 func (s *Session) SetQueuedMessages(count int)    { s.mu.Lock(); s.queuedMessages = count; s.mu.Unlock() }
 
 // SetQueuedMessageIDs and QueuedMessageIDs carry the queue across a

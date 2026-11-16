@@ -36,6 +36,7 @@ func (*ListDir) Schema() map[string]any {
 }
 func (t *ListDir) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
 	cfg, ignored := t.config()
+	cfg.MaxEntries = config.ContextToolLimit(cfg.MaxEntries, 300, toolWindow(s))
 	path, _ := args["path"].(string)
 	if path == "" {
 		path = "."

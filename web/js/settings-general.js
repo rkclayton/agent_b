@@ -1,6 +1,6 @@
-let store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr, errorMarkup, errors;
+let advancedConnections, store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr, errorMarkup, errors;
 function useSettingsContext(context) {
-  ({ store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr, errorMarkup, errors } = context);
+  ({ advancedConnections, store, armed, connectionList, row, text, number, toggle, copyRow, issue, connectionReason, html, attr, errorMarkup, errors } = context);
 }
 
 function sessions() {
@@ -33,7 +33,7 @@ function sessions() {
     ${row("connection", `<select id="new-session-connection">${options}</select>`, "", "The model connection a new session runs on.")}
     <button type="button" class="text-action" data-action="new-session" ${options ? "" : "disabled"}>New session</button>
     ${issue("new-session") ? errorMarkup(issue("new-session"), "new-session") : ""}
-    ${number("run.max_concurrent", "max concurrent", store.config.run?.max_concurrent, "1", false, "", false, "number", "How many chats may run at the same time; the rest wait in the queue.")}`;
+    `;
 }
 
 function tools(active) {
@@ -51,25 +51,15 @@ function tools(active) {
   const block = row("enabled tools block", `<span class="number">${blockTokens == null ? "not measured" : `${tokenCount(blockTokens)} tokens`}</span>`, "", "Marginals include the tool-name prompt; neither marginals nor schema sizes sum to the block because shared scaffolding is counted once.");
   return `${availability}<div class="settings-subhead">Configuration and request cost</div>${block}
     ${head("read_file")}
-    ${number("tools.read_file.default_limit", "default bytes", cfg.tools?.read_file?.default_limit, "1", false, "", false, "number", "Bytes read_file returns when a call names no limit.")}
-    ${number("tools.read_file.max_limit", "max bytes per call", cfg.tools?.read_file?.max_limit, "1", false, "", false, "number", "The most bytes one read_file call may return.")}
 	<div class="settings-subhead">Attachment ingest</div>
-	${number("tools.attachments.max_bytes", "max upload bytes", cfg.tools?.attachments?.max_bytes, "1", false, "", false, "number", "disk; not a prompt limit")}
     ${head("list_dir")}
-    ${number("tools.list_dir.max_entries", "max entries", cfg.tools?.list_dir?.max_entries, "1", false, "", false, "number", "The most entries one list_dir call returns.")}
     ${text("tools.list_dir.ignore", "ignore", (cfg.tools?.list_dir?.ignore || []).join(", "), "list", "Folder names list_dir skips, comma separated.")}
     ${head("write_file")}${head("edit_file")}
     ${head("search")}
-    ${number("tools.grep.max_matches", "max matches", cfg.tools?.grep?.max_matches, "1", false, "", false, "number", "The most matches one search_text call returns.")}
-    ${number("tools.grep.max_line_chars", "max line chars", cfg.tools?.grep?.max_line_chars, "1", false, "", false, "number", "Longer matching lines are cut to this many characters.")}
     ${head("shell")}
 	${text("tools.shell.operator_commands", "Run as you commands", (cfg.tools?.shell?.operator_commands || []).join(", "), "list", "Commands that always run as you rather than the service identity, comma separated.")}
-    ${number("shell.timeout_s", "timeout", cfg.shell?.timeout_s, "1", false, "", false, "number", "Seconds a shell command may run when the call names no timeout.")}
-    ${number("shell.max_timeout_s", "max timeout", cfg.shell?.max_timeout_s, "1", false, "", false, "number", "The longest timeout a shell call may ask for, in seconds.")}
-    ${number("shell.max_output_lines_head", "head lines", cfg.shell?.max_output_lines_head, "1", false, "", false, "number", "Lines kept from the start of long shell output.")}
-    ${number("shell.max_output_lines_tail", "tail lines", cfg.shell?.max_output_lines_tail, "1", false, "", false, "number", "Lines kept from the end of long shell output.")}
     ${text("shell.deny", "deny", (cfg.shell?.deny || []).join(", "), "list", "Command fragments the shell refuses to run, comma separated.")}
-    ${head("remember")}${head("recall")}${head("fetch_url")}${head("web_search")}${head("run_script")}${head("call_service")}`;
+    ${head("remember")}${head("recall")}${head("fetch_url")}${head("web_search")}${head("run_script")}${head("call_service")}${limits(active)}`;
 }
 
 function memory(active) {
@@ -78,15 +68,37 @@ function memory(active) {
     .slice(0, 200)
     .join("\n");
   return `${toggle("memory.enabled", "enabled", store.config.memory?.enabled, "Loads saved notes into each chat and lets the model save new ones.")}
-    ${number("memory.max_tokens", "max tokens", store.config.memory?.max_tokens, "1", false, "", false, "number", "The most tokens each memory layer may add to a chat's prompt.")}
     ${text("memory.dir", "directory", store.config.memory?.dir || "", "text", "Where memory notes are stored.")}
     ${copyRow("file", active?.memory_path || "", "The memory file this chat loads; copy copies its path.")}
     <pre class="memory-content">${html(value || "No notes for this folder.")}</pre>`;
 }
 
+function limits(active) {
+ const connection=connectionList().find(c=>c.id===active?.connection_id);
+ const window=Number(active?.budget?.n_ctx || connection?.context?.n_ctx || connection?.capabilities?.n_ctx || 0);
+ const fields=[
+ ["tools.read_file.default_limit","default bytes",16384,true,"Bytes read_file returns when a call names no limit."],
+ ["tools.read_file.max_limit","max bytes per call",65536,true,"The most bytes one read_file call may return."],
+ ["tools.list_dir.max_entries","max entries",300,true,"The most entries one list_dir call returns."],
+ ["tools.grep.max_matches","max matches",50,true,"The most matches one search_text call returns."],
+ ["shell.max_output_lines_head","head lines",60,true,"Lines kept from the start of long shell output."],
+ ["shell.max_output_lines_tail","tail lines",40,true,"Lines kept from the end of long shell output."],
+ ["tools.attachments.max_bytes","max upload bytes",268435456,false,"disk; not a prompt limit"],
+ ["tools.grep.max_line_chars","max line chars",200,false,"Longer matching lines are cut to this many characters."],
+ ["shell.timeout_s","timeout",60,false,"Seconds a shell command may run when the call names no timeout."],
+ ["shell.max_timeout_s","max timeout",600,false,"The longest timeout a shell call may ask for, in seconds."],
+ ["memory.max_tokens","max tokens",16384,false,"The most tokens each memory layer may add to a chat's prompt."]
+ ];
+ return `<details class="settings-advanced" data-general-advanced data-settings-advanced="settings:general" ${advancedConnections.has("settings:general") ? "open" : ""}><summary>Advanced</summary>`+fields.map(([path,label,base,dynamic,hint])=>{
+ const saved=path.split('.').reduce((value,key)=>value?.[key],store.config),automatic=dynamic&&(!saved||Number(saved)===base);
+ const computed=Math.floor(base*Math.max(1,window/32768));
+ return number(path,label,automatic?'':saved??base,'1',false,dynamic?'blank: automatic ('+computed+' at this context)':'',false,dynamic?'automatic:'+base:'number',hint);
+ }).join('')+'</details>';
+}
+
 export function renderGeneralPage(page, active, pageContext) {
   useSettingsContext(pageContext);
-  return ({ sessions, tools, memory })[page]?.(active) || "";
+  return ({ sessions, tools, memory, limits })[page]?.(active) || "";
 }
 import { actionTable } from "./settings-action-table.js";
 

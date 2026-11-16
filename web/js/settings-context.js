@@ -1,6 +1,6 @@
-let store, connectionList, number, choices, row, html;
+let advancedConnections, store, connectionList, number, choices, row, html;
 function useSettingsContext(context) {
-  ({ store, connectionList, number, choices, row, html } = context);
+  ({ advancedConnections, store, connectionList, number, choices, row, html } = context);
 }
 
 function context(active) {
@@ -16,7 +16,7 @@ function context(active) {
   }
   const facts = store.serving_facts || {};
   const blocked = ["yes", "partial"].includes(facts.tokenize_blocks_on_slot);
-  return `${number("context.summary_pct", "summary threshold (%)", Math.round((store.config.context?.summary_pct || 0) * 100), "1", false, "", false, "percent", "Share of the context ceiling at which older turns are compacted.")}
+  return `<details class="settings-advanced" data-context-advanced data-settings-advanced="settings:context" ${advancedConnections.has("settings:context") ? "open" : ""}><summary>Advanced</summary>${number("context.summary_pct", "summary threshold (%)", Math.round((store.config.context?.summary_pct || 0) * 100), "1", false, "", false, "percent", "Share of the context ceiling at which older turns are compacted.")}</details>
     ${choices("context.accounting", "accounting", ["auto", "exact", "estimated"], choice, "How context use is counted: exact asks the server's tokenizer, estimated counts characters, auto uses exact when the server offers it.")}
     <p class="settings-note">${html(actual)}</p>
     ${blocked ? `<p class="settings-note">/tokenize measured ${html(facts.tokenize_busy_ms || "?")} ms busy and may occupy the generation slot</p>` : ""}

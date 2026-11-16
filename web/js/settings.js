@@ -157,8 +157,9 @@ export function initSettings(entry = {}) {
 		void listConnectionModels(event.target.dataset.path.split(".")[1]);
 	});
   sheet.addEventListener("toggle", (event) => {
-    if (!event.target.matches("details[data-connection-advanced]")) return;
-    event.target.open ? advancedConnections.add(event.target.dataset.connectionAdvanced) : advancedConnections.delete(event.target.dataset.connectionAdvanced);
+    if (!event.target.matches("details[data-connection-advanced], details[data-settings-advanced]")) return;
+    const key = event.target.dataset.connectionAdvanced || event.target.dataset.settingsAdvanced;
+    event.target.open ? advancedConnections.add(key) : advancedConnections.delete(key);
   }, true);
   sheet.addEventListener("input", (event) => {
     if (event.target.id && event.target.matches('input:not([type="password"]):not(.setting-input[data-path]), textarea:not(.setting-input[data-path])')) {
@@ -350,6 +351,7 @@ async function leaveSettingsForChat() {
 function render() {
   const active = store.sessions[store.active];
   const scrollTop = sheet.querySelector(".settings-content")?.scrollTop || 0;
+  const focusedInput = document.activeElement?.matches("input.setting-input, textarea.setting-input") ? document.activeElement : null;
   const focusKey = controlKey(document.activeElement);
   const secretValues = new Map(
     [...sheet.querySelectorAll('input[type="password"]')]
@@ -411,8 +413,15 @@ function render() {
   }
   for (const node of sheet.querySelectorAll("[data-setting-face]")) node.style.fontFamily = `"${node.dataset.settingFace}", sans-serif`;
   for (const node of sheet.querySelectorAll("[data-setting-colour]")) node.style.color = node.dataset.settingColour;
-  const focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
+  let focusNode = [...sheet.querySelectorAll("button, input, textarea, select, summary")]
     .find((node) => controlKey(node) === focusKey);
+  // Retain the input itself: number fields do not expose selectionStart, and
+  // rebuilding one between Select All and Delete loses its selection.
+  if (focusedInput && focusNode && focusedInput.value === focusNode.value) {
+    focusedInput.disabled = focusNode.disabled;
+    focusNode.replaceWith(focusedInput);
+    focusNode = focusedInput;
+  }
   focusNode?.focus({ preventScroll: true });
   for (const menu of sheet.querySelectorAll(".setting-menu")) {
     const anchor = menu.previousElementSibling;
@@ -2012,6 +2021,7 @@ async function change(event) {
 
 function draftValue(raw, kind = "text") {
   if (kind === "boolean") return raw === true || raw === "true";
+  if (kind.startsWith("automatic:")) return String(raw).trim() === "" ? Number(kind.slice(10)) : Number(raw);
   if (kind === "number") return Number(raw);
   if (kind === "percent") return Number(raw) / 100;
   if (kind === "list") return String(raw).split(",").map((value) => value.trim()).filter(Boolean);
@@ -2232,7 +2242,7 @@ async function resetSession(id) {
 
 function connectionReason(connection) {
   const caps = connection.capabilities || {};
-  const nctx = connection.context?.n_ctx;
+  const nctx = connection.context?.n_ctx || connection.capabilities?.n_ctx || store.connection_health?.[connection.id]?.window;
   if (!nctx) return "context unknown — enter the size";
   if (!caps.tool_calls) return "tool calling unavailable";
   if (caps.overflow_behavior === "truncate") return "server truncates context";

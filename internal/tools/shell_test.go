@@ -551,3 +551,35 @@ func TestShellFileRoutingCompoundAllowed(t *testing.T) {
 		t.Fatalf("compound command was refused: %s", got)
 	}
 }
+
+func TestContextScaledShellCalls2yg(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root).Shell
+	cfg.ServiceAccount.Enabled = false
+	command := "1..500 | ForEach-Object { 'line-'+$_ }"
+	if runtime.GOOS != "windows" {
+		cfg.Command = []string{"sh", "-c"}
+		command = "i=1; while [ $i -le 500 ]; do echo line-$i; i=$((i+1)); done"
+	}
+	for _, window := range []int{0, 16384, 32768, 131072} {
+		for _, override := range []bool{false, true} {
+			c := cfg
+			head, tail := 60, 40
+			if window > 32768 {
+				head, tail = 240, 160
+			}
+			if override {
+				c.MaxOutputLinesHead, c.MaxOutputLinesTail = 3, 2
+				head, tail = 3, 2
+			}
+			s := &session.Session{Workspace: root, Budget: events.Budget{NCtx: window}}
+			result, err := NewShell(c).Call(context.Background(), s, map[string]any{"command": command})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(result, fmt.Sprintf("line-%d\n[… %d lines omitted …]\nline-%d", head, 500-head-tail, 501-tail)) {
+				t.Fatalf("window=%d override=%t output=%s", window, override, result)
+			}
+		}
+	}
+}

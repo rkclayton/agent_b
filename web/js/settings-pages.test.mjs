@@ -635,12 +635,12 @@ test("Context reports the server value without replacing the saved value and hid
   context.store.connection_health = { acme: { lamp: "amber", word: "server allows only 32768 tokens", window: 32768 } };
   const saved = renderConnectionsPage(context);
   assert.match(saved, /value="65536"/);
-  assert.match(saved, /server recommends 32768 tokens; saved value is kept/);
+  assert.match(saved, /blank: what the server reports \(32768\)/);
   assert.doesNotMatch(saved, /size limit: 400000/);
   assert.match(saved, /tools: yes/);
   connection.context.n_ctx = 0;
   const empty = renderConnectionsPage(context);
-  assert.match(empty, /server context: 32768 tokens/);
+  assert.match(empty, /blank: what the server reports \(32768\)/);
 });
 
 test("Context exposes the one live compaction line 2tv", () => {
@@ -672,7 +672,7 @@ test("connection editor keeps server controls and leaves thinking to agent profi
   assert.doesNotMatch(defaults?.[0] || "", /\sopen(?:\s|>)/);
   const visible = editor.slice(0, editor.indexOf('<details class="connection-defaults"'));
   const labels = [...visible.matchAll(/<label[^>]*>([^<]*)<\/label>/g)].map((match) => match[1]).filter(Boolean);
-	assert.deepEqual(labels, ["name", "agent profile", "model", "context size", "reads images"]);
+	assert.deepEqual(labels, ["name", "agent profile", "model", "context size"]);
   assert.match(visible, /context unknown — enter the size/);
   for (const sentence of ["Model endpoints and their current probe state.", "This server runs one model", "The name this connection", "How much the model thinks"]) {
     assert.doesNotMatch(editor, new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

@@ -869,12 +869,20 @@ func TestRunsAreAdmittedPerConnectionAndNameTheRoleAhead(t *testing.T) {
 	scheduler.mu.Lock()
 	global := scheduler.admitLocked(other)
 	scheduler.mu.Unlock()
-	if global {
-		t.Fatal("the global limit no longer caps the total")
+	if !global {
+		t.Fatal("legacy global limit still caps independent connections")
+	}
+	scheduler.active[chat.ID], scheduler.active[other.ID] = &activeRun{}, &activeRun{}
+	if scheduler.admitLocked(chat) || scheduler.admitLocked(other) {
+		t.Fatal("connection limits exceeded")
+	}
+	cfg.Connections[1].MaxConcurrent = 2
+	if !scheduler.admitLocked(other) {
+		t.Fatal("second connection's raised limit ignored")
 	}
 }
 
-func TestDefaultAdmitsFourConnectionsAndQueuesTheFifth2sg(t *testing.T) {
+func TestIndependentConnectionsIgnoreTheOldGlobalDefault2yg(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.Defaults(workspace)
 	first := cfg.Connections[0]
@@ -922,7 +930,7 @@ func TestDefaultAdmitsFourConnectionsAndQueuesTheFifth2sg(t *testing.T) {
 	scheduler.mu.Lock()
 	admitted := scheduler.admitLocked(fifth)
 	scheduler.mu.Unlock()
-	if admitted {
-		t.Fatal("the fifth run was admitted past the global default")
+	if !admitted {
+		t.Fatal("the fifth connection was held by the obsolete global default")
 	}
 }

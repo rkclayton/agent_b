@@ -38,6 +38,7 @@ func (*Grep) Schema() map[string]any {
 }
 func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
 	cfg, ignore := g.config()
+	cfg.MaxMatches = config.ContextToolLimit(cfg.MaxMatches, 50, toolWindow(s))
 	pattern, ok := args["pattern"].(string)
 	if !ok || pattern == "" {
 		return "", fmt.Errorf("pattern is required")

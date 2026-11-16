@@ -17,6 +17,21 @@ type Tool interface {
 	Call(context.Context, *session.Session, map[string]any) (string, error)
 }
 
+func toolWindow(s *session.Session) int {
+	if s == nil {
+		return 0
+	}
+	return s.ContextWindow()
+}
+func windowSchema(tool Tool, windows []int) map[string]any {
+	if len(windows) > 0 {
+		if dynamic, ok := tool.(interface{ SchemaForWindow(int) map[string]any }); ok {
+			return dynamic.SchemaForWindow(windows[0])
+		}
+	}
+	return tool.Schema()
+}
+
 // CallOutcome carries dispatcher-only control information that is deliberately
 // absent from the model-facing tool schema and result text.
 type CallOutcome struct {
@@ -172,7 +187,7 @@ func (r *Registry) Reads(name string, args map[string]any) bool {
 		return false
 	}
 }
-func (r *Registry) Schemas(enabled map[string]bool) []any {
+func (r *Registry) Schemas(enabled map[string]bool, windows ...int) []any {
 	out := []any{}
 	for _, tool := range r.ordered {
 		if toolAvailable(tool, enabled) {
@@ -180,15 +195,15 @@ func (r *Registry) Schemas(enabled map[string]bool) []any {
 			if dynamic, ok := tool.(enabledDescription); ok {
 				description = dynamic.DescriptionFor(enabled)
 			}
-			out = append(out, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": description, "parameters": tool.Schema()}})
+			out = append(out, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": description, "parameters": windowSchema(tool, windows)}})
 		}
 	}
 	return out
 }
-func (r *Registry) AllSchemas() map[string]any {
+func (r *Registry) AllSchemas(windows ...int) map[string]any {
 	out := make(map[string]any, len(r.ordered))
 	for _, tool := range r.ordered {
-		out[tool.Name()] = map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": tool.Description(), "parameters": tool.Schema()}}
+		out[tool.Name()] = map[string]any{"type": "function", "function": map[string]any{"name": tool.Name(), "description": tool.Description(), "parameters": windowSchema(tool, windows)}}
 	}
 	return out
 }

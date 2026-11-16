@@ -49,13 +49,17 @@ test("the editor has no Save, Duplicate or Remove controls", () => {
 	assert.match(editor, /data-action="measure-connection"/, "Eval lost its home in the editor");
 });
 
-test("Test Eval and Recommended are the three adjacent connection actions", () => {
+test("Test stays primary and Eval and Recommended remain adjacent under Advanced 2yg", () => {
   const source = sources["settings-connections.js"];
   const start = source.indexOf('<div class="connection-primary-actions settings-actions">');
   const actions = source.slice(start, source.indexOf("</div>", start));
   assert.ok(start >= 0, "the primary action line is missing");
-  assert.match(actions, /"Test"[^]*"Eval"[^]*>Recommended</);
-  assert.equal((actions.match(/<button/g) || []).length, 3);
+  assert.match(actions, /"Test"/);
+  assert.equal((actions.match(/<button/g) || []).length, 1);
+  const advanced = source.slice(source.indexOf("const advancedActions"), source.indexOf("return `<div class=\"connection-fieldset connection-primary\""));
+  assert.match(advanced, /"Eval"[^]*>Recommended</);
+  assert.equal((advanced.match(/<button/g) || []).length, 2);
+  assert.match(source, /<details class="connection-defaults"[^]*\$\{advancedActions\}/);
 });
 
 test("connection fields commit without a Save control and model selection commits its connection", () => {

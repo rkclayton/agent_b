@@ -16,6 +16,23 @@ import (
 	"harness/internal/credential"
 )
 
+func TestContextScaledToolLimits2yg(t *testing.T) {
+	for _, base := range []int{16384, 65536, 300, 50, 60, 40} {
+		for _, window := range []int{0, 16384, 32768, 131072} {
+			want := base
+			if window > 32768 {
+				want = base * 4
+			}
+			if got := ContextToolLimit(base, base, window); got != want {
+				t.Fatalf("base=%d window=%d got=%d want=%d", base, window, got, want)
+			}
+			if got := ContextToolLimit(base+7, base, window); got != base+7 {
+				t.Fatal("override", got)
+			}
+		}
+	}
+}
+
 func TestSavedReserveIgnored2yf(t *testing.T) {
 	for _, value := range []int{-1, 8192, 999999} {
 		var c Connection
@@ -1269,5 +1286,29 @@ func TestConfigurationBelowCompatibilityFloorIsSetAsideAndStartsFresh2x0(t *test
 		if reloaded, _, _, err := Load(path); err != nil || !reflect.DeepEqual(reloaded.Profiles, loaded.Profiles) {
 			t.Fatalf("reload = %+v, %v", reloaded, err)
 		}
+	}
+}
+
+func TestFixedLimitsAndOverridesRoundTrip2yg(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Tools.Attachments.MaxBytes = 12345678
+	cfg.Tools.Grep.MaxLineChars = 123
+	cfg.Shell.TimeoutS = 23
+	cfg.Shell.MaxTimeoutS = 123
+	cfg.Memory.MaxTokens = 1234
+	cfg.Context.SummaryPct = .81
+	cfg.Tools.ReadFile.DefaultLimit = 12345
+	cfg.Run.MaxConcurrent = -3
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Config
+	if err = json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	ApplyDefaults(&got)
+	if got.Tools.Attachments.MaxBytes != 12345678 || got.Tools.Grep.MaxLineChars != 123 || got.Shell.TimeoutS != 23 || got.Shell.MaxTimeoutS != 123 || got.Memory.MaxTokens != 1234 || got.Context.SummaryPct != .81 || got.Tools.ReadFile.DefaultLimit != 12345 {
+		t.Fatal("saved limits changed")
 	}
 }

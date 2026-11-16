@@ -99,6 +99,9 @@ func (s *Shell) CallAsOperator(ctx context.Context, item *session.Session, args 
 
 func (s *Shell) call(ctx context.Context, item *session.Session, args map[string]any, forceOperator bool) (detail CallDetail) {
 	cfg := s.config()
+	window := toolWindow(item)
+	cfg.MaxOutputLinesHead = config.ContextToolLimit(cfg.MaxOutputLinesHead, 60, window)
+	cfg.MaxOutputLinesTail = config.ContextToolLimit(cfg.MaxOutputLinesTail, 40, window)
 	sandboxNotice := ""
 	defer func() {
 		detail.OperatorContext = cfg.OperatorContext && !forceOperator

@@ -128,6 +128,8 @@ test("connection has no output reserve setting 2yf",async()=>{
 test("thinking effort lives on the profile and the connection keeps only its advanced server controls 2y1", async () => {
   test.setTimeout(120_000);
   const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
+  let unchangedNameSaves = 0;
+  page.on('request', request => { if(request.url().endsWith('/api/agents') && request.method()==='POST' && request.postDataJSON()?.name==='Private fixture') unchangedNameSaves++; });
   await page.goto(`${harness.base}/chat`);
   await openSettings(page);
   await page.locator('.settings-nav [data-id="profiles"]').click();
@@ -160,6 +162,7 @@ test("thinking effort lives on the profile and the connection keeps only its adv
   await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Advanced");
   expect(await page.evaluate(() => document.querySelector(".connection-defaults").textContent.includes("effort"))).toBe(false);
+  expect(unchangedNameSaves).toBe(0);
   await page.close();
 });
 

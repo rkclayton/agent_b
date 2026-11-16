@@ -315,9 +315,13 @@ async function editAgent(action, value = "") {
   } else if (action === "effort") {
     body = { action: "update", id: selectedAgent, effort: value };
   } else if (action === "name") {
-    body = { action: "update", id: selectedAgent, name: read("name")?.value };
+    const name = read("name")?.value;
+    if (name === undefined || name === agent.name) return;
+    body = { action: "update", id: selectedAgent, name };
   } else if (action === "prompt") {
-    body = { action: "update", id: selectedAgent, prompt: read("prompt")?.value };
+    const prompt = read("prompt")?.value;
+    if (prompt === undefined || prompt === (agent.prompt || "")) return;
+    body = { action: "update", id: selectedAgent, prompt };
   } else if (action === "private") {
     body = { action: "update", id: selectedAgent, private: !!read("private")?.checked };
   } else if (action === "powershell") {

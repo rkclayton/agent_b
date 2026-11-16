@@ -53,6 +53,11 @@ func (a *harnessApp) onProfileChanged(nextRoot string) error {
 	}
 	a.writers, a.projector = nextWriters, nextProjector
 	a.workspaceManager = nextWorkspaceManager
+	if a.browser != nil {
+		if err := a.browser.SetRoot(nextRoot); err != nil {
+			return err
+		}
+	}
 	a.operatorFiles.SetRoot(nextRoot, nextLogDir)
 	a.fileUndo.SetRoot(nextRoot)
 	if ensureErr := a.operatorFiles.Ensure(); ensureErr != nil {

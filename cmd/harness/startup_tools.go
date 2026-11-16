@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"harness/internal/agent"
@@ -86,6 +88,14 @@ func (a *harnessApp) wireTools() {
 	rememberTool.SetConfig(a.web.ConfigSnapshot)
 	rememberTool.SetPlanner(a.web.PlannerNotes())
 	fetchTool := tools.NewFetch(a.cfg.Tools.Fetch)
+	if !strings.HasSuffix(strings.ToLower(os.Args[0]), ".test.exe") {
+		if err := removeLegacyBrowserProfiles(a.paths.Data, filepath.Join(os.TempDir(), "agentb-browser")); err != nil {
+			log.Printf("browser migration: %v", err)
+		}
+	}
+	a.browser = &keptBrowser{root: a.profileRoot}
+	fetchTool.SetBrowser(a.browser.Fetch)
+	a.cleanup(a.browser.Close)
 	delegateTool := tools.NewDelegate()
 	callServiceTool := tools.NewCallService(a.cfg.Services)
 	callServiceTool.SetShell(shellTool)

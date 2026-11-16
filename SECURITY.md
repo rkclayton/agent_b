@@ -577,3 +577,5 @@ Stored SSH logins (operator 2026-11-16, item 2yd) use the existing user-DPAPI va
 The askpass client also verifies the pipe server's executable identity and connects with identification-only impersonation quality of service; a substituted server cannot impersonate the client.
 
 Stored-credential consent (operator 2026-11-16, item 2ye) reuses the approval gate before vault reads, provider metadata/token acquisition, cached MCP headers, persistent PowerShell credentials and SSH prompt answers. Chat grants stay in memory, never snapshots or standing-grant files. The separate model-connection and service-account stores bypass this tool-use seam. Credentials remain encrypted by the existing Windows user boundary; consent does not isolate them from other code running as that user.
+
+The fetch browser’s retained profile is an ordinary folder under the active profile’s data root, readable by the operator’s own tools under the existing Windows identity and ACL boundary (operator, 2026-11-16, item 2yj).

@@ -23,6 +23,7 @@ import (
 // (the profile switch's writers, projector, workspace manager and notification store) is read
 // through the field, as the closures that captured main's locals read them before.
 type harnessApp struct {
+	browser             *keptBrowser
 	flags               launchFlags
 	phases              *startupPhases
 	paths               startupPaths

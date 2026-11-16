@@ -58,6 +58,12 @@ func NewFetch(cfg config.FetchTool) *Fetch {
 	return &Fetch{cfg: cfg, resolver: net.DefaultResolver}
 }
 
+func (f *Fetch) SetBrowser(render func(context.Context, string) (string, error)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.browser = render
+}
+
 func (*Fetch) Name() string { return "fetch_url" }
 func (*Fetch) Description() string {
 	return "Fetch one public URL or up to five URLs concurrently as untrusted byte windows. HTML defaults to article; raw keeps all visible text, feed parses RSS/Atom, and PDFs use their text layer. Use via browser after a 403 or script-empty page. When more is true, pass returned next_offset as offset to advance."
@@ -198,10 +204,7 @@ func (f *Fetch) callOneDetailed(ctx context.Context, s *session.Session, args ma
 		return detail
 	}
 	if via == "browser" {
-		render := f.browser
-		if render == nil {
-			render = f.renderWithBrowser
-		}
+		render := f.renderWithBrowser
 		browserCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutS)*time.Second)
 		readable, renderErr := render(browserCtx, target.String())
 		cancel()
@@ -713,6 +716,12 @@ func extractNetworkPDF(data []byte) (string, error) {
 }
 
 func (f *Fetch) renderWithBrowser(ctx context.Context, address string) (string, error) {
+	f.mu.RLock()
+	render := f.browser
+	f.mu.RUnlock()
+	if render != nil {
+		return render(ctx, address)
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return "", err

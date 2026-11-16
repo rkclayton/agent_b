@@ -20,12 +20,18 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const browserIdle = 10 * time.Minute
 
-type browserState struct{ PID, Port int }
+type browserState struct {
+	PID, Port      int
+	Created        int64
+	WatcherPID     int
+	WatcherCreated int64
+}
 type browserSocket struct {
 	net.Conn
 	reader *bufio.Reader
@@ -48,6 +54,12 @@ func runBrowserCommand(args []string) int {
 	}
 	if args[0] == "watch" && len(args) == 2 {
 		browserWatch(args[1])
+		return 0
+	}
+	if args[0] == "watch-owned" && len(args) == 4 {
+		owner, _ := strconv.Atoi(args[2])
+		created, _ := strconv.ParseInt(args[3], 10, 64)
+		browserWatchOwner(args[1], owner, created)
 		return 0
 	}
 	statePath, profile := browserPaths(cwd)
@@ -85,15 +97,37 @@ func runBrowserCommand(args []string) int {
 	return 0
 }
 
-func stopBrowser(statePath, profile string, state browserState) {
-	killBrowserProcess(state.PID)
-	_ = os.Remove(statePath)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if err := os.RemoveAll(profile); err == nil || time.Now().After(deadline) {
-			break
+func stopBrowser(statePath, profile string, state browserState, kept ...bool) {
+	defer func() {
+		if state.WatcherPID > 0 && state.WatcherPID != os.Getpid() {
+			deadline := time.Now().Add(2 * time.Second)
+			for processRunning(state.WatcherPID, state.WatcherCreated) && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
 		}
-		time.Sleep(50 * time.Millisecond)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if !processRunning(state.PID, state.Created) {
+		cancel()
+		_ = os.Remove(statePath)
+		return
+	}
+	if socket, err := connectBrowser(ctx, state.Port); err == nil {
+		_, _ = socket.call(ctx, "Browser.close", nil)
+		socket.Close()
+	}
+	cancel()
+	created := state.Created
+	deadline := time.Now().Add(3 * time.Second)
+	for processRunning(state.PID, created) && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
+	if processRunning(state.PID, created) {
+		killBrowserProcess(state.PID)
+	}
+	_ = os.Remove(statePath)
+	if len(kept) == 0 || !kept[0] {
+		_ = os.RemoveAll(profile)
 	}
 }
 
@@ -103,18 +137,17 @@ func browserPaths(cwd string) (string, string) {
 	return filepath.Join(root, "state.json"), filepath.Join(root, "profile")
 }
 
-func startBrowser(statePath, profile, cwd string) error {
-	if prior, err := readBrowserState(statePath); err == nil {
-		killBrowserProcess(prior.PID)
+func startBrowser(statePath, profile, cwd string, owned ...bool) error {
+	if prior, err := readBrowserState(statePath); err == nil && prior.Created != 0 && processRunning(prior.PID, prior.Created) {
+		stopBrowser(statePath, profile, prior, len(owned) > 0)
 	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(profile); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(profile, 0o700); err != nil {
-		return err
+	if len(owned) == 0 {
+		if err := os.RemoveAll(profile); err != nil {
+			return err
+		}
 	}
 	edge, err := findEdge()
 	if err != nil {
@@ -126,13 +159,12 @@ func startBrowser(statePath, profile, cwd string) error {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	pid, err := startBrowserDetached(edge, []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=" + strconv.Itoa(port), "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "--window-size=1280,800", "--disk-cache-size=67108864", "--media-cache-size=16777216", "about:blank"}, cwd)
+	pid, err := startBrowserDetached(edge, browserLaunchArgs(port, profile), cwd)
 	if err != nil {
 		return err
 	}
-	state := browserState{PID: pid, Port: port}
-	encoded, _ := json.Marshal(state)
-	if err := os.WriteFile(statePath, encoded, 0o600); err != nil {
+	state := browserState{PID: pid, Port: port, Created: processCreated(pid)}
+	if err := writeBrowserState(statePath, state); err != nil {
 		killBrowserProcess(pid)
 		return err
 	}
@@ -142,7 +174,20 @@ func startBrowser(statePath, profile, cwd string) error {
 		_, err = browserPageURL(ctx, port)
 		cancel()
 		if err == nil {
-			if !strings.HasSuffix(strings.ToLower(os.Args[0]), ".test.exe") {
+			if len(owned) > 0 && !strings.HasSuffix(strings.ToLower(os.Args[0]), ".test.exe") {
+				watchPID, watchErr := startBrowserDetached(os.Args[0], []string{"browser", "watch-owned", statePath, strconv.Itoa(os.Getpid()), strconv.FormatInt(processCreated(os.Getpid()), 10)}, cwd)
+				if watchErr != nil {
+					stopBrowser(statePath, profile, state, true)
+					return fmt.Errorf("browser owner watcher: %w", watchErr)
+				}
+				state.WatcherPID = watchPID
+				state.WatcherCreated = processCreated(watchPID)
+				if err := writeBrowserState(statePath, state); err != nil {
+					stopBrowser(statePath, profile, state, true)
+					return err
+				}
+			}
+			if len(owned) == 0 && !strings.HasSuffix(strings.ToLower(os.Args[0]), ".test.exe") {
 				_, _ = startBrowserDetached(os.Args[0], []string{"browser", "watch", statePath}, cwd)
 			}
 			return nil
@@ -154,7 +199,6 @@ func startBrowser(statePath, profile, cwd string) error {
 }
 
 func browserWatch(statePath string) {
-	profile := filepath.Join(filepath.Dir(statePath), "profile")
 	for {
 		info, err := os.Stat(statePath)
 		if err != nil {
@@ -165,7 +209,7 @@ func browserWatch(statePath string) {
 				killBrowserProcess(state.PID)
 			}
 			_ = os.Remove(statePath)
-			_ = os.RemoveAll(profile)
+			_ = os.RemoveAll(filepath.Join(filepath.Dir(statePath), "profile"))
 			return
 		}
 		time.Sleep(5 * time.Second)
@@ -221,6 +265,10 @@ func connectBrowser(ctx context.Context, port int) (*browserSocket, error) {
 	if err != nil {
 		return nil, err
 	}
+	return connectBrowserPage(ctx, address)
+}
+
+func connectBrowserPage(ctx context.Context, address string) (*browserSocket, error) {
 	u, err := url.Parse(address)
 	if err != nil {
 		return nil, err
@@ -500,3 +548,208 @@ func browserVerb(ctx context.Context, socket *browserSocket, cwd string, args []
 }
 
 func numberValue(value any) float64 { number, _ := value.(float64); return number }
+
+type keptBrowser struct {
+	mu         sync.Mutex
+	root       string
+	state      browserState
+	active     int
+	generation uint64
+	timer      *time.Timer
+	closed     bool
+}
+
+func (b *keptBrowser) paths() (string, string) {
+	root := filepath.Join(b.root, "browser")
+	return filepath.Join(root, "state.json"), filepath.Join(root, "profile")
+}
+func (b *keptBrowser) stopLocked() {
+	b.generation++
+	if b.timer != nil {
+		b.timer.Stop()
+		b.timer = nil
+	}
+	if b.state.PID != 0 {
+		statePath, profile := b.paths()
+		stopBrowser(statePath, profile, b.state, true)
+		b.state = browserState{}
+	}
+}
+func (b *keptBrowser) Close() { b.mu.Lock(); defer b.mu.Unlock(); b.closed = true; b.stopLocked() }
+func (b *keptBrowser) SetRoot(root string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active != 0 {
+		return errors.New("browser fetch is still active")
+	}
+	b.stopLocked()
+	b.root = root
+	return nil
+}
+func (b *keptBrowser) idle(generation uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active == 0 && b.generation == generation {
+		b.stopLocked()
+	}
+}
+func (b *keptBrowser) Fetch(ctx context.Context, address string) (string, error) {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return "", errors.New("browser is closed")
+	}
+	if b.state.PID == 0 || !processRunning(b.state.PID, b.state.Created) {
+		statePath, profile := b.paths()
+		if err := startBrowser(statePath, profile, b.root, true); err != nil {
+			b.mu.Unlock()
+			return "", err
+		}
+		b.state, _ = readBrowserState(statePath)
+	}
+	state := b.state
+	b.active++
+	b.generation++
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.active--
+		if b.active == 0 && !b.closed {
+			generation := b.generation
+			b.timer = time.AfterFunc(browserIdle, func() { b.idle(generation) })
+		}
+	}()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("http://127.0.0.1:%d/json/new?about:blank", state.Port), nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	var target struct {
+		ID                   string
+		WebSocketDebuggerURL string
+	}
+	err = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&target)
+	response.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(closeCtx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/json/close/%s", state.Port, url.PathEscape(target.ID)), nil)
+		if response, err := http.DefaultClient.Do(req); err == nil {
+			response.Body.Close()
+		}
+	}()
+	socket, err := connectBrowserPage(ctx, target.WebSocketDebuggerURL)
+	if err != nil {
+		return "", err
+	}
+	defer socket.Close()
+	if _, err = socket.call(ctx, "Page.navigate", map[string]any{"url": address}); err != nil {
+		return "", err
+	}
+	for {
+		value, err := browserEval(ctx, socket, `document.readyState`)
+		if err != nil {
+			return "", err
+		}
+		if value == "complete" {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	value, err := browserEval(ctx, socket, `document.body?document.body.innerText:""`)
+	if err != nil {
+		return "", err
+	}
+	text := fmt.Sprint(value)
+	if len(text) > 65536 {
+		text = text[:65536] + "\n[cut to 65,536 bytes]"
+	}
+	return text + "\n", nil
+}
+
+func browserWatchOwner(statePath string, owner int, created int64) {
+	original, err := readBrowserState(statePath)
+	if err != nil {
+		return
+	}
+	for {
+		current, err := readBrowserState(statePath)
+		if err != nil || current.PID != original.PID || current.Created != original.Created || current.Port != original.Port {
+			return
+		}
+		if _, err := os.Stat(statePath); err != nil {
+			return
+		}
+		if !processRunning(owner, created) {
+			if state, err := readBrowserState(statePath); err == nil {
+				stopBrowser(statePath, filepath.Join(filepath.Dir(statePath), "profile"), state, true)
+			}
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func browserLaunchArgs(port int, profile string) []string {
+	return []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=" + strconv.Itoa(port), "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "--window-size=1280,800", "--disk-cache-size=67108864", "--media-cache-size=16777216", "about:blank"}
+}
+
+func removeLegacyBrowserProfiles(dataRoot, legacyRoot string) error {
+	marker := filepath.Join(dataRoot, "browser-profile-v1")
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	}
+	entries, err := os.ReadDir(legacyRoot)
+	if err != nil && !os.IsNotExist(err) {
+		return errors.New("old browser profiles could not be inspected")
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || len(entry.Name()) != 16 {
+			continue
+		}
+		if _, err := hex.DecodeString(entry.Name()); err != nil {
+			continue
+		}
+		candidate := filepath.Join(legacyRoot, entry.Name())
+		real, err := filepath.EvalSymlinks(candidate)
+		if err != nil || !strings.EqualFold(filepath.Clean(real), filepath.Clean(candidate)) {
+			return errors.New("old browser profile has an unexpected filesystem link")
+		}
+		if state, err := readBrowserState(filepath.Join(candidate, "state.json")); err == nil && processRunning(state.PID, state.Created) {
+			return errors.New("an old browser is still running; cleanup will retry at next startup")
+		}
+		if err := os.RemoveAll(candidate); err != nil {
+			return errors.New("old browser profile could not be removed")
+		}
+	}
+	return os.WriteFile(marker, []byte("1\n"), 0600)
+}
+
+func writeBrowserState(path string, state browserState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	temporary := path + ".tmp"
+	if err = os.WriteFile(temporary, data, 0600); err != nil {
+		return err
+	}
+	if err = os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+	}
+	return err
+}

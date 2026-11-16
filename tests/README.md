@@ -107,3 +107,5 @@ Item 2yg: connection-discovery checks the exact primary/Advanced field split, un
 2yh: `TestHarnessNoteTailReplays2yh` exercises a stand-in that continues a final assistant message, including cutoff/cancel wire shapes, legacy notes, retry and no-user history. Scheduler tests cover each prior-run ending; wire-adapter tests cover all three protocols. Request pins retain the complete event and request proofs.
 
 2yi: ordered-list marker geometry covers 9–32px text and 80/100/150/200% zoom, 9/11/100/1000 items and start=98, with nested alignment. Default nine-item and bullet captures compare pixel-for-pixel against the former 20px gutter.
+
+2yj: local-site checks cover returning cookies, independent concurrent pages, idle/quit/owner-death recovery, browser-only profile files compared with a bare launch, unchanged arguments, fixed application state size, and an 80MiB cache workload. The operator explicitly permits ordinary tool access to this folder; fetch output still contains neither profile paths nor stored cookie values. Existing fetch/search tests stay unchanged.

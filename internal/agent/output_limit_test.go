@@ -6,8 +6,29 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/llm"
 )
+
+func TestFreeContextReplyCeiling2yf(t *testing.T) {
+	for _, saved := range []int{-1, 8192, 999999} {
+		c := &config.Connection{Context: config.Context{NCtx: 64000, ReserveOutput: saved}}
+		for _, tc := range []struct{ prompt, want int }{{2000, 62000}, {63000, 10240}} {
+			got := requestTokenLimit(c, events.Budget{NCtx: 64000}, tc.prompt)
+			body := llm.BuildRequest(c, llm.Request{MaxTokens: got}, false)
+			if body["max_tokens"] != tc.want {
+				t.Fatalf("saved=%d prompt=%d body=%v", saved, tc.prompt, body)
+			}
+		}
+	}
+}
+func TestUnknownContextReplyCeiling2yf(t *testing.T) {
+	c := &config.Connection{}
+	got := requestTokenLimit(c, events.Budget{}, 2000)
+	if got != 0 || llm.BuildRequest(c, llm.Request{MaxTokens: got}, false)["max_tokens"] != 10240 {
+		t.Fatalf("unknown ceiling=%d", got)
+	}
+}
 
 // Item 2l9. Production chat s28, run r410: `reason: "length"`,
 // `detail: "model output was truncated"`, 672,376 ms on one turn, and the
@@ -16,7 +37,7 @@ import (
 func TestATruncatedAnswerNamesTheCapAndWhereItIsSet2l9(t *testing.T) {
 	connection := &config.Connection{ID: "server", Label: "Acmeholding", Context: config.Context{NCtx: 200000, ReserveOutput: 10240}}
 	detail := truncationDetail(connection, llm.Response{Content: "a partial answer", FinishReason: "length"}, false)
-	for _, want := range []string{"10240", "reserve_output", "Acmeholding", "cut short"} {
+	for _, want := range []string{"200000 tokens", "ran out of room", "kept above, marked truncated"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("the stop line does not say %q: %s", want, detail)
 		}
@@ -34,7 +55,7 @@ func TestThinkingUsingTheBudgetSaysSo2l9(t *testing.T) {
 	if !strings.Contains(detail, "second request with thinking disabled") {
 		t.Fatalf("thinking exhausting the budget is not distinguished: %s", detail)
 	}
-	if !strings.Contains(detail, "5120") {
+	if !strings.Contains(detail, "12500") {
 		t.Fatalf("the stop line does not name thinking's own share: %s", detail)
 	}
 }
@@ -55,26 +76,13 @@ func TestTheProposedOutputReserveFollowsTheWindow2l9(t *testing.T) {
 	}
 }
 
-// (e3): the one hard limit. A reserve that starves the prompt is refused at save,
-// with its reason, and the operator's own saved values are untouched by (c).
-func TestAReserveBeyondTheSanityBoundIsRefusedAtSave2l9(t *testing.T) {
-	good := config.Connection{ID: "c", Label: "c", BaseURL: "http://127.0.0.1:1", Model: "m", ProbeMode: "off", AttachmentHandling: "auto", RequestTimeoutS: 60, Reasoning: config.Reasoning{Control: "auto", Effort: "medium"}, Context: config.Context{NCtx: 100000, ReserveOutput: 50000}}
-	bad := good
-	bad.Context.ReserveOutput = 50001
-	cfg := config.Defaults(".")
-	cfg.Connections = []config.Connection{good}
-	cfg.Agents = []config.Agent{{Name: "A", B: "c", C: "c", D: "c", Toolset: []string{"read_file"}}}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("a reserve of exactly half the window was refused: %v", err)
-	}
-	cfg.Connections = []config.Connection{bad}
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("a reserve larger than half the window was accepted")
-	}
-	for _, want := range []string{"reserve_output", "50001", "100000", "50000"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("the refusal does not say %q: %v", want, err)
+// Legacy reserve values no longer impose a validation rule.
+func TestLegacyReserveDoesNotRestrictSave2yf(t *testing.T) {
+	cfg := config.Defaults(t.TempDir())
+	for _, n := range []int{-1, 50001, 999999} {
+		cfg.Connections[0].Context.ReserveOutput = n
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

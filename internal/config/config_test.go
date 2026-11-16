@@ -16,6 +16,22 @@ import (
 	"harness/internal/credential"
 )
 
+func TestSavedReserveIgnored2yf(t *testing.T) {
+	for _, value := range []int{-1, 8192, 999999} {
+		var c Connection
+		if err := json.Unmarshal([]byte(fmt.Sprintf(`{"id":"fixture","model":"fixture","context":{"n_ctx":64000,"reserve_output":%d}}`, value)), &c); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(raw, []byte("reserve_output")) {
+			t.Fatalf("retained obsolete setting: %s", raw)
+		}
+	}
+}
+
 func TestCredentialConsentDefaults2ye(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	if cfg.Credentials.AskBeforeUse || cfg.Credentials.Hours() != 4 {

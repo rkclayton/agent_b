@@ -71,7 +71,7 @@ func TestSessionAgentReassignment(t *testing.T) {
 	if body.Session.Workspace != root {
 		t.Fatalf("workspace changed: %q", body.Session.Workspace)
 	}
-	if body.Session.Budget.NCtx != 32768 || body.Session.Budget.Reserve != 2048 {
+	if body.Session.Budget.NCtx != 32768 || body.Session.Budget.Reserve != config.ReserveOutputFor(32768) {
 		t.Fatalf("budget was not reset for selected connection: %+v", body.Session.Budget)
 	}
 	recent := drainTestEvents(eventStream, item.ID)

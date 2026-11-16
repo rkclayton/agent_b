@@ -66,7 +66,7 @@ test("a row reports that it applied, or carries the save that belongs to it", ()
   assert.doesNotMatch(settings, /data-action="save-setting" data-path=/);
 });
 
-test("a typed reserve the window cannot hold is lowered and the field says so (2px CHECK 8)", () => {
-  assert.match(settings, /if \(saved && typedReserve > saved\.reserve_output\) fieldNotes\.set\(reservePath, `lowered to \$\{saved\.reserve_output\}, the most a \$\{saved\.n_ctx\}-token context allows`\)/);
-  assert.match(settings, /errorMarkup\(problem, `field:\$\{path\}`\) : note/, "the note has nowhere to render");
+test("obsolete reserve is not proposed or saved 2yf", () => {
+ assert.doesNotMatch(settings, /context\.reserve_output|typedReserve|reservePath/);
+
 });

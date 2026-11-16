@@ -316,7 +316,7 @@ func (x *runState) turnBoundary() runOutcome {
 	}
 	if x.runWindow > 0 {
 		x.connection.Context.NCtx = x.runWindow
-		x.connection.Context.ReserveOutput = min(x.connection.Context.ReserveOutput, x.runWindow/2)
+		x.connection.Context.ReplyReserveLimit = x.runWindow / 2
 		x.windowSource = fmt.Sprintf("the server refused this run above %d tokens", x.runWindow)
 	}
 	// An invalid durable tool call is a history-shape problem, not an
@@ -434,10 +434,12 @@ func (x *runState) buildRequest() runOutcome {
 		if x.request.Thinking && x.connection.Reasoning.MaxTokens > 0 && budgetStatus != "accepted" {
 			x.request.MaxTokens = min(x.request.MaxTokens, x.connection.Reasoning.MaxTokens)
 		}
-		if x.reasoningFallbackPending {
-			x.request.MaxTokens = max(1, x.reasoningFallbackAllowance-x.reasoningFallbackShare)
-		} else if x.request.Thinking && x.connection.Reasoning.MaxTokens == 0 {
-			share := config.ReasoningShareFor(x.request.MaxTokens)
+		if !x.reasoningFallbackPending && x.request.Thinking && x.connection.Reasoning.MaxTokens == 0 {
+			allowance := x.connection.Context.OutputReserve()
+			if x.budget.NCtx <= 0 {
+				allowance = x.request.MaxTokens
+			}
+			share := config.ReasoningShareFor(allowance)
 			if budgetStatus == "accepted" {
 				x.request.ReasoningMaxTokens = share
 			} else {

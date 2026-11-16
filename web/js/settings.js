@@ -651,7 +651,7 @@ function subhead(label, hint = "") {
 }
 
 // the one action proposes what it learned as SOFT values
-// in the fields — context size, output reserve, reasoning cap, effort and whether
+// in the fields — context size, reasoning cap, effort and whether
 // thinking is supported — and proposes into a field the operator has NOT changed,
 // so pressing it again is safe and nothing typed is overwritten. (a3): a server
 // offering exactly one model has it selected. Nothing here saves.
@@ -676,8 +676,6 @@ function fillFromPickedModel(id, model) {
   if (!known && modelDefaults) {
     drafts.set(prefix + "context.n_ctx", String(modelDefaults.context.n_ctx));
     draftKinds.set(prefix + "context.n_ctx", "number");
-    drafts.set(prefix + "context.reserve_output", String(modelDefaults.context.reserve_output));
-    draftKinds.set(prefix + "context.reserve_output", "number");
   }
   render();
 }
@@ -708,7 +706,6 @@ function applyProposedValues(id, discovered) {
   }
   if (proposed.context_source === "published" || proposed.context_source === "probed") {
     propose("context.n_ctx", proposed.n_ctx, "number", connection.context?.n_ctx);
-    propose("context.reserve_output", proposed.reserve_output, "number", connection.context?.reserve_output === 10240 ? 0 : connection.context?.reserve_output);
     propose("reasoning.max_tokens", proposed.reasoning_max_tokens, "number", connection.reasoning?.max_tokens);
   }
   if (Array.isArray(proposed.valid_efforts) && proposed.effort) propose("reasoning.effort", proposed.effort, "text", "");
@@ -729,7 +726,6 @@ function applyRecommendedValues(id, answer) {
   const prefix = `connections.${id}.`;
   const labels = {
 		"context.n_ctx": "context size",
-		"context.reserve_output": "output reserve",
 		"reasoning.max_tokens": "reasoning cap",
 		"reasoning.effort": "reasoning effort",
 		reads_images: "reads images",
@@ -824,15 +820,7 @@ async function listConnectionModels(id) {
 async function saveConnection(id) {
   const prefix = `connections.${id}.`;
   if (![...drafts.keys()].some((path) => path.startsWith(prefix))) return;
-  // a typed reserve the window cannot hold is lowered on Save, and the
-  // field says so in one line instead of the Save being refused.
-  const reservePath = `${prefix}context.reserve_output`;
-  const typedReserve = drafts.has(reservePath) ? Number(drafts.get(reservePath)) : 0;
-  if (await saveSettings(prefix)) {
-    settingsSaveMessage = "";
-    const saved = connectionList().find((connection) => connection.id === id)?.context;
-    if (saved && typedReserve > saved.reserve_output) fieldNotes.set(reservePath, `lowered to ${saved.reserve_output}, the most a ${saved.n_ctx}-token context allows`);
-  }
+  if (await saveSettings(prefix)) settingsSaveMessage = "";
   if (open) render();
 }
 

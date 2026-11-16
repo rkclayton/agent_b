@@ -1238,12 +1238,12 @@ func degradedFeatures(connection *config.Connection, accounting string) []string
 
 func initialBudget(connection *config.Connection) events.Budget {
 	nctx := connection.Context.NCtx
-	ceiling := nctx - connection.Context.ReserveOutput
+	ceiling := nctx - connection.Context.OutputReserve()
 	if ceiling < 0 {
 		ceiling = 0
 	}
 	return events.Budget{
-		NCtx: nctx, Reserve: connection.Context.ReserveOutput, Ceiling: ceiling,
+		NCtx: nctx, Reserve: connection.Context.OutputReserve(), Ceiling: ceiling,
 		Mode: "estimated", Estimated: true, EstimatedCategories: []string{},
 		Categories:       map[string]int{"system": 0, "project": 0, "workspace_memory": 0, "agent_memory": 0, "tools": 0, "history": 0, "files": 0, "results": 0, "fetched": 0, "summary": 0},
 		ToolSchemaTokens: map[string]int{}, ToolMarginalTokens: map[string]int{},

@@ -426,7 +426,8 @@ test("the model picker immediately renders the selected model's own settings", (
   context.number = (path, label, value) => `${path}|${label}|${value}`;
   context.numberControl = (path, value) => `${path}|${value}`;
   const page = renderConnectionsPage(context);
-  assert.match(page, /connections\.local\.context\.reserve_output\|reserve\|12000/);
+  assert.doesNotMatch(page, /context\.reserve_output/);
+  assert.match(page, /value="96000"/);
   assert.match(page, /connections\.local\.sampling\.thinking\.temperature\|0\.6/);
   assert.match(page, /2\/2 passed/);
 });

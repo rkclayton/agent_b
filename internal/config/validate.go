@@ -160,18 +160,6 @@ func (c Config) validateConnections() (map[string]bool, error) {
 		if p.Context.NCtx < 0 {
 			return nil, fmt.Errorf("%s.context.n_ctx: cannot be negative", prefix)
 		}
-		if p.Context.ReserveOutput < 0 {
-			return nil, fmt.Errorf("%s.context.reserve_output: cannot be negative", prefix)
-		}
-		// the one hard limit here. Output is carved out of the
-		// context window, so a reserve larger than half of it starves the prompt it
-		// is taken from. The bound never falls below the reserve every version has
-		// shipped as its default, because a rule that refuses a configuration the
-		// product itself created is a broken rule, not a safeguard. Every other
-		// value in this area is the user's to set.
-		if bound := reserveOutputBound(p.Context.NCtx); bound > 0 && p.Context.ReserveOutput > bound {
-			return nil, fmt.Errorf("%s.context.reserve_output: %d leaves too little of the %d-token context window for the prompt; it may not exceed %d", prefix, p.Context.ReserveOutput, p.Context.NCtx, bound)
-		}
 		if p.Context.AnswerCeilingSeconds < 0 {
 			return nil, fmt.Errorf("%s.context.answer_ceiling_seconds: cannot be negative", prefix)
 		}

@@ -47,13 +47,22 @@ type Reasoning struct {
 	MaxTokens    int      `json:"max_tokens,omitempty"`
 }
 type Context struct {
-	NCtx          int `json:"n_ctx"`
-	ReserveOutput int `json:"reserve_output"`
+	NCtx              int `json:"n_ctx"`
+	ReserveOutput     int `json:"-"` // Legacy in-memory field; never used as a setting.
+	ReplyReserveLimit int `json:"-"` // Run-local server refusal clamp.
 	// AnswerCeilingSeconds bounds ONE answer, never a run or a chat:
 	// the operator spent 672 seconds on a single turn that was then thrown away.
 	// Zero means no ceiling, which is what every existing configuration says.
 	AnswerCeilingSeconds int            `json:"answer_ceiling_seconds,omitempty"`
 	Sizing               *ContextSizing `json:"sizing,omitempty"`
+}
+
+func (c Context) OutputReserve() int {
+	reserve := ReserveOutputFor(c.NCtx)
+	if c.ReplyReserveLimit > 0 {
+		return min(reserve, c.ReplyReserveLimit)
+	}
+	return reserve
 }
 
 // ContextSizing records the immutable install-time inputs used to choose the

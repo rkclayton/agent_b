@@ -145,7 +145,7 @@ func (s *Server) runMeasurement(ctx context.Context, connectionID string, connec
 		DurationMS:   time.Since(started).Milliseconds(),
 		CompletionMS: measured.CompletionMS,
 		Capped:       measured.Capped, Stopped: measured.Stopped,
-		NCtx: connection.Context.NCtx, WindowTokens: connection.Context.NCtx - connection.Context.ReserveOutput,
+		NCtx: connection.Context.NCtx, WindowTokens: connection.Context.NCtx - connection.Context.OutputReserve(),
 	}
 
 	if err := s.storeMeasurement(connectionID, result); err != nil {

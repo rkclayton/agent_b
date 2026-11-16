@@ -41,6 +41,18 @@ async function thinkingFixture(browser, width = 1280) {
   return { context, page, emit, capture };
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
+test("cutoff keeps the partial answer above its context line 2yf",async({browser})=>{
+ const baseline=!!process.env.AGENTB_CUTOFF_BASELINE,folder=`logs/evidence/rel-1.62.217/${baseline?'before':'captures'}`;
+ const record=baseline?JSON.parse(await readFile('logs/evidence/rel-1.62.217/baseline-cutoff.json','utf8')):{answer:'The first part of the story.\n\n[truncated]',detail:"the reply ran out of room in this model's context (32768 tokens) and was cut off; what it wrote is kept above, marked truncated. Reasoning path: reasoning was off, so neither a server reasoning budget nor the two-pass fallback applied"};await mkdir(folder,{recursive:true});
+ for(const width of [304,1280,1920]) {
+  const f=await thinkingFixture(browser,width);await f.emit([{type:'agent',key:'answer',run_id:'run',text:record.answer,done:true},{type:'notice',key:'stop',run_id:'run',event:{type:'run.stopped',data:{reason:'length',detail:record.detail}}}],true);
+  const answer=f.page.getByText('The first part of the story.',{exact:false}).first();await expect(answer).toBeAttached();
+  expect(auditLayoutSnapshot(await f.page.evaluate(collectLayoutSnapshot,'#chat-log'))).toEqual([]);
+  await f.page.screenshot({path:`${folder}/cutoff-${width}.png`});
+  if(!baseline){const notice=f.page.locator('.chat-notice-row .chat-content');await expect(notice).toHaveText("the reply ran out of room in this model's context (32768 tokens) and was cut off; what it wrote is kept above, marked truncated");const a=await answer.boundingBox(),b=await notice.boundingBox();expect(b.y).toBeGreaterThan(a.y);}
+  await f.context.close();
+ }
+});
 test("one live thinking row opens the arriving reasoning and stays open at finish 2y9", async ({ browser }) => {
   for (const width of [304, 1280, 1920]) {
     const f = await thinkingFixture(browser, width); await f.emit([fixtureThought]); await f.capture("live");

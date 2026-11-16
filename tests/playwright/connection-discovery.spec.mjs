@@ -118,6 +118,13 @@ test("custom profile thinking applies alone and a refusal sits beside its switch
   await page.close();
 });
 
+test("connection has no output reserve setting 2yf",async()=>{
+ const page=await harness.context.newPage();await page.goto(`${harness.base}/chat#settings/connections`);await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();await page.locator('.connection-defaults > summary').click();
+ await expect(page.locator('[data-path$=".context.reserve_output"]')).toHaveCount(0);
+ const folder=join(repo,'logs','evidence','rel-1.62.217','captures');await mkdir(folder,{recursive:true});
+ for(const width of [304,1280,1920]){await page.setViewportSize({width,height:width===304?254:width===1920?1080:860});if(width===304) await page.locator('[data-path$="reasoning.max_tokens"]').scrollIntoViewIfNeeded();expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'.settings-content'))).toEqual([]);await page.screenshot({path:join(folder,`editor-${width}.png`)});}await page.close();
+});
+
 test("thinking effort lives on the profile and the connection keeps only its advanced server controls 2y1", async () => {
   test.setTimeout(120_000);
   const page = await harness.context.newPage({ viewport: { width: 1280, height: 860 } });
@@ -149,8 +156,8 @@ test("thinking effort lives on the profile and the connection keeps only its adv
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(repo, "logs", "evidence", "rel-1.62.205", "captures", "profile-thinking-off-1280x860.png") });
-  await page.evaluate(() => document.querySelector('.settings-nav [data-id="connections"]').click());
-  await page.evaluate(() => document.querySelector('[data-action="connection-toggle"][data-id="ui"]').click());
+  await page.locator('.settings-nav [data-id="connections"]').click();
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
   await expect(page.locator(".connection-defaults > summary")).toHaveText("Advanced");
   expect(await page.evaluate(() => document.querySelector(".connection-defaults").textContent.includes("effort"))).toBe(false);
   await page.close();
@@ -943,10 +950,10 @@ test("Profiles and Connections share fields, whole numbers, switches, and stable
     const positions = async () => page.locator('.connection-primary').evaluate((root) => [...root.querySelectorAll(':scope > .setting-row')].map((row) => ({ label: row.querySelector(':scope > label')?.textContent.trim() || 'actions', left: row.getBoundingClientRect().left })));
     const before = await positions();
     await page.locator('.connection-defaults summary').click();
-    const reserve = page.locator('[data-path$="context.reserve_output"]');
+    const reserve = page.locator('[data-path$="reasoning.max_tokens"]');
     await reserve.evaluate((node) => { node.value = '10240'; node.style.width = '8ch'; });
     const cut = auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, '.settings-content'));
-    expect(cut.filter(({ rule }) => rule === 'L1').map(({ element }) => element)).toEqual(['connections.ui.context.reserve_output']);
+    expect(cut.filter(({ rule }) => rule === 'L1').map(({ element }) => element)).toEqual(['connections.ui.reasoning.max_tokens']);
     await reserve.evaluate((node) => { node.style.width = ''; });
     const whole = auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, '.settings-content'));
     expect(whole.filter(({ rule, element }) => rule === 'L1' && element.startsWith('connections.'))).toEqual([]);

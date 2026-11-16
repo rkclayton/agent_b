@@ -175,7 +175,7 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	connection.Reasoning.Enabled = true // the state the measurement must change
 	connection.Reasoning.MaxTokens = 321
 	connection.Reasoning.Control = "chat_template_kwargs" // how this server hears the switch
-	connection.Context.NCtx, connection.Context.ReserveOutput = 8192, 1024
+	connection.Context.NCtx = 17408                       // 7168 usable tokens after the computed 10240 reserve.
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Measured", B: "measured", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
@@ -190,11 +190,11 @@ func TestTheHarnessWritesTheDecisionItMeasured2ih(t *testing.T) {
 	if !server.ConfigSnapshot().Connections[0].Reasoning.Enabled {
 		t.Error("Eval changed the operator's reasoning switch")
 	}
-	if got := server.ConfigSnapshot().Connections[0]; got.Reasoning.MaxTokens != 321 || got.Context.NCtx != 8192 {
+	if got := server.ConfigSnapshot().Connections[0]; got.Reasoning.MaxTokens != 321 || got.Context.NCtx != 17408 {
 		t.Errorf("Eval changed cap/context: cap=%d context=%d", got.Reasoning.MaxTokens, got.Context.NCtx)
 	}
 	// (e): the window the model will run with is on the same record.
-	if result.NCtx != 8192 || result.WindowTokens != 7168 {
+	if result.NCtx != 17408 || result.WindowTokens != 7168 {
 		t.Errorf("the window is not recorded: n_ctx=%d window=%d", result.NCtx, result.WindowTokens)
 	}
 }

@@ -464,7 +464,7 @@ function groupResponses(entries) {
     // reason — it is the line that CLOSES the run, and folding it into the steps
     // group buries it under a collapsed "Steps · 1 row", which is where my first
     // version of this put it. The screenshot gate is what showed me.
-    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "done") || (entry.event?.type === "compaction" && ["fresh", "prune", "prune+fresh"].includes(entry.event?.data?.kind)) || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
+    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "length") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "done") || (entry.event?.type === "compaction" && ["fresh", "prune", "prune+fresh"].includes(entry.event?.data?.kind)) || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -1106,7 +1106,10 @@ function noticeContent(session, entry, actionable) {
   const data = event.data && typeof event.data === "object" ? event.data : {};
   if (event.type === "run.stopped") {
     const reason = (data.reason || "").replaceAll("_", " ");
-		if (data.reason === "model_unreachable") {
+		if (data.reason === "length" && data.detail?.includes(". Reasoning path:")) {
+			const [line] = data.detail.split(". Reasoning path:");
+			content.textContent = line; content.title = data.detail;
+		} else if (data.reason === "model_unreachable") {
 			const returned=String(data.detail || "").includes("your message is back in the box"); const line=document.createElement("span"); line.textContent=returned ? "model unreachable · your message is back in the box" : `model unreachable · ${entry.text || session.model_unreachable?.host || "model"}`; if(data.detail) line.title=data.detail; content.append(line);
 		} else if (String(data.detail || "").includes("your message is back in the box")) {
 			content.textContent = `${reason} · your message is back in the box`;

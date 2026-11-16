@@ -604,8 +604,6 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 			sources["context.n_ctx"] = "server"
 		}
 		values["context.n_ctx"] = window
-		values["context.reserve_output"] = config.ReserveOutputFor(window)
-		sources["context.reserve_output"] = "server"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"values": values, "sources": sources, "message": "Recommended values are unsaved"})
 }
@@ -762,16 +760,6 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 					writeError(w, 409, "already allowed by "+parent, "shell.trusted_folders")
 					return
 				}
-			}
-		}
-		// THE RESERVE FOLLOWS THE WINDOW. A reserve this save did not
-		// type is recomputed from the window; one it typed that no longer fits is
-		// lowered to the most allowed, and the field says so. Neither is refused:
-		// 30240, half of an old 60480 window, refused a 60000 window's Save.
-		for index := range next.Connections {
-			connection := &next.Connections[index]
-			if bound := max(connection.Context.NCtx/2, config.DefaultReserveOutput); connection.Context.NCtx > 0 && connection.Context.ReserveOutput > bound {
-				connection.Context.ReserveOutput = bound
 			}
 		}
 		if err := next.Validate(); err != nil {
@@ -1128,7 +1116,6 @@ func (s *Server) proposedConnectionValues(ctx context.Context, tested *config.Co
 	}
 	if window > 0 {
 		proposed["n_ctx"] = window
-		proposed["reserve_output"] = config.ReserveOutputFor(window)
 		proposed["reasoning_max_tokens"] = config.ReasoningShareFor(config.ReserveOutputFor(window))
 	}
 	if efforts := tested.Capabilities.ValidEfforts; len(efforts) > 0 {

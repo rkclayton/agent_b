@@ -83,8 +83,8 @@ func TestThePublishedContextLengthIsRead2l1(t *testing.T) {
 	if proposed["n_ctx"] != 262144 {
 		t.Fatalf("proposed n_ctx %v, want 262144", proposed["n_ctx"])
 	}
-	if proposed["reserve_output"] != config.ReserveOutputFor(262144) {
-		t.Fatalf("proposed reserve %v, want %d", proposed["reserve_output"], config.ReserveOutputFor(262144))
+	if proposed["reserve_output"] != nil {
+		t.Fatalf("obsolete reserve proposed: %v", proposed["reserve_output"])
 	}
 }
 

@@ -334,7 +334,7 @@ function connectionFields(connection, reason, discovery, modelOnly = false) {
 	    ${choices(`${p}.reasoning.control`, "control", ["auto", "chat_template_kwargs", "top_level", "server_flag", "none"], shown.reasoning.control, false)}
 	    ${toggle(`${p}.reasoning.preserve`, "preserve", shown.reasoning.preserve, false)}
 	    ${number(`${p}.reasoning.max_tokens`, "reasoning cap", shown.reasoning.max_tokens || 0, "1", false, "", false, "number", false)}
-	    ${number(`${p}.context.reserve_output`, "reserve", shown.context.reserve_output, "1", false, "", false, "number", false)}</div>
+	    </div>
     <div class="connection-fieldset connection-sampling"><h4>Sampling</h4><div class="sampling-grid"><div></div><div class="sampling-column">Thinking</div><div class="sampling-column">Non-thinking</div>${samplingRows}</div></div>
     <div class="connection-fieldset connection-prompt"><h4>System prompt</h4>
 	    ${textarea(`${p}.system_prompt_override`, "system prompt override", shown.system_prompt_override || "", false)}</div>

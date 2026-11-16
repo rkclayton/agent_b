@@ -231,7 +231,7 @@ func settingsShape(cfg config.Config) map[string]any {
 		}
 		model := filepath.Base(strings.ReplaceAll(connection.Model, `\`, "/"))
 		connections = append(connections, map[string]any{"kind": kind, "model": telemetry.Redact(model),
-			"context_size": connection.Context.NCtx, "reserve": connection.Context.ReserveOutput, "reasoning_effort": telemetry.Redact(connection.Reasoning.Effort),
+			"context_size": connection.Context.NCtx, "reserve": connection.Context.OutputReserve(), "reasoning_effort": telemetry.Redact(connection.Reasoning.Effort),
 			"soft_pct": cfg.Context.SoftPct, "summary_pct": cfg.Context.SummaryPct})
 	}
 	return map[string]any{"connections": connections, "telemetry": cfg.Telemetry.Enabled, "os_version": osVersion()}

@@ -268,7 +268,7 @@ func TestTheReserveFollowsTheWindow2px(t *testing.T) {
 	server.cfg.Agents = []config.Agent{{Name: "acme", B: "acme", Toolset: config.FullToolset()}}
 	for _, patch := range []string{`{"connections":[{"id":"acme","context":{"n_ctx":60000}}]}`, `{"connections":[{"id":"acme","context":{"n_ctx":60000,"reserve_output":30240}}]}`} {
 		response := postConfigPatch(t, server, patch)
-		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "connections[") || server.ConfigSnapshot().Connections[0].Context.ReserveOutput != 30000 {
+		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "connections[") || server.ConfigSnapshot().Connections[0].Context.OutputReserve() != config.ReserveOutputFor(60000) || strings.Contains(response.Body.String(), "reserve_output") {
 			t.Fatalf("%s: %d reserve=%d %.200s", patch, response.Code, server.ConfigSnapshot().Connections[0].Context.ReserveOutput, response.Body)
 		}
 	}

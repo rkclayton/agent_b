@@ -1513,7 +1513,7 @@ func (r *Runner) resolveWindow(ctx context.Context, connection *config.Connectio
 	}
 	narrowed := *resolved
 	narrowed.Context.NCtx = value.(int)
-	narrowed.Context.ReserveOutput = min(narrowed.Context.ReserveOutput, narrowed.Context.NCtx/2)
+	narrowed.Context.ReplyReserveLimit = narrowed.Context.NCtx / 2
 	return &narrowed, fmt.Sprintf("the server allows %d tokens per request", narrowed.Context.NCtx), nil
 }
 
@@ -1555,7 +1555,10 @@ func guardedPromptTokens(budget events.Budget) int {
 }
 
 func requestTokenLimit(p *config.Connection, budget events.Budget, promptTokens int) int {
-	return max(0, min(max(outputFloor(p), p.Context.ReserveOutput), budget.NCtx-promptTokens))
+	if budget.NCtx <= 0 {
+		return 0
+	}
+	return max(p.Context.OutputReserve(), budget.NCtx-promptTokens)
 }
 
 func outputFloor(p *config.Connection) int {
@@ -1595,11 +1598,10 @@ func preview(value string) string {
 // short. "The run stopped because of length" told the
 // operator nothing, least of all that the limit was his own setting.
 func truncationDetail(connection *config.Connection, response llm.Response, reasoningFallbackUsed bool) string {
-	reserve := connection.Context.ReserveOutput
+	reserve := connection.Context.OutputReserve()
 	if reserve <= 0 {
 		reserve = config.DefaultReserveOutput
 	}
-	where := fmt.Sprintf("the %s connection's output reserve (Settings → Connections → reserve output, context.reserve_output = %d tokens)", connection.Label, reserve)
 	reasoningPath := "reasoning was off, so neither a server reasoning budget nor the two-pass fallback applied"
 	if connection.Reasoning.Enabled {
 		status, key := llm.ReasoningBudgetFinding(connection)
@@ -1616,7 +1618,7 @@ func truncationDetail(connection *config.Connection, response llm.Response, reas
 			reasoningPath = "the server did not accept a separate thinking budget; the two-pass fallback could not produce an answer"
 		}
 	}
-	return fmt.Sprintf("the answer reached the output limit of %d tokens and was cut short; what it produced is kept above, marked truncated. Reasoning path: %s. The limit is %s", reserve, reasoningPath, where)
+	return fmt.Sprintf("the reply ran out of room in this model's context (%d tokens) and was cut off; what it wrote is kept above, marked truncated. Reasoning path: %s", connection.Context.NCtx, reasoningPath)
 }
 
 // keepTruncatedAnswer appends what the model did produce, marked truncated, so
@@ -1630,7 +1632,7 @@ func (r *Runner) keepTruncatedAnswer(ctx context.Context, s *session.Session, ru
 		}
 		kept += "\n\n[answer taken from the model's reasoning]"
 	}
-	kept += "\n\n[the answer reached the output limit and was cut short here]"
+	kept += "\n\n[truncated]"
 	r.stage(s, runID, turn, "append", func() {
 		message, _ := r.makeMessage(ctx, connection, "assistant", kept, "history", turn)
 		message.Reasoning = response.Reasoning

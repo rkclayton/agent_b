@@ -183,7 +183,6 @@ func TestConnectionRefusalsNameExactFields2r9(t *testing.T) {
 		}, "not in valid_efforts", "connections.local.reasoning.effort"},
 		{"reasoning cap", func(cfg *config.Config) { cfg.Connections[0].Reasoning.MaxTokens = -1 }, "cannot be negative", "connections.local.reasoning.max_tokens"},
 		{"context size", func(cfg *config.Config) { cfg.Connections[0].Context.NCtx = -1 }, "cannot be negative", "connections.local.context.n_ctx"},
-		{"output reserve", func(cfg *config.Config) { cfg.Connections[0].Context.ReserveOutput = -1 }, "cannot be negative", "connections.local.context.reserve_output"},
 		{"answer ceiling", func(cfg *config.Config) { cfg.Connections[0].Context.AnswerCeilingSeconds = -1 }, "cannot be negative", "connections.local.context.answer_ceiling_seconds"},
 	}
 	for _, test := range tests {

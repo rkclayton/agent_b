@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,38 @@ import (
 )
 
 type retryWriteTool struct{}
+
+func TestPartialReplyJournal2yf(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, request)
+			return
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "The first part of the story."}, "finish_reason": "length"}}, "usage": map[string]any{"prompt_tokens": 2000, "completion_tokens": 25}})
+	}))
+	defer server.Close()
+	runner, s, _ := truncationRunner(t, server.URL, "estimated")
+	runner.AddUser(context.Background(), s, "Tell a long story.")
+	reason, detail, _ := runner.Run(context.Background(), s, "fixture-run")
+	if reason != "length" {
+		t.Fatalf("%s: %s", reason, detail)
+	}
+	var answer string
+	for _, m := range s.MessagesCopy() {
+		if m.Role == "assistant" {
+			answer = m.Content
+		}
+	}
+	if !strings.Contains(answer, "The first part of the story.") {
+		t.Fatal(answer)
+	}
+	if file := os.Getenv("AGENTB_CUTOFF_EVIDENCE"); file != "" {
+		raw, _ := json.Marshal(map[string]string{"answer": answer, "detail": detail})
+		if err := os.WriteFile(file, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func (*retryWriteTool) Name() string        { return "write_file" }
 func (*retryWriteTool) Description() string { return "write a file" }
@@ -449,21 +482,21 @@ func TestMalformedHistoryRepairPreservesFailureNoteWithoutRestoringFailedAction(
 func TestRequestTokenLimitUsesRemainingContextAfterReserve(t *testing.T) {
 	connection := &config.Connection{Context: config.Context{NCtx: 32768, ReserveOutput: 10240}}
 	budget := events.Budget{NCtx: 32768, Reserve: 10240, UsedEst: 8451, Mode: "exact"}
-	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 10240 {
-		t.Fatalf("max_tokens=%d, want 10240", got)
+	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 24317 {
+		t.Fatalf("max_tokens=%d, want 24317", got)
 	}
 	budget.Mode = "estimated"
 	if got := guardedPromptTokens(budget); got != 9297 {
 		t.Fatalf("guarded prompt=%d, want 9297", got)
 	}
 	budget.UsedEst = 30000
-	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 0 {
-		t.Fatalf("estimated exhausted max_tokens=%d, want 0 before compaction", got)
+	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 10240 {
+		t.Fatalf("estimated exhausted max_tokens=%d, want computed floor 10240 before compaction", got)
 	}
 	connection.Context.ReserveOutput = 1024
 	budget.Mode, budget.UsedEst = "exact", 20000
-	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != minimumOutputFloor {
-		t.Fatalf("configured-low max_tokens=%d, want floor %d", got, minimumOutputFloor)
+	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 12768 {
+		t.Fatalf("configured-low max_tokens=%d, want free context %d", got, 12768)
 	}
 }
 

@@ -16,7 +16,7 @@ import (
 	"harness/internal/tools"
 )
 
-func reasoningBudgetRunner2xa(t *testing.T, handler http.Handler) (*Runner, *session.Session, *capturedBus, *atomic.Int32) {
+func reasoningBudgetRunner2xa(t *testing.T, handler http.Handler, configure ...func(*config.Connection)) (*Runner, *session.Session, *capturedBus, *atomic.Int32) {
 	t.Helper()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -34,6 +34,9 @@ func reasoningBudgetRunner2xa(t *testing.T, handler http.Handler) (*Runner, *ses
 	connection.Capabilities.NCtx, connection.Capabilities.Streaming = 32768, true
 	connection.Capabilities.OverflowBehavior = "error"
 	connection.Capabilities.Findings = []string{"server reasoning budget: rejected; key: reasoning_budget_tokens"}
+	for _, change := range configure {
+		change(&connection)
+	}
 	cfg.Connections = []config.Connection{connection}
 	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Thinking: true, Toolset: config.FullToolset()}}
 	bus := newCapturedBus()
@@ -41,6 +44,29 @@ func reasoningBudgetRunner2xa(t *testing.T, handler http.Handler) (*Runner, *ses
 	item := &session.Session{ID: "main", AgentID: "Main", ConnectionID: "main", Workspace: root, Runnable: true, ToolsEnabled: map[string]bool{}, ToolCalls: map[string]int{}, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	item.Append(events.Message{ID: "u1", Role: "user", Content: "work", Category: "history"})
 	return runner, item, bus, &calls
+}
+
+func TestLargerReplyDoesNotEnlargeThinking2yf(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			http.Error(w, "invalid", 400)
+			return
+		}
+		if body["reasoning_budget_tokens"] != float64(5120) || body["max_tokens"].(float64) <= 50000 {
+			t.Errorf("allowances=%v", body)
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "answer"}, "finish_reason": "stop"}}})
+	})
+	runner, s, _, _ := reasoningBudgetRunner2xa(t, handler, func(c *config.Connection) {
+		c.Context.NCtx = 64000
+		c.Context.ReserveOutput = 8192
+		c.Capabilities.Findings = []string{"server reasoning budget: accepted; key: reasoning_budget_tokens"}
+	})
+	if reason, detail, _ := runner.Run(context.Background(), s, "fixture"); reason != "done" {
+		t.Fatalf("%s: %s", reason, detail)
+	}
 }
 
 func TestRejectedBudgetUsesOneBoundedThinkingPassAndOneAnswerPass2xa(t *testing.T) {
@@ -62,7 +88,7 @@ func TestRejectedBudgetUsesOneBoundedThinkingPassAndOneAnswerPass2xa(t *testing.
 			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"reasoning_content": firstReasoning}, "finish_reason": "length"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5120}})
 			return
 		}
-		if body.MaxTokens != 5120 || body.ChatTemplateKwargs["enable_thinking"] != false {
+		if body.MaxTokens <= 10240 || body.MaxTokens > 32768 || body.ChatTemplateKwargs["enable_thinking"] != false {
 			t.Fatalf("answer request=%+v", body)
 		}
 		encoded, _ := json.Marshal(body.Messages)

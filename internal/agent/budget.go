@@ -550,7 +550,7 @@ func (b *Budgeter) measure(ctx context.Context, connection *config.Connection, s
 		used = max(0, state.measured+int(math.Round((effectiveChars-state.lastChars)/max(state.cpt, 1))))
 	}
 	nctx := connection.Context.NCtx
-	budget := events.Budget{NCtx: nctx, Reserve: connection.Context.ReserveOutput, Ceiling: max(0, nctx-connection.Context.ReserveOutput), UsedEst: used, Mode: mode, Estimated: len(estimated) > 0, EstimatedCategories: estimated, Categories: categories, ToolSchemaTokens: cloneCounts(schemaCounts), ToolMarginalTokens: cloneCounts(marginalCounts)}
+	budget := events.Budget{NCtx: nctx, Reserve: connection.Context.OutputReserve(), Ceiling: max(0, nctx-connection.Context.OutputReserve()), UsedEst: used, Mode: mode, Estimated: len(estimated) > 0, EstimatedCategories: estimated, Categories: categories, ToolSchemaTokens: cloneCounts(schemaCounts), ToolMarginalTokens: cloneCounts(marginalCounts)}
 	if state.hasMeasured {
 		budget.UsedMeasured = state.measured
 		budget.Drift = state.measured - state.requestEstimate

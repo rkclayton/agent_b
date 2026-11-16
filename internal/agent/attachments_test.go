@@ -350,7 +350,7 @@ func TestNativeAttachmentBudgetIsCumulativeAcrossQueuedHistory(t *testing.T) {
 	connection.Capabilities.ImageInput = true
 	connection.Capabilities.Vision = config.VisionReadsImages
 	connection.ReadsImages = true
-	connection.Context.NCtx, connection.Context.ReserveOutput = 100, 8
+	connection.Context.NCtx = config.DefaultReserveOutput + 92
 	cfg := config.Defaults(workspace)
 	cfg.Connections[0] = connection
 	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{text: "system"}, cfg.Connection, func() config.Config { return cfg })

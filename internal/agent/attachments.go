@@ -270,7 +270,7 @@ func prepareNativeAttachmentsWithBudget(connection *config.Connection, workspace
 }
 
 func nativeAttachmentBudget(connection *config.Connection) int64 {
-	return int64(max(0, connection.Context.NCtx-connection.Context.ReserveOutput))
+	return int64(max(0, connection.Context.NCtx-connection.Context.OutputReserve()))
 }
 
 // remainingNativeAttachmentBudget counts only the trailing user messages, the

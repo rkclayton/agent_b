@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -138,8 +139,14 @@ func browserPaths(cwd string) (string, string) {
 }
 
 func startBrowser(statePath, profile, cwd string, owned ...bool) error {
-	if prior, err := readBrowserState(statePath); err == nil && prior.Created != 0 && processRunning(prior.PID, prior.Created) {
+	prior, _ := readBrowserState(statePath)
+	if prior.Created != 0 && processRunning(prior.PID, prior.Created) {
 		stopBrowser(statePath, profile, prior, len(owned) > 0)
+	}
+	if len(owned) > 0 {
+		if err := trimBrowserCache(statePath, profile, prior); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
 		return err
@@ -569,11 +576,50 @@ func (b *keptBrowser) stopLocked() {
 		b.timer.Stop()
 		b.timer = nil
 	}
+	statePath, profile := b.paths()
 	if b.state.PID != 0 {
-		statePath, profile := b.paths()
 		stopBrowser(statePath, profile, b.state, true)
+	}
+	if err := trimBrowserCache(statePath, profile, b.state); err != nil {
+		log.Printf("browser cache cleanup: %v", err)
+	}
+	if !processRunning(b.state.PID, b.state.Created) {
 		b.state = browserState{}
 	}
+}
+
+func trimBrowserCache(statePath, profile string, state browserState) error {
+	prior, _ := readBrowserState(statePath)
+	if processRunning(state.PID, state.Created) || processRunning(prior.PID, prior.Created) {
+		return errors.New("browser is still running")
+	}
+	folders := []string{"Default/Cache", "Default/Code Cache", "Default/GPUCache"}
+	var size int64
+	for _, name := range folders {
+		err := filepath.Walk(filepath.Join(profile, filepath.FromSlash(name)), func(_ string, info os.FileInfo, err error) error {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				size += info.Size()
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if size > 256<<20 {
+		for _, name := range folders {
+			if err := os.RemoveAll(filepath.Join(profile, filepath.FromSlash(name))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func (b *keptBrowser) Close() { b.mu.Lock(); defer b.mu.Unlock(); b.closed = true; b.stopLocked() }
 func (b *keptBrowser) Data(clear bool) (int64, error) {
@@ -731,7 +777,7 @@ func browserWatchOwner(statePath string, owner int, created int64) {
 }
 
 func browserLaunchArgs(port int, profile string) []string {
-	return []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=" + strconv.Itoa(port), "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "--window-size=1280,800", "--disk-cache-size=268435456", "--media-cache-size=16777216", "about:blank"}
+	return []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=" + strconv.Itoa(port), "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "--window-size=1280,800", "--disk-cache-size=67108864", "--media-cache-size=16777216", "about:blank"}
 }
 
 func removeLegacyBrowserProfiles(dataRoot, legacyRoot string) error {

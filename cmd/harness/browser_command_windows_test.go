@@ -374,7 +374,7 @@ func TestKeptBrowserLifecycle2yj(t *testing.T) {
 }
 
 func TestBrowserLaunchArgumentsUnchanged2yj(t *testing.T) {
-	want := []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=12345", "--remote-debugging-address=127.0.0.1", "--user-data-dir=profile", "--window-size=1280,800", "--disk-cache-size=268435456", "--media-cache-size=16777216", "about:blank"}
+	want := []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=12345", "--remote-debugging-address=127.0.0.1", "--user-data-dir=profile", "--window-size=1280,800", "--disk-cache-size=67108864", "--media-cache-size=16777216", "about:blank"}
 	if strings.Join(browserLaunchArgs(12345, "profile"), "\x00") != strings.Join(want, "\x00") {
 		t.Fatal("browser launch arguments changed")
 	}
@@ -593,39 +593,9 @@ func TestBrowserCacheSetting2ym(t *testing.T) {
 	defer server.Close()
 	b := &keptBrowser{root: t.TempDir()}
 	defer b.Close()
-	statePath, profile := b.paths()
-	edge, err := findEdge()
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	args := browserLaunchArgs(port, profile)
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "--disk-cache-size=") {
-			args[i] = "--disk-cache-size=268435456"
-		}
-	}
-	pid, err := startBrowserDetached(edge, args, b.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.state = browserState{PID: pid, Port: port, Created: processCreated(pid)}
+	_, profile := b.paths()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	for {
-		if _, err := browserPageURL(ctx, port); err == nil {
-			break
-		}
-		if ctx.Err() != nil {
-			t.Fatal(ctx.Err())
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 	if _, err := b.Fetch(ctx, server.URL); err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +609,10 @@ func TestBrowserCacheSetting2ym(t *testing.T) {
 	time.Sleep(5 * time.Second)
 	b.Close()
 	var size int64
-	err = filepath.Walk(filepath.Join(profile, "Default", "Cache"), func(_ string, info os.FileInfo, err error) error {
+	err := filepath.Walk(filepath.Join(profile, "Default", "Cache"), func(_ string, info os.FileInfo, err error) error {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -651,9 +624,14 @@ func TestBrowserCacheSetting2ym(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("256 MiB cache setting: served=%d cache=%d bytes; state=%s", served.Load(), size, filepath.Base(statePath))
+	t.Logf("stopped cache: served=%d cache=%d bytes", served.Load(), size)
 	if size > 256<<20 {
 		t.Fatalf("cache exceeds 256 MiB: %d", size)
+	}
+	next := &keptBrowser{root: b.root}
+	defer next.Close()
+	if text, err := next.Fetch(ctx, server.URL); err != nil || !strings.Contains(text, "returning visitor") {
+		t.Fatal("cookie after cleanup", text, err)
 	}
 }
 
@@ -753,5 +731,117 @@ func TestBrowserQuitWaitsForOwnedWatcher2yj(t *testing.T) {
 	}
 	if err := command.Wait(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCacheFoldersPreserveSession2yn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("visit"); err == nil {
+			fmt.Fprint(w, "returning visitor")
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "visit", Value: "fixture", MaxAge: 86400})
+		fmt.Fprint(w, "first visitor")
+	}))
+	defer server.Close()
+	b := &keptBrowser{root: t.TempDir()}
+	defer b.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if _, err := b.Fetch(ctx, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	_, profile := b.paths()
+	for _, name := range []string{"Default/Cache", "Default/Code Cache", "Default/GPUCache"} {
+		b.mu.Lock()
+		b.stopLocked()
+		b.mu.Unlock()
+		folder := filepath.Join(profile, filepath.FromSlash(name))
+		if _, err := os.Stat(folder); err != nil {
+			t.Fatal(name, err)
+		}
+		history := filepath.Join(profile, "Default", "History")
+		before, err := os.ReadFile(history)
+		if err != nil || !bytes.Contains(before, []byte(server.URL)) {
+			t.Fatal("history missing", err)
+		}
+		if err := os.RemoveAll(folder); err != nil {
+			t.Fatal(err)
+		}
+		after, err := os.ReadFile(history)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatal("history changed on deletion", err)
+		}
+		if text, err := b.Fetch(ctx, server.URL); err != nil || !strings.Contains(text, "returning visitor") {
+			t.Fatal("session damaged", text, err)
+		}
+		t.Logf("cache-only deletion and reopen: %s; history and returning cookie preserved", name)
+	}
+}
+
+func TestCacheCleanupBoundaries2yn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "fixture") }))
+	defer server.Close()
+	for _, mode := range []string{"idle", "quit", "start"} {
+		t.Run(mode, func(t *testing.T) {
+			b := &keptBrowser{root: t.TempDir()}
+			defer b.Close()
+			_, profile := b.paths()
+			cache := filepath.Join(profile, "Default", "Cache")
+			if err := os.MkdirAll(cache, 0700); err != nil {
+				t.Fatal(err)
+			}
+			marker := filepath.Join(cache, "bound-fixture")
+			f, err := os.Create(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = f.Truncate(1024); err != nil {
+				t.Fatal(err)
+			}
+			f.Close()
+			b.mu.Lock()
+			b.stopLocked()
+			b.mu.Unlock()
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatal("under bound deleted", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if mode != "start" {
+				if _, err := b.Fetch(ctx, server.URL); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f, err = os.OpenFile(marker, os.O_WRONLY, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = f.Truncate(257 << 20); err != nil {
+				t.Fatal(err)
+			}
+			f.Close()
+			if mode != "start" {
+				if _, err := b.Fetch(ctx, server.URL); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(marker); err != nil {
+					t.Fatal("running cache deleted", err)
+				}
+			}
+			switch mode {
+			case "idle":
+				b.idle(b.generation)
+			case "quit":
+				b.Close()
+			case "start":
+				if _, err := b.Fetch(ctx, server.URL); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("oversize cache survived", err)
+			}
+		})
 	}
 }

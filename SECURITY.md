@@ -581,3 +581,5 @@ Stored-credential consent (operator 2026-11-16, item 2ye) reuses the approval ga
 The fetch browser’s retained profile is an ordinary folder under the active profile’s data root, readable by the operator’s own tools under the existing Windows identity and ACL boundary (operator, 2026-11-16, item 2yj).
 
 Browser-data size and clearing (item 2ym) require the local page session and mutation capability, including reads. Paired-device dispatch exposes neither operation. Clearing stops the owned fetch browser and removes only its retained profile; a later fetch creates a fresh profile. No age-based clearing runs.
+
+The retained fetch browser deletes only Default/Cache, Default/Code Cache and Default/GPUCache when their combined size exceeds 256 MiB, after verifying the browser is stopped at stop/start boundaries (item 2yn); cookies, site storage and history are retained.

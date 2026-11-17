@@ -120,6 +120,25 @@ func TestShellStoredLogin2yd(t *testing.T) {
 				}
 			}()
 			port := listener.Addr().(*net.TCPAddr).Port
+			if scenario == "resolved-host" {
+				original, e := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+				if e != nil {
+					t.Fatal(e)
+				}
+				defer original.Close()
+				go func() {
+					conn, e := original.Accept()
+					if e != nil {
+						return
+					}
+					defer conn.Close()
+					conn.SetDeadline(time.Now().Add(15 * time.Second))
+					server, _, _, e := ssh.NewServerConn(conn, cfg)
+					if e == nil {
+						server.Close()
+					}
+				}()
+			}
 			known := filepath.Join(root, "known_hosts")
 			keyLine := fmt.Sprintf("[127.0.0.1]:%d %s", port, ssh.MarshalAuthorizedKey(signer.PublicKey()))
 			if scenario == "resolved-host" {

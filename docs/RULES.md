@@ -68,6 +68,7 @@ This page describes the build of 2026-10-16.
 
 | Rule | When | You see | Set where | Asked by |
 | --- | --- | --- | --- | --- |
+| Git sign-in unavailable | Git in the shell has no usable sign-in and reports that terminal prompting is disabled. Git and its credential manager run noninteractively; existing sign-ins are still usable. | git needs a sign-in on this computer: sign in once from your own terminal | always, shell child environment | operator 2026-11-16 23:14–23:17, item 2yp: yes to a check first and a fix only if it shows a problem |
 | **Your approval** |  |  |  |  |
 | **Your folders and files** |  |  |  |  |
 | **The model's context** |  |  |  |  |

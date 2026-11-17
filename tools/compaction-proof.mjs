@@ -65,7 +65,7 @@ export function proofPlan(machine, profile) {
   // 2we: a prune and a summary in one crossing needs older results over half the context
   // and the rest still over the line, which only a lowered line produces: half the room in
   // results and a quarter in one user message under 0.9, then the line moves to 0.25.
-  const room = Math.max(0, window - Number(selected.model.context?.reserve_output || 0) - 3000), unit = Math.ceil([...proofFiller].length * 10 / 36);
+  const room = Math.max(0, window - Math.min(32768, Math.max(10240, Math.floor(window / 8))) - 3000), unit = Math.ceil([...proofFiller].length * 10 / 36);
   runs.push({ name: "prune+summary", minimum: 1, window, lowered: .25, files: Math.max(2, Math.floor(.5 * room / unit)), history: Math.max(1, Math.ceil(.27 * room / unit)), stub: true, real: true });
   return { window, runs };
 }
@@ -76,13 +76,14 @@ export function proofCases(plan, { real = false, only = "" } = {}) {
   return plan.runs.filter((run) => named.size ? named.has(run.name) : real ? run.real : run.stub);
 }
 
-// The stand-in connection: the installed one's agent and settings, pointed at the stub, with a
-// fixed 32,768-token window, no credential and no server-side counting, so nothing leaves the PC.
-export const stubWindow = 32768;
+// The stand-in uses the installed agent and settings, pointed at the local stub.
+// Keep the fixture's 24,576-token prompt room after 2yf replaced its saved 8,192 reserve
+// with the computed 10,240 floor. No credential or server-side counting; all requests stay local.
+export const stubWindow = 24576 + 10240;
 export function stubConnection(machine, profile, url = "") {
   const selected = proofSelection(machine, profile), connection = structuredClone(selected.connection);
   delete connection.credential; connection.base_url = url; connection.protocol = "chat-completions"; connection.label = "stand-in model"; connection.model = stubModel;
-  connection.models = [{ ...structuredClone(selected.model), model: stubModel, context: { n_ctx: stubWindow, reserve_output: 8192 }, reasoning: { ...selected.model.reasoning, enabled: false },
+  connection.models = [{ ...structuredClone(selected.model), model: stubModel, context: { n_ctx: stubWindow }, reasoning: { ...selected.model.reasoning, enabled: false },
     capabilities: { server: stubModel, n_ctx: stubWindow, tokenize: false, apply_template: false, streaming: true, tool_calls: true, probed_at: new Date().toISOString(), findings: [] } }];
   return { ...machine, connections: machine.connections.map((one) => one.id === connection.id ? connection : one) };
 }

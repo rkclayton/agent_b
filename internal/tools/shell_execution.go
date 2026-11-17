@@ -315,6 +315,9 @@ func waitShellProcess(ctx context.Context, process runningShellProcess, usedServ
 			if body != "" {
 				content += "\n" + body
 			}
+			if strings.Contains(body, "fatal: could not read ") && strings.Contains(body, "terminal prompts disabled") {
+				content += "\ngit needs a sign-in on this computer: sign in once from your own terminal"
+			}
 			if usedService {
 				if reason := serviceBoundaryReason(operatorCommand, body); reason != "" {
 					return CallDetail{Content: content, OperatorOverrideReason: reason, Metadata: metadata}

@@ -2,21 +2,110 @@ package tools
 
 import (
 	"context"
+	"encoding/pem"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/events"
+	"harness/internal/quietproc"
 	"harness/internal/session"
 )
+
+func TestGitMissingAndStoredSignIn2yp(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git unavailable")
+	}
+	root := t.TempDir()
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(root, "empty-config"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	setup := exec.Command("git", "init", "--initial-branch=main", root)
+	quietproc.Quiet(setup)
+	if out, err := setup.CombinedOutput(); err != nil {
+		t.Fatalf("init: %v %s", err, out)
+	}
+	cfg := config.Defaults(root)
+	cfg.Shell.OperatorContext, cfg.Shell.ServiceAccount.Enabled = true, false
+	if runtime.GOOS != "windows" {
+		cfg.Shell.Command = []string{"sh", "-c"}
+	}
+	shell := NewShell(cfg.Shell)
+	shell.Configure(cfg)
+	item := &session.Session{ID: "fixture", Workspace: root}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	call := func(command string) CallDetail {
+		return shell.CallDetailed(context.Background(), item, map[string]any{"command": command, "timeout_s": 5})
+	}
+	commit := call("git -c user.name=someone -c user.email=someone@example.org -c commit.gpgsign=false -c core.hooksPath=" + quote(root) + " commit --allow-empty -m Fixture")
+	if commit.Err != nil || !strings.Contains(commit.Content, "exit=0") {
+		t.Fatalf("local commit: %+v", commit)
+	}
+	var received atomic.Bool
+	packet := func(s string) string { return fmt.Sprintf("%04x%s", len(s)+4, s) }
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, password, ok := r.BasicAuth()
+		if !ok || user != "someone" || password != "fixture-password" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="fixture"`)
+			w.WriteHeader(401)
+			return
+		}
+		if r.Method == "GET" {
+			w.Header().Set("Content-Type", "application/x-git-receive-pack-advertisement")
+			fmt.Fprint(w, packet("# service=git-receive-pack\n")+"0000"+packet(strings.Repeat("0", 40)+" capabilities^{}\x00report-status\n")+"0000")
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		received.Store(strings.Contains(string(body), "PACK") && strings.Contains(string(body), "refs/heads/main"))
+		w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
+		fmt.Fprint(w, packet("unpack ok\n")+packet("ok refs/heads/main\n")+"0000")
+	}))
+	defer server.Close()
+	ca := filepath.Join(root, "fixture-ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "git -c http.sslBackend=openssl -c http.sslCAInfo=" + quote(ca) + " -c credential.helper= "
+	const guidance = "git needs a sign-in on this computer: sign in once from your own terminal"
+	for _, verb := range []string{"push", "pull", "fetch", "clone"} {
+		command := prefix + verb + " " + quote(server.URL+"/repo.git")
+		if verb == "push" {
+			command += " main"
+		}
+		if verb == "clone" {
+			command += " " + quote(filepath.Join(root, "clone"))
+		}
+		start := time.Now()
+		result := call(command)
+		if result.Err == nil || !strings.Contains(result.Err.Error(), guidance) || time.Since(start) >= 5*time.Second {
+			t.Fatalf("%s: %v elapsed=%v", verb, result.Err, time.Since(start))
+		}
+	}
+	credentials := filepath.Join(root, "credentials")
+	if err := os.WriteFile(credentials, []byte(strings.Replace(server.URL, "https://", "https://someone:fixture-password@", 1)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	helper := "store --file=\"" + filepath.ToSlash(credentials) + "\""
+	result := call(prefix + "-c credential.helper=" + quote(helper) + " push " + quote(server.URL+"/repo.git") + " main")
+	if result.Err != nil || !received.Load() || strings.Contains(result.Content, guidance) {
+		t.Fatalf("stored sign-in push: %+v received=%v", result, received.Load())
+	}
+	ordinary := call("git rev-parse --verify nonexistent")
+	if ordinary.Err == nil || strings.Contains(ordinary.Err.Error(), guidance) {
+		t.Fatalf("ordinary git error: %+v", ordinary)
+	}
+}
 
 func TestServiceAccountPasswordBypassesToolConsent2ye(t *testing.T) {
 	root := t.TempDir()

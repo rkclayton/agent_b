@@ -164,7 +164,7 @@ test("every proof run uses the installed model window and one scaled workload 2v
   const plan = proofPlan(machine, profile);
   assert.equal(plan.window, 32768);
   assert.ok(plan.runs.every((run) => run.window <= plan.window));
-  assert.deepEqual(plan.runs.map((run) => run.files), [120, 120, 120, 120, 40, 40, 5]);
+  assert.deepEqual(plan.runs.map((run) => run.files), [120, 120, 120, 120, 40, 40, 4]);
   assert.deepEqual(plan.runs.map((run) => run.name).slice(-2), ["needs-recall", "prune+summary"]);
 });
 
@@ -308,11 +308,13 @@ test("the gate runs the five stand-in cases; --real adds full; needs-recall runs
   const stubbed = stubConnection(machine, profile, "http://127.0.0.1:1"), connection = stubbed.connections[0];
   assert.deepEqual([connection.base_url, connection.credential, connection.models[0].context.n_ctx, connection.models[0].capabilities.tokenize, connection.models[0].reasoning.enabled], ["http://127.0.0.1:1", undefined, stubWindow, false, false]);
   assert.equal(machine.connections[0].credential, "c1", "the installed connection is not changed");
+  assert.equal(stubWindow - 10240, 24576, "the computed reserve preserves the fixture's original prompt room");
+  assert.equal(connection.models[0].context.reserve_output, undefined, "the fixture does not supply an ignored saved reserve");
   const plan = proofPlan(stubbed, profile);
   assert.deepEqual(proofCases(plan).map((run) => run.name), ["fresh", "typed-continue", "Continue", "queued-message", "prune+summary"]);
   assert.deepEqual(proofCases(plan, { real: true }).map((run) => run.name), ["fresh", "typed-continue", "Continue", "queued-message", "full", "prune+summary"]);
   assert.deepEqual(proofCases(plan, { only: "needs-recall" }).map((run) => run.name), ["needs-recall"]);
-  assert.deepEqual(plan.runs.map((run) => stubOptions(run).calls), [[3], [120, 3], [120, 3], [12, 3], [3], [3], [5, 0]]);
+  assert.deepEqual(plan.runs.map((run) => stubOptions(run).calls), [[3], [129, 3], [129, 3], [12, 3], [3], [3], [5, 0]]);
   assert.equal(stubStepMs, 60000);
 });
 

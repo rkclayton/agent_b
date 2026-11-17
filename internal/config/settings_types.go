@@ -74,34 +74,33 @@ type ContextSizing struct {
 	ReserveBytes    uint64 `json:"reserve_bytes"`
 }
 type Capabilities struct {
-	Server               string   `json:"server"`
-	Props                bool     `json:"props"`
-	NCtx                 int      `json:"n_ctx"`
-	ParallelCapacity     int      `json:"parallel_capacity,omitempty"`
-	Tokenize             bool     `json:"tokenize"`
-	ApplyTemplate        bool     `json:"apply_template"`
-	ApplyTemplateTools   bool     `json:"apply_template_tools"`
-	Streaming            bool     `json:"streaming"`
-	ToolCalls            bool     `json:"tool_calls"`
-	GrammarConstrained   bool     `json:"grammar_constrained"`
-	CachedTokens         bool     `json:"cached_tokens"`
-	Timings              bool     `json:"timings"`
-	PromptProgress       bool     `json:"prompt_progress"`
-	DocumentInput        bool     `json:"document_input"`
-	ImageInput           bool     `json:"image_input"`
-	Images               bool     `json:"images"`
-	Vision               string   `json:"vision"`
-	ReasoningControl     string   `json:"reasoning_control"`
-	ReasoningEmission    string   `json:"reasoning_emission,omitempty"`
-	ValidEfforts         []string `json:"valid_efforts"`
-	OverflowBehavior     string   `json:"overflow_behavior"`
-	ObservedMessageLimit int      `json:"observed_message_limit,omitempty"`
-	// a server byte cap cannot be probed -- neither vLLM's /v1/models
-	// entry nor llama.cpp's /props publishes one -- so it is learned from the
-	// refusal that names it and remembered for this connection.
-	ObservedByteLimit int      `json:"observed_byte_limit,omitempty"`
-	ProbedAt          string   `json:"probed_at"`
-	Findings          []string `json:"findings"`
+	Server             string   `json:"server"`
+	Props              bool     `json:"props"`
+	NCtx               int      `json:"n_ctx"`
+	ParallelCapacity   int      `json:"parallel_capacity,omitempty"`
+	Tokenize           bool     `json:"tokenize"`
+	ApplyTemplate      bool     `json:"apply_template"`
+	ApplyTemplateTools bool     `json:"apply_template_tools"`
+	Streaming          bool     `json:"streaming"`
+	ToolCalls          bool     `json:"tool_calls"`
+	GrammarConstrained bool     `json:"grammar_constrained"`
+	CachedTokens       bool     `json:"cached_tokens"`
+	Timings            bool     `json:"timings"`
+	PromptProgress     bool     `json:"prompt_progress"`
+	DocumentInput      bool     `json:"document_input"`
+	ImageInput         bool     `json:"image_input"`
+	Images             bool     `json:"images"`
+	Vision             string   `json:"vision"`
+	ReasoningControl   string   `json:"reasoning_control"`
+	ReasoningEmission  string   `json:"reasoning_emission,omitempty"`
+	ValidEfforts       []string `json:"valid_efforts"`
+	OverflowBehavior   string   `json:"overflow_behavior"`
+	// Retired saved limits are ignored on load and never written. Explicit Eval
+	// can still use byte evidence in memory to offer its unsaved recommendation.
+	ObservedMessageLimit int      `json:"-"`
+	ObservedByteLimit    int      `json:"-"`
+	ProbedAt             string   `json:"probed_at"`
+	Findings             []string `json:"findings"`
 }
 
 const (

@@ -15,9 +15,6 @@ func (x *runState) compactBeforeRequest() contextmgr.OneRuleResult {
 		fixed += x.budget.Categories[name]
 	}
 	source := events.CompactionSummaryData{Role: "b", ConnectionID: x.connection.ID, Model: x.connection.Model, Outcome: "accepted", Dispatched: true, EstimatedPromptTokens: guardedPromptTokens(x.budget), Estimated: x.budget.Estimated, NCtx: x.connection.Context.NCtx, Trigger: "summary_pct"}
-	if x.refusalSentence != "" {
-		source.Trigger = "server_refusal"
-	}
 	window := x.budget.Ceiling
 	if window <= 0 {
 		window = x.budget.NCtx
@@ -25,8 +22,7 @@ func (x *runState) compactBeforeRequest() contextmgr.OneRuleResult {
 	input := contextmgr.OneRuleInput{
 		Used: guardedPromptTokens(x.budget), Window: window, Fixed: fixed,
 		SummaryPct: x.r.cfg().Context.SummaryPct, Pin: x.s.RunPin(),
-		HandOffID:       x.r.id("m"),
-		RefusalSentence: x.refusalSentence, RefusalAttempt: x.refusalAttempt, Source: &source,
+		HandOffID: x.r.id("m"), Source: &source,
 	}
 	input.Summarize = func(records []events.Message, maxTokens int) (string, error) {
 		messages := make([]llm.Message, 0, len(records))

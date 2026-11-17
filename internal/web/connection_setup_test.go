@@ -35,6 +35,10 @@ func TestUsableContextCeilingUsesTheSmallerMeasuredLimit2sv(t *testing.T) {
 	if ceiling != 100000 || source != "Eval size limit" {
 		t.Fatalf("ceiling=%d source=%q", ceiling, source)
 	}
+	ceiling, source = usableContextCeiling(config.Capabilities{NCtx: 200000, Findings: []string{"usable ceiling: 100000 tokens set by Eval size limit"}})
+	if ceiling != 100000 || source != "Eval size limit" {
+		t.Fatalf("saved Eval finding lost: %d %q", ceiling, source)
+	}
 	ceiling, source = usableContextCeiling(config.Capabilities{NCtx: 200000})
 	if ceiling != 200000 || source != "published window" {
 		t.Fatalf("ceiling=%d source=%q", ceiling, source)

@@ -854,11 +854,11 @@ Item 2st adds `activity.state_started_at`: it changes whenever the projected que
 Clients use it for the live status duration; `activity.started_at` remains the whole-run start and completed runs retain their whole duration.
 PC and phone consume the same projected field.
 
-Item 2su's learned request-byte limit lowers the usable window for the current run. A refusal invokes the one compaction action and one retry;
-there is no separate byte-trimming path. Ingest-time sizing of a single tool result remains unchanged.
+Item 2ys supersedes 2su: a request-size refusal ends the run with the server's sentence, without learning a limit, compacting, or retrying.
+Tool-result sizing uses the remaining context only; no server-byte cut remains.
 
 Item 2sv makes the Evaluation Harness's explicit Eval action the only new remote over-window probe. For a non-truncating server that publishes a window,
-Eval sends one request just over it with `max_tokens:1`; a named byte limit is persisted in `capabilities.observed_byte_limit`, dated in findings,
+Eval sends one request just over it with `max_tokens:1`; a named byte limit is used in memory and dated in findings,
 and converted to the usable ceiling, while a token refusal records error rather than truncation. Ollama is excluded because it may truncate and start inference.
 Recommended offers the usable ceiling with source `Eval` after measurement and the published window before it; neither action changes the saved context.
 A saved context above the measured ceiling remains authoritative and findings name the difference. Changing `base_url` clears the learned size evidence. Test,
@@ -866,7 +866,7 @@ Save, health checks, and background work do not send this request.
 
 Only the operator's Save, Test, or Eval action writes connection or model settings. A run, health check, and background work never do.
 Saved Context is authoritative for a run; when it is empty, the run reads the server's published window. A size, message-count,
-or token-window refusal is applied only to the run that received it, is stated in that chat, and is never saved or carried into another run.
+or token-window refusal ends that run without changing its limits. The retired `observed_byte_limit` and `observed_message_limit` JSON keys are ignored on load and omitted on save.
 
 ## Implementation status
 

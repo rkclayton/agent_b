@@ -464,11 +464,8 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 
 var messageLimitPattern = regexp.MustCompile(`(?i)(conversation too long:\s*\d+ messages\s*\(limit\s*(\d+)\)?|[^\r\n\"]*message[^\r\n\"]*limit[^\r\n\"]*)`)
 
-// the status the refusal arrives with is not the test. A server that
-// refuses an over-large request with 500 or 413 says the same thing, and gating on
-// HTTP 400 first meant the connection learned nothing, compacted nothing and
-// retried nothing. The pattern remains the whole test, so an ordinary 400 or 500
-// with unrelated text is handled exactly as before.
+// Recognize the server's size sentence independently of its HTTP status.
+// Unrelated errors retain their ordinary handling.
 func messageLimitError(err error) (int, string, bool) {
 	if err == nil {
 		return 0, "", false
@@ -1432,6 +1429,9 @@ func serverRefusal(err error) (int, string) {
 }
 
 func retryableModelCall(err error) bool {
+	if _, matched := sizeRefusalSentence(err); matched {
+		return false
+	}
 	if llm.TransportKindOf(err) != "" {
 		return true
 	}
@@ -1487,14 +1487,49 @@ func windowLimitError(err error) (int, bool) {
 	return 0, false
 }
 
+func sizeRefusalSentence(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	_, sentence, matched := byteLimitError(err)
+	if !matched {
+		_, sentence, matched = messageLimitError(err)
+	}
+	if !matched && !tokenWindowRefusal(err) {
+		return "", false
+	}
+	text := err.Error()
+	if start := strings.Index(text, "{"); start >= 0 {
+		var body struct {
+			Error json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal([]byte(text[start:]), &body) == nil {
+			var message string
+			if json.Unmarshal(body.Error, &message) == nil && message != "" {
+				return message, true
+			}
+			var detail struct {
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(body.Error, &detail) == nil && detail.Message != "" {
+				return detail.Message, true
+			}
+		}
+	}
+	if sentence != "" {
+		return sentence, true
+	}
+	return text, true
+}
+
 func tokenWindowRefusal(err error) bool {
 	text := strings.ToLower(fmt.Sprint(err))
 	return strings.Contains(text, "context") && (strings.Contains(text, "window") || strings.Contains(text, "context length") || strings.Contains(text, "context size")) &&
 		(strings.Contains(text, "exceed") || strings.Contains(text, "too long") || strings.Contains(text, "maximum"))
 }
 
-// SetServerWindow records the window a server gives one request, from its
-// health check or a refusal; zero forgets it.
+// SetServerWindow records the window returned by an explicit server query;
+// a refusal never supplies this value. Zero forgets it.
 func (r *Runner) SetServerWindow(connectionID string, window int) {
 	if window <= 0 {
 		r.windows.Delete(connectionID)
@@ -1503,8 +1538,7 @@ func (r *Runner) SetServerWindow(connectionID string, window int) {
 	r.windows.Store(connectionID, window)
 }
 
-// resolveWindow is resolveContextWindow, narrowed to the server's own window
-// when it gives a request less than the connection is set to.
+// resolveWindow uses the queried server window only when the saved size is blank.
 func (r *Runner) resolveWindow(ctx context.Context, connection *config.Connection) (*config.Connection, string, error) {
 	resolved, source, err := resolveContextWindow(ctx, connection)
 	if connection.Context.NCtx > 0 {

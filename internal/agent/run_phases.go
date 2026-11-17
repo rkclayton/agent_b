@@ -37,8 +37,6 @@ type runState struct {
 	lengthSeen, malformedToolRetried, answeredThisRun  bool
 	announcedActionContinued, autoContinue             bool
 	truncatedToolRetry, retryInstruction               string
-	refusalSentence                                    string
-	refusalAttempt                                     int
 	refusedTurn                                        int
 	attachmentsAsTextTurn                              int
 	accountingRepairTried, templateRetryTried          bool
@@ -47,7 +45,6 @@ type runState struct {
 	primaryLabel                                       string
 	primaryWindow                                      int
 	compacted                                          bool
-	runMessageLimit, runByteLimit, runWindow           int
 	guards                                             *runGuards
 	currentReasoning                                   map[string]bool
 	connection                                         *config.Connection
@@ -264,7 +261,6 @@ func (x *runState) start() runOutcome {
 	x.refusedTurn = -1
 	x.accountingRepairTried = false
 	x.templateRetryTried = false
-	x.runMessageLimit, x.runByteLimit, x.runWindow = 0, 0, 0
 	x.guards = newRunGuards(x.runCfg.CycleWindow).withLoopKey(x.r.tools.LoopKey)
 	x.currentReasoning = map[string]bool{}
 	return runGoOnOutcome
@@ -308,16 +304,9 @@ func (x *runState) turnBoundary() runOutcome {
 		localConnection = connectionWithProfileThinking(localConnection, *profile)
 	}
 	x.connection = &localConnection
-	x.connection.Capabilities.ObservedMessageLimit = x.runMessageLimit
-	x.connection.Capabilities.ObservedByteLimit = x.runByteLimit
 	// 2wb: the turn whose server refused an attached part sends it as text, that turn only.
 	if x.attachmentsAsTextTurn == x.turn {
 		x.connection.AttachmentHandling = "extract"
-	}
-	if x.runWindow > 0 {
-		x.connection.Context.NCtx = x.runWindow
-		x.connection.Context.ReplyReserveLimit = x.runWindow / 2
-		x.windowSource = fmt.Sprintf("the server refused this run above %d tokens", x.runWindow)
 	}
 	// An invalid durable tool call is a history-shape problem, not an
 	// accounting endpoint failure. Repair it before any template or tokenizer
@@ -441,16 +430,6 @@ func (x *runState) buildRequest() runOutcome {
 		diagnosticRequest := x.request
 		diagnosticRequest.Messages = diagnosticMessages(x.request.Messages)
 		x.body = llm.BuildRequest(x.connection, diagnosticRequest, true)
-		if limit := x.connection.Capabilities.ObservedByteLimit; limit > 0 {
-			if size := llm.SerializedBytes(x.connection, x.request, true); size > 0 && x.budget.UsedEst > 0 {
-				byteCeiling := x.budget.UsedEst * limit / size
-				if byteCeiling > 0 && byteCeiling < x.budget.Ceiling {
-					x.budget.Ceiling = byteCeiling
-					x.budget.Findings = append(x.budget.Findings, fmt.Sprintf("usable ceiling %d tokens set by %d-byte server limit", byteCeiling, limit))
-					x.s.SetBudget(x.budget)
-				}
-			}
-		}
 		r.bus.Publish(events.New(events.BudgetEvent, x.s.ID, x.runID, x.budget))
 		data := map[string]any{"turn": x.turn, "message_count": len(messages), "tool_count": len(x.schemas), "params": requestParams(x.connection, x.request.MaxTokens), "est_prompt_tokens": x.budget.UsedEst, "estimated": x.budget.Estimated}
 		// what the flight recorder's invoke_agent span names, with
@@ -530,17 +509,10 @@ func (x *runState) fitWindow() runOutcome {
 	}
 	result := x.compactBeforeRequest()
 	if result.Stop != "" {
-		reason := "context_exhausted"
-		if x.refusalSentence != "" {
-			reason = "model_error"
-		}
-		return x.stop(reason, result.Stop, x.turn-1)
+		return x.stop("context_exhausted", result.Stop, x.turn-1)
 	}
 	if result.Changed {
 		x.compacted = true
-		if x.refusalSentence != "" {
-			x.refusalSentence = ""
-		}
 		x.turn--
 		return runAgainOutcome
 	}
@@ -653,42 +625,8 @@ func (x *runState) callModelStep() runOutcome {
 			r.keepTruncatedAnswer(x.ctx, x.s, x.runID, x.connection, truncated, x.turn, x.currentReasoning)
 			return x.stop("length", answerCeilingDetail(x.connection, time.Since(x.answerStarted)), x.turn)
 		}
-		if limit, sentence, matched := byteLimitError(x.callErr); matched {
-			x.runByteLimit = limit
-			x.connection.Capabilities.ObservedByteLimit = limit
-			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, fmt.Sprintf("The server refused this run above %d bytes: %s. This limit applies only to this run.", limit, sentence))
-			// a retry that would send the same bytes is not made.
-			// The refusal is acted on once -- compacted against the limit it
-			// named -- and only a genuinely smaller body is sent again.
-			// each pass makes the body genuinely smaller -- a cut or
-			// a summary -- so it is retried until nothing is left to cut; the
-			// bound only guards against a server whose limit keeps moving.
-			x.refusalSentence, x.refusalAttempt = sentence, x.refusalAttempt+1
-			x.turn--
-			return runAgainOutcome
-		}
-		if limit, sentence, matched := messageLimitError(x.callErr); matched {
-			x.runMessageLimit = limit
-			x.connection.Capabilities.ObservedMessageLimit = limit
-			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, fmt.Sprintf("The server refused this run above %d messages: %s. This limit applies only to this run.", limit, sentence))
-			x.refusalSentence, x.refusalAttempt = sentence, x.refusalAttempt+1
-			x.turn--
-			return runAgainOutcome
-		}
-		// the window is the server's. A refusal that names the
-		// window it allows is learned, and the run compacts to it and retries
-		// once rather than stopping (s48: 33,849 tokens against 32,768).
-		if window, matched := windowLimitError(x.callErr); matched {
-			x.runWindow = window
-			r.appendHarnessLine(x.ctx, x.connection, x.s, x.runID, x.turn, fmt.Sprintf("The server refused this run above a %d-token window. This window applies only to this run.", window))
-			x.refusalSentence, x.refusalAttempt = x.callErr.Error(), x.refusalAttempt+1
-			x.turn--
-			return runAgainOutcome
-		}
-		if tokenWindowRefusal(x.callErr) {
-			x.refusalSentence, x.refusalAttempt = x.callErr.Error(), x.refusalAttempt+1
-			x.turn--
-			return runAgainOutcome
+		if sentence, matched := sizeRefusalSentence(x.callErr); matched {
+			return x.stop("model_error", sentence, x.turn)
 		}
 		if kind := attachedPartKind(x.request); kind != "" && x.attachmentsAsTextTurn != x.turn && attachedPartRefusal(x.callErr) {
 			x.attachmentsAsTextTurn = x.turn
@@ -998,10 +936,6 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 			item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
 				x.ctx, x.s, x.connection, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, allowance, item.operatorContext,
 			)
-			if limit := x.connection.Capabilities.ObservedByteLimit; limit > 0 && len(item.content) > limit/4 {
-				item.content, item.ok, item.metadata = r.byteCapResult(item.call.Name, item.args, item.content, item.ok, item.metadata, limit)
-				resultTokens = r.textTokens(x.ctx, x.connection, item.content)
-			}
 			if _, batch := item.args["windows"]; item.call.Name == "read_file" && !batch {
 				if tooLarge, _ := item.metadata["result_too_large"].(bool); tooLarge {
 					if x.refusedTurn != x.turn {

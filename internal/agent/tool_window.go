@@ -117,51 +117,6 @@ func cutResultToTokens(content, note string, limit int, count func(string) int) 
 	return best
 }
 
-// RESULTS ARE CAPPED AT INGEST. Once a connection has refused a
-// request by its size, no single tool result may take more than a quarter of that
-// limit. A windowed tool is answered by the existing retry-smaller path, so the
-// model re-reads in pieces; any other result keeps its head and tail.
-func (r *Runner) byteCapResult(name string, args map[string]any, content string, ok bool, metadata map[string]any, limit int) (string, bool, map[string]any) {
-	capBytes := limit / 4
-	if limit <= 0 || len(content) <= capBytes {
-		return content, ok, metadata
-	}
-	capped := cloneMetadata(metadata)
-	capped["result_too_large"] = true
-	capped["original_result_bytes"] = len(content)
-	capped["result_byte_limit"] = capBytes
-	windowed := ok && (name == "read_file" || name == "fetch_url" || name == "call_service")
-	if _, batch := args["windows"]; windowed && batch {
-		capped["retry_windows"] = "fewer_or_smaller"
-		return fmt.Sprintf("error: read_file returned a windows batch of %d bytes, more than a quarter of this server's %d-byte request limit. Retry read_file with fewer or smaller windows.", len(content), limit), false, capped
-	}
-	if windowed {
-		requested := integerArgument(args["limit"], r.cfg().Tools.ReadFile.DefaultLimit)
-		if name == "fetch_url" {
-			requested = integerArgument(args["limit"], r.cfg().Tools.Fetch.DefaultLimit)
-		}
-		retryLimit := max(1, int(int64(requested)*int64(capBytes)/int64(len(content))))
-		offset := integerArgument(args["offset"], 1)
-		capped["retry_offset"], capped["retry_limit"] = offset, retryLimit
-		return fmt.Sprintf("error: %s returned %d bytes, more than a quarter of this server's %d-byte request limit. Retry %s with the same offset=%d and limit no greater than %d. Do not advance to next_offset until this window is read.", name, len(content), limit, name, offset, retryLimit), false, capped
-	}
-	keep := max(0, capBytes-200)
-	head := strings.ToValidUTF8(content[:keep*2/3], "")
-	tail := strings.ToValidUTF8(content[len(content)-(keep-keep*2/3):], "")
-	return head + fmt.Sprintf("\n\n[tool result cut to fit the server's %d-byte request limit]\n\n", limit) + tail, ok, capped
-}
-
-func integerArgument(value any, fallback int) int {
-	switch number := value.(type) {
-	case int:
-		return number
-	case float64:
-		return int(number)
-	default:
-		return fallback
-	}
-}
-
 func cloneMetadata(source map[string]any) map[string]any {
 	clone := make(map[string]any, len(source)+5)
 	for key, value := range source {

@@ -33,6 +33,34 @@ func TestContextScaledToolLimits2yg(t *testing.T) {
 	}
 }
 
+func TestObservedLimitsIgnoredAndDroppedOnSave2ys(t *testing.T) {
+	cfg := Defaults(t.TempDir())
+	cfg.Connections[0].Context.NCtx = 230000
+	cfg.Connections[0].Model = "fixture"
+	if err := json.Unmarshal([]byte(`{"observed_byte_limit":400000,"observed_message_limit":60}`), &cfg.Connections[0].Capabilities); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Connections[0].StoreActiveModel()
+	file := filepath.Join(t.TempDir(), "harness.json")
+	if err := cfg.Save(file); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"observed_byte_limit", "observed_message_limit"} {
+		written := bytes.Contains(raw, []byte(key))
+		t.Logf("%s written to disposable configuration: %t", key, written)
+		if written {
+			t.Errorf("obsolete key persisted: %s", key)
+		}
+	}
+	if cfg.Connections[0].Capabilities.ObservedByteLimit != 0 || cfg.Connections[0].Capabilities.ObservedMessageLimit != 0 || cfg.Connections[0].Context.NCtx != 230000 {
+		t.Fatal("legacy limits were loaded or saved context was changed")
+	}
+}
+
 func TestSavedReserveIgnored2yf(t *testing.T) {
 	for _, value := range []int{-1, 8192, 999999} {
 		var c Connection

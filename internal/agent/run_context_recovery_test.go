@@ -16,11 +16,11 @@ import (
 	"harness/internal/tools"
 )
 
-func TestEverySizeRefusalUsesOneCompactionAndOneRetry2up(t *testing.T) {
+func TestEverySizeRefusalStopsWithoutChangingLimits2ys(t *testing.T) {
 	for _, refusal := range []string{
-		"prompt too large: 12000 bytes (limit 10000)",
+		"prompt too large: 401628 bytes (limit 400000)",
 		"conversation too long: 61 messages (limit 60)",
-		"request exceeds the available context size (16000 tokens)",
+		"maximum context length is 32768 tokens",
 		"request exceeds context window",
 	} {
 		for _, twice := range []bool{false, true} {
@@ -38,7 +38,11 @@ func TestEverySizeRefusalUsesOneCompactionAndOneRetry2up(t *testing.T) {
 					}
 					call := streamCalls.Add(1)
 					if call == 1 || twice {
-						http.Error(w, `{"error":{"message":"`+refusal+`"}}`, http.StatusBadRequest)
+						status := http.StatusBadRequest
+						if twice {
+							status = http.StatusServiceUnavailable
+						}
+						http.Error(w, `{"error":{"message":"`+refusal+`"}}`, status)
 						return
 					}
 					writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "done"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 500, "completion_tokens": 1}})
@@ -50,7 +54,10 @@ func TestEverySizeRefusalUsesOneCompactionAndOneRetry2up(t *testing.T) {
 				cfg.Context.Accounting = "estimated"
 				connection := cfg.Connections[0]
 				connection.ID, connection.BaseURL, connection.Model = "fixture", server.URL, "fixture"
-				connection.Context.NCtx, connection.Context.ReserveOutput = 32768, 4096
+				connection.Context.NCtx = 230000
+				if err := json.Unmarshal([]byte(`{"observed_byte_limit":400000,"observed_message_limit":60}`), &connection.Capabilities); err != nil {
+					t.Fatal(err)
+				}
 				cfg.Connections = []config.Connection{connection}
 				bus := newCapturedBus()
 				runner := NewRunner(bus.Bus, tools.New(), &PromptRenderer{text: "system"}, func(string) (*config.Connection, bool) { return &connection, true }, func() config.Config { return cfg })
@@ -68,15 +75,23 @@ func TestEverySizeRefusalUsesOneCompactionAndOneRetry2up(t *testing.T) {
 						compactions++
 					}
 				}
-				if streamCalls.Load() != 2 || summaryCalls.Load() != 1 || compactions != 1 {
+				if streamCalls.Load() != 1 || summaryCalls.Load() != 0 || compactions != 0 {
 					t.Fatalf("stream=%d summary=%d compactions=%d reason=%s detail=%q", streamCalls.Load(), summaryCalls.Load(), compactions, reason, detail)
 				}
-				if twice {
-					if reason != "model_error" || !strings.Contains(detail, refusal) {
-						t.Fatalf("second refusal=%s %q", reason, detail)
+				if reason != "model_error" || detail != refusal {
+					t.Fatalf("refusal=%s %q", reason, detail)
+				}
+				runner.Run(t.Context(), item, "next")
+				if streamCalls.Load() != 2 || summaryCalls.Load() != 0 {
+					t.Fatalf("next run: stream=%d summary=%d", streamCalls.Load(), summaryCalls.Load())
+				}
+				for _, event := range bus.Recent(item.ID) {
+					if event.Type == events.BudgetEvent {
+						budget := event.Data.(events.Budget)
+						if budget.NCtx != 230000 || budget.Ceiling != 230000-connection.Context.OutputReserve() {
+							t.Fatalf("changed budget: %+v", budget)
+						}
 					}
-				} else if reason != "done" {
-					t.Fatalf("retry=%s %q", reason, detail)
 				}
 			})
 		}

@@ -597,7 +597,7 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 		}
 	}
 	if window > 0 {
-		if ceiling, _ := usableContextCeiling(connection.Capabilities); ceiling > 0 && connection.Capabilities.ObservedByteLimit > 0 {
+		if ceiling, source := usableContextCeiling(connection.Capabilities); ceiling > 0 && source == "Eval size limit" {
 			window = ceiling
 			sources["context.n_ctx"] = "Eval"
 		} else {
@@ -610,6 +610,14 @@ func (s *Server) recommendConnection(w http.ResponseWriter, r *http.Request, id 
 
 func usableContextCeiling(caps config.Capabilities) (int, string) {
 	window := caps.NCtx
+	for _, finding := range caps.Findings {
+		var ceiling int
+		if strings.HasPrefix(finding, "usable ceiling:") && strings.HasSuffix(finding, "tokens set by Eval size limit") {
+			if _, err := fmt.Sscanf(finding, "usable ceiling: %d tokens set by Eval size limit", &ceiling); err == nil && ceiling > 0 && (window == 0 || ceiling < window) {
+				return ceiling, "Eval size limit"
+			}
+		}
+	}
 	if caps.ObservedByteLimit > 0 && hasFindingPrefix(caps.Findings, "usable ceiling:") {
 		byteWindow := caps.ObservedByteLimit / 4
 		if window == 0 || byteWindow < window {

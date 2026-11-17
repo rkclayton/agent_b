@@ -22,6 +22,120 @@ type failingDeviceTransport struct {
 	kind byte
 }
 
+func TestDialAndPairingBoundedAcrossTLSAndUpgrade2yt(t *testing.T) {
+	for _, mode := range []string{"tls", "upgrade", "cancel", "pairing"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			accepted := make(chan net.Conn, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err == nil {
+					accepted <- conn
+				}
+			}()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			address := "wss://" + listener.Addr().String()
+			if mode == "upgrade" {
+				address = "ws://" + listener.Addr().String()
+			}
+			result := make(chan error, 1)
+			start := time.Now()
+			go func() {
+				if mode == "pairing" {
+					_, err := NewDeviceClient(newIdentity(t), Pairing{}).BeginPair(ctx, Dial(address), "123456", nil)
+					result <- err
+					return
+				}
+				tr, err := Dial(address)(ctx)
+				if tr != nil {
+					_ = tr.Close(1000, "test complete")
+				}
+				result <- err
+			}()
+			var conn net.Conn
+			select {
+			case conn = <-accepted:
+			case <-time.After(5 * time.Second):
+				t.Fatal("listener not reached")
+			}
+			defer conn.Close()
+			limit := 17 * time.Second
+			if mode == "cancel" {
+				cancel()
+				start = time.Now()
+				limit = time.Second
+			}
+			select {
+			case err := <-result:
+				elapsed := time.Since(start)
+				t.Logf("%s dial ended after %s: %v", mode, elapsed, err)
+				if err == nil || (mode != "cancel" && (elapsed < 15*time.Second || elapsed > 17*time.Second)) {
+					t.Fatalf("wrong dial bound: %s %v", elapsed, err)
+				}
+			case <-time.After(limit):
+				t.Errorf("%s dial still blocked after %s", mode, time.Since(start))
+				_ = conn.Close()
+				<-result
+			}
+		})
+	}
+}
+
+func TestTimedOutDialUsesExistingBackoff2yt(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 2)
+	go func() {
+		for i := 0; i < 2; i++ {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- conn
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := NewClient(newIdentity(t), Pairing{}, Dial("wss://"+listener.Addr().String()), echo)
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	var first net.Conn
+	select {
+	case first = <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first dial missing")
+	}
+	defer first.Close()
+	start := time.Now()
+	select {
+	case second := <-accepted:
+		defer second.Close()
+		elapsed := time.Since(start)
+		t.Logf("next dial after %s (15s attempt plus existing 1s backoff)", elapsed)
+		if elapsed < 16*time.Second || elapsed > 18*time.Second {
+			t.Errorf("redial timing %s", elapsed)
+		}
+	case <-time.After(18 * time.Second):
+		t.Error("no next dial within existing backoff")
+	}
+	cancel()
+	_ = first.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Error("cancelled run did not finish")
+	}
+}
+
 func (f failingDeviceTransport) Send(raw []byte) error {
 	frame, err := Decode(raw)
 	if err == nil && frame.Type == f.kind {
@@ -583,6 +697,8 @@ func (b *standInBroker) serve(ws *websocket.Conn) {
 			continue
 		}
 		switch frame.Type {
+		case FramePong:
+			// PONG answers the broker; it is never relayed to the peer.
 		case FrameHello:
 			var hello helloPayload
 			_ = DecodeInto(frame.Payload, &hello)

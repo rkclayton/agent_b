@@ -754,6 +754,8 @@ event line and the reconnect backoff; a fatal refusal backs off 1 s doubling to 
 `SetRegistry` start, plus telemetry and reflection when they run; every `internal/web` test server closes in its cleanup.
 The live transport has one writer per connection, paced to `SendFrameRate` (200 frames a second, under the broker's 240); ACK and PONG go first,
 so whoever reads the link never waits on a write, and Send waits only when the bounded queue is full.
+TCP, TLS and WebSocket upgrade share a 15 s dial deadline, shortened by the caller's context. Every receive has a 90 s idle deadline,
+shortened by the caller's deadline; broker PINGs keep a held link alive. The device's caller owns reconnection after its closure event.
 Other configuration remains additive under schema 15; omitted policy lists receive defaults while explicit empty lists clear them.
 Agent profiles are `agents[].{name,prompt,toolset,private,c,d}`; a connection optionally names one with `agent_profile`, where empty means `agent_b`.
 `operator_context` always saves false and starts off, mailbox approval answers default off, and delivery defaults to `both` at `%USERPROFILE%\Agent_b`.

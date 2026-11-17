@@ -22,6 +22,82 @@ func randomHex(t *testing.T) string {
 	return hexID(raw)
 }
 
+func TestHeldLinkSilenceAndBrokerPings2yt(t *testing.T) {
+	for _, role := range []string{"agent", "device", "pinging"} {
+		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+			b := newStandIn(t)
+			b.deadline = time.Hour
+			a, d := linkThrough(t, b, echo, func([]byte) {})
+			t.Cleanup(func() {
+				a.mu.Lock()
+				tr := a.transport
+				a.mu.Unlock()
+				if tr != nil {
+					_ = tr.Close(1000, "test complete")
+				}
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						for _, target := range []string{"agent", "device"} {
+							if role == "pinging" || target != role {
+								b.sendTo(target, FramePing, map[string]string{"token": "fixture"})
+							}
+						}
+					}
+				}
+			}()
+			start := time.Now()
+			for {
+				d.mu.Lock()
+				connected := d.link != nil
+				d.mu.Unlock()
+				dropped := a.Status().Reconnects > 0
+				elapsed := time.Since(start)
+				if role == "pinging" {
+					if dropped || !connected {
+						t.Fatalf("pinging link dropped at %s", elapsed)
+					}
+					if elapsed >= 5*time.Minute {
+						t.Logf("both roles held for %s with broker PING and no reconnect", elapsed)
+						break
+					}
+				} else if (role == "agent" && dropped) || (role == "device" && !connected) {
+					t.Logf("%s left holding after %s", role, elapsed)
+					if elapsed < 90*time.Second || elapsed > 100*time.Second {
+						t.Fatalf("%s silence duration %s outside 90–100s", role, elapsed)
+					}
+					if role == "agent" {
+						for until := time.Now().Add(3 * time.Second); b.count("agent 0x02", b.sent) < 2; time.Sleep(10 * time.Millisecond) {
+							if time.Now().After(until) {
+								t.Fatal("agent did not redial after existing backoff")
+							}
+						}
+					} else if err := d.Connect(ctx, Dial(b.address), func([]byte) {}, func(string) {}); err != nil {
+						t.Fatalf("device caller cannot redial: %v", err)
+					}
+					break
+				}
+				if elapsed > 610*time.Second {
+					t.Fatalf("%s still holding after %s", role, elapsed)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if b.count(fmt.Sprintf("agent 0x%02x", FramePing), b.frames)+b.count(fmt.Sprintf("device 0x%02x", FramePing), b.frames) != 0 {
+				t.Fatal("client sent PING")
+			}
+		})
+	}
+}
+
 func (b *standInBroker) pairingStarted() *standInPair {
 	b.mu.Lock()
 	defer b.mu.Unlock()

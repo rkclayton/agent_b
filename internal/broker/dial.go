@@ -27,6 +27,8 @@ import (
 // empty meaning off.
 func Dial(address string) Dialer {
 	return func(ctx context.Context) (Transport, error) {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
 		endpoint, err := connectURL(address)
 		if err != nil {
 			return nil, err
@@ -40,8 +42,11 @@ func Dial(address string) Dialer {
 		// The broker presents an ordinary certificate for its own name; nothing here
 		// weakens verification.
 		config.TlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: strings.Split(hostOf(endpoint), ":")[0]}
-		connection, err := websocket.DialConfig(config)
+		connection, err := config.DialContext(ctx)
 		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("broker dial timeout: %w", err)
+			}
 			if isTLSFailure(err) {
 				return nil, &handshakeFailure{step: "tls", err: fmt.Errorf("broker dial: %w", err)}
 			}
@@ -211,11 +216,11 @@ func (t *socketTransport) end(err error) {
 }
 
 func (t *socketTransport) Receive(ctx context.Context) ([]byte, error) {
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = t.connection.SetReadDeadline(deadline)
-	} else {
-		_ = t.connection.SetReadDeadline(time.Now().Add(10 * time.Minute))
+	deadline := time.Now().Add(90 * time.Second)
+	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
+		deadline = callerDeadline
 	}
+	_ = t.connection.SetReadDeadline(deadline)
 	var frame []byte
 	if err := websocket.Message.Receive(t.connection, &frame); err != nil {
 		return nil, err

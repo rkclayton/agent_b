@@ -24,6 +24,13 @@ sends `ACK` only after the AEAD opens and the content is accepted.
 
 Above: the desktop API exactly as `INTERFACES.md` defines it. There is no second protocol.
 
+The shared client bounds TCP, TLS and the WebSocket upgrade together at 15 seconds,
+or the caller's earlier deadline or cancellation. A held link receives a frame within
+90 seconds or ends; the broker's 30-second PING keeps it alive without client PINGs.
+The agent reconnects with its existing backoff; the device reports closure to its
+caller, which owns reconnection. The separate session handshake remains bounded at
+5 seconds. These transport deadlines add no application fields.
+
 The plaintext of one `CIPHERTEXT` payload is one UTF-8 JSON object — a **unit** — with no framing
 bytes of its own.
 

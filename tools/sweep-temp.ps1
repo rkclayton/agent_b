@@ -56,7 +56,9 @@ foreach ($entry in Get-ChildItem -LiteralPath $temp -Force -ErrorAction Silently
     else { Add-Candidate $candidates $entry.FullName $temp 'temp' $true }
 }
 foreach ($area in '.tmp','.codex-temp','.claude-temp') { $root=Join-Path $RepositoryRoot $area; if(Test-Path -LiteralPath $root){ foreach($entry in Get-ChildItem -LiteralPath $root -Force){ Add-Candidate $candidates $entry.FullName $root $area $true } } }
-foreach ($entry in Get-ChildItem -LiteralPath $RepositoryRoot -Directory -Force -Filter '.plan-candidate-*') { Add-Candidate $candidates $entry.FullName $RepositoryRoot 'plan-candidate' $false $(if($CurrentOrder -and $entry.Name -like "*$CurrentOrder*"){'current order'}else{''}) }
+$snapshots = @(Get-ChildItem -LiteralPath $RepositoryRoot -Directory -Force -Filter '.plan-candidate-*' | Sort-Object LastWriteTime -Descending)
+$newestSnapshots = @($snapshots | Select-Object -First 10 | ForEach-Object FullName)
+foreach ($entry in $snapshots) { Add-Candidate $candidates $entry.FullName $RepositoryRoot 'plan-candidate' $false $(if($newestSnapshots -contains $entry.FullName){'one of the ten newest snapshots'}elseif($CurrentOrder -and $entry.Name -like "*$CurrentOrder*"){'current order'}else{''}) }
 $candidateRoot=Join-Path $RepositoryRoot 'candidates'
 if(Test-Path -LiteralPath $candidateRoot){ $newest=@(Get-ChildItem -LiteralPath $candidateRoot -Force | Sort-Object LastWriteTime -Descending | Select-Object -First 3 | ForEach-Object FullName); foreach($entry in Get-ChildItem -LiteralPath $candidateRoot -Force){ Add-Candidate $candidates $entry.FullName $candidateRoot 'candidates' $false $(if($newest -contains $entry.FullName){'one of the three newest candidates'}else{''}) } }
 foreach($name in 'candidate','scratch','test-results','playwright-report'){ Add-Candidate $candidates (Join-Path $RepositoryRoot $name) $RepositoryRoot $name }

@@ -806,6 +806,8 @@ browser = {
       }
       await sleep(50);
     }
+    await page.screenshot({ path: join(args.evidence, "screen-timeout.png") });
+    await writeFile(join(args.evidence, "screen-timeout.txt"), await page.locator("body").innerText());
     throw new Error(`screen timeout: ${label}`);
   },
 };
@@ -856,7 +858,7 @@ async function loopSteer(sessionID) {
   record("loop-steer-told-once-run-continues-2wg");
 }
 
-if (args.journey && !["scheduled-work", "skills", "chat-management"].includes(args.journey)) {
+if (args.journey && !["scheduled-work", "skills", "chat-management", "chat-folders"].includes(args.journey)) {
   const name = args.journey;
   const sessionID = await page.locator(".chat-list-row.selected").getAttribute("data-session");
   assert.ok(sessionID, `${name} has no selected chat`);
@@ -1556,11 +1558,12 @@ if (realModel) {
   assert.equal(await folderRow.locator(`[data-session="${sessionID}"]`).count(), 1);
   await folderRow.locator("summary").hover();
   await folderRow.locator("summary > .chat-list-folder-delete").click();
-  await browser.wait(`document.querySelector('#app-shell')?.dataset.error?.includes('folder must be empty') || document.body.innerText.includes('folder must be empty')`, "non-empty folder reason");
+  await folderRow.locator(".chat-list-row-error").filter({ hasText: "Folder is not empty" }).waitFor({ state: "visible", timeout: 12000 });
   await treeAction({ action: "move", id: sessionID, folder: "" });
   await treeAction({ action: "delete", path: renamedFolder });
   assert.equal((await readdir(chatRoot)).includes(renamedFolder), false);
   record("chat-folders-app-explorer-and-nonempty-refusal");
+  if (journeyName === "chat-folders") await finishJourney("chat-folders", sessionID);
   const codePanel = await page.evaluate(async () => {
     const moduleURL = new URL("markdown.js", document.querySelector("script[src*='/js/build-check.js']").src).href;
     const { renderMarkdown } = await import(moduleURL);

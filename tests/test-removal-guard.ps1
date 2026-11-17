@@ -167,9 +167,22 @@ try {
     $old=(Get-Date).AddDays(-10); foreach($relative in $remove + $keep){ $path=Join-Path $sweepRepo $relative; Get-Item -LiteralPath $path -Force | ForEach-Object { $_.LastWriteTime=$old }; if((Get-Item -LiteralPath $path -Force).PSIsContainer){ Get-ChildItem -LiteralPath $path -Recurse -Force | ForEach-Object { $_.LastWriteTime=$old } } }
     (Get-Item -LiteralPath "$sweepRepo\.tmp\recent").LastWriteTime=Get-Date
     $n=0; foreach($name in 'two','three','four') { (Get-Item -LiteralPath "$sweepRepo\candidates\$name").LastWriteTime=(Get-Date).AddMinutes($n++) }
+    $remove += '.plan-candidate-older'
+    $null = New-Item -ItemType Directory -Path "$sweepRepo\.plan-candidate-older"
+    (Get-Item -LiteralPath "$sweepRepo\.plan-candidate-older").LastWriteTime = $old.AddDays(-1)
+    (Get-Item -LiteralPath "$sweepRepo\.plan-candidate-rel-test").LastWriteTime = Get-Date
+    foreach ($index in 1..9) {
+        $relative = ".plan-candidate-recent-$index"; $keep += $relative
+        $null = New-Item -ItemType Directory -Path (Join-Path $sweepRepo $relative)
+        (Get-Item -LiteralPath (Join-Path $sweepRepo $relative)).LastWriteTime = (Get-Date).AddMinutes($index)
+    }
     & "$sweepRepo\sweep-temp.ps1" -Apply -RepositoryRoot $sweepRepo -TempRoot $sweepTemp -Cutoff (Get-Date).AddDays(-1) -CurrentOrder rel-test | Out-Null
     foreach($relative in $remove){ if(Test-Path -LiteralPath (Join-Path $sweepRepo $relative)){ throw "Sweep kept removable $relative" } }
     foreach($relative in $keep){ if(-not (Test-Path -LiteralPath (Join-Path $sweepRepo $relative))){ throw "Sweep removed kept $relative" } }
+    if (@(Get-ChildItem -LiteralPath $sweepRepo -Directory -Force -Filter '.plan-candidate-*').Count -ne 10) { throw 'Sweep did not retain exactly the newest ten snapshots.' }
+    $policy = Join-Path (Split-Path -Parent $PSScriptRoot) 'tools/order-policy.mjs'
+    'import {pathToFileURL} from "node:url"; import fs from "node:fs"; const {checks}=await import(pathToFileURL(process.argv[2])); const kept=fs.readdirSync(process.argv[3]).filter(n=>n.startsWith(".plan-candidate-")); if(!checks.find(([n])=>n==="snapshot-contract")[1]({snapshot:{present:kept.includes(".plan-candidate-rel-test"),overwritten:false,newest_kept:kept.length}}))process.exit(1);' | & node --input-type=module - $policy $sweepRepo
+    if ($LASTEXITCODE -ne 0) { throw 'Post-cleanup snapshot policy failed.' }
     Write-Host 'PASS: repository sweep removes every cleanup class and keeps recent, rollback, current-order, newest-three, tracked, and operational entries'
 } finally {
     if (Test-Path -LiteralPath $disposable) { Remove-TreeWithinAllowedRoots -Path $disposable -AllowedRoots @([IO.Path]::GetTempPath()) -Purpose 'removal-guard test cleanup' }

@@ -76,7 +76,10 @@ func TestGitMissingAndStoredSignIn2yp(t *testing.T) {
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)
 	}
-	prefix := "git -c http.sslBackend=openssl -c http.sslCAInfo=" + quote(ca) + " -c credential.helper= "
+	prefix := "git -c http.sslCAInfo=" + quote(ca) + " -c credential.helper= "
+	if runtime.GOOS == "windows" {
+		prefix += "-c http.sslBackend=openssl "
+	}
 	const guidance = "git needs a sign-in on this computer: sign in once from your own terminal"
 	for _, verb := range []string{"push", "pull", "fetch", "clone"} {
 		command := prefix + verb + " " + quote(server.URL+"/repo.git")

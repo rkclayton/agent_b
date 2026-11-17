@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -457,6 +458,29 @@ func TestLegacyBrowserMigration2yj(t *testing.T) {
 	}
 	if _, err := os.Stat(old); err != nil {
 		t.Fatal("migration did not run only once")
+	}
+}
+
+func TestLegacyBrowserMigrationShortRoot(t *testing.T) {
+	legacy := t.TempDir()
+	name, _ := syscall.UTF16PtrFromString(legacy)
+	short := make([]uint16, 32768)
+	if _, err := syscall.GetShortPathName(name, &short[0], uint32(len(short))); err != nil {
+		t.Fatal(err)
+	}
+	alias := syscall.UTF16ToString(short)
+	if strings.EqualFold(alias, legacy) {
+		t.Skip("volume does not provide a short path alias")
+	}
+	old := filepath.Join(legacy, "0123456789abcdef")
+	if err := os.MkdirAll(filepath.Join(old, "profile"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeLegacyBrowserProfiles(t.TempDir(), alias); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatal("legacy profile remains")
 	}
 }
 

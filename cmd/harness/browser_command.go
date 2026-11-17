@@ -725,8 +725,12 @@ func removeLegacyBrowserProfiles(dataRoot, legacyRoot string) error {
 			continue
 		}
 		candidate := filepath.Join(legacyRoot, entry.Name())
+		root, err := filepath.EvalSymlinks(legacyRoot)
+		if err != nil {
+			return errors.New("old browser profiles could not be inspected")
+		}
 		real, err := filepath.EvalSymlinks(candidate)
-		if err != nil || !strings.EqualFold(filepath.Clean(real), filepath.Clean(candidate)) {
+		if err != nil || !strings.EqualFold(filepath.Clean(real), filepath.Join(root, entry.Name())) {
 			return errors.New("old browser profile has an unexpected filesystem link")
 		}
 		if state, err := readBrowserState(filepath.Join(candidate, "state.json")); err == nil && processRunning(state.PID, state.Created) {

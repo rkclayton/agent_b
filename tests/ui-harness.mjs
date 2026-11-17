@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768, freshSetup = false }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768, freshSetup = false, browserSite = "" }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -95,6 +95,10 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 		const messages = modelRequest.messages || [];
 		const userAt = messages.findLastIndex((message) => message.role === "user");
 		const user = String(messages[userAt]?.content || "");
+		if (modelRequest.stream && browserSite && user === "browser data fixture" && !messages.slice(userAt + 1).some(message => message.role === "tool")) {
+			response.writeHead(200, { "Content-Type": "text/event-stream" });
+			return void response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "browser-fixture", type: "function", function: { name: "fetch_url", arguments: JSON.stringify({ url: browserSite, via: "browser" }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+		}
 		const undoCase = /acceptance: undo-files ([a-z]+)/.exec(user)?.[1];
 		if (modelRequest.stream && undoCase) {
 			const results = messages.slice(userAt + 1).filter((message) => message.role === "tool").length;
@@ -128,6 +132,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   config.connections[0].context.n_ctx = contextSize;
   config.connections[0].capabilities.n_ctx = reportedContext;
   if (freshSetup) { config.connections = []; config.agents = []; }
+  if (browserSite) config.tools.fetch.allow_internal_hosts = ["127.0.0.1"];
   if (reuseConfig) {
 		config = JSON.parse(await readFile(configPath, "utf8"));
 		config.listen = `127.0.0.1:${appPort}`;

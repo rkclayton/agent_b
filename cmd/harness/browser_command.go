@@ -576,6 +576,32 @@ func (b *keptBrowser) stopLocked() {
 	}
 }
 func (b *keptBrowser) Close() { b.mu.Lock(); defer b.mu.Unlock(); b.closed = true; b.stopLocked() }
+func (b *keptBrowser) Data(clear bool) (int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, profile := b.paths()
+	if clear {
+		b.stopLocked()
+		if err := os.RemoveAll(profile); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	var size int64
+	err := filepath.Walk(profile, func(_ string, info os.FileInfo, err error) error {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size, err
+}
 func (b *keptBrowser) SetRoot(root string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -705,7 +731,7 @@ func browserWatchOwner(statePath string, owner int, created int64) {
 }
 
 func browserLaunchArgs(port int, profile string) []string {
-	return []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=" + strconv.Itoa(port), "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "--window-size=1280,800", "--disk-cache-size=67108864", "--media-cache-size=16777216", "about:blank"}
+	return []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=" + strconv.Itoa(port), "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "--window-size=1280,800", "--disk-cache-size=268435456", "--media-cache-size=16777216", "about:blank"}
 }
 
 func removeLegacyBrowserProfiles(dataRoot, legacyRoot string) error {

@@ -380,7 +380,7 @@ function persistSelection() {
 export async function api(path, body, method = "POST", requestOptions = {}) {
 	if (method === "GET" && path === "/api/state" && store.selection.session_id) path += `?session=${encodeURIComponent(store.selection.session_id)}`;
   const options = { ...requestOptions, method, headers: { ...(requestOptions.headers || {}) } };
-  if ((method !== "GET" && method !== "HEAD") || path === "/api/credentials") options.headers["X-AgentB-Mutation-Token"] = store.mutation_token;
+  if ((method !== "GET" && method !== "HEAD") || path === "/api/credentials" || path === "/api/browser-data") options.headers["X-AgentB-Mutation-Token"] = store.mutation_token;
   if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
   const sample = navigationStateFetchStarted(path);
   let response;

@@ -374,7 +374,7 @@ func TestKeptBrowserLifecycle2yj(t *testing.T) {
 }
 
 func TestBrowserLaunchArgumentsUnchanged2yj(t *testing.T) {
-	want := []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=12345", "--remote-debugging-address=127.0.0.1", "--user-data-dir=profile", "--window-size=1280,800", "--disk-cache-size=67108864", "--media-cache-size=16777216", "about:blank"}
+	want := []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=12345", "--remote-debugging-address=127.0.0.1", "--user-data-dir=profile", "--window-size=1280,800", "--disk-cache-size=268435456", "--media-cache-size=16777216", "about:blank"}
 	if strings.Join(browserLaunchArgs(12345, "profile"), "\x00") != strings.Join(want, "\x00") {
 		t.Fatal("browser launch arguments changed")
 	}
@@ -568,6 +568,95 @@ func TestBrowserProfileAtCacheWorkload2yj(t *testing.T) {
 	t.Logf("configured 64MiB disk cache: served=%d bytes retained=%d bytes elapsed=%s", served.Load(), bytes, time.Since(started))
 }
 
+func TestBrowserCacheSetting2ym(t *testing.T) {
+	served := atomic.Int64{}
+	css := "/*" + strings.Repeat("x", 1<<20) + "*/"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cache" {
+			w.Header().Set("Content-Type", "text/css")
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+			served.Add(int64(len(css)))
+			fmt.Fprint(w, css)
+			return
+		}
+		if _, err := r.Cookie("visit"); err == nil {
+			fmt.Fprint(w, "returning visitor")
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "visit", Value: "fixture", MaxAge: 86400})
+		fmt.Fprint(w, "<html><head>")
+		for n := 0; n < 400; n++ {
+			fmt.Fprintf(w, "<link rel=stylesheet href='/cache?n=%d'>", n)
+		}
+		fmt.Fprint(w, "</head><body>cache loaded</body></html>")
+	}))
+	defer server.Close()
+	b := &keptBrowser{root: t.TempDir()}
+	defer b.Close()
+	statePath, profile := b.paths()
+	edge, err := findEdge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	args := browserLaunchArgs(port, profile)
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--disk-cache-size=") {
+			args[i] = "--disk-cache-size=268435456"
+		}
+	}
+	pid, err := startBrowserDetached(edge, args, b.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state = browserState{PID: pid, Port: port, Created: processCreated(pid)}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	for {
+		if _, err := browserPageURL(ctx, port); err == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatal(ctx.Err())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := b.Fetch(ctx, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if served.Load() < 400<<20 {
+		t.Fatalf("only %d bytes served", served.Load())
+	}
+	if text, err := b.Fetch(ctx, server.URL); err != nil || !strings.Contains(text, "returning visitor") {
+		t.Fatalf("cookie lost: %s %v", text, err)
+	}
+	// Allow the browser's asynchronous eviction to settle after closing the loading tab.
+	time.Sleep(5 * time.Second)
+	b.Close()
+	var size int64
+	err = filepath.Walk(filepath.Join(profile, "Default", "Cache"), func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("256 MiB cache setting: served=%d cache=%d bytes; state=%s", served.Load(), size, filepath.Base(statePath))
+	if size > 256<<20 {
+		t.Fatalf("cache exceeds 256 MiB: %d", size)
+	}
+}
+
 func TestBrowserWatcherHelper2yj(t *testing.T) {
 	path := os.Getenv("AGENTB_BROWSER_WATCH_FIXTURE")
 	if path == "" {
@@ -576,6 +665,64 @@ func TestBrowserWatcherHelper2yj(t *testing.T) {
 	owner, _ := strconv.Atoi(os.Getenv("AGENTB_BROWSER_WATCH_OWNER"))
 	created, _ := strconv.ParseInt(os.Getenv("AGENTB_BROWSER_WATCH_CREATED"), 10, 64)
 	browserWatchOwner(path, owner, created)
+}
+
+func TestBrowserDataClearAndAge2ym(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("visit"); err == nil {
+			fmt.Fprint(w, "returning visitor")
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "visit", Value: "fixture", MaxAge: 365 * 86400})
+		fmt.Fprint(w, "first visitor")
+	}))
+	defer server.Close()
+	b := &keptBrowser{root: t.TempDir()}
+	defer b.Close()
+	data, ok := any(b).(interface{ Data(bool) (int64, error) })
+	if !ok {
+		t.Fatal("browser data read/clear is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if text, err := b.Fetch(ctx, server.URL); err != nil || !strings.Contains(text, "first visitor") {
+		t.Fatalf("first visit: %s %v", text, err)
+	}
+	b.mu.Lock()
+	b.stopLocked()
+	b.mu.Unlock()
+	_, profile := b.paths()
+	old := time.Now().Add(-120 * 24 * time.Hour)
+	for _, name := range []string{"History", filepath.Join("Network", "Cookies")} {
+		if err := os.Chtimes(filepath.Join(profile, "Default", name), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if text, err := b.Fetch(ctx, server.URL); err != nil || !strings.Contains(text, "returning visitor") {
+		t.Fatalf("old cookie lost: %s %v", text, err)
+	}
+	if _, err := os.Stat(filepath.Join(profile, "Default", "History")); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := data.Data(false); err != nil || size == 0 {
+		t.Fatalf("size=%d err=%v", size, err)
+	}
+	state := b.state
+	if size, err := data.Data(true); err != nil || size != 0 {
+		t.Fatalf("clear size=%d err=%v", size, err)
+	}
+	if processRunning(state.PID, state.Created) {
+		t.Fatal("browser survived Clear")
+	}
+	if _, err := os.Stat(profile); !os.IsNotExist(err) {
+		t.Fatal("profile survived Clear")
+	}
+	if size, err := data.Data(false); err != nil || size != 0 {
+		t.Fatalf("empty size=%d err=%v", size, err)
+	}
+	if text, err := b.Fetch(ctx, server.URL); err != nil || !strings.Contains(text, "first visitor") {
+		t.Fatalf("fresh visit: %s %v", text, err)
+	}
 }
 func TestBrowserQuitWaitsForOwnedWatcher2yj(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "fixture") }))

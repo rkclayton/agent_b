@@ -408,6 +408,71 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 	}
 }
 
+func TestBrowserDataIsPageOnly2ym(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		r := httptest.NewRequest(method, "/api/browser-data", nil)
+		r.Header.Set("Authorization", "Bearer fixture-phone")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("uncredentialed %s: %d", method, w.Code)
+		}
+	}
+	for _, route := range []string{"browser.data", "browser.data.clear"} {
+		response := server.executeAppMessage("fixture-paired-device", appRequestUnit{V: 1, Kind: "request", ID: route, Route: route, Body: json.RawMessage(`{}`)}, nil)
+		if !strings.Contains(string(response), `"status":501`) {
+			t.Fatal(string(response))
+		}
+	}
+	setter, ok := any(server).(interface {
+		SetBrowserData(func(bool) (int64, error))
+	})
+	if !ok {
+		t.Fatal("browser data handler unavailable")
+	}
+	calls := 0
+	setter.SetBrowserData(func(clear bool) (int64, error) {
+		calls++
+		if clear {
+			return 0, nil
+		}
+		return 4096, nil
+	})
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		r := httptest.NewRequest(method, "/api/browser-data", nil)
+		r.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		want := http.StatusForbidden
+		if method == http.MethodPost {
+			want = http.StatusUnauthorized
+		}
+		if w.Code != want || calls != 0 {
+			t.Fatal("browser data did not require token", method, w.Code, calls)
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		r := httptest.NewRequest(method, "/api/browser-data", nil)
+		r.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: server.browserSession})
+		r.Header.Set("X-AgentB-Mutation-Token", server.mutationToken)
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		want := `"bytes":4096`
+		if method == http.MethodPost {
+			want = `"bytes":0`
+		}
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatal(w.Body.String())
+		}
+	}
+}
+
 func TestLoginManagement2yd(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)

@@ -29,6 +29,29 @@ var (
 	identityProviders = map[string]identity.Provider{}
 )
 
+func (s *Server) SetBrowserData(readClear func(bool) (int64, error)) { s.browserData = readClear }
+
+func (s *Server) browserDataEndpoint(w http.ResponseWriter, r *http.Request) {
+	if pairedDeviceAuthenticated(r) || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-AgentB-Mutation-Token")), []byte(s.mutationToken)) != 1 {
+		writeError(w, http.StatusForbidden, "the page token is required", "browser_data")
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.browserData == nil {
+		writeError(w, http.StatusServiceUnavailable, "Browser data is unavailable. Try again.", "browser_data")
+		return
+	}
+	size, err := s.browserData(r.Method == http.MethodPost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Browser data could not be read or cleared. Try again.", "browser_data")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"bytes": size})
+}
+
 // SetCredentialVault hands the server the store. Nil means the section reports that no
 // store is available rather than pretending to have one.
 func SetCredentialVault(vault *credential.Vault) {

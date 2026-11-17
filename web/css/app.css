@@ -2458,3 +2458,7 @@
 .setting-row:has([data-path^="credentials."]) { grid-template-columns:max-content minmax(0,1fr); }
 .settings-content .setting-row [data-path="credentials.idle_hours"] { width:64px; flex:0 0 64px; }
 .setting-row:has([data-path="credentials.idle_hours"]) > div { flex-wrap:wrap; }
+
+.setting-row:has(.browser-data-actions) { grid-template-columns:max-content minmax(0,1fr); }
+.setting-row .browser-data-actions { flex-wrap:wrap; justify-content:flex-start; max-width:100%; }
+.browser-data-actions button.alarm { color:var(--alarm); }

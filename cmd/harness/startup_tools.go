@@ -94,6 +94,7 @@ func (a *harnessApp) wireTools() {
 		}
 	}
 	a.browser = &keptBrowser{root: a.profileRoot}
+	a.web.SetBrowserData(a.browser.Data)
 	fetchTool.SetBrowser(a.browser.Fetch)
 	a.cleanup(a.browser.Close)
 	delegateTool := tools.NewDelegate()

@@ -53,6 +53,7 @@ let brokerStatus = {};
 // the credential listing. It carries names, origins and dates and never a
 // value, because the endpoint that answers it has none to give.
 let credentialList = [];
+let browserDataBytes = null, browserDataConfirm = false;
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
@@ -286,6 +287,7 @@ export function openSettings(section = "") {
   void refreshBrokerStatus().then(() => { if (open) render(); });
   watchBrokerPairing();
   void refreshCredentials().then(() => { if (open) render(); });
+  if (activeSection === "shell") void refreshBrowserData();
   requestAnimationFrame(() => {
     const selected = sheet.querySelector(".settings-nav button.selected");
     selected?.scrollIntoView({ block: "nearest", inline: "start" });
@@ -552,7 +554,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
-    credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider,
+    credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider, browserDataBytes, browserDataConfirm,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList, agentProfiles: () => store.config.agents || [],
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
@@ -1060,10 +1062,18 @@ async function runAction(event, button, action, id) {
 	}
   // the save that belongs to one setting, beside it.
   if (action === "save-setting") return void applySetting(button.dataset.savePath);
+  if (action === "browser-data-ask" || action === "browser-data-cancel") { browserDataConfirm = action === "browser-data-ask"; render(); return; }
+  if (action === "browser-data-clear") {
+    try { browserDataBytes = (await api("/api/browser-data", {})).bytes; browserDataConfirm = false; }
+    catch (error) { credentialMessage = error.message; credentialAlarm = true; }
+    render(); return;
+  }
   if (action === "settings-section") {
     // every section is drawn in the pane, the Plan included. This used
     // to be location.assign('/plan...') — a page navigation dressed as a section.
     activeSection = id;
+    browserDataConfirm = false;
+    if (id === "shell") void refreshBrowserData();
     if (id === "skills") skillAgent = button.dataset.skillProfile || skillAgent || store.sessions?.[store.active]?.agent_id || "";
     notePage(id);
     history.replaceState(null, "", `#settings/${activeSection}`);
@@ -1636,6 +1646,12 @@ function watchBrokerPairing() {
 async function refreshCredentials() {
 	try { credentialList = (await api("/api/credentials", undefined, "GET")).credentials || []; }
 	catch (error) { credentialList = []; credentialMessage = error.message; credentialAlarm = true; }
+}
+
+async function refreshBrowserData() {
+  try { browserDataBytes = (await api("/api/browser-data", undefined, "GET")).bytes; }
+  catch (error) { credentialMessage = error.message; credentialAlarm = true; }
+  if (open && activeSection === "shell") render();
 }
 
 async function watchCredentialSignIn(name) {

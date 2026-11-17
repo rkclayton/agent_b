@@ -17,7 +17,7 @@
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +82,33 @@ for (const mode of ["Connect", "Install"]) test(`2yk fresh setup ${mode} reaches
     await page.locator("#chat-send").click();
     await expect(page.locator("#chat-log")).toContainText("ui harness reply");
   } finally { await fresh.stop(); }
+});
+
+test("2ym browser data reads once, confirms inline, clears and captures", async () => {
+  test.setTimeout(120_000);
+  const site = createServer((request, response) => response.end("<html><body>browser fixture</body></html>"));
+  await new Promise(done => site.listen(0, "127.0.0.1", done));
+  const fresh = await start({ exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(repo, "logs/evidence/rel-1.62.224", `ui-data-${Date.now()}`), browserSite: `http://127.0.0.1:${site.address().port}` });
+  const page = await fresh.context.newPage(); let reads = 0;
+  page.on("request", request => { if (request.url().endsWith("/api/browser-data") && request.method() === "GET") reads++; });
+  try {
+    await page.goto(`${fresh.base}/chat`); await page.locator("#chat-task").fill("browser data fixture"); await page.locator("#chat-send").click();
+    await expect(page.locator("#chat-log")).toContainText("ui harness reply", { timeout: 30000 });
+    const active = (await fresh.getState()).config.profiles?.active;
+    const browserRoot = join(fresh.dataRoot, ...(active ? ["profiles", active] : []), "browser");
+    const state = JSON.parse(await readFile(join(browserRoot, "state.json"), "utf8"));
+    await toggleSettings(page); await page.locator('.settings-nav [data-id="shell"]').click();
+    const row = page.locator(".setting-row").filter({ has: page.locator("label").filter({ hasText: /^browser data$/ }) });
+    await expect(row).toContainText(/\d+ MB/);
+    const captures = join(repo, "logs/evidence/rel-1.62.224/captures"); await mkdir(captures, { recursive: true });
+    const capture = async state => { for (const [width,height] of [[304,720],[1280,860],[1920,1080]]) { await page.setViewportSize({width,height}); await expect(async () => { await row.scrollIntoViewIfNeeded(); }).toPass(); expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,".settings-content"))).toEqual([]); expect(await row.evaluate(el => { const r=el.getBoundingClientRect(); return [...el.querySelectorAll("button, .browser-data-actions > span")].every(child => { const c=child.getBoundingClientRect(); return c.left>=r.left && c.right<=r.right+1; }); })).toBe(true); await expect(async () => { await row.screenshot({path:join(captures,`${state}-${width}.png`)}); }).toPass(); } };
+    await capture("size"); const size = await row.textContent();
+    await row.getByRole("button", {name:"Clear",exact:true}).click(); await expect(row).toContainText("Clear browser data?"); await capture("confirm");
+    await row.getByRole("button", {name:"Cancel",exact:true}).click(); await expect(row).toHaveText(size);
+    await access(join(browserRoot,"profile")); process.kill(state.PID,0);
+    await row.getByRole("button", {name:"Clear",exact:true}).click(); await row.getByRole("button", {name:"Clear",exact:true}).click();
+    await expect(row).toContainText("empty"); await capture("empty"); await expect(access(join(browserRoot,"profile"))).rejects.toThrow(); expect(() => process.kill(state.PID,0)).toThrow(); expect(reads).toBe(1);
+  } finally { await fresh.stop(); site.closeAllConnections?.(); await new Promise(done => site.close(done)); }
 });
 
 test.describe("setup wizard 2xz", () => {

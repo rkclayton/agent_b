@@ -3,6 +3,7 @@ let brokerStatus = {};
 let brokerMessage = "";
 let brokerAlarm = false;
 let credentialList = [];
+let browserDataBytes = null, browserDataConfirm = false;
 let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
@@ -14,6 +15,8 @@ function useSettingsContext(context) {
   brokerMessage = context.brokerMessage || "";
   brokerAlarm = !!context.brokerAlarm;
   credentialList = context.credentialList || [];
+  browserDataBytes = context.browserDataBytes;
+  browserDataConfirm = !!context.browserDataConfirm;
   credentialMessage = context.credentialMessage || "";
   credentialAlarm = !!context.credentialAlarm;
   credentialDevice = context.credentialDevice || {};
@@ -177,6 +180,7 @@ function credentialRows() {
 	${toggle("credentials.ask_before_use", "ask before use", !!store.config.credentials?.ask_before_use, "The agent cannot use anything stored here until you approve it in the chat — once, or for that chat.")}
 	${store.config.credentials?.ask_before_use ? row("ask again after idle", `<input class="setting-input number" type="number" min="0" step="1" data-path="credentials.idle_hours" data-kind="number" value="${attr(store.config.credentials?.idle_hours ?? 4)}"><span class="control-note">hours · 0 = never</span>`) : ""}
 	${row("stored", listed)}
+	${browserDataBytes == null ? "" : row("browser data", `<span class="settings-actions browser-data-actions">${browserDataConfirm ? '<span>Clear browser data?</span><button type="button" class="alarm" data-action="browser-data-clear">Clear</button><button type="button" data-action="browser-data-cancel">Cancel</button>' : browserDataBytes === 0 ? '<span class="account-status">empty</span>' : `<span class="mono account-status">${Math.ceil(browserDataBytes / 1048576)} MB</span><button type="button" data-action="browser-data-ask">Clear</button>`}</span>`, "", false)}
 	${row("add key", `<span class="settings-actions credential-key-fields"><input id="credential-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-origin" type="text" placeholder="https://host:port" autocomplete="off" spellcheck="false"><input id="credential-header" type="text" placeholder="header (blank = bearer)" autocomplete="off" spellcheck="false"><input id="credential-secret" type="password" placeholder="the key" autocomplete="new-password" spellcheck="false"><button type="button" data-action="credential-add">Add</button></span>`, "", "The key is never shown again once stored, and never leaves this machine except to the address above. Windows protects it for your account: that is protection at rest and from other users, not from programs running as you.")}
 	${row("add login", `<span class="settings-actions credential-login-fields">${[["name","text"],["user","text"],["host","text"],["port","text"],["password","password"]].map(([id,type]) => `<input id="credential-login-${id}" type="${type}" placeholder="${id === "port" ? "port (22)" : id}" autocomplete="${type === "password" ? "new-password" : "off"}" spellcheck="false">`).join("")}<button type="button" data-action="credential-login-add">Add</button></span>`, "", "Used only when ssh asks for this user's password at this host. Never shown again, never given to the model, never sent to a phone. Windows protects it for your account: protection at rest and from other users, not from programs running as you.")}
 	<details class="settings-advanced"><summary>Add signed-in credential</summary>
@@ -276,6 +280,7 @@ export function renderSecurityPage(page, active, context) {
 import { actionTable } from "./settings-action-table.js";
 
 export const securityActions = actionTable([
+  "browser-data-ask", "browser-data-cancel", "browser-data-clear",
   "revoke-standing-grant", "trusted-folder-add", "trusted-folder-change",
   "trusted-folder-delete", "operator-context", "local-network-toggle",
   "open-setup", "session-tool-toggle", "store-shell-credential",

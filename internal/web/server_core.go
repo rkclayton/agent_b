@@ -86,6 +86,7 @@ type Server struct {
 	submissions        *idempotentSubmissions
 	operatorState      operatorState
 	browserSession     string
+	browserData        func(bool) (int64, error)
 	openFolder         func(string) error
 	openFile           func(string) error
 	attachmentState    attachmentState
@@ -482,6 +483,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/browser-session", s.browserSessionEndpoint)
 	mux.HandleFunc("/api/broker/status", s.brokerStatus)
 	mux.HandleFunc("/api/credentials", s.credentialsEndpoint)
+	mux.HandleFunc("/api/browser-data", s.replayGuard(s.browserDataEndpoint))
 	mux.HandleFunc("/api/broker", s.replayGuard(s.brokerAction))
 	mux.HandleFunc("/api/local-detection", s.localDetection)
 	mux.HandleFunc("/api/reflection", s.replayGuard(s.reflectionEndpoint))
@@ -658,7 +660,7 @@ func (s *Server) browserSessionGuard(next http.Handler) http.Handler {
 		// the credential listing joins the protected reads. It carries no
 		// value, but it names what is stored and where it may go, and only the operator's
 		// own page may see that.
-		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/credentials")
+		protectedRead := r.Method == http.MethodGet && (r.URL.Path == "/api/state" || r.URL.Path == "/api/events" || r.URL.Path == "/api/credentials" || r.URL.Path == "/api/browser-data")
 		mutation := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
 		if (protectedRead || mutation) && r.URL.Path != "/api/browser-session" {
 			cookie, err := r.Cookie(browserSessionCookie)

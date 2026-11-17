@@ -228,7 +228,9 @@ async function saveCheckedConnection() {
   const next = { ...current, id: connectionID, label: draft.label || "My model", base_url: draft.base_url, model: draft.model, context: { ...(current.context || {}), n_ctx: draft.context } };
   if (String(next.api_key || "").includes("••••")) delete next.api_key;
   if (draft.api_key) next.api_key = draft.api_key;
-  snapshot.config = await request("/api/config", { connections: [next] });
+  const patch = { connections: [next] };
+  if (!snapshot.config?.agents?.length) patch.agents = savedConnectionAgents();
+  snapshot.config = await request("/api/config", patch);
   snapshot = await request("/api/state", undefined, "GET");
 }
 

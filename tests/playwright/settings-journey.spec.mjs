@@ -56,6 +56,34 @@ test.beforeAll(async () => {
   harness = await start({ exe, appRoot: repo, data: join(root, "data"), modelIDs: ["journey-model", "second-model"], streamDelayMs: 800 });
 });
 
+for (const mode of ["Connect", "Install"]) test(`2yk fresh setup ${mode} reaches a working chat`, async () => {
+  test.setTimeout(120_000);
+  const fresh = await start({ exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(root, `fresh-${mode}`), freshSetup: true });
+  const page = await fresh.context.newPage();
+  page.on("response", async response => { if (response.url().includes("/api/") && (!response.ok() || response.url().endsWith("/probe"))) console.log("fresh setup", response.status(), await response.text()); });
+  try {
+    expect(fresh.initial.config.agents).toEqual([]);
+    expect(fresh.initial.config.connections).toEqual([]);
+    await page.route("**/api/local-detection", route => route.fulfill({ json: { system_memory_bytes: 16 * 2 ** 30, gpus: [], accelerators: {} } }));
+    await page.route("**/api/model-install", route => route.fulfill({ json: { catalog: { models: [{ id: "local", label: "Local", min_gib: 1, artifact: { bytes: 100 } }] }, state: { running: false, phase: "complete", base_url: `http://127.0.0.1:${fresh.modelPort}`, model: "ui-harness", context: { n_ctx: 32768 } } } }));
+    await page.goto(`${fresh.base}/chat`);
+    if (mode === "Connect") await page.getByLabel("Address").fill(`http://127.0.0.1:${fresh.modelPort}`);
+    await page.getByRole("button", { name: mode, exact: true }).click();
+    await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible({ timeout: 15000 });
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByRole("switch").click();
+    await page.getByRole("button", { name: "Finish", exact: true }).click();
+    await page.waitForURL(/\/chat\?session=/);
+    const state = await fresh.getState();
+    expect(state.config.connections).toHaveLength(1);
+    expect(state.config.agents).toHaveLength(1);
+    expect(state.config.agents[0].b).toBe(state.config.connections[0].id);
+    await page.locator("#chat-task").fill("first setup message");
+    await page.locator("#chat-send").click();
+    await expect(page.locator("#chat-log")).toContainText("ui harness reply");
+  } finally { await fresh.stop(); }
+});
+
 test.describe("setup wizard 2xz", () => {
 	let wizardRoot;
 	let wizardHarness;

@@ -146,6 +146,7 @@ try {
   await page.getByRole("button", { name: "Next" }).waitFor({ timeout: 60000 });
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-2-checking.png") });
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Agent_b is ready", exact: true }).waitFor();
   assert.equal(await page.locator("h1").textContent(), "Agent_b is ready");
   assert.equal(await page.getByRole("switch").getAttribute("aria-checked"), "true");
   if (args.evidence) await page.screenshot({ path: join(args.evidence, "setup-3-ready.png") });

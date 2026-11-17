@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768 }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768, freshSetup = false }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -127,6 +127,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   let config = configFor({ appPort, modelPort, data: dataRoot, workspace, agents, connectionModel, brokerURL, memoryEnabled, validEfforts });
   config.connections[0].context.n_ctx = contextSize;
   config.connections[0].capabilities.n_ctx = reportedContext;
+  if (freshSetup) { config.connections = []; config.agents = []; }
   if (reuseConfig) {
 		config = JSON.parse(await readFile(configPath, "utf8"));
 		config.listen = `127.0.0.1:${appPort}`;
@@ -165,7 +166,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
   });
   // Item 2qd: production startup no longer invents a chat. UI scenarios that
   // need one create it through the same operator route the browser uses.
-  if (!Object.keys(initial.sessions || {}).length) {
+  if (!freshSetup && !Object.keys(initial.sessions || {}).length) {
     const created = await context.request.post(`${base}/api/sessions`, {
       data: { label: "UI harness" },
       headers: { "X-AgentB-Mutation-Token": mutationToken },

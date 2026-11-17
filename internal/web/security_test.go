@@ -339,6 +339,12 @@ func TestOnlyTheOperatorsPageTouchesCredentials2nv(t *testing.T) {
 	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
 	SetCredentialVault(credential.NewVault(root))
 	t.Cleanup(func() { SetCredentialVault(nil) })
+	for _, route := range []string{"credentials.list", "credentials.add", "credentials.read", "credentials.remove"} {
+		response := server.executeAppMessage("fixture-paired-device", appRequestUnit{V: 1, Kind: "request", ID: route, Route: route, Body: json.RawMessage(`{}`)}, nil)
+		if !strings.Contains(string(response), `"status":501`) {
+			t.Fatalf("paired device reached %s: %s", route, response)
+		}
+	}
 
 	add := `{"action":"add","name":"depot","origin":"https://api.example.test:8443","secret":"planted"}`
 	for _, test := range []struct {

@@ -28,6 +28,8 @@ const loginPipeEnv = "AGENTB_SSH_ASKPASS_PIPE"
 type sshLoginRequest struct {
 	Prompt string
 	Port   int
+	User   string
+	Host   string
 }
 type sshLoginAttempt struct {
 	created           int64
@@ -55,6 +57,9 @@ type sshLoginCall struct {
 
 func init() { newLoginCall = startSSHLogin; SSHAskpassMain = sshAskpassMain }
 func startSSHLogin(ctx context.Context, v *credential.Vault, out *lockedBuffer) (loginCall, error) {
+	if present, err := v.HasLogins(); err == nil && !present {
+		return nil, nil
+	}
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {
 		return nil, err
@@ -264,16 +269,13 @@ func (c *sshLoginCall) answer(pipe windows.Handle, readComplete func()) {
 		return
 	}
 	readComplete()
-	if c.ctx.Value(loginSourceKey{}) == "phone" {
-		return
-	}
 	prompt := strings.TrimSpace(request.Prompt)
 	if !strings.HasSuffix(prompt, "'s password:") {
 		return
 	}
-	target := strings.TrimSuffix(prompt, "'s password:")
-	user, host, ok := strings.Cut(target, "@")
-	if !ok || request.Port < 1 || request.Port > 65535 {
+	user, host := request.User, request.Host
+	target := user + "@" + host
+	if user == "" || host == "" || request.Port < 1 || request.Port > 65535 {
 		return
 	}
 	attempt := c.attempts[parent]
@@ -406,30 +408,21 @@ func sshAskpassMain() bool {
 	if path == "" || len(os.Args) != 2 {
 		return false
 	}
-	answered := false
-	var refuse func()
-	defer func() {
-		if !answered {
-			if refuse != nil {
-				refuse()
-			}
-			os.Exit(1)
-		}
-	}()
 	self, parent, _, _, err := loginProcess(uint32(os.Getpid()))
 	if err != nil {
-		return true
+		return false
 	}
 	windows.CloseHandle(self)
 	h, _, created, image, err := loginProcess(parent)
 	if err != nil {
-		return true
+		return false
 	}
 	defer windows.CloseHandle(h)
 	if !sameLoginImage(image, windowsSSH()) {
-		return true
+		return false
 	}
-	refuse = func() {
+	answered := false
+	refuse := func() {
 		stop, e := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, parent)
 		if e != nil {
 			return
@@ -440,6 +433,12 @@ func sshAskpassMain() bool {
 			windows.TerminateProcess(stop, 1)
 		}
 	}
+	defer func() {
+		if !answered {
+			refuse()
+			os.Exit(1)
+		}
+	}()
 	// Ask SSH to resolve its own effective configuration under the same identity.
 	// -G prints configuration and exits without making a network connection.
 	var size uint32
@@ -470,14 +469,21 @@ func sshAskpassMain() bool {
 		return true
 	}
 	port := 0
+	var user, host string
 	for _, line := range strings.Split(configuration.String(), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) == 2 && fields[0] == "port" {
-			port, _ = strconv.Atoi(fields[1])
-			break
+		if len(fields) == 2 {
+			switch fields[0] {
+			case "port":
+				port, _ = strconv.Atoi(fields[1])
+			case "user":
+				user = fields[1]
+			case "hostname":
+				host = fields[1]
+			}
 		}
 	}
-	if port == 0 {
+	if port == 0 || user == "" || host == "" {
 		return true
 	}
 	name, _ := windows.UTF16PtrFromString(path)
@@ -507,7 +513,7 @@ func sshAskpassMain() bool {
 	if e != nil || !sameLoginImage(serverImage, selfImage) {
 		return true
 	}
-	json.NewEncoder(file).Encode(sshLoginRequest{Prompt: os.Args[1], Port: port})
+	json.NewEncoder(file).Encode(sshLoginRequest{Prompt: os.Args[1], Port: port, User: user, Host: host})
 	n, copyErr := io.Copy(os.Stdout, io.LimitReader(file, 16385))
 	answered = n > 0 && (copyErr == nil || errors.Is(copyErr, windows.ERROR_BROKEN_PIPE) || errors.Is(copyErr, windows.ERROR_PIPE_NOT_CONNECTED))
 	return true

@@ -20,6 +20,7 @@ import (
 	"harness/internal/recorder"
 	"harness/internal/session"
 	"harness/internal/tools"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -40,10 +41,13 @@ func init() {
 	if tools.SSHAskpassMain() {
 		os.Exit(0)
 	}
+	if os.Getenv("AGENTB_SSH_ASKPASS_PIPE") != "" && len(os.Args) == 2 {
+		os.Exit(0)
+	}
 }
 
 func TestShellStoredLogin2yd(t *testing.T) {
-	for _, scenario := range []string{"match", "user", "host", "port", "refused", "host-key", "key-passphrase", "key", "forged", "phone", "reflected", "scp", "sftp", "consent-once", "consent-deny", "consent-hangup"} {
+	for _, scenario := range []string{"match", "user", "host", "port", "refused", "host-key", "key-passphrase", "key", "forged", "phone", "resolved-host", "alias", "jump", "reflected", "scp", "sftp", "consent-once", "consent-deny", "consent-hangup"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			password := "planted-login-secret-2yd"
@@ -61,7 +65,11 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			}}
 			cfg.AddHostKey(signer)
 			cfg.PublicKeyCallback = func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil }
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			address := "127.0.0.1:0"
+			if scenario == "resolved-host" {
+				address = "127.0.0.2:0"
+			}
+			listener, err := net.Listen("tcp", address)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,6 +122,9 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			port := listener.Addr().(*net.TCPAddr).Port
 			known := filepath.Join(root, "known_hosts")
 			keyLine := fmt.Sprintf("[127.0.0.1]:%d %s", port, ssh.MarshalAuthorizedKey(signer.PublicKey()))
+			if scenario == "resolved-host" {
+				keyLine += fmt.Sprintf("[127.0.0.2]:%d %s", port, ssh.MarshalAuthorizedKey(signer.PublicKey()))
+			}
 			if scenario == "host-key" {
 				keyLine = ""
 			}
@@ -137,7 +148,63 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			shell := tools.NewShell(config.Defaults(root).Shell)
 			shell.SetLoginVault(vault)
 			exe := filepath.Join(os.Getenv("WINDIR"), "System32", "OpenSSH", "ssh.exe")
-			command := fmt.Sprintf("& '%s' -F '%s' -o 'UserKnownHostsFile=%s' -o 'GlobalKnownHostsFile=%s' -o IdentityAgent=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=ask -p %d someone@127.0.0.1 echo ok", exe, configPath, known, known, port)
+			command := fmt.Sprintf("& '%s' -F '%s' -o 'UserKnownHostsFile=%s' -o 'GlobalKnownHostsFile=%s' -o IdentityAgent=none -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=ask -p %d someone@127.0.0.1 echo ok", exe, configPath, known, known, port)
+			if scenario == "resolved-host" {
+				command = strings.Replace(command, " -F ", " -o HostName=127.0.0.2 -F ", 1)
+			}
+			if scenario == "alias" {
+				os.WriteFile(configPath, []byte("Host example-alias\n HostName 127.0.0.1\n"), 0600)
+				command = strings.Replace(command, "someone@127.0.0.1", "someone@example-alias", 1)
+			}
+			if scenario == "jump" {
+				jump, e := net.Listen("tcp", "127.0.0.1:0")
+				if e != nil {
+					t.Fatal(e)
+				}
+				defer jump.Close()
+				jumpPort := jump.Addr().(*net.TCPAddr).Port
+				os.WriteFile(known, []byte(keyLine+fmt.Sprintf("[127.0.0.1]:%d %s", jumpPort, ssh.MarshalAuthorizedKey(signer.PublicKey()))), 0600)
+				os.WriteFile(configPath, []byte(fmt.Sprintf("Host fixture-jump\n HostName 127.0.0.1\n Port %d\n User someone\n IdentityAgent none\n IdentityFile none\n UserKnownHostsFile %s\n GlobalKnownHostsFile %s\n StrictHostKeyChecking yes\n", jumpPort, known, known)), 0600)
+				go func() {
+					conn, e := jump.Accept()
+					if e != nil {
+						return
+					}
+					defer conn.Close()
+					conn.SetDeadline(time.Now().Add(20 * time.Second))
+					jumpConfig := &ssh.ServerConfig{NoClientAuth: true}
+					jumpConfig.AddHostKey(signer)
+					server, channels, requests, e := ssh.NewServerConn(conn, jumpConfig)
+					if e != nil {
+						return
+					}
+					defer server.Close()
+					go ssh.DiscardRequests(requests)
+					for incoming := range channels {
+						if incoming.ChannelType() != "direct-tcpip" {
+							incoming.Reject(ssh.UnknownChannelType, "forward only")
+							continue
+						}
+						channel, requests, e := incoming.Accept()
+						if e != nil {
+							return
+						}
+						go ssh.DiscardRequests(requests)
+						destination, e := net.Dial("tcp", listener.Addr().String())
+						if e != nil {
+							channel.Close()
+							return
+						}
+						go func() {
+							defer destination.Close()
+							defer channel.Close()
+							go io.Copy(channel, destination)
+							io.Copy(destination, channel)
+						}()
+					}
+				}()
+				command = strings.Replace(command, " -F ", " -J fixture-jump -F ", 1)
+			}
 			if scenario == "key-passphrase" || scenario == "key" {
 				_, private, _ := ed25519.GenerateKey(rand.Reader)
 				block, e := ssh.MarshalPrivateKeyWithPassphrase(private, "fixture", []byte("fixture-passphrase"))
@@ -168,7 +235,7 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			}
 			if scenario == "scp" || scenario == "sftp" {
 				exe = filepath.Join(filepath.Dir(exe), scenario+".exe")
-				command = fmt.Sprintf("& '%s' -F '%s' -o 'UserKnownHostsFile=%s' -o 'GlobalKnownHostsFile=%s' -o IdentityAgent=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=yes -P %d someone@127.0.0.1", exe, configPath, known, known, port)
+				command = fmt.Sprintf("& '%s' -F '%s' -o 'UserKnownHostsFile=%s' -o 'GlobalKnownHostsFile=%s' -o IdentityAgent=none -o IdentityFile=none -o PubkeyAuthentication=no -o StrictHostKeyChecking=yes -P %d someone@127.0.0.1", exe, configPath, known, known, port)
 				if scenario == "scp" {
 					command += "':/fixture' '" + filepath.Join(root, "received") + "'"
 				}
@@ -308,14 +375,20 @@ func TestShellStoredLogin2yd(t *testing.T) {
 				t.Fatal("secret escaped")
 			}
 			want := int32(0)
-			if scenario == "match" || scenario == "refused" || scenario == "reflected" || scenario == "scp" || scenario == "sftp" || scenario == "consent-once" || scenario == "consent-hangup" {
+			if scenario == "phone" || scenario == "alias" || scenario == "jump" || scenario == "match" || scenario == "refused" || scenario == "reflected" || scenario == "scp" || scenario == "sftp" || scenario == "consent-once" || scenario == "consent-hangup" {
 				want = 1
 			}
 			if attempts.Load() != want {
 				t.Fatalf("attempts=%d want=%d result=%s", attempts.Load(), want, text)
 			}
-			if scenario == "match" && (result.Err != nil || !strings.Contains(text, "ok") || !strings.Contains(text, "login: example-login")) {
+			if (scenario == "phone" || scenario == "alias" || scenario == "jump" || scenario == "match") && (result.Err != nil || !strings.Contains(text, "ok") || !strings.Contains(text, "login: example-login")) {
 				t.Fatal(text)
+			}
+			if scenario == "resolved-host" && !strings.Contains(text, "no stored login for someone@127.0.0.2") {
+				t.Fatal(text)
+			}
+			if scenario == "forged" && result.Err != nil {
+				t.Fatal("ordinary single-argument launch failed", result.Err)
 			}
 			if scenario == "key" && (result.Err != nil || !strings.Contains(text, "ok") || strings.Contains(text, "login:")) {
 				t.Fatal(text)
@@ -338,11 +411,55 @@ func TestShellStoredLogin2yd(t *testing.T) {
 func TestLoginOutputBound2yd(t *testing.T) {
 	root := t.TempDir()
 	shell := tools.NewShell(config.Defaults(root).Shell)
-	shell.SetLoginVault(credential.NewVault(filepath.Join(root, "vault")))
+	vault := credential.NewVault(filepath.Join(root, "vault"))
+	if err := vault.PutLogin("example-login", "someone", "example.org", "22", "fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	shell.SetLoginVault(vault)
 	start := time.Now()
 	out := shell.CallDetailed(context.Background(), &session.Session{Workspace: root}, map[string]any{"command": "[Console]::Write(('x' * (2 * 1024 * 1024)))"})
 	if out.Err != nil || !strings.Contains(out.Content, "1048576 output bytes omitted") || len(out.Content) > (1<<20)+256 {
 		t.Fatal("output bound", out.Err, len(out.Content))
 	}
 	t.Logf("2 MiB output retained at 1 MiB bound in %s", time.Since(start))
+}
+
+func TestEmptyLoginVaultKeepsOrdinaryShell2yl(t *testing.T) {
+	for _, key := range []string{"SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "AGENTB_SSH_ASKPASS_PIPE"} {
+		t.Setenv(key, "")
+	}
+	root := t.TempDir()
+	shell := tools.NewShell(config.Defaults(root).Shell)
+	item := &session.Session{Workspace: root}
+	call := func(command string) string {
+		out := shell.CallDetailed(context.Background(), item, map[string]any{"command": command})
+		if out.Err != nil {
+			t.Fatal(out.Err)
+		}
+		return out.Content
+	}
+	command := "[Console]::Write(('x' * (3 * 1024 * 1024)))"
+	baseline := call(command)
+	vault := credential.NewVault(filepath.Join(root, "vault"))
+	shell.SetLoginVault(vault)
+	if got := call(command); got != baseline {
+		t.Fatalf("empty vault changed 3 MiB output: %d versus %d bytes", len(got), len(baseline))
+	}
+	environment := "[Console]::Write(\"$env:SSH_ASKPASS|$env:SSH_ASKPASS_REQUIRE|$env:AGENTB_SSH_ASKPASS_PIPE\")"
+	if got := call(environment); strings.Contains(got, "AgentB-login") || strings.Contains(got, "force") {
+		t.Fatal("empty vault armed helper")
+	}
+	if err := vault.PutLogin("example-login", "someone", "example.org", "22", "fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	if got := call(environment); !strings.Contains(got, "AgentB-login") || !strings.Contains(got, "force") {
+		t.Fatal("stored login did not arm helper")
+	}
+	if err := vault.Delete("example-login"); err != nil {
+		t.Fatal(err)
+	}
+	if got := call(environment); strings.Contains(got, "AgentB-login") || strings.Contains(got, "force") {
+		t.Fatal("removed last login left helper armed")
+	}
+	t.Logf("3 MiB output exactly matches ordinary shell: %d returned bytes", len(baseline))
 }

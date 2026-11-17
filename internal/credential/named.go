@@ -225,6 +225,16 @@ func (v *Vault) LoginName(user, host string, port int) (string, error) {
 	return v.logins[origin].Name, nil
 }
 
+// HasLogins uses the metadata index without reading any password.
+func (v *Vault) HasLogins() (bool, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.loginIndex(); err != nil {
+		return false, err
+	}
+	return len(v.logins) != 0, nil
+}
+
 func (v *Vault) LoginPassword(name, user, host string, port int) ([]byte, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()

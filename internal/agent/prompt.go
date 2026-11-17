@@ -102,7 +102,7 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 		template = connection.SystemPromptOverride
 	}
 	agentBlock := ""
-	if addendum := strings.TrimSpace(s.PromptAddendum); addendum != "" {
+	if addendum := strings.TrimSpace(s.AgentPrompt()); addendum != "" {
 		agentBlock = "BEGIN OPERATOR AGENT ADDENDUM\n" + addendum + "\nEND OPERATOR AGENT ADDENDUM"
 	}
 	if !strings.Contains(template, "{{agent}}") && agentBlock != "" {

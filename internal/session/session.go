@@ -803,6 +803,12 @@ func (s *Session) DisableTools() {
 		s.ToolsEnabled[name] = false
 	}
 }
+func (s *Session) AgentPrompt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PromptAddendum
+}
+
 func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connection config.Connection) bool {
 	enabled := map[string]bool{}
 	for _, name := range config.FullToolset() {

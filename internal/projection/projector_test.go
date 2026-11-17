@@ -718,3 +718,28 @@ func TestMemoryNotedUpdatesStateWithoutSecondChatNotice2kt(t *testing.T) {
 		t.Fatal("memory.noted still renders beside the one harness memory line")
 	}
 }
+
+func TestRequestIdentitySurvivesRowUpsert2yo(t *testing.T) {
+	state := seeded(t)
+	const id = "0123456789abcdef0123456789abcdef"
+	next, patch, err := Next(state, Record{Cursor: Cursor{Generation: "fixture", Offset: 200}, Event: events.New(events.MessageAppended, "main", "", map[string]any{"message": events.Message{ID: "m1", Role: "user", RequestID: id, Content: "fixture", Category: "history"}})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Chat[0].RequestID != id {
+		t.Fatal("snapshot lost identity")
+	}
+	raw, _ := json.Marshal(patch)
+	if !strings.Contains(string(raw), `"request_id":"`+id+`"`) {
+		t.Fatal("upsert lost identity", string(raw))
+	}
+	var old struct {
+		ID      string `json:"id"`
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	raw, _ = json.Marshal(next.Messages[len(next.Messages)-1])
+	if err := json.Unmarshal(raw, &old); err != nil || old.ID != "m1" || old.Content != "fixture" {
+		t.Fatal("old reader rejected optional field", err)
+	}
+}

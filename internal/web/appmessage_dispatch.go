@@ -17,6 +17,7 @@ import (
 )
 
 type pairedDeviceContextKey struct{}
+type pairedSubmitRequestKey struct{}
 
 func pairedDeviceAuthenticated(r *http.Request) bool {
 	_, ok := r.Context().Value(pairedDeviceContextKey{}).(string)
@@ -446,6 +447,9 @@ func (s *Server) serveAsPhone(deviceID string, request appRequestUnit, method, p
 	httpRequest.Header.Set("Content-Type", "application/json")
 	// The broker-paired phone's identity. No mutation token: a device never learns one.
 	httpRequest = httpRequest.WithContext(context.WithValue(httpRequest.Context(), pairedDeviceContextKey{}, deviceID))
+	if request.Route == "message" {
+		httpRequest = httpRequest.WithContext(context.WithValue(httpRequest.Context(), pairedSubmitRequestKey{}, request.ID))
+	}
 	recorder := httptest.NewRecorder()
 	s.appMessageHandler().ServeHTTP(recorder, httpRequest)
 

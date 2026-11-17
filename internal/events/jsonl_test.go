@@ -225,3 +225,50 @@ func TestDeleteOperationalPathsReportsOnlyFilesItRemoved(t *testing.T) {
 		t.Fatalf("removed=%v err=%v", removed, err)
 	}
 }
+
+func TestRequestLookupW02yo(t *testing.T) {
+	w := testWriters(t, t.TempDir())
+	defer w.Close()
+	testSession(t, w, "main")
+	for n := 0; n < 10000; n++ {
+		if err := w.Write(New(MessageAppended, "main", "", map[string]any{"message": Message{ID: fmt.Sprint("m", n), Role: "user", Content: fmt.Sprint("fixture ", n), Category: "history"}})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := time.Now()
+	_, found, err := w.SearchChatMessage("main", "fixture 9999")
+	elapsed := time.Since(started)
+	if err != nil || !found {
+		t.Fatal(found, err)
+	}
+	t.Logf("existing journal scan, 10000 messages: %s", elapsed)
+}
+
+func TestSubmittedRequestIndex2yo(t *testing.T) {
+	root := t.TempDir()
+	w := testWriters(t, root)
+	testSession(t, w, "main")
+	for n := 0; n < 10000; n++ {
+		if err := w.Write(New(MessageAppended, "main", "", map[string]any{"message": Message{ID: fmt.Sprint("m", n), RequestID: fmt.Sprintf("%032x", n), Role: "user", Content: "fixture", Category: "history"}})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for pass := 0; pass < 2; pass++ {
+		started := time.Now()
+		for n := 0; n < 10000; n++ {
+			if !w.SubmittedRequest("main", fmt.Sprintf("%032x", n)) {
+				t.Fatal("request missing", n)
+			}
+		}
+		elapsed := time.Since(started)
+		t.Logf("10000 journaled requests, restart=%v: lookup mean=%s total=%s", pass == 1, elapsed/10000, elapsed)
+		if elapsed/10000 > 20*time.Millisecond {
+			t.Fatal("lookup above 20ms")
+		}
+		w.Close()
+		if pass == 0 {
+			w = testWriters(t, root)
+			testSession(t, w, "main")
+		}
+	}
+}

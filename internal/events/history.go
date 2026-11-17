@@ -1,6 +1,7 @@
 package events
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -121,6 +122,9 @@ func (h *historyIndex) append(message Message, location historyLocation, keepFul
 		h.order = append(h.order, message.ID)
 	}
 	h.records[message.ID] = record
+	if message.Role == "user" && message.RequestID != "" {
+		h.records[requestHistoryKey(message.RequestID)] = historyRecord{meta: Message{ID: message.ID, RequestID: message.RequestID}}
+	}
 }
 
 func (h *historyIndex) update(id string, patch map[string]any) {
@@ -295,4 +299,8 @@ func (h *historyIndex) resolveReplay(ref string) (HistoryLookup, error) {
 		}
 		return *record.full, nil
 	})
+}
+
+func requestHistoryKey(id string) string {
+	return fmt.Sprintf("\x00request:%x", sha256.Sum256([]byte(id)))
 }

@@ -47,6 +47,15 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "session_id is required", "session_id")
 		return
 	}
+	source, requestID := "", ""
+	if pairedDeviceAuthenticated(r) {
+		source = "phone"
+		requestID, _ = r.Context().Value(pairedSubmitRequestKey{}).(string)
+	}
+	if requestID != "" && s.registry != nil && s.registry.SubmittedRequest(body.SessionID, requestID) {
+		writeJSON(w, http.StatusAccepted, map[string]string{"run_id": ""})
+		return
+	}
 	attachments, err := s.validateMessageAttachments(body.SessionID, body.Attachments)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "attachments")
@@ -56,11 +65,7 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text or attachments required", "text")
 		return
 	}
-	source := ""
-	if pairedDeviceAuthenticated(r) {
-		source = "phone"
-	}
-	result, err := s.scheduler.SubmitAttachmentsFromReopening(r.Context(), body.SessionID, body.Text, attachments, source)
+	result, err := s.scheduler.SubmitAttachmentsFromReopening(r.Context(), body.SessionID, body.Text, attachments, source, requestID)
 	if err != nil {
 		status := 400
 		if strings.Contains(err.Error(), "in progress") || strings.Contains(err.Error(), "queue full") {

@@ -621,7 +621,7 @@ func projectMessageAppended(next, previous Snapshot, record Record) (Snapshot, e
 	if wrapper.Message.Category == "summary" && !strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") && !strings.HasPrefix(wrapper.Message.Content, contextmgr.PrunedPrefix) {
 		next.Chat = append(next.Chat, ChatEntry{Type: "summary", Key: "message:" + wrapper.Message.ID, Text: summaryTranscript(wrapper.Message.Content)})
 	} else if wrapper.Message.Role == "user" {
-		next.Chat = append(next.Chat, ChatEntry{Type: "user", Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content, Attachments: append([]events.Attachment(nil), wrapper.Message.Attachments...)})
+		next.Chat = append(next.Chat, ChatEntry{Type: "user", RequestID: wrapper.Message.RequestID, Key: "message:" + wrapper.Message.ID, Text: wrapper.Message.Content, Attachments: append([]events.Attachment(nil), wrapper.Message.Attachments...)})
 	}
 	if wrapper.Message.Role == "assistant" {
 		if entry := chatTurnAny(next.Chat, wrapper.Message.Turn); entry != nil {

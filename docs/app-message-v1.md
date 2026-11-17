@@ -359,3 +359,14 @@ The reusable device client registers push delivery on its live link after `READY
 keeps the token forms: APNs sends its 64-hex `device_token` without a provider, while FCM sends
 `provider: "fcm"` and its bounded `device_token`. `RegisterPushFID` sends `provider: "fcm"` and
 the Firebase Installation ID as `fid`, with no `device_token` field.
+
+
+### Durable phone submit identity (2yo)
+
+A phone-submitted user row carries optional `request_id`, an exact copy of the submit request id, in its journal message, projected chat row, snapshots, history pages and row upserts. Sending clients use 16 random bytes encoded as 32 lower-case hexadecimal characters; legacy opaque ids remain accepted, bounded by the existing 8 MiB encoded unit ceiling. PC-authored rows omit the field. Repeating that id in the same chat is accepted without a new row or run, including after response-window eviction or restart; other request kinds retain the existing response-window behavior.
+
+Vector `phone-submit-row`:
+
+```json
+{"data":{"cursor":{"generation":"s1-1577836800000000000","offset":4352},"operations":[{"op":"upsert","path":"/chat/message:m1","value":{"key":"message:m1","request_id":"0123456789abcdef0123456789abcdef","text":"fixture","type":"user"}}],"previous_cursor":{"generation":"s1-1577836800000000000","offset":4096},"schema_version":1,"session_id":"s1"},"kind":"patch","v":1}
+```

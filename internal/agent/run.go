@@ -404,8 +404,8 @@ func reserveCounter(counter *atomic.Int64, floor int64) {
 func (r *Runner) AddUser(ctx context.Context, s *session.Session, text string) (events.Message, error) {
 	return r.AddUserAttachments(ctx, s, text, nil)
 }
-func (r *Runner) AddUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment) (events.Message, error) {
-	message, err := r.QueueUserAttachments(ctx, s, text, attachments)
+func (r *Runner) AddUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment, requestIDs ...string) (events.Message, error) {
+	message, err := r.QueueUserAttachments(ctx, s, text, attachments, requestIDs...)
 	if err != nil {
 		return events.Message{}, err
 	}
@@ -415,13 +415,16 @@ func (r *Runner) AddUserAttachments(ctx context.Context, s *session.Session, tex
 func (r *Runner) QueueUser(ctx context.Context, s *session.Session, text string) (events.Message, error) {
 	return r.QueueUserAttachments(ctx, s, text, nil)
 }
-func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment) (events.Message, error) {
+func (r *Runner) QueueUserAttachments(ctx context.Context, s *session.Session, text string, attachments []events.Attachment, requestIDs ...string) (events.Message, error) {
 	connection, ok := r.refreshAgent(s)
 	if !ok {
 		return events.Message{}, fmt.Errorf("connection not found")
 	}
 	attachments = prepareNativeAttachmentsWithBudget(connection, s.Workspace, attachments, remainingNativeAttachmentBudget(connection, s.Workspace, s.MessagesCopy()))
 	message := events.Message{ID: r.id("m"), Role: "user", Content: text, Category: "history", Attachments: append([]events.Attachment(nil), attachments...)}
+	if len(requestIDs) > 0 {
+		message.RequestID = requestIDs[0]
+	}
 	tokens, estimated := r.count(ctx, connection, renderedUserText(connection, s, message))
 	for _, attachment := range attachments {
 		kind := attachmentKind(attachment)

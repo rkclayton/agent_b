@@ -1289,3 +1289,9 @@ func (r *Registry) folderLoader(connectionID string) func(string) (string, strin
 		return r.memory(context.Background(), folder, connectionID)
 	}
 }
+
+func (r *Registry) SubmittedRequest(sessionID, requestID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.writers.SubmittedRequest(sessionID, requestID)
+}

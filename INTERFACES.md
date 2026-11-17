@@ -883,3 +883,8 @@ Tool output defaults at context 32,768 are read_file 16,384/65,536 bytes, list_d
 Model-facing history places trailing harness and legacy system notes before the latest user message, while preserving journal records and accounting identity. Prior-run notes sent to the model use a plain stopped, length, or unreachable sentence. Real assistant content is never classified by its text or filtered; the existing no-user continuation remains a user turn.
 
 Browser fetches share one lazy browser per active application profile, with an independent tab per fetch and the same timeout and result envelope. The browser alone writes its kept `browser/profile` data. Ten idle minutes or application quit stops the browser; an owner watcher handles abrupt application death. Profile switches close the old browser and use the selected profile’s directory. The manual browser command keeps its existing temporary-session behavior.
+
+
+### Durable phone submit identity (2yo)
+
+A phone-submitted user row carries optional `request_id`, an exact copy of the submit request id, in its journal message, projected chat row, snapshots, history pages and row upserts. Sending clients use 16 random bytes encoded as 32 lower-case hexadecimal characters; legacy opaque ids remain accepted, bounded by the existing 8 MiB encoded unit ceiling. PC-authored rows omit the field. Repeating that id in the same chat is accepted without a new row or run, including after response-window eviction or restart; other request kinds retain the existing response-window behavior.

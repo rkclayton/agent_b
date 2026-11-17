@@ -158,12 +158,16 @@ func (s *Scheduler) SubmitAttachments(ctx context.Context, sessionID, text strin
 	return s.SubmitAttachmentsFrom(ctx, sessionID, text, attachments, "")
 }
 func (s *Scheduler) SubmitAttachmentsFrom(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string) (SubmitResult, error) {
-	return s.submitAttachmentsFrom(ctx, sessionID, text, attachments, source, false)
+	return s.submitAttachmentsFrom(ctx, sessionID, text, attachments, source, false, "")
 }
-func (s *Scheduler) SubmitAttachmentsFromReopening(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string) (SubmitResult, error) {
-	return s.submitAttachmentsFrom(ctx, sessionID, text, attachments, source, true)
+func (s *Scheduler) SubmitAttachmentsFromReopening(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string, requestIDs ...string) (SubmitResult, error) {
+	requestID := ""
+	if len(requestIDs) > 0 {
+		requestID = requestIDs[0]
+	}
+	return s.submitAttachmentsFrom(ctx, sessionID, text, attachments, source, true, requestID)
 }
-func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string, reopen bool) (SubmitResult, error) {
+func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text string, attachments []events.Attachment, source string, reopen bool, requestID string) (SubmitResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item, err := s.registry.BeginSubmission(sessionID, reopen)
@@ -171,11 +175,14 @@ func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text s
 		return SubmitResult{}, err
 	}
 	defer item.EndSubmission()
+	if requestID != "" && s.registry.SubmittedRequest(sessionID, requestID) {
+		return SubmitResult{}, nil
+	}
 	if s.unreachable[sessionID] {
-		if position := identicalPendingPosition(s.pending[sessionID], text); position > 0 {
+		if position := identicalPendingPosition(s.pending[sessionID], text); requestID == "" && position > 0 {
 			return SubmitResult{Queued: true, Position: position}, nil
 		}
-		message, err := s.runner.QueueUserAttachments(ctx, item, text, attachments)
+		message, err := s.runner.QueueUserAttachments(ctx, item, text, attachments, requestID)
 		if err != nil {
 			return SubmitResult{}, err
 		}
@@ -191,14 +198,14 @@ func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text s
 		return SubmitResult{Queued: true, Position: position}, nil
 	}
 	if _, active := s.active[sessionID]; active || item.IsRunning() {
-		if position := identicalPendingPosition(s.pending[sessionID], text); position > 0 {
+		if position := identicalPendingPosition(s.pending[sessionID], text); requestID == "" && position > 0 {
 			return SubmitResult{Queued: true, Position: position}, nil
 		}
 		depth := s.cfg().Run.QueueDepth
 		if depth > 0 && len(s.pending[sessionID]) >= depth {
 			return SubmitResult{}, fmt.Errorf("queue full")
 		}
-		message, err := s.runner.QueueUserAttachments(ctx, item, text, attachments)
+		message, err := s.runner.QueueUserAttachments(ctx, item, text, attachments, requestID)
 		if err != nil {
 			return SubmitResult{}, err
 		}
@@ -215,7 +222,7 @@ func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text s
 	if len(s.pending[sessionID]) > 0 {
 		s.returnPendingLocked(sessionID)
 	}
-	message, err := s.runner.AddUserAttachments(ctx, item, text, attachments)
+	message, err := s.runner.AddUserAttachments(ctx, item, text, attachments, requestID)
 	if err != nil {
 		return SubmitResult{}, err
 	}

@@ -237,6 +237,41 @@
       "bytes": "{\"body\":{\"connection_id\":\"installed-local\"},\"id\":\"22222222222222222222222222222222\",\"kind\":\"request\",\"route\":\"model.stop\",\"v\":1}",
       "byte_length": 128,
       "sha256": "56f2f934170ff8a6f3e426c7ffc3eb4aa5aa2c4e4b44e59439790120c92ce70b"
+    },
+    {
+      "name": "phone-submit-row",
+      "note": "Optional request identity survives in the user row; old readers ignore it.",
+      "decoded": {
+        "v": 1,
+        "kind": "patch",
+        "data": {
+          "schema_version": 1,
+          "session_id": "s1",
+          "previous_cursor": {
+            "generation": "s1-1577836800000000000",
+            "offset": 4096
+          },
+          "cursor": {
+            "generation": "s1-1577836800000000000",
+            "offset": 4352
+          },
+          "operations": [
+            {
+              "op": "upsert",
+              "path": "/chat/message:m1",
+              "value": {
+                "type": "user",
+                "key": "message:m1",
+                "text": "fixture",
+                "request_id": "0123456789abcdef0123456789abcdef"
+              }
+            }
+          ]
+        }
+      },
+      "bytes": "{\"data\":{\"cursor\":{\"generation\":\"s1-1577836800000000000\",\"offset\":4352},\"operations\":[{\"op\":\"upsert\",\"path\":\"/chat/message:m1\",\"value\":{\"key\":\"message:m1\",\"request_id\":\"0123456789abcdef0123456789abcdef\",\"text\":\"fixture\",\"type\":\"user\"}}],\"previous_cursor\":{\"generation\":\"s1-1577836800000000000\",\"offset\":4096},\"schema_version\":1,\"session_id\":\"s1\"},\"kind\":\"patch\",\"v\":1}",
+      "byte_length": 368,
+      "sha256": "bd71e46b0c25385ae72d3f5b856970e734102e3ac529c6671b8ee1eab065c21b"
     }
   ],
   "split": {

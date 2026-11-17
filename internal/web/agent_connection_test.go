@@ -15,11 +15,13 @@ import (
 	"harness/internal/agent"
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/projection"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
 
 type agentConnectionFixture struct {
+	writers   *events.Writers
 	server    *Server
 	scheduler *agent.Scheduler
 	registry  *session.Registry
@@ -174,9 +176,21 @@ func TestAgentConnectionChangeCanBeCancelled(t *testing.T) {
 	}
 }
 
-func newAgentConnectionFixture(t *testing.T, oldURL, newURL string) agentConnectionFixture {
+func newAgentConnectionFixture(t *testing.T, oldURL, newURL string, previous ...agentConnectionFixture) agentConnectionFixture {
 	t.Helper()
 	root := t.TempDir()
+	var restored *projection.Snapshot
+	if len(previous) > 0 {
+		old := previous[0]
+		root = old.server.roots.Data
+		state, err := projection.ProjectFileState(filepath.Join(root, "chats", old.session.ID+".jsonl"), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored = &state
+		old.server.Close()
+		old.writers.Close()
+	}
 	if evidenceRoot := os.Getenv("AGENTB_W4_EVIDENCE"); evidenceRoot != "" {
 		root = filepath.Join(evidenceRoot, t.Name())
 		if err := os.MkdirAll(root, 0o755); err != nil {
@@ -207,7 +221,17 @@ func newAgentConnectionFixture(t *testing.T, oldURL, newURL string) agentConnect
 	server := newTestServer(t, &cfg, configPath, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, bus)
 	registry := session.NewRegistry(bus, writers, server.Connection, 0, server.ConfigSnapshot)
 	server.SetRegistry(registry)
-	item, err := registry.Create("main", "coder", root)
+	var item *session.Session
+	if restored == nil {
+		item, err = registry.Create("main", "coder", root)
+	} else {
+		raw, _ := json.Marshal(restored)
+		var saved session.Snapshot
+		if err = json.Unmarshal(raw, &saved); err != nil {
+			t.Fatal(err)
+		}
+		item, err = registry.RestoreWithTranscript(saved, restored.Chat)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +248,11 @@ func newAgentConnectionFixture(t *testing.T, oldURL, newURL string) agentConnect
 	runner := agent.NewRunner(bus, toolset, renderer, server.Connection, server.ConfigSnapshot)
 	scheduler := agent.NewScheduler(runner, registry, bus, server.ConfigSnapshot)
 	server.SetRuntime(scheduler, runner, renderer)
-	return agentConnectionFixture{server: server, scheduler: scheduler, registry: registry, session: item, oldID: oldConnection.ID, newID: newConnection.ID}
+	if restored != nil {
+		runner.ReserveIDs(10000)
+		scheduler.ReserveIDs(10000)
+	}
+	return agentConnectionFixture{writers: writers, server: server, scheduler: scheduler, registry: registry, session: item, oldID: oldConnection.ID, newID: newConnection.ID}
 }
 
 func postAgentConnection(t *testing.T, server *Server, agentID, body string) *httptest.ResponseRecorder {

@@ -223,6 +223,7 @@ type PlanProposal struct {
 	SourceMessageIDs []string `json:"source_message_ids,omitempty"`
 }
 type Message struct {
+	RequestID     string         `json:"request_id,omitempty"`
 	ID            string         `json:"id"`
 	Role          string         `json:"role"`
 	Content       string         `json:"content"`

@@ -401,7 +401,37 @@ func (w *Writers) RotateSession(id string) (string, LogCursor, error) {
 	w.sessions[id] = file
 	w.paths[id] = path
 	w.sizes[id] = info.Size()
-	w.history[id] = newHistoryIndex()
+	if w.history[id] == nil {
+		index := newHistoryIndex()
+		retained, readErr := os.Open(filepath.Join(w.chatDir, id+".jsonl"))
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return "", LogCursor{}, readErr
+		}
+		if readErr == nil {
+			decoder := json.NewDecoder(bufio.NewReader(retained))
+			for {
+				var event Event
+				readErr = decoder.Decode(&event)
+				if readErr == io.EOF {
+					break
+				}
+				if readErr != nil {
+					retained.Close()
+					return "", LogCursor{}, readErr
+				}
+				if event.Type == MessageAppended {
+					var body struct {
+						Message Message `json:"message"`
+					}
+					if decodeValue(event.Data, &body) == nil && body.Message.Role == "user" && body.Message.RequestID != "" {
+						index.records[requestHistoryKey(body.Message.RequestID)] = historyRecord{meta: Message{ID: body.Message.ID, RequestID: body.Message.RequestID}}
+					}
+				}
+			}
+			retained.Close()
+		}
+		w.history[id] = index
+	}
 	return path, predecessor, nil
 }
 func (w *Writers) CloseSession(id string) error {
@@ -740,4 +770,16 @@ func mapFiles(values map[string]*os.File) []*os.File {
 		out = append(out, file)
 	}
 	return out
+}
+
+// SubmittedRequest uses the existing journal metadata index; it reads no message body.
+func (w *Writers) SubmittedRequest(sessionID, requestID string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	index := w.history[sessionID]
+	if index == nil {
+		return false
+	}
+	record, ok := index.records[requestHistoryKey(requestID)]
+	return ok && record.meta.RequestID == requestID
 }

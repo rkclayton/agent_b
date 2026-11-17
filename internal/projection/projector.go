@@ -107,6 +107,7 @@ type StreamingToolCall struct {
 }
 
 type ChatEntry struct {
+	RequestID                string              `json:"request_id,omitempty"`
 	Type                     string              `json:"type"`
 	Key                      string              `json:"key"`
 	RunID                    string              `json:"run_id,omitempty"`

@@ -132,6 +132,10 @@ func TestAppRequestRunsOnce2y7(t *testing.T) {
 	if next := s.DispatchAppMessage("pairing-2", unit); bytes.Equal(first, next) {
 		t.Fatal("pairings share request ids")
 	}
+	s.appRequests = appRequestCache{}
+	if next := s.DispatchAppMessage("pairing-1", unit); bytes.Equal(first, next) {
+		t.Fatal("non-submit remained durable after eviction")
+	}
 	other := bytes.Replace(unit, []byte("retry-1"), []byte("retry-2"), 1)
 	if next := s.DispatchAppMessage("pairing-1", other); bytes.Equal(first, next) {
 		t.Fatal("different id did not run")
@@ -1715,5 +1719,139 @@ func TestTheDeviceListWalksThreeThousandChats2wy(t *testing.T) {
 	}
 	if _, _, ok := deviceChatPage(sessions, "", "not a cursor", deviceListPage); ok {
 		t.Fatal("a cursor this desktop did not give was taken")
+	}
+}
+
+func TestDurablePhoneSubmit2yo(t *testing.T) {
+	for _, mode := range []string{"row", "evicted", "restart", "different"} {
+		t.Run(mode, func(t *testing.T) {
+			var calls atomic.Int64
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); writeModelDone(w) }))
+			defer model.Close()
+			f := newAgentConnectionFixture(t, model.URL, model.URL)
+			wait := func(want int64) {
+				t.Helper()
+				deadline := time.Now().Add(10 * time.Second)
+				for calls.Load() < want || f.scheduler.Active(f.session.ID) {
+					if time.Now().After(deadline) {
+						t.Fatal("stand-in did not finish")
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}
+			const id = "0123456789abcdef0123456789abcdef"
+			unit := []byte(fmt.Sprintf(`{"v":1,"kind":"request","id":%q,"route":"message","body":{"session_id":%q,"text":"fixture"}}`, id, f.session.ID))
+			if mode == "row" {
+				if _, err := f.scheduler.Submit(context.Background(), f.session.ID, "fixture"); err != nil {
+					t.Fatal(err)
+				}
+				wait(1)
+			}
+			send := func(raw []byte) {
+				t.Helper()
+				if response := f.server.DispatchAppMessage("pairing", raw); !bytes.Contains(response, []byte(`"status":202`)) {
+					t.Fatalf("refused: %s", response)
+				}
+			}
+			send(unit)
+			want := int64(1)
+			if mode == "row" {
+				want = 2
+			}
+			wait(want)
+			rows := func() []map[string]any {
+				t.Helper()
+				p, err := projection.ProjectFileState(filepath.Join(f.server.roots.Data, "chats", f.session.ID+".jsonl"), 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, _ := json.Marshal(p.Chat)
+				var all []map[string]any
+				json.Unmarshal(raw, &all)
+				var users []map[string]any
+				for _, r := range all {
+					if r["type"] == "user" {
+						users = append(users, r)
+					}
+				}
+				return users
+			}
+			first := rows()
+			key := first[len(first)-1]["key"]
+			switch mode {
+			case "row":
+				f.server.SetProjection(projection.NewStore(), f.writers)
+				if _, err := f.server.projector.Snapshot(f.writers.SessionCursors()); err != nil {
+					t.Fatal(err)
+				}
+				for _, route := range []string{"chat.open", "chat.history", "resync"} {
+					request := []byte(fmt.Sprintf(`{"v":1,"kind":"request","id":%q,"route":%q,"body":{"session_id":%q}}`, "read-"+route, route, f.session.ID))
+					response := f.server.DispatchAppMessage("pairing", request)
+					if !bytes.Contains(response, []byte(`"request_id":"`+id+`"`)) {
+						t.Fatalf("%s dropped request identity: %s", route, response)
+					}
+				}
+				if first[0]["request_id"] != nil || first[1]["request_id"] != id {
+					t.Fatal("request identity missing or on PC row", first)
+				}
+			case "evicted":
+				f.server.appRequests = appRequestCache{}
+				send(unit)
+				wait(1)
+				if calls.Load() != 1 || len(rows()) != 1 || rows()[0]["key"] != key {
+					t.Fatal("evicted submit ran twice")
+				}
+			case "restart":
+				f = newAgentConnectionFixture(t, model.URL, model.URL, f)
+				send(unit)
+				wait(1)
+				if calls.Load() != 1 || len(rows()) != 1 || rows()[0]["key"] != key {
+					t.Fatal("restarted submit ran twice")
+				}
+			case "different":
+				send(bytes.Replace(unit, []byte(id), []byte("fedcba9876543210fedcba9876543210"), 1))
+				wait(2)
+				if calls.Load() != 2 || len(rows()) != 2 || rows()[1]["request_id"] != "fedcba9876543210fedcba9876543210" {
+					t.Fatal("different identity lost")
+				}
+			}
+		})
+	}
+}
+
+func TestDistinctQueuedPhoneSubmits2yo(t *testing.T) {
+	var calls atomic.Int64
+	release := make(chan struct{})
+	var once sync.Once
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			<-release
+		}
+		writeModelDone(w)
+	}))
+	defer func() { once.Do(func() { close(release) }); model.Close() }()
+	f := newAgentConnectionFixture(t, model.URL, model.URL)
+	for n := 0; n < 3; n++ {
+		unit := []byte(fmt.Sprintf(`{"v":1,"kind":"request","id":"%032x","route":"message","body":{"session_id":%q,"text":"fixture"}}`, n, f.session.ID))
+		if response := f.server.DispatchAppMessage("pairing", unit); !bytes.Contains(response, []byte(`"status":202`)) {
+			t.Fatalf("refused: %s", response)
+		}
+	}
+	users := 0
+	for _, m := range f.session.MessagesCopy() {
+		if m.Role == "user" {
+			users++
+		}
+	}
+	if users != 3 {
+		t.Fatal("different queued identities merged", users)
+	}
+	once.Do(func() { close(release) })
+	deadline := time.Now().Add(10 * time.Second)
+	for f.scheduler.Active(f.session.ID) {
+		if time.Now().After(deadline) {
+			t.Fatal("stand-in did not finish")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

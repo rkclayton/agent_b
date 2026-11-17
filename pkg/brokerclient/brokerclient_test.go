@@ -60,3 +60,36 @@ func TestThePushVectorsOpenThroughThePublicNames2ww(t *testing.T) {
 		t.Fatalf("FramePushRegister = %#x", broker.FramePushRegister)
 	}
 }
+
+func TestPhoneSubmitRowVector2yo(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "appmessage", "testdata", "vectors-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Vectors []struct {
+			Name  string `json:"name"`
+			Bytes string `json:"bytes"`
+		} `json:"vectors"`
+	}
+	if err = json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range file.Vectors {
+		if v.Name == "phone-submit-row" {
+			var old struct {
+				Kind string `json:"kind"`
+				Data struct {
+					Ops []struct {
+						Value struct{ Type, Key, Text string }
+					} `json:"operations"`
+				} `json:"data"`
+			}
+			if err = json.Unmarshal([]byte(v.Bytes), &old); err != nil || old.Kind != "patch" || len(old.Data.Ops) != 1 || old.Data.Ops[0].Value.Key != "message:m1" {
+				t.Fatal("old reader", err)
+			}
+			return
+		}
+	}
+	t.Fatal("row vector missing")
+}

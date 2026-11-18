@@ -1348,7 +1348,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	project := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, "")
 	skillsBlock := ""
 	if r.skills != nil {
-		skillsBlock = r.skills.Index(s.AgentID)
+		skillsBlock = r.skills.Index(s.AgentIDCopy())
 	}
 	skillsSystem := r.prompt.RenderSkillParts(p, s, toolNames, s.ProjectBlock, skillsBlock)
 	memoryBlock := s.WorkspaceMemory()

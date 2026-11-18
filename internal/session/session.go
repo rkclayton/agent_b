@@ -809,6 +809,12 @@ func (s *Session) AgentPrompt() string {
 	return s.PromptAddendum
 }
 
+func (s *Session) AgentIDCopy() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.AgentID
+}
+
 func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connection config.Connection) bool {
 	enabled := map[string]bool{}
 	for _, name := range config.FullToolset() {

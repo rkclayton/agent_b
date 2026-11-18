@@ -347,7 +347,7 @@ func (x *runState) buildRequest() runOutcome {
 		records := latestTodoOnly(x.s.MessagesCopy())
 		skills := ""
 		if r.skills != nil {
-			skills = r.skills.Index(x.s.AgentID)
+			skills = r.skills.Index(x.s.AgentIDCopy())
 		}
 		systemBase := r.prompt.RenderSkillParts(x.connection, x.s, x.toolNames, "", "")
 		systemProject := r.prompt.RenderSkillParts(x.connection, x.s, x.toolNames, x.s.ProjectBlock, "")
@@ -962,7 +962,7 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 		for _, item := range x.results {
 			if item.ok && item.call.Name == "read_file" && r.skills != nil {
 				if path, ok := item.args["path"].(string); ok {
-					r.skills.Read(path, x.s.AgentID)
+					r.skills.Read(path, x.s.AgentIDCopy())
 				}
 			}
 			category := item.category

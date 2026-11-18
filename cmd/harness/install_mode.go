@@ -491,7 +491,12 @@ func installerArgument(arguments []string, name, fallback string) string {
 }
 
 func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, reopenWindow, _ bool, log *installLog) error {
-	return launchNativeInstalled(applicationRoot, dataRoot, filepath.Join(dataRoot, "harness.json"), sessionID, reopenWindow, false)
+	configuration := filepath.Join(dataRoot, "harness.json")
+	if err := launchNativeInstalled(applicationRoot, dataRoot, configuration, sessionID, reopenWindow, false); err != nil {
+		return err
+	}
+	log.printf("Agent_b is ready at http://127.0.0.1:%s/chat", installedPort(configuration))
+	return nil
 }
 
 func installedLaunchArguments(applicationRoot, dataRoot, sessionID string, reopenWindow bool) []string {

@@ -1586,7 +1586,7 @@ Write-MatrixProof 'PROOF the check catches it: a shortcut aimed straight at Agen
     }
     if ($upgradeTranscript -notmatch 'STOPPING: Agent_b PID' -or
         $upgradeTranscript -notmatch 'STOPPED: Agent_b PID' -or
-        $upgradeTranscript -notmatch 'AUTOSTART COMPLETE: Agent_b started through ' -or
+        $upgradeTranscript -notmatch ('AUTOSTART COMPLETE: Agent_b started natively from ' + [regex]::Escape($expectedExe)) -or
         $upgradeTranscript -notmatch "Agent_b is ready at http://127\.0\.0\.1:$testPort/chat" -or
         $upgradeTranscript -match 'Next: open Agent_b from Start' -or
         $upgradeTranscript -notmatch [regex]::Escape("Log: $upgradeTranscriptPath")) {

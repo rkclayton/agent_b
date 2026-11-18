@@ -582,7 +582,7 @@ func localInstallError(err error) string {
 	text = logSecret.ReplaceAllString(text, "[redacted]")
 	text = strings.ToValidUTF8(text, "")
 	if len(text) > 512 {
-		text = strings.ToValidUTF8(text[:512], "") + "…"
+		text = strings.ToValidUTF8(text[:509], "") + "…"
 	}
 	return text
 }
@@ -601,6 +601,13 @@ func (m *Manager) logStep(step, status string, started time.Time, err error) {
 		return
 	}
 	defer f.Close()
+	if info, err := f.Stat(); err != nil {
+		return
+	} else if info.Size() > installLogHeader+installLogSlots*installLogSlotBytes {
+		if f.Truncate(installLogHeader+installLogSlots*installLogSlotBytes) != nil {
+			return
+		}
+	}
 	header := make([]byte, installLogHeader)
 	_, _ = f.ReadAt(header, 0)
 	seq, _ := strconv.ParseUint(strings.TrimSpace(string(header)), 10, 64)

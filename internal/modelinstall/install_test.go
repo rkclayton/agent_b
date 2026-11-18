@@ -171,6 +171,7 @@ func TestInstallFailureLines2z0(t *testing.T) {
 			if err := m.Start(context.Background(), request); err != nil {
 				t.Fatalf("retry refused: %v", err)
 			}
+			m.Close() // Join the retry before reading or closing its stand-in health server.
 		})
 	}
 }
@@ -211,6 +212,23 @@ func TestInstallLogBoundAndPrivateOutcome2z0(t *testing.T) {
 		t.Fatalf("retained sequence %d..%d", minSeq, maxSeq)
 	}
 	t.Logf("full bounded log=%d bytes, %d slots, oldest=%d newest=%d, elapsed=%s", len(data), installLogSlots, minSeq, maxSeq, time.Since(start))
+	if len(localInstallError(errors.New(strings.Repeat("é", 1024)))) > 512 {
+		t.Fatal("error description exceeds byte bound")
+	}
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.Write(make([]byte, 4096))
+	_ = f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.logStep("prepare", "started", start, nil)
+	info, err := os.Stat(p)
+	if err != nil || info.Size() != installLogHeader+installLogSlots*installLogSlotBytes {
+		t.Fatal("oversized retained log was not bounded")
+	}
 	for _, backend := range []string{"cpu", "cuda", "vulkan"} {
 		err := m.RejectMemory(Request{Backend: backend}, errors.New("fixture unavailable"))
 		want := "gpu"

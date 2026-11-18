@@ -37,6 +37,7 @@ let modelPort;
 let planningBriefOriginal = "";
 let releaseQueue = null;
 let releaseBusy = null;
+let releaseProse = null;
 let replacementSkillSource = "";
 let invalidSkillSource = "";
 let operatorSkillDraftSource = "";
@@ -336,7 +337,11 @@ const fakeHandler = async (request, response) => {
   if (user.includes("acceptance: prose stream")) {
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
     response.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "EARLIER COMPLETED THOUGHT", content: "VISIBLE PARTIAL" }, finish_reason: null }] })}\n\n`);
-    await sleep(700);
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 30000);
+      releaseProse = () => { clearTimeout(timeout); resolve(); };
+      response.once("close", releaseProse);
+    });
     response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: " COMPLETE" }, finish_reason: "stop" }], usage: { prompt_tokens: response.agentbPromptTokens || 120, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 80 } } })}\n\ndata: [DONE]\n\n`);
     return;
   }
@@ -1432,10 +1437,12 @@ if (realModel) {
     caret: [...document.querySelectorAll('.chat-response-prose')].at(-1)?.querySelector('.stream-caret')?.isConnected || false,
     status: (document.querySelector('#chat-notice .chat-notice-text')?.innerText || '').toLowerCase()
   }))()`);
+  await page.screenshot({ path: join(args.evidence, "partial-prose.png") });
   assert.match(partialProse.text, /VISIBLE PARTIAL/);
   assert.equal(partialProse.responseHeaders, 0);
   assert.equal(partialProse.caret, true);
   assert.match(partialProse.status, /^writing · \d+ tokens(?: ·|$)/);
+  releaseProse();
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
   record("mid-stream-prose-visible-without-expansion");
 
@@ -1714,7 +1721,7 @@ if (realModel) {
   await page.locator(`.chat-list-row[data-session="${sessionID}"]`).hover();
   await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-more`).click();
   await page.locator(`.chat-list-row[data-session="${sessionID}"] .chat-list-row-menu`).waitFor({ state: "visible" });
-  assert.deepEqual(await page.locator('.chat-list-row.selected .chat-list-row-menu > button').allInnerTexts(), ["Pin", "Rename", "Move to folder", "Delete"]);
+  assert.deepEqual(await page.locator('.chat-list-row.selected .chat-list-row-menu > button').allInnerTexts(), ["Pin", "Rename", "Move to folder", "Archive", "Delete"]);
   await captureWithMasks(page, join(baselineDirectory, "tab-menu-open.png"));
   await openPanel("activity", sessionID);
   await page.locator("#panel-run-result").waitFor({ state: "visible" });
@@ -1776,14 +1783,15 @@ if (realModel) {
   await page.locator(".shell-session-title").click();
   const wizard = await edgeContext.newPage();
   await wizard.goto(`http://127.0.0.1:${appPort}/setup`);
-  await wizard.locator('[data-action="query-models"]').waitFor({ state: "visible" });
+  await wizard.screenshot({ path: join(args.evidence, "setup-before-check.png") });
+  await wizard.locator('[data-action="connect"]').waitFor({ state: "visible" });
   // v1.7.0b/W1: the wizard selects the acceptance connection, whose fake
   // server listens on a fresh port each run. The address field itself is under
   // exact comparison, so render the documented local default for the capture;
   // connection persistence and discovery are exercised separately above.
-  await wizard.locator('[data-field="url"]').fill("http://127.0.0.1:8080");
-  assert.equal(await wizard.locator('[data-field="url"]').inputValue(), "http://127.0.0.1:8080");
-  await wizard.locator('[data-field="url"]').evaluate((node) => node.blur());
+  await wizard.locator('[data-field="address"]').fill("http://127.0.0.1:8080");
+  assert.equal(await wizard.locator('[data-field="address"]').inputValue(), "http://127.0.0.1:8080");
+  await wizard.locator('[data-field="address"]').evaluate((node) => node.blur());
   await captureWithMasks(wizard, join(baselineDirectory, "setup-connection.png"));
   await wizard.close();
   // Item 2no: /plan is the same document now, and it lands on Settings > Plan. The

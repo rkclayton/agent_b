@@ -552,3 +552,16 @@ test("an unreachable telemetry intake is reported external and does not block ta
   assert.equal(tagged, true);
   assert.match(lines.join("\n"), /not exercised: external.+reason/i);
 });
+
+test("local model install vectors are closed and client emission remains absent 2z0", async () => {
+ const {telemetryVectors}=await import("../tools/tag-release.mjs");
+ const vectors=telemetryVectors().filter(v=>v.type==="model.install");
+ assert.deepEqual(new Set(vectors.map(v=>v.outcome)),new Set(["ok","failed","canceled"]));
+ const keys="type at step outcome error elapsed_s bytes_done bytes_total backend ram_bytes gpu_bytes".split(" ");
+ const steps="preflight prepare runtime_download runtime_unpack model_download metadata context server_find port server_start health startup manifest connection done".split(" ");
+ const errors="network http_status disk_space hash_mismatch unpack server_start port_in_use gpu timeout size permission metadata memory catalog other".split(" ");
+ const valid=v=>Object.keys(v).every(k=>keys.includes(k))&&steps.includes(v.step)&&["ok","failed","canceled"].includes(v.outcome)&&["cpu","cuda","vulkan","unknown"].includes(v.backend)&&(v.outcome==="failed"?errors.includes(v.error):!("error"in v))&&Number.isInteger(v.elapsed_s)&&v.elapsed_s>=0&&v.elapsed_s<=2147483647&&["bytes_done","bytes_total","ram_bytes","gpu_bytes"].every(k=>Number.isSafeInteger(v[k])&&v[k]>=0&&v[k]<=2**53&&(v[k]===0||Number.isInteger(Math.log2(v[k]))));
+ for(const v of vectors){assert.ok(valid(v));for(const patch of [{path:"fixture"},{step:"custom"},{error:"raw error"},{bytes_done:3},{backend:"custom"}])assert.equal(valid({...v,...patch}),false);}
+ const filter=await readFile(join(repoRoot,"internal/telemetry/filter.go"),"utf8");assert.ok(!filter.includes('"model.install"'));
+ const code=await readFile(join(repoRoot,"internal/modelinstall/install.go"),"utf8");assert.doesNotMatch(code,/events\.New|\.Publish\(|\.Send\(/);
+});

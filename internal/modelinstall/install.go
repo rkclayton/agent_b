@@ -11,12 +11,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -56,24 +61,42 @@ type State struct {
 }
 
 type Request struct {
-	ModelID        string
-	Backend        string
-	AvailableBytes uint64
+	ModelID            string
+	Backend            string
+	AvailableBytes     uint64
+	RAMBytes, GPUBytes uint64
+}
+
+// Outcome is retained locally only. Intake admission precedes any future emitter.
+type Outcome struct {
+	Step       string `json:"step"`
+	Outcome    string `json:"outcome"`
+	Error      string `json:"error,omitempty"`
+	ElapsedS   int64  `json:"elapsed_s"`
+	BytesDone  int64  `json:"bytes_done"`
+	BytesTotal int64  `json:"bytes_total"`
+	Backend    string `json:"backend"`
+	RAMBytes   int64  `json:"ram_bytes"`
+	GPUBytes   int64  `json:"gpu_bytes"`
 }
 
 type Manager struct {
-	mu           sync.RWMutex
-	root         string
-	startupDir   string
-	client       *http.Client
-	requireHTTPS bool
-	runtime      Runtime
-	models       []Model
-	state        State
-	cancel       context.CancelFunc
-	done         chan struct{}
-	start        func(string, []string, string) (int, error)
-	onReady      func(context.Context, State) error
+	mu            sync.RWMutex
+	root          string
+	startupDir    string
+	client        *http.Client
+	requireHTTPS  bool
+	runtime       Runtime
+	models        []Model
+	state         State
+	cancel        context.CancelFunc
+	done          chan struct{}
+	start         func(string, []string, string) (int, error)
+	onReady       func(context.Context, State) error
+	last          Outcome
+	logMu         sync.Mutex
+	port          func() (int, error)
+	healthTimeout time.Duration
 }
 
 func New(root, startupDir string, client *http.Client, runtime Runtime, models []Model, onReady func(context.Context, State) error) *Manager {
@@ -92,7 +115,7 @@ func New(root, startupDir string, client *http.Client, runtime Runtime, models [
 			},
 		}
 	}
-	return &Manager{root: root, startupDir: startupDir, client: client, requireHTTPS: requireHTTPS, runtime: runtime, models: append([]Model(nil), models...), start: startDetached, onReady: onReady}
+	return &Manager{root: root, startupDir: startupDir, client: client, requireHTTPS: requireHTTPS, runtime: runtime, models: append([]Model(nil), models...), start: startDetached, onReady: onReady, port: freePort, healthTimeout: 60 * time.Second}
 }
 
 func (m *Manager) Catalog(memoryBytes uint64, cuda, vulkan bool) map[string]any {
@@ -126,7 +149,7 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 	assets, backendOK := m.runtime.Backend[request.Backend]
 	if !ok || !backendOK || len(assets) == 0 {
 		m.mu.Unlock()
-		return errors.New("model or backend is not in the pinned catalog")
+		return m.Reject(request, coded("catalog", errors.New("model or backend is not in the pinned catalog")))
 	}
 	total := model.Artifact.Bytes
 	for _, asset := range assets {
@@ -135,7 +158,11 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 	if request.AvailableBytes == 0 {
 		m.state = State{}
 		m.mu.Unlock()
-		return errors.New("available memory for the selected backend is unknown")
+		code := "memory"
+		if request.Backend != "cpu" {
+			code = "gpu"
+		}
+		return m.Reject(request, coded(code, errors.New("available memory for the selected backend is unknown")))
 	}
 	runContext, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
@@ -145,7 +172,7 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 	m.mu.Unlock()
 	go func() {
 		defer func() { m.mu.Lock(); close(done); m.done = nil; m.mu.Unlock() }()
-		m.run(runContext, model, request.Backend, request.AvailableBytes, assets)
+		m.run(runContext, model, request, assets)
 	}()
 	return nil
 }
@@ -186,13 +213,35 @@ func (m *Manager) model(id string) (Model, bool) {
 	return Model{}, false
 }
 
-func (m *Manager) run(ctx context.Context, model Model, backend string, availableBytes uint64, runtimeAssets []Artifact) {
+func (m *Manager) run(ctx context.Context, model Model, request Request, runtimeAssets []Artifact) {
+	backend, availableBytes := request.Backend, request.AvailableBytes
+	started := time.Now()
+	step := "prepare"
+	launchedPID := 0
+	var launchedSpec Spec
+	advance := func(next string) {
+		m.logStep(step, "completed", started, nil)
+		step = next
+		m.logStep(step, "started", started, nil)
+	}
+	m.logStep(step, "started", started, nil)
 	fail := func(err error) {
+		if launchedPID > 0 {
+			if process, claimErr := claimInstalled(launchedPID, launchedSpec); claimErr == nil {
+				_ = process.stop()
+			}
+		}
 		if errors.Is(err, context.Canceled) {
+			m.finish(request, step, "canceled", started, nil)
 			m.set(func(s *State) { s.Running = false; s.Phase = "cancelled"; s.Error = ""; s.Text = "Cancelled" })
 			return
 		}
-		m.set(func(s *State) { s.Running = false; s.Phase = "failed"; s.Error = err.Error(); s.Text = err.Error() })
+		m.finish(request, step, "failed", started, err)
+		line := FailureLine(step, failureCode(err))
+		if strings.Contains(err.Error(), "HTTPS is required") {
+			line = "Runtime download failed: HTTPS is required. Retry after updating the app."
+		}
+		m.set(func(s *State) { s.Running = false; s.Phase = "failed"; s.Error = line; s.Text = line })
 	}
 	installRoot := filepath.Join(m.root, "models")
 	runtimeRoot := filepath.Join(installRoot, "llama.cpp", m.runtime.Version, backend)
@@ -216,6 +265,7 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		return
 	}
 	for _, artifact := range runtimeAssets {
+		advance("runtime_download")
 		if err := ctx.Err(); err != nil {
 			fail(err)
 			return
@@ -225,8 +275,9 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 			fail(err)
 			return
 		}
+		advance("runtime_unpack")
 		if err := extractZip(archive, runtimeRoot, 2<<30); err != nil {
-			fail(fmt.Errorf("extract verified runtime: %w", err))
+			fail(coded("unpack", fmt.Errorf("extract verified runtime: %w", err)))
 			return
 		}
 		ownedFiles = append(ownedFiles, archive)
@@ -243,6 +294,7 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		zipFile.Close()
 	}
 	modelPath := filepath.Join(modelRoot, model.Artifact.Name)
+	advance("model_download")
 	if err := ctx.Err(); err != nil {
 		fail(err)
 		return
@@ -251,14 +303,16 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		fail(err)
 		return
 	}
+	advance("metadata")
 	metadata, err := readGGUFMetadata(modelPath)
 	if err != nil {
-		fail(fmt.Errorf("read model context metadata: %w", err))
+		fail(coded("metadata", fmt.Errorf("read model context metadata: %w", err)))
 		return
 	}
+	advance("context")
 	sizing, err := computeContext(model.Artifact.Bytes, availableBytes, metadata)
 	if err != nil {
-		fail(err)
+		fail(coded("memory", err))
 		return
 	}
 	sizingPath := filepath.Join(modelRoot, "context-sizing.json")
@@ -267,22 +321,26 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		fail(fmt.Errorf("write context sizing: %w", err))
 		return
 	}
+	advance("server_find")
 	serverPath, err := findServer(runtimeRoot)
 	if err != nil {
 		fail(err)
 		return
 	}
-	port, err := freePort()
+	advance("port")
+	port, err := m.port()
 	if err != nil {
 		fail(err)
 		return
 	}
 	args := []string{"-m", modelPath, "--host", "127.0.0.1", "--port", fmt.Sprint(port), "--ctx-size", fmt.Sprint(sizing.NCtx)}
+	advance("server_start")
 	pid, err := m.start(serverPath, args, installRoot)
 	if err != nil {
-		fail(fmt.Errorf("start verified llama-server: %w", err))
+		fail(coded("server_start", fmt.Errorf("start verified llama-server: %w", err)))
 		return
 	}
+	launchedPID, launchedSpec = pid, Spec{Root: installRoot, Executable: serverPath}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	m.set(func(s *State) {
 		s.Phase = "starting"
@@ -290,7 +348,8 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 		s.BaseURL = baseURL
 		s.Context = &sizing
 	})
-	if err := waitHealth(ctx, m.client, baseURL+"/health", 60*time.Second); err != nil {
+	advance("health")
+	if err := waitHealth(ctx, m.client, baseURL+"/health", m.healthTimeout); err != nil {
 		if p, claimErr := claimInstalled(pid, Spec{Root: installRoot, Executable: serverPath}); claimErr == nil {
 			_ = p.stop()
 		}
@@ -311,14 +370,17 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 			installedBytes += info.Size()
 		}
 	}
+	advance("startup")
 	if _, err := writeAutostart("", installRoot, serverPath, args); err != nil {
 		fail(err)
 		return
 	}
+	advance("manifest")
 	if err := SaveSpec(Spec{ID: ready.ConnectionID, Root: installRoot, Executable: serverPath, URL: baseURL, Label: model.Label, Args: args, Files: ownedFiles, Bytes: installedBytes, IdleMinutes: 60}); err != nil {
 		fail(err)
 		return
 	}
+	advance("connection")
 	if m.onReady != nil {
 		if err := m.onReady(ctx, ready); err != nil {
 			if p, claimErr := claimInstalled(pid, Spec{Root: installRoot, Executable: serverPath}); claimErr == nil {
@@ -328,6 +390,8 @@ func (m *Manager) run(ctx context.Context, model Model, backend string, availabl
 			return
 		}
 	}
+	advance("done")
+	m.finish(request, step, "ok", started, nil)
 	m.mu.Lock()
 	m.state = ready
 	m.cancel = nil
@@ -351,10 +415,10 @@ func (m *Manager) download(ctx context.Context, phase string, artifact Artifact,
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: HTTP %d", artifact.Name, response.StatusCode)
+		return coded("http_status", fmt.Errorf("download %s: HTTP %d", artifact.Name, response.StatusCode))
 	}
 	if response.ContentLength >= 0 && response.ContentLength != artifact.Bytes {
-		return fmt.Errorf("download %s: size %d, expected %d", artifact.Name, response.ContentLength, artifact.Bytes)
+		return coded("size", fmt.Errorf("download %s: size %d, expected %d", artifact.Name, response.ContentLength, artifact.Bytes))
 	}
 	temporary := target + ".part"
 	_ = os.Remove(temporary)
@@ -380,11 +444,11 @@ func (m *Manager) download(ctx context.Context, phase string, artifact Artifact,
 		return closeErr
 	}
 	if written != artifact.Bytes {
-		return fmt.Errorf("download %s: wrote %d bytes, expected %d", artifact.Name, written, artifact.Bytes)
+		return coded("size", fmt.Errorf("download %s: wrote %d bytes, expected %d", artifact.Name, written, artifact.Bytes))
 	}
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actual, artifact.SHA256) {
-		return fmt.Errorf("download %s: SHA-256 %s, expected %s", artifact.Name, actual, artifact.SHA256)
+		return coded("hash_mismatch", fmt.Errorf("download %s: SHA-256 %s, expected %s", artifact.Name, actual, artifact.SHA256))
 	}
 	if err := os.Rename(temporary, target); err != nil {
 		return err
@@ -394,6 +458,172 @@ func (m *Manager) download(ctx context.Context, phase string, artifact Artifact,
 }
 
 type progressWriter struct{ add func(int64) }
+
+type installFailure struct {
+	code string
+	err  error
+}
+
+func (e installFailure) Error() string   { return e.err.Error() }
+func (e installFailure) Unwrap() error   { return e.err }
+func coded(code string, err error) error { return installFailure{code, err} }
+func failureCode(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.Errno(112)) {
+		return "disk_space"
+	}
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return "port_in_use"
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return "permission"
+	}
+	var explicit installFailure
+	if errors.As(err, &explicit) {
+		return explicit.code
+	}
+	var network net.Error
+	if errors.As(err, &network) {
+		if network.Timeout() {
+			return "timeout"
+		}
+	}
+	var operation *net.OpError
+	var request *url.Error
+	if errors.As(err, &operation) || errors.As(err, &request) {
+		return "network"
+	}
+	return "other"
+}
+
+var installSteps = map[string]string{"preflight": "Install checks", "prepare": "Prepare folders", "runtime_download": "Runtime download", "runtime_unpack": "Runtime unpack", "model_download": "Model download", "metadata": "Model metadata", "context": "Model memory", "server_find": "Find server", "port": "Reserve port", "server_start": "Start server", "health": "Server readiness", "startup": "Save launcher", "manifest": "Save model record", "connection": "Save connection", "done": "Install"}
+var installActions = map[string]string{"network": "Check the connection, then Retry with Install.", "http_status": "Retry with Install later.", "disk_space": "Free disk space, then Retry with Install.", "hash_mismatch": "Retry with Install to download again.", "unpack": "Retry with Install to download again.", "size": "Retry with Install to download again.", "metadata": "Retry with Install to download again.", "permission": "Check folder access, then Retry with Install.", "gpu": "Check the GPU driver, then Retry with Install.", "memory": "Free memory, then Retry with Install.", "catalog": "Update the app, then Retry with Install.", "port_in_use": "Free the local port, then Retry with Install."}
+
+func FailureLine(step, code string) string {
+	label := installSteps[step]
+	if label == "" {
+		label = "Install"
+	}
+	action := installActions[code]
+	if action == "" {
+		action = "Check model-install.log, then Retry with Install."
+	}
+	return label + " failed (" + strings.ReplaceAll(code, "_", " ") + "). " + action
+}
+func sizeBucket(n uint64) int64 {
+	if n == 0 {
+		return 0
+	}
+	if n >= 1<<53 {
+		return 1 << 53
+	}
+	return 1 << bits.Len64(n-1)
+}
+func (m *Manager) LastOutcome() Outcome { m.mu.RLock(); defer m.mu.RUnlock(); return m.last }
+func (m *Manager) Reject(request Request, err error) error {
+	m.finish(request, "preflight", "failed", time.Now(), err)
+	return errors.New(FailureLine("preflight", failureCode(err)))
+}
+
+func (m *Manager) RejectMemory(request Request, err error) error {
+	code := "memory"
+	if request.Backend != "cpu" {
+		code = "gpu"
+	}
+	return m.Reject(request, coded(code, err))
+}
+func (m *Manager) finish(request Request, step, outcome string, started time.Time, err error) {
+	state := m.Snapshot()
+	backend := request.Backend
+	if backend != "cpu" && backend != "cuda" && backend != "vulkan" {
+		backend = "unknown"
+	}
+	if step == "preflight" {
+		state.Downloaded, state.Total = 0, 0
+	}
+	ram := request.RAMBytes
+	if ram == 0 && backend == "cpu" {
+		ram = request.AvailableBytes
+	}
+	value := Outcome{Step: step, Outcome: outcome, ElapsedS: min(2147483647, int64(time.Since(started).Seconds())), BytesDone: sizeBucket(uint64(max(0, state.Downloaded))), BytesTotal: sizeBucket(uint64(max(0, state.Total))), Backend: backend, RAMBytes: sizeBucket(ram), GPUBytes: sizeBucket(request.GPUBytes)}
+	if err != nil {
+		value.Error = failureCode(err)
+	}
+	m.mu.Lock()
+	m.last = value
+	m.mu.Unlock()
+	m.logStep(step, outcome, started, err)
+}
+
+const installLogSlots, installLogSlotBytes, installLogHeader = 256, 2048, 64
+
+var logURL = regexp.MustCompile(`(?i)https?://[^\s"'<>]+`)
+var logSecret = regexp.MustCompile(`(?i)(authorization|bearer|api[_-]?key|password|secret|token)[=: \t]+[^\s,;]+`)
+var logAddress = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?|\[[0-9a-fA-F:]+\](?::\d+)?`)
+
+func localInstallError(err error) string {
+	if err == nil {
+		return ""
+	}
+	// URL credentials, query strings, address literals and keyed secrets never persist.
+	text := logURL.ReplaceAllStringFunc(err.Error(), func(raw string) string {
+		u, e := url.Parse(raw)
+		if e != nil {
+			return "[download]"
+		}
+		if net.ParseIP(u.Hostname()) != nil {
+			return "[download host]"
+		}
+		return u.Hostname()
+	})
+	text = logAddress.ReplaceAllString(text, "[address]")
+	text = logSecret.ReplaceAllString(text, "[redacted]")
+	text = strings.ToValidUTF8(text, "")
+	if len(text) > 512 {
+		text = strings.ToValidUTF8(text[:512], "") + "…"
+	}
+	return text
+}
+
+// A fixed-slot append log: each step overwrites at most one oldest slot and its
+// sequence header. It never copies or rewrites the retained collection.
+func (m *Manager) logStep(step, status string, started time.Time, err error) {
+	m.logMu.Lock()
+	defer m.logMu.Unlock()
+	dir := filepath.Join(m.root, "logs")
+	if os.MkdirAll(dir, 0700) != nil {
+		return
+	}
+	f, e := os.OpenFile(filepath.Join(dir, "model-install.log"), os.O_CREATE|os.O_RDWR, 0600)
+	if e != nil {
+		return
+	}
+	defer f.Close()
+	header := make([]byte, installLogHeader)
+	_, _ = f.ReadAt(header, 0)
+	seq, _ := strconv.ParseUint(strings.TrimSpace(string(header)), 10, 64)
+	seq++
+	state := m.Snapshot()
+	record := map[string]any{"seq": seq, "at": time.Now().UTC().Format(time.RFC3339), "step": step, "status": status, "elapsed_ms": time.Since(started).Milliseconds(), "bytes_done": state.Downloaded, "bytes_total": state.Total}
+	if err != nil {
+		record["error"] = localInstallError(err)
+		record["class"] = fmt.Sprintf("%T", err)
+		record["reason"] = failureCode(err)
+	}
+	line, e := json.Marshal(record)
+	if e != nil || len(line) >= installLogSlotBytes {
+		return
+	}
+	slot := []byte(strings.Repeat(" ", installLogSlotBytes))
+	copy(slot, line)
+	slot[len(slot)-1] = '\n'
+	if _, e = f.WriteAt(slot, installLogHeader+int64((seq-1)%installLogSlots)*installLogSlotBytes); e != nil {
+		return
+	}
+	_, _ = f.WriteAt([]byte(fmt.Sprintf("%063d\n", seq)), 0)
+}
 
 func (w progressWriter) Write(p []byte) (int, error) { w.add(int64(len(p))); return len(p), nil }
 
@@ -490,6 +720,8 @@ func freePort() (int, error) {
 }
 
 func waitHealth(ctx context.Context, client *http.Client, url string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		request, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -506,7 +738,7 @@ func waitHealth(ctx context.Context, client *http.Client, url string, timeout ti
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return errors.New("health timeout")
+	return context.DeadlineExceeded
 }
 
 func writeAutostart(startupDir, installRoot, server string, args []string) (string, error) {

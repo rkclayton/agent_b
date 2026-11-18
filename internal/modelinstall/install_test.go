@@ -7,21 +7,221 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
+
+type installRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f installRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestInstallFailureLines2z0(t *testing.T) {
+	for _, name := range []string{"prepare", "http_status", "network", "timeout", "disk_space", "hash_mismatch", "size", "unpack", "model_download", "metadata", "context", "server_find", "port", "server_start", "health", "startup", "manifest", "connection"} {
+		t.Run(name, func(t *testing.T) {
+			runtimeBytes, modelBytes := runtimeZip(t, "llama-server.exe"), ggufFixture(t, "fixture", 32768, 8, 2, 64, 64)
+			if name == "unpack" {
+				runtimeBytes = []byte("not a zip")
+			}
+			if name == "server_find" {
+				runtimeBytes = runtimeZip(t, "other.txt")
+			}
+			if name == "metadata" {
+				modelBytes = []byte("not a model")
+			}
+			source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if name == "http_status" || (name == "model_download" && r.URL.Path == "/model") {
+					w.WriteHeader(503)
+					return
+				}
+				if name == "timeout" {
+					<-r.Context().Done()
+					return
+				}
+				if r.URL.Path == "/model" {
+					_, _ = w.Write(modelBytes)
+				} else {
+					_, _ = w.Write(runtimeBytes)
+				}
+			}))
+			defer source.Close()
+			artifact := Artifact{URL: source.URL + "/runtime", Name: "runtime.zip", Bytes: int64(len(runtimeBytes)), SHA256: digest(runtimeBytes)}
+			if name == "hash_mismatch" {
+				artifact.SHA256 = strings.Repeat("0", 64)
+			}
+			if name == "size" {
+				artifact.Bytes++
+			}
+			root := t.TempDir()
+			if name == "prepare" {
+				if err := os.WriteFile(filepath.Join(root, "models"), []byte("fixture"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			client := source.Client()
+			if name == "disk_space" {
+				client.Transport = installRoundTrip(func(*http.Request) (*http.Response, error) { return nil, syscall.ENOSPC })
+			}
+			if name == "timeout" {
+				client.Timeout = 20 * time.Millisecond
+			}
+			if name == "network" {
+				source.Close()
+			}
+			m := New(root, "", client, Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {artifact}}}, []Model{{ID: "fixture", Artifact: Artifact{URL: source.URL + "/model", Name: "model.gguf", Bytes: int64(len(modelBytes)), SHA256: digest(modelBytes)}}}, func(context.Context, State) error { return errors.New("fixture registration refused") })
+			defer m.Close()
+			if name == "port" {
+				m.port = func() (int, error) { return 0, syscall.EADDRINUSE }
+			}
+			m.healthTimeout = 30 * time.Millisecond
+			if name == "startup" || name == "manifest" {
+				file := "start-model.cmd"
+				if name == "manifest" {
+					file = "managed-model.json"
+				}
+				if err := os.MkdirAll(filepath.Join(root, "models", file), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var health *http.Server
+			m.start = func(_ string, args []string, _ string) (int, error) {
+				if name != "connection" && name != "health" && name != "startup" && name != "manifest" {
+					return 0, errors.New("fixture server refused")
+				}
+				port := ""
+				for i := range args {
+					if args[i] == "--port" {
+						port = args[i+1]
+					}
+				}
+				listener, err := net.Listen("tcp", "127.0.0.1:"+port)
+				if err != nil {
+					return 0, err
+				}
+				health = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if name == "health" {
+						<-r.Context().Done()
+						return
+					}
+					w.WriteHeader(200)
+				})}
+				go health.Serve(listener)
+				return 0, nil
+			}
+			defer func() {
+				if health != nil {
+					_ = health.Close()
+				}
+			}()
+			available := uint64(4 << 30)
+			if name == "context" {
+				available = 1
+			}
+			request := Request{ModelID: "fixture", Backend: "cpu", AvailableBytes: available}
+			if err := m.Start(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			m.mu.RLock()
+			done := m.done
+			m.mu.RUnlock()
+			if done != nil {
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Fatal("attempt kept spinning")
+				}
+			}
+			state := m.Snapshot()
+			t.Logf("baseline case=%s running=%t phase=%s line=%s", name, state.Running, state.Phase, state.Error)
+			if state.Running || state.Phase != "failed" || !strings.Contains(state.Error, "Retry") {
+				t.Errorf("failure has no actionable retry line: %+v", state)
+			}
+			want := map[string][2]string{"prepare": {"prepare", "other"}, "http_status": {"runtime_download", "http_status"}, "network": {"runtime_download", "network"}, "timeout": {"runtime_download", "timeout"}, "disk_space": {"runtime_download", "disk_space"}, "hash_mismatch": {"runtime_download", "hash_mismatch"}, "size": {"runtime_download", "size"}, "unpack": {"runtime_unpack", "unpack"}, "model_download": {"model_download", "http_status"}, "metadata": {"metadata", "metadata"}, "context": {"context", "memory"}, "server_find": {"server_find", "other"}, "port": {"port", "port_in_use"}, "server_start": {"server_start", "server_start"}, "health": {"health", "timeout"}, "startup": {"startup", "other"}, "manifest": {"manifest", "other"}, "connection": {"connection", "other"}}[name]
+			outcome := m.LastOutcome()
+			if outcome.Step != want[0] || outcome.Error != want[1] || outcome.Outcome != "failed" {
+				t.Errorf("outcome=%+v want=%v", outcome, want)
+			}
+			encoded, _ := json.Marshal(outcome)
+			for _, secret := range []string{"fixture", "127.0.0.1", root, "http:", ".gguf", ".zip"} {
+				if strings.Contains(string(encoded), secret) {
+					t.Errorf("outcome disclosed %q", secret)
+				}
+			}
+			logBytes, err := os.ReadFile(filepath.Join(root, "logs", "model-install.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count := bytes.Count(logBytes, []byte(`"status":"failed"`)); count != 1 {
+				t.Errorf("outcome records=%d", count)
+			}
+			if err := m.Start(context.Background(), request); err != nil {
+				t.Fatalf("retry refused: %v", err)
+			}
+		})
+	}
+}
+
+func TestInstallLogBoundAndPrivateOutcome2z0(t *testing.T) {
+	m := New(t.TempDir(), "", nil, Runtime{}, nil, nil)
+	download := (&url.URL{Scheme: "https", Host: "example.org", Path: "/file", RawQuery: "token=planted-token", User: url.UserPassword("someone", "planted-password")}).String()
+	start := time.Now()
+	for i := 0; i < installLogSlots+20; i++ {
+		m.logStep("runtime_download", "completed", start, fmt.Errorf("download %s: dial tcp 192.168.1.10:443 token=planted-secret", download))
+	}
+	p := filepath.Join(m.root, "logs", "model-install.log")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != installLogHeader+installLogSlots*installLogSlotBytes {
+		t.Fatalf("bound=%d", len(data))
+	}
+	for _, secret := range []string{"planted-password", "planted-token", "planted-secret", "192.168.1.10", "someone:", "https://"} {
+		if bytes.Contains(data, []byte(secret)) {
+			t.Fatalf("log contains %q", secret)
+		}
+	}
+	minSeq := uint64(1 << 63)
+	maxSeq := uint64(0)
+	for at := installLogHeader; at < len(data); at += installLogSlotBytes {
+		var row struct {
+			Seq uint64 `json:"seq"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(data[at:at+installLogSlotBytes]), &row); err != nil {
+			t.Fatal(err)
+		}
+		minSeq = min(minSeq, row.Seq)
+		maxSeq = max(maxSeq, row.Seq)
+	}
+	if minSeq != 21 || maxSeq != 276 {
+		t.Fatalf("retained sequence %d..%d", minSeq, maxSeq)
+	}
+	t.Logf("full bounded log=%d bytes, %d slots, oldest=%d newest=%d, elapsed=%s", len(data), installLogSlots, minSeq, maxSeq, time.Since(start))
+	for _, backend := range []string{"cpu", "cuda", "vulkan"} {
+		err := m.RejectMemory(Request{Backend: backend}, errors.New("fixture unavailable"))
+		want := "gpu"
+		if backend == "cpu" {
+			want = "memory"
+		}
+		if err == nil || m.LastOutcome().Error != want || m.LastOutcome().Step != "preflight" {
+			t.Fatal(m.LastOutcome())
+		}
+	}
+}
 
 func runtimeZip(t *testing.T, name string) []byte {
 	t.Helper()
@@ -112,6 +312,30 @@ func TestVerifiedInstallDownloadsExtractsStartsAndRegisters(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("install did not finish")
 	}
+	manager.mu.RLock()
+	done := manager.done
+	manager.mu.RUnlock()
+	if done != nil {
+		<-done
+	}
+	if outcome := manager.LastOutcome(); outcome.Outcome != "ok" || outcome.Step != "done" || outcome.Error != "" {
+		t.Fatalf("success outcome=%+v", outcome)
+	}
+	if err := manager.Start(context.Background(), Request{ModelID: "missing", Backend: "cpu"}); err == nil {
+		t.Fatal("catalog rejection absent")
+	}
+	logBytes, err := os.ReadFile(filepath.Join(root, "logs", "model-install.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(logBytes, []byte(`"status":"ok"`)) != 1 || bytes.Count(logBytes, []byte(`"status":"failed"`)) != 1 {
+		t.Fatal("expected one ok and one failed attempt in log")
+	}
+	for _, line := range bytes.Split(logBytes, []byte{'\n'}) {
+		if bytes.Contains(line, []byte(`"status":"ok"`)) || bytes.Contains(line, []byte(`"status":"failed"`)) {
+			t.Logf("attempt log: %s", bytes.TrimSpace(line))
+		}
+	}
 	if health != nil {
 		_ = health.Close()
 	}
@@ -181,6 +405,10 @@ func TestCancelStopsDownloadAndNeverRegistersPartialModel2xz(t *testing.T) {
 	state := manager.Cancel()
 	if state.Running || state.Phase != "cancelled" {
 		t.Fatalf("cancel state=%+v", state)
+	}
+	manager.Close()
+	if outcome := manager.LastOutcome(); outcome.Outcome != "canceled" || outcome.Step != "runtime_download" || outcome.Error != "" {
+		t.Fatalf("cancel outcome=%+v", outcome)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	part := filepath.Join(manager.root, "models", "llama.cpp", "fixture", "cpu", "runtime.zip.part")

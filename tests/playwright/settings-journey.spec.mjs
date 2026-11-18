@@ -162,6 +162,43 @@ test.describe("setup wizard 2xz", () => {
 		if (wizardRoot) removeTreeWithinAllowedRoots(wizardRoot, [tmpdir()], "setup wizard Playwright cleanup");
 	});
 
+	test("2z0 install failures stay whole beside Install and allow retry", async () => {
+		test.setTimeout(180_000);
+		const lines = [
+			"Prepare folders failed (permission). Check folder access, then Retry with Install.",
+			"Runtime download failed (network). Check the connection, then Retry with Install.",
+			"Runtime download failed (http status). Retry with Install later.",
+			"Runtime download failed (timeout). Check model-install.log, then Retry with Install.",
+			"Runtime download failed (disk space). Free disk space, then Retry with Install.",
+			"Runtime download failed (hash mismatch). Retry with Install to download again.",
+			"Runtime download failed (size). Retry with Install to download again.",
+			"Runtime unpack failed (unpack). Retry with Install to download again.",
+			"Model download failed (http status). Retry with Install later.",
+			"Model metadata failed (metadata). Retry with Install to download again.",
+			"Model memory failed (memory). Free memory, then Retry with Install.",
+			"Find server failed (other). Check model-install.log, then Retry with Install.",
+			"Reserve port failed (port in use). Free the local port, then Retry with Install.",
+			"Start server failed (server start). Check model-install.log, then Retry with Install.",
+			"Server readiness failed (timeout). Check model-install.log, then Retry with Install.",
+			"Save launcher failed (other). Check model-install.log, then Retry with Install.",
+			"Save model record failed (other). Check model-install.log, then Retry with Install.",
+			"Save connection failed (other). Check model-install.log, then Retry with Install.",
+			"Install checks failed (gpu). Check the GPU driver, then Retry with Install.",
+		];
+		const captures=join(repo,"logs/evidence/rel-1.62.238/captures");await mkdir(captures,{recursive:true});
+		for(const [index,line] of lines.entries()) {
+			const page=await wizardHarness.context.newPage();let posts=0;
+			try {
+				await page.route("**/api/local-detection",route=>route.fulfill({json:{system_memory_bytes:8*1024**3,gpus:[]}}));
+				await page.route("**/api/model-install",route=>{if(route.request().method()==="POST")posts++;return route.fulfill({json:{catalog:{models:[{id:"fixture",label:"Fixture",min_gib:1,artifact:{bytes:1024}}]},state:{running:false,phase:"failed",error:line}}});});
+				await openSetup(page);await page.getByRole("button",{name:"Install",exact:true}).click();
+				const error=page.getByRole("alert");await expect(error).toHaveText(line);await expect(page.locator("progress")).toHaveCount(0);
+				for(const [width,height] of [[304,254],[1280,860],[1920,1080]]) {await page.setViewportSize({width,height});await error.scrollIntoViewIfNeeded();expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,".setup-main"))).toEqual([]);expect(await error.evaluate(el=>el.scrollWidth<=el.clientWidth&&el.scrollHeight<=el.clientHeight)).toBe(true);await page.screenshot({path:join(captures,`failure-${index}-${width}.png`)});}
+				await page.getByRole("button",{name:"Install",exact:true}).click();await expect(error).toHaveText(line);expect(posts).toBe(2);
+			} finally {await page.close();}
+		}
+	});
+
 	test("2xz CHECK 2 connects, saves the reported window, finishes and answers", async () => {
 		const model = await standIn({ window: 32768 }); const page = await wizardHarness.context.newPage();
 		try {

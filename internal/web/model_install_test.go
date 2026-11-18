@@ -226,6 +226,14 @@ func TestModelInstallMemoryUsesServerDetectionForBackend(t *testing.T) {
 		if err != nil || got != want {
 			t.Fatalf("%s got=%d err=%v want=%d", backend, got, err, want)
 		}
+		selected, ram, gpu, err := server.modelInstallResources(context.Background(), backend)
+		wantGPU := want
+		if backend == "cpu" {
+			wantGPU = 0
+		}
+		if err != nil || selected != want || ram != 32<<30 || gpu != wantGPU {
+			t.Fatalf("resource attribution selected=%d ram=%d gpu=%d error=%v", selected, ram, gpu, err)
+		}
 	}
 }
 

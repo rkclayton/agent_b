@@ -6,6 +6,7 @@ const connectionStatus = document.getElementById("connection");
 const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search", "shell", "remember", "recall", "fetch_url", "web_search", "run_script", "call_service", "delegate"];
 const suggestedContext = 8192;
 let snapshot, detection, catalog, installState;
+let installError = "";
 let screen = 1, connectionID = "";
 let addingFromSettings = false, more = false, installing = false, checking = false, contextNeedsInput = false;
 let draft = { label: "My model", base_url: "http://127.0.0.1:8080", api_key: "", model: "", context: 0 };
@@ -54,7 +55,7 @@ function chooseScreen() {
   const progress = installing
     ? `<div class="setup-progress"><progress max="${Number(installState?.total_bytes || 1)}" value="${Number(installState?.downloaded_bytes || 0)}"></progress><span class="setup-fact">${html(progressText())}</span><button type="button" data-action="cancel-install">Cancel</button></div>`
     : `<button type="button" class="setup-primary" data-action="install" ${chosen ? "" : "disabled"}>Install</button>`;
-  return `<h1>Set up a model</h1><div class="setup-option"><strong>Install on this computer</strong><span class="setup-fact">${installFact}</span>${progress}</div><div class="setup-option"><strong>Connect to a server</strong><div class="setup-line"><input data-field="address" aria-label="Address" value="${attr(draft.base_url)}"><button type="button" data-action="connect">Connect</button></div><button type="button" class="setup-more" data-action="more">More options ${more ? "⌄" : "›"}</button>${more ? `<div class="setup-grid"><label>Name</label><input data-field="name" aria-label="Name" value="${attr(draft.label)}"><label>API key</label><input data-field="api-key" aria-label="API key" type="password" autocomplete="off" value="${attr(draft.api_key)}"><label>Model</label><input data-field="model" aria-label="Model" value="${attr(draft.model)}"><label>Context size</label><input data-field="context" aria-label="Context size" type="number" value="${draft.context > 0 ? draft.context : ""}"></div>` : ""}</div>`;
+  return `<h1>Set up a model</h1><div class="setup-option"><strong>Install on this computer</strong><span class="setup-fact">${installFact}</span>${progress}${installError ? `<div class="setup-install-error" role="alert">${html(installError)}</div>` : ""}</div><div class="setup-option"><strong>Connect to a server</strong><div class="setup-line"><input data-field="address" aria-label="Address" value="${attr(draft.base_url)}"><button type="button" data-action="connect">Connect</button></div><button type="button" class="setup-more" data-action="more">More options ${more ? "⌄" : "›"}</button>${more ? `<div class="setup-grid"><label>Name</label><input data-field="name" aria-label="Name" value="${attr(draft.label)}"><label>API key</label><input data-field="api-key" aria-label="API key" type="password" autocomplete="off" value="${attr(draft.api_key)}"><label>Model</label><input data-field="model" aria-label="Model" value="${attr(draft.model)}"><label>Context size</label><input data-field="context" aria-label="Context size" type="number" value="${draft.context > 0 ? draft.context : ""}"></div>` : ""}</div>`;
 }
 
 function checkingScreen() {
@@ -131,6 +132,7 @@ async function installModel() {
   const model = recommendedModel();
   if (!model) return;
   installing = true;
+  installError = "";
   installState = { running: true, total_bytes: model.artifact?.bytes || 1, downloaded_bytes: 0 };
   render();
   try {
@@ -149,7 +151,7 @@ async function installModel() {
     draft = { label: saved?.label || "My model", base_url: saved?.base_url || installState.base_url, api_key: "", model: saved?.model || installState.model, context: Number(saved?.context?.n_ctx || installState.context?.n_ctx || 0) };
     installing = false;
     await startChecks();
-  } catch (error) { installing = false; showHeaderError(error); render(); }
+  } catch (error) { installing = false; installError = error.message || String(error); render(); }
 }
 
 async function cancelInstall() {

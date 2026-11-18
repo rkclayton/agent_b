@@ -216,12 +216,13 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &body) {
 			return
 		}
-		available, err := s.modelInstallMemory(r.Context(), body.Backend)
+		available, ram, gpu, err := s.modelInstallResources(r.Context(), body.Backend)
+		request := modelinstall.Request{ModelID: body.ModelID, Backend: body.Backend, AvailableBytes: available, RAMBytes: ram, GPUBytes: gpu}
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error(), "model_install")
+			writeError(w, http.StatusConflict, s.modelInstaller.RejectMemory(request, err).Error(), "model_install")
 			return
 		}
-		if err := s.modelInstaller.Start(context.Background(), modelinstall.Request{ModelID: body.ModelID, Backend: body.Backend, AvailableBytes: available}); err != nil {
+		if err := s.modelInstaller.Start(context.Background(), request); err != nil {
 			writeError(w, http.StatusConflict, err.Error(), "model_install")
 			return
 		}
@@ -284,8 +285,13 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) modelInstallMemory(parent context.Context, backend string) (uint64, error) {
+	available, _, _, err := s.modelInstallResources(parent, backend)
+	return available, err
+}
+
+func (s *Server) modelInstallResources(parent context.Context, backend string) (uint64, uint64, uint64, error) {
 	if s.detectLocal == nil {
-		return 0, errors.New("local detection is unavailable")
+		return 0, 0, 0, errors.New("local detection is unavailable")
 	}
 	s.mu.RLock()
 	account := s.cfg.Shell.ServiceAccount.Account
@@ -294,11 +300,11 @@ func (s *Server) modelInstallMemory(parent context.Context, backend string) (uin
 	defer cancel()
 	value, err := s.detectLocal(ctx, account)
 	if err != nil {
-		return 0, fmt.Errorf("detect memory for model install: %w", err)
+		return 0, 0, 0, fmt.Errorf("detect memory for model install: %w", err)
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
-		return 0, err
+		return 0, 0, 0, err
 	}
 	var report struct {
 		SystemMemoryBytes uint64 `json:"system_memory_bytes"`
@@ -308,21 +314,21 @@ func (s *Server) modelInstallMemory(parent context.Context, backend string) (uin
 		} `json:"gpus"`
 	}
 	if err := json.Unmarshal(data, &report); err != nil {
-		return 0, err
+		return 0, 0, 0, err
 	}
 	if backend == "cpu" {
 		if report.SystemMemoryBytes == 0 {
-			return 0, errors.New("system memory is unavailable")
+			return 0, 0, 0, errors.New("system memory is unavailable")
 		}
-		return report.SystemMemoryBytes, nil
+		return report.SystemMemoryBytes, report.SystemMemoryBytes, 0, nil
 	}
 	for _, gpu := range report.GPUs {
 		if backend != "cuda" || strings.EqualFold(gpu.Vendor, "NVIDIA") {
 			if gpu.VRAMBytes == 0 {
 				break
 			}
-			return gpu.VRAMBytes, nil
+			return gpu.VRAMBytes, report.SystemMemoryBytes, gpu.VRAMBytes, nil
 		}
 	}
-	return 0, fmt.Errorf("VRAM for selected %s backend is unavailable", backend)
+	return 0, report.SystemMemoryBytes, 0, fmt.Errorf("VRAM for selected %s backend is unavailable", backend)
 }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,12 +13,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"harness/internal/session"
 )
 
@@ -110,6 +113,10 @@ func activateEventName(applicationRoot string, pid int) string {
 // must still be alive, and that process must answer on the recorded loopback
 // port with its PID before its scoped activation event is signalled.
 func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
+	return verifiedExistingInstance(dataRoot, applicationRoot, true)
+}
+
+func verifiedExistingInstance(dataRoot, applicationRoot string, activate bool) (int, bool) {
 	data, err := readMarker(filepath.Join(dataRoot, "agent_b-run.json"))
 	if err != nil {
 		return 0, false
@@ -128,6 +135,18 @@ func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
 		return 0, false
+	}
+	if !activate {
+		if !nativeListenerOwns(marker, applicationRoot) {
+			return 0, false
+		}
+		client := http.Client{Timeout: time.Second}
+		response, err := client.Get("http://" + marker.Listen + "/chat")
+		if err != nil {
+			return 0, false
+		}
+		response.Body.Close()
+		return marker.PID, response.StatusCode == http.StatusOK
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -176,6 +195,63 @@ func activateExistingInstance(dataRoot, applicationRoot string) (int, bool) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	return 0, false
+}
+
+var launchTCPTable = windows.NewLazySystemDLL("iphlpapi.dll").NewProc("GetExtendedTcpTable")
+
+func nativeListenerOwns(marker runMarker, application string) bool {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(marker.PID))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(handle)
+	var created, exited, kernel, user windows.Filetime
+	if windows.GetProcessTimes(handle, &created, &exited, &kernel, &user) != nil || created.Nanoseconds() != marker.Created {
+		return false
+	}
+	var image [32768]uint16
+	length := uint32(len(image))
+	if windows.QueryFullProcessImageName(handle, 0, &image[0], &length) != nil || !session.SamePath(windows.UTF16ToString(image[:length]), filepath.Join(application, "Agent_b.exe")) {
+		return false
+	}
+	host, portText, err := net.SplitHostPort(marker.Listen)
+	if err != nil {
+		return false
+	}
+	address := net.ParseIP(host).To4()
+	if address == nil {
+		return false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return false
+	}
+	var size uint32
+	status, _, _ := launchTCPTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, 2, 5, 0)
+	if status != uintptr(windows.ERROR_INSUFFICIENT_BUFFER) || size < 4 || size > 1<<20 {
+		return false
+	}
+	buffer := make([]byte, size)
+	status, _, _ = launchTCPTable.Call(uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size)), 0, 2, 5, 0)
+	return status == 0 && nativeListenerPID(buffer, [4]byte(address), port) == uint32(marker.PID)
+}
+
+func nativeListenerPID(table []byte, address [4]byte, port int) uint32 {
+	if len(table) < 4 {
+		return 0
+	}
+	count := binary.LittleEndian.Uint32(table)
+	for index := uint32(0); index < count; index++ {
+		offset := 4 + int(index)*24
+		if offset+24 > len(table) {
+			return 0
+		}
+		row := table[offset : offset+24]
+		if binary.LittleEndian.Uint32(row) == 2 && [4]byte(row[4:8]) == address && int(binary.BigEndian.Uint16(row[8:10])) == port {
+			return binary.LittleEndian.Uint32(row[20:24])
+		}
+	}
+	return 0
 }
 
 func canonicalApplicationRoot(root string) string {

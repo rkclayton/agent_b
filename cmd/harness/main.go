@@ -714,6 +714,7 @@ var (
 	hostWindowMode         bool
 	hostWindowUserData     string
 	hostWindowDataRoot     string
+	hostWindowSession      string
 	hostWindowRunner       = runHostWindow
 	hostWindowRetryDelays  = []time.Duration{time.Second, 3 * time.Second}
 	hostWindowAvailability = hostWindowAvailable
@@ -730,8 +731,12 @@ func startHostWindow(listen, applicationRoot, browserBootstrap string, closeRequ
 		default:
 		}
 	})
-	url := "http://" + listen + "/chat#agentb-bootstrap=" + browserBootstrap
-	go superviseHostWindow(url, applicationRoot, hostWindowMode, requests, closeRequests)
+	chatURL := "http://" + listen + "/chat"
+	if hostWindowSession != "" {
+		chatURL += "?session=" + url.QueryEscape(hostWindowSession)
+	}
+	chatURL += "#agentb-bootstrap=" + browserBootstrap
+	go superviseHostWindow(chatURL, applicationRoot, hostWindowMode, requests, closeRequests)
 }
 
 func superviseHostWindow(url, applicationRoot string, wanted bool, requests <-chan struct{}, closeRequests chan<- string) {

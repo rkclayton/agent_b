@@ -133,7 +133,7 @@ func installPerUserNative(plan nativeInstallPlan, platform nativeInstallPlatform
 	executable := filepath.Join(application, "Agent_b.exe")
 	if platform.shortcut != nil {
 		start := shortcutSpec{Path: filepath.Join(plan.StartMenu, "Agent_b.lnk"), Target: executable,
-			Arguments:        `-window -config "` + configPath + `" -app-root "` + application + `" -data-root "` + data + `"`,
+			Arguments:        `-installed-launch -window -config "` + configPath + `" -app-root "` + application + `" -data-root "` + data + `"`,
 			WorkingDirectory: data, Icon: filepath.Join(application, "web", "assets", "Agent_b.ico") + ",0", Description: "Open Agent_b"}
 		if err := platform.shortcut(start); err != nil {
 			return fmt.Errorf("Start-menu shortcut: %w", err)

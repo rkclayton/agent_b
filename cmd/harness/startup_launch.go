@@ -16,7 +16,7 @@ import (
 // launchFlags are the command line, parsed once by parseLaunchFlags.
 type launchFlags struct {
 	configOverride, applicationOverride, dataOverride, replayPaths, startupLog *string
-	version, window                                                            *bool
+	version, window, installedLaunch, atLogon                                  *bool
 	install, installQuiet, installAllUsers, reopenWindow, noStart              *bool
 	installSource, installData, reopenSession, inspectInstallerPath            *string
 	uninstall, uninstallWorker, purgeData                                      *bool
@@ -28,6 +28,8 @@ type launchFlags struct {
 
 func parseLaunchFlags() launchFlags {
 	var f launchFlags
+	f.installedLaunch = flag.Bool("installed-launch", false, "start the installed application")
+	f.atLogon = flag.Bool("at-logon", false, "honor the intentional-quit marker at sign-in")
 	f.configOverride = flag.String("config", "", "configuration file (overrides AGENTB_CONFIG and installed/default locations)")
 	f.applicationOverride = flag.String("app-root", "", "application root containing web, prompts, scripts, and harness.example.json")
 	f.dataOverride = flag.String("data-root", "", "user data root containing configuration, credentials, logs, and memory")
@@ -60,8 +62,12 @@ func parseLaunchFlags() launchFlags {
 	f.purgeData = flag.Bool("purge-data", false, "with --uninstall: remove user data")
 	f.serviceHelper = flag.String("service-helper", "", "elevated native service-identity request")
 	f.serviceResult = flag.String("service-result", "", "elevated native service-identity result")
-	f.passthrough = installPassthrough(os.Args[1:])
-	if err := flag.CommandLine.Parse(installFlagArgs(os.Args[1:])); err != nil {
+	arguments, err := installedFlagArgs(os.Args[1:])
+	if err != nil {
+		startupFatal(err)
+	}
+	f.passthrough = installPassthrough(arguments)
+	if err := flag.CommandLine.Parse(installFlagArgs(arguments)); err != nil {
 		startupFatal(err)
 	}
 	return f
@@ -69,6 +75,16 @@ func parseLaunchFlags() launchFlags {
 
 // runOneShotMode runs a mode that does its one job and ends the process; it reports whether it did.
 func runOneShotMode(f launchFlags) bool {
+	if *f.installedLaunch {
+		paths, err := resolveInstalledPaths(*f.configOverride, *f.applicationOverride, *f.dataOverride)
+		if err == nil {
+			err = launchNativeInstalled(paths.Application, paths.Data, paths.Config, *f.reopenSession, *f.window, *f.atLogon)
+		}
+		if err != nil {
+			startupFatal(err)
+		}
+		return true
+	}
 	if *f.inspectInstallerPath != "" {
 		line, err := inspectInstaller(*f.inspectInstallerPath)
 		fmt.Println(line)
@@ -109,6 +125,23 @@ func runOneShotMode(f launchFlags) bool {
 	return false
 }
 
+func resolveInstalledPaths(configuration, application, data string) (startupPaths, error) {
+	if application == "" {
+		executable, err := os.Executable()
+		if err != nil {
+			return startupPaths{}, err
+		}
+		application = filepath.Dir(executable)
+	}
+	if data == "" && !canonicalInstallRoot(application) {
+		return startupPaths{}, fmt.Errorf("an installed launch outside the canonical installation requires an explicit data directory")
+	}
+	if configuration == "" && data != "" {
+		configuration = filepath.Join(data, "harness.json")
+	}
+	return resolveStartupPaths(configuration, application, data)
+}
+
 // prepareLaunch opens the startup log, resolves the paths and records the crash context; it
 // reports false when an existing instance was activated and this process should end.
 func (a *harnessApp) prepareLaunch() bool {
@@ -130,6 +163,7 @@ func (a *harnessApp) prepareLaunch() bool {
 		startupFatal(err)
 	}
 	a.paths = paths
+	hostWindowSession = *a.flags.reopenSession
 	startupFailure.Lock()
 	startupFailure.dataRoot = paths.Data
 	startupFailure.Unlock()

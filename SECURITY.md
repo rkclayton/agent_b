@@ -512,6 +512,9 @@ The outer Authenticode result is logged and only `HashMismatch` is refused.
 The installer separately requires the embedded CLI signature to have an intact Authenticode hash and the pinned Agent_b release-certificate thumbprint;
 disposable signing is accepted only under explicit TestMode or the non-mutating WhatIf preflight. Its transcript names both identities.
 Thus an organisation may re-sign the outer installer/runtime for publisher policy without replacing payload trust. A mismatch is named and the file is removed.
+
+Installed per-user startup and signature inspection use native Windows APIs. Execution policy is read only for the existing optional-service notice; normal startup neither executes PowerShell nor changes that policy. Windows Authenticode verification and the embedded payload certificate pin still make the trust decision.
+Native launch readiness verifies the recorded process incarnation, its executable path and the Windows TCP listener owner before accepting a page response. It does not bypass the browser session guard or use a page response alone as proof of ownership.
 Release candidates are signed and timestamped by the ordinary operator release process after the one-time key-container ACL grant;
 the per-user updater installer does not sign.
 

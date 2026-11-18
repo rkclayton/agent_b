@@ -364,7 +364,6 @@ test("every console child started by the product is no-window 2pp", async () => 
     ["internal/signing/manager_windows.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
     ["internal/detection/detection.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
     ["internal/reflection/structure.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
-    ["internal/updater/signature_windows.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
     ["internal/web/speech.go", /quietproc\.Quiet\(exec\.CommandContext[\s\S]*quietproc\.Quiet\(command\)/],
     ["internal/tools/sandbox.go", /quietproc\.Quiet\(exec\.CommandContext/],
     ["internal/tools/call_service.go", /exec\.CommandContext[\s\S]{0,300}quietproc\.Quiet\(command\)/],
@@ -379,7 +378,10 @@ test("every console child started by the product is no-window 2pp", async () => 
     assert.match(await readFile(join(repoRoot, relative), "utf8"), pattern, relative);
   }
   const install = await readFile(join(repoRoot, "cmd/harness/install_mode.go"), "utf8");
-  assert.equal((install.match(/quietproc\.Quiet\(command\)/g) || []).length, 4, "every PowerShell installer child is quiet");
+  assert.equal((install.match(/quietproc\.Quiet\(command\)/g) || []).length, 2, "all-users and migration children are quiet");
+  const signature = await readFile(join(repoRoot, "internal/updater/signature_windows.go"), "utf8");
+  assert.match(signature, /windows\.WinVerifyTrustEx/);
+  assert.doesNotMatch(signature, /exec\.Command/, "signature inspection starts no child");
 });
 
 // Item 2nj: A SWITCH PASSED AS QUOTED TEXT IS A BINDING ERROR, AND IT KILLED EVERY RUN.

@@ -3,98 +3,99 @@
 package updater
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha1"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
+	"unsafe"
 
-	"harness/internal/quietproc"
+	"golang.org/x/sys/windows"
+)
+
+var (
+	signatureCrypt32      = windows.NewLazySystemDLL("crypt32.dll")
+	signatureMessageParam = signatureCrypt32.NewProc("CryptMsgGetParam")
+	signatureMessageClose = signatureCrypt32.NewProc("CryptMsgClose")
 )
 
 func verifySetupSignature(ctx context.Context, path string) error {
 	return readVerification(inspectAuthenticode(ctx, path))
 }
 
-// inspectAuthenticode asks Windows PowerShell what it thinks of the file and
-// takes the answer from a report file, not from the console. the
-// console is where banners, warnings and module-load errors go, and the updater
-// must be able to tell "the signature is bad" from "I could not look".
+// inspectAuthenticode keeps the structured decision separate from an inspection error.
 func inspectAuthenticode(ctx context.Context, path string) inspection {
-	report, err := os.CreateTemp("", "agentb-authenticode-*.json")
+	if err := ctx.Err(); err != nil {
+		return inspection{Err: err}
+	}
+	signature, err := InspectSignature(path)
 	if err != nil {
 		return inspection{Err: err}
 	}
-	reportPath := report.Name()
-	_ = report.Close()
-	defer func() { _ = os.Remove(reportPath) }()
-
-	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-	script := authenticodeScript(path, reportPath)
-	command := exec.CommandContext(ctx, powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
-	quietproc.Quiet(command)
-	command.Env = windowsPowerShellEnvironment(os.Environ(), powershell)
-	var console bytes.Buffer
-	command.Stdout = &console
-	command.Stderr = &console
-	runErr := command.Run()
-	contents, readErr := os.ReadFile(reportPath)
-	if readErr != nil {
-		contents = nil
-	}
-	return inspection{Report: contents, Output: console.String(), Err: runErr}
+	report, err := json.Marshal(authenticodeEvidence{Status: signature.Status, Subject: signature.Subject, Signer: signature.Thumbprint != ""})
+	return inspection{Report: report, Err: err}
 }
 
-// The script emits nothing of its own: progress, warnings and verbose records
-// are silenced, and the only thing it produces is the report file. A failure to
-// inspect at all is reported as `unavailable` in that same file, so the updater
-// still gets a structured answer instead of console text.
-func authenticodeScript(path, reportPath string) string {
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-	return strings.Join([]string{
-		"$ProgressPreference='SilentlyContinue'",
-		"$WarningPreference='SilentlyContinue'",
-		"$VerbosePreference='SilentlyContinue'",
-		"$InformationPreference='SilentlyContinue'",
-		"$ErrorActionPreference='Stop'",
-		"$report=" + quote(reportPath),
-		"try{",
-		"$s=Get-AuthenticodeSignature -LiteralPath " + quote(path),
-		"$result=[pscustomobject]@{status=[string]$s.Status;status_message=[string]$s.StatusMessage;subject=if($s.SignerCertificate){$s.SignerCertificate.Subject}else{'none'};signer=[bool]$s.SignerCertificate;timestamped=[bool]$s.TimeStamperCertificate}",
-		"}catch{",
-		"$result=[pscustomobject]@{unavailable=[string]$_.Exception.Message}",
-		"}",
-		"[IO.File]::WriteAllText($report,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))",
-	}, "; ")
-}
-
-// Windows PowerShell can inherit a PSModulePath headed by PowerShell 7's
-// incompatible built-in modules, which makes its own core modules --
-// Microsoft.PowerShell.Security, where Get-AuthenticodeSignature lives -- fail to
-// autoload. internal/hardening solved this for its own children; the updater
-// needs the same guarantee, and this is the environment the operator's failing
-// install ran in.
-func windowsPowerShellEnvironment(environment []string, powershell string) []string {
-	systemModules := filepath.Clean(filepath.Join(filepath.Dir(powershell), "Modules"))
-	result := append([]string(nil), environment...)
-	found := false
-	for index, entry := range result {
-		key, value, ok := strings.Cut(entry, "=")
-		if !ok || !strings.EqualFold(key, "PSModulePath") {
-			continue
-		}
-		found = true
-		paths := []string{systemModules}
-		for _, candidate := range filepath.SplitList(value) {
-			if candidate != "" && !strings.EqualFold(filepath.Clean(candidate), systemModules) {
-				paths = append(paths, candidate)
-			}
-		}
-		result[index] = key + "=" + strings.Join(paths, string(os.PathListSeparator))
+// InspectSignature uses the same Windows trust provider as Authenticode without a shell.
+func InspectSignature(path string) (Signature, error) {
+	result := Signature{Status: "NotSigned", Subject: "none"}
+	wide, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return result, err
 	}
-	if !found {
-		result = append(result, "PSModulePath="+systemModules)
+	if _, err = os.Stat(path); err != nil {
+		return result, err
 	}
-	return result
+	info := windows.WinTrustFileInfo{Size: uint32(unsafe.Sizeof(windows.WinTrustFileInfo{})), FilePath: wide}
+	trust := windows.WinTrustData{Size: uint32(unsafe.Sizeof(windows.WinTrustData{})), UIChoice: windows.WTD_UI_NONE, UnionChoice: windows.WTD_CHOICE_FILE, StateAction: windows.WTD_STATEACTION_VERIFY, FileOrCatalogOrBlobOrSgnrOrCert: unsafe.Pointer(&info)}
+	verifyErr := windows.WinVerifyTrustEx(windows.InvalidHWND, &windows.WINTRUST_ACTION_GENERIC_VERIFY_V2, &trust)
+	defer func() {
+		trust.StateAction = windows.WTD_STATEACTION_CLOSE
+		_ = windows.WinVerifyTrustEx(windows.InvalidHWND, &windows.WINTRUST_ACTION_GENERIC_VERIFY_V2, &trust)
+	}()
+	switch verifyErr {
+	case nil:
+		result.Status = "Valid"
+	case windows.Errno(0x80096010):
+		result.Status = "HashMismatch"
+	case windows.Errno(0x800b0100), windows.Errno(0x800b0003):
+		return result, nil
+	default:
+		result.Status = "NotTrusted"
+	}
+	var store, message windows.Handle
+	if err := windows.CryptQueryObject(windows.CERT_QUERY_OBJECT_FILE, unsafe.Pointer(wide), windows.CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, windows.CERT_QUERY_FORMAT_FLAG_BINARY, 0, nil, nil, nil, &store, &message, nil); err != nil {
+		return result, err
+	}
+	defer windows.CertCloseStore(store, 0)
+	defer signatureMessageClose.Call(uintptr(message))
+	var size uint32
+	get := signatureMessageParam
+	if ok, _, err := get.Call(uintptr(message), 7, 0, 0, uintptr(unsafe.Pointer(&size))); ok == 0 {
+		return result, err
+	}
+	if size < uint32(unsafe.Sizeof(windows.CertInfo{})) || size > 64<<10 {
+		return result, fmt.Errorf("signer certificate information size is invalid")
+	}
+	buffer := make([]byte, size)
+	if ok, _, err := get.Call(uintptr(message), 7, 0, uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size))); ok == 0 {
+		return result, err
+	}
+	cert, err := windows.CertFindCertificateInStore(store, windows.X509_ASN_ENCODING|windows.PKCS_7_ASN_ENCODING, 0, windows.CERT_FIND_SUBJECT_CERT, unsafe.Pointer(&buffer[0]), nil)
+	if err != nil {
+		return result, err
+	}
+	defer windows.CertFreeCertificateContext(cert)
+	if cert.Length > 64<<10 {
+		return result, fmt.Errorf("signer certificate size is invalid")
+	}
+	encoded := unsafe.Slice(cert.EncodedCert, cert.Length)
+	parsed, err := x509.ParseCertificate(encoded)
+	if err != nil {
+		return result, err
+	}
+	result.Subject = parsed.Subject.String()
+	result.Thumbprint = fmt.Sprintf("%X", sha1.Sum(encoded))
+	return result, nil
 }

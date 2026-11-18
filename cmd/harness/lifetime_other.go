@@ -9,3 +9,5 @@ func processRunning(pid int, _ int64) bool { return false }
 func watchSessionEnd(string, func(string), func()) {}
 
 func activateExistingInstance(string, string) (int, bool) { return 0, false }
+
+func verifiedExistingInstance(string, string, bool) (int, bool) { return 0, false }

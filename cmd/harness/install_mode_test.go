@@ -353,19 +353,48 @@ func TestInstallLaunchPathsComeFromInstallerArguments(t *testing.T) {
 func TestOnlyAnAppStartedInstallReturnsInAWindow2t6(t *testing.T) {
 	withChat := installedLaunchArguments(`C:\app`, `C:\data`, "chat-7", true)
 	joined := strings.Join(withChat, " ")
-	if strings.Contains(joined, "-NoBrowser") || !strings.Contains(joined, "-SessionID chat-7") {
+	if !strings.Contains(joined, "-window") || !strings.Contains(joined, "-reopen-session chat-7") {
 		t.Fatalf("app update arguments %q", joined)
 	}
 	withoutChat := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "", true), " ")
-	if strings.Contains(withoutChat, "-NoBrowser") || strings.Contains(withoutChat, "-SessionID") {
+	if !strings.Contains(withoutChat, "-window") || strings.Contains(withoutChat, "-reopen-session") {
 		t.Fatalf("app update without a chat did not reopen the first view: %q", withoutChat)
 	}
 	commandLine := strings.Join(installedLaunchArguments(`C:\app`, `C:\data`, "chat-7", false), " ")
-	if !strings.Contains(commandLine, "-NoBrowser") {
+	if strings.Contains(commandLine, "-window") {
 		t.Fatalf("command-line install opened a window: %q", commandLine)
 	}
-	if !strings.Contains(strings.Join(withChat, " "), "-StartupTimeoutSeconds 300") {
+	if installedStartupTimeout != 300*time.Second {
 		t.Fatalf("a 45-second start would be reported failed: %q", withChat)
+	}
+}
+
+func TestInstalledLegacyArgumentsNeverDiscardData2yx(t *testing.T) {
+	got, err := installedFlagArgs([]string{"-installed-launch", "-window", "-Detached", "-NoBrowser", "-NoPause", "-DataDirectory", `C:\fixture\data`, "-ApplicationDirectory", `C:\fixture\app`})
+	if err != nil || strings.Join(got, "|") != `-installed-launch|-window|-window=false|-data-root|C:\fixture\data|-app-root|C:\fixture\app` {
+		t.Fatalf("arguments=%q error=%v", got, err)
+	}
+	if _, err := installedFlagArgs([]string{"-installed-launch", "-DataDirectry", `C:\fixture\data`}); err == nil {
+		t.Fatal("misspelled data override was silently dropped")
+	}
+	if _, err := installedFlagArgs([]string{"-installed-launch", "-DataDirectory"}); err == nil {
+		t.Fatal("missing data value was accepted")
+	}
+}
+
+func TestInstalledPathsDoNotFallBackAcrossRoots2yx(t *testing.T) {
+	root := t.TempDir()
+	application, data := filepath.Join(root, "app"), filepath.Join(root, "data")
+	t.Setenv("LOCALAPPDATA", filepath.Join(root, "unrelated"))
+	t.Setenv("AGENTB_CONFIG", filepath.Join(root, "unrelated", "harness.json"))
+	paths, err := resolveInstalledPaths("", application, data)
+	if err != nil || paths.Data != data || paths.Config != filepath.Join(data, "harness.json") {
+		t.Fatalf("paths=%+v err=%v", paths, err)
+	}
+	for _, config := range []string{"", filepath.Join(data, "harness.json")} {
+		if _, err := resolveInstalledPaths(config, application, ""); err == nil {
+			t.Fatal("noncanonical installed launch accepted an implicit data root")
+		}
 	}
 }
 

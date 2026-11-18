@@ -639,7 +639,7 @@ func TestSignInStartIsWindowsOwnSwitch2o9(t *testing.T) {
 		t.Fatal("turning it on did not read back On")
 	}
 	command, err := exec.Command("reg.exe", "query", `HKCU\`+signInRunKey, "/v", signInValue).Output()
-	if err != nil || !strings.Contains(string(command), "launch-hidden.vbs") || !strings.Contains(string(command), "-AtLogon") || !strings.Contains(string(command), "-NoBrowser") {
+	if err != nil || !strings.Contains(string(command), "Agent_b.exe") || !strings.Contains(string(command), "-at-logon") || !strings.Contains(string(command), "-installed-launch") || strings.Contains(string(command), "-window") || strings.Contains(string(command), "powershell") || strings.Contains(string(command), ".ps1") {
 		t.Fatalf("the Run entry does not start the app in hidden sign-in mode: %s (%v)", command, err)
 	}
 	// Windows' Startup page switching it off writes 03 to StartupApproved.

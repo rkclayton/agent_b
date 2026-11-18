@@ -35,7 +35,7 @@ var installModeFlags = map[string]bool{
 	// flags the process interprets, so a flag missing here is silently dropped
 	// before flag.Parse ever sees it - which is exactly how -window first
 	// appeared to do nothing at all.
-	"window":    true,
+	"window": true, "installed-launch": true, "at-logon": true,
 	"uninstall": true, "uninstall-worker": true, "uninstall-parent": true, "purge-data": true,
 	"uninstall-registry-path": true, "start-menu-root": true, "send-to-root": true,
 	"service-helper": true, "service-result": true,
@@ -88,6 +88,50 @@ func flagName(argument string) string {
 		name = name[:index]
 	}
 	return name
+}
+
+// Installed batch callers can retain the old script spelling. Never silently
+// discard a root override and fall back to a different installation's data.
+func installedFlagArgs(arguments []string) ([]string, error) {
+	installed := false
+	for _, argument := range arguments {
+		installed = installed || flagName(argument) == "installed-launch"
+	}
+	if !installed {
+		return arguments, nil
+	}
+	aliases := map[string]string{"applicationdirectory": "app-root", "rootdirectory": "app-root", "datadirectory": "data-root", "configpath": "config", "sessionid": "reopen-session", "atlogon": "at-logon"}
+	result := make([]string, 0, len(arguments))
+	for i := 0; i < len(arguments); i++ {
+		name := flagName(arguments[i])
+		switch strings.ToLower(name) {
+		case "detached", "nopause", "console":
+			continue
+		case "nobrowser":
+			result = append(result, "-window=false")
+			continue
+		}
+		argument := arguments[i]
+		if replacement, ok := aliases[strings.ToLower(name)]; ok {
+			argument = "-" + replacement
+			if _, value, found := strings.Cut(arguments[i], "="); found {
+				argument += "=" + value
+			}
+			name = replacement
+		}
+		if !installModeFlags[name] {
+			return nil, fmt.Errorf("installed launch argument %q is not recognized; nothing was started", arguments[i])
+		}
+		result = append(result, argument)
+		if takesValue(name) && !strings.Contains(argument, "=") {
+			if i+1 == len(arguments) {
+				return nil, fmt.Errorf("installed launch argument %q needs a value", argument)
+			}
+			i++
+			result = append(result, arguments[i])
+		}
+	}
+	return result, nil
 }
 
 // takesValue is true for this mode's flags that are followed by a value.

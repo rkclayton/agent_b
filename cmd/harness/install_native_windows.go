@@ -94,6 +94,20 @@ func runNativePerUserInstall(source string, arguments []string, dataRoot string,
 	if err := installPerUserNative(plan, platform); err != nil {
 		return stopped, describeNativeInstallFailure(err)
 	}
+	// Preserve his enabled/disabled choice while replacing an existing script entry.
+	if !nativeTestMode {
+		key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE|registry.SET_VALUE)
+		if err == nil {
+			if _, _, readErr := key.GetStringValue("Agent_b"); readErr == nil {
+				command := fmt.Sprintf(`"%s" -installed-launch -at-logon -config "%s" -app-root "%s" -data-root "%s"`, filepath.Join(application, "Agent_b.exe"), filepath.Join(data, "harness.json"), application, data)
+				err = key.SetStringValue("Agent_b", command)
+			}
+			key.Close()
+			if err != nil {
+				return stopped, fmt.Errorf("update sign-in launcher: %w", err)
+			}
+		}
+	}
 	log.printf("INSTALLATION COMPLETE")
 	return stopped, nil
 }

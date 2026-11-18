@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,28 @@ import (
 
 	"harness/internal/config"
 )
+
+func TestNativeListenerOwnershipAtFullBound2yx(t *testing.T) {
+	table := make([]byte, 1<<20)
+	count := (len(table) - 4) / 24
+	binary.LittleEndian.PutUint32(table, uint32(count))
+	row := table[4+(count-1)*24:]
+	binary.LittleEndian.PutUint32(row, 2)
+	copy(row[4:8], []byte{127, 0, 0, 1})
+	binary.BigEndian.PutUint16(row[8:10], 12345)
+	binary.LittleEndian.PutUint32(row[20:24], 42)
+	started := time.Now()
+	if got := nativeListenerPID(table, [4]byte{127, 0, 0, 1}, 12345); got != 42 {
+		t.Fatalf("listener PID=%d", got)
+	}
+	t.Logf("full bound: bytes=%d rows=%d elapsed=%s", len(table), count, time.Since(started))
+	if nativeListenerPID(table, [4]byte{127, 0, 0, 2}, 12345) != 0 || nativeListenerPID(table, [4]byte{127, 0, 0, 1}, 12346) != 0 {
+		t.Fatal("different endpoint accepted")
+	}
+	if nativeListenerPID(table[:len(table)-24], [4]byte{127, 0, 0, 1}, 12345) != 0 {
+		t.Fatal("truncated table accepted")
+	}
+}
 
 func TestShutdownErrorIsAStopDetailNotAStartupFailure2xx(t *testing.T) {
 	previous := shutdownHTTPServer

@@ -465,8 +465,6 @@ var (
 
 func (s *Server) signInCommand() string {
 	application := s.roots.Application
-	return fmt.Sprintf(`"%s" //B "%s" "%s" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File "%s" -ApplicationDirectory "%s" -DataDirectory "%s" -ConfigPath "%s" -AtLogon -Detached -NoBrowser -NoPause`,
-		filepath.Join(os.Getenv("SystemRoot"), "System32", "wscript.exe"), filepath.Join(application, "scripts", "launch-hidden.vbs"),
-		filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-		filepath.Join(application, "scripts", "launch-Agent_b.ps1"), application, s.roots.Data, s.configPath)
+	return fmt.Sprintf(`"%s" -installed-launch -at-logon -config "%s" -app-root "%s" -data-root "%s"`,
+		filepath.Join(application, "Agent_b.exe"), s.configPath, application, s.roots.Data)
 }

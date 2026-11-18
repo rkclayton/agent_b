@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"harness/internal/buildinfo"
 	"harness/internal/quietproc"
+	"harness/internal/updater"
 )
 
 type installOptions struct {
@@ -92,39 +94,16 @@ func windowsPowerShell() string {
 const agentBReleaseThumbprint = "8C7AB22A989F6B99B867868A52920119C3EDFFEB"
 
 func installSignatureSubjects(outer, payload string, testMode bool) (string, string, error) {
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-	script := strings.Join([]string{
-		"$ProgressPreference='SilentlyContinue'", "$WarningPreference='SilentlyContinue'", "$ErrorActionPreference='Stop'",
-		"$outer=Get-AuthenticodeSignature -LiteralPath " + quote(outer),
-		"$payload=Get-AuthenticodeSignature -LiteralPath " + quote(payload),
-		"if(-not $payload.SignerCertificate){throw ('payload signature is '+$payload.Status+': '+$payload.StatusMessage)}",
-		"[pscustomobject]@{outer_status=[string]$outer.Status;outer=if($outer.SignerCertificate){$outer.SignerCertificate.Subject}else{'none'};payload=$payload.SignerCertificate.Subject;payload_status=[string]$payload.Status;payload_thumbprint=$payload.SignerCertificate.Thumbprint}|ConvertTo-Json -Compress",
-	}, ";")
-	powershell := windowsPowerShell()
-	command := exec.Command(powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
-	for _, variable := range os.Environ() {
-		if !strings.EqualFold(strings.SplitN(variable, "=", 2)[0], "PSModulePath") {
-			command.Env = append(command.Env, variable)
-		}
-	}
-	command.Env = append(command.Env, "PSModulePath="+filepath.Join(filepath.Dir(powershell), "Modules"))
-	quietproc.Quiet(command)
-	output, err := command.CombinedOutput()
+	outerSignature, err := updater.InspectSignature(outer)
 	if err != nil {
-		return "", "", fmt.Errorf("signature inspection failed: %w: %s", err, strings.TrimSpace(string(output)))
+		return "", "", fmt.Errorf("outer signature inspection failed: %w", err)
 	}
-	var result struct {
-		OuterStatus       string `json:"outer_status"`
-		Outer             string `json:"outer"`
-		Payload           string `json:"payload"`
-		PayloadStatus     string `json:"payload_status"`
-		PayloadThumbprint string `json:"payload_thumbprint"`
+	payloadSignature, err := updater.InspectSignature(payload)
+	if err != nil {
+		return "", "", fmt.Errorf("payload signature inspection failed: %w", err)
 	}
-	if err := json.Unmarshal(output, &result); err != nil {
-		return "", "", fmt.Errorf("signature inspection returned invalid JSON: %w", err)
-	}
-	if result.Payload == "" {
-		return "", "", errors.New("signature inspection returned an incomplete result")
+	result := struct{ OuterStatus, Outer, PayloadStatus, Payload, PayloadThumbprint string }{
+		outerSignature.Status, outerSignature.Subject, payloadSignature.Status, payloadSignature.Subject, payloadSignature.Thumbprint,
 	}
 	outerLine, outerErr := outerSignatureDecision(result.OuterStatus, result.Outer)
 	if outerErr != nil {
@@ -350,11 +329,7 @@ func runInstall(options installOptions, args []string) (result int) {
 			log.printf("AUTOSTART SKIPPED: the installed copy was not running. Log: %s", log.location())
 			return 0
 		}
-		if nativeInstall {
-			log.printf("AUTOSTART COMPLETE: Agent_b started natively from %s. Log: %s", filepath.Join(applicationRoot, "Agent_b.exe"), log.location())
-		} else {
-			log.printf("AUTOSTART COMPLETE: Agent_b started through %s. Log: %s", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), log.location())
-		}
+		log.printf("AUTOSTART COMPLETE: Agent_b started natively from %s. Log: %s", filepath.Join(applicationRoot, "Agent_b.exe"), log.location())
 		return 0
 	}
 	if version, reason, restart := installRestartDetails(log.location()); restart {
@@ -516,47 +491,117 @@ func installerArgument(arguments []string, name, fallback string) string {
 }
 
 func launchInstalledAgent(applicationRoot, dataRoot, sessionID string, reopenWindow, _ bool, log *installLog) error {
-	launcher := filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1")
-	if info, err := os.Stat(launcher); err != nil || info.IsDir() {
-		return fmt.Errorf("installed launcher is missing: %s", launcher)
-	}
-	arguments := installedLaunchArguments(applicationRoot, dataRoot, sessionID, reopenWindow)
-	// A DISPOSABLE INSTALL NEVER OPENS A WINDOW, and it is
-	// decided by WHAT THE INSTALL IS rather than by a flag a future arm can
-	// forget.
-	//
-	// The environment variable below was the only thing keeping the suite's
-	// installs headless, and enumerated the suite paths that
-	// install: six of them, and only test-installer.ps1 set it. An install to a
-	// root that is not the canonical one is by definition not the operator's
-	// install -- that is 2kr's disposable-root marker -- so it starts without a
-	// window whether or not anyone remembered the variable. The variable still
-	// works, as an override for a canonical-root install that wants no window.
-	command := exec.Command(windowsPowerShell(), arguments...)
-	quietproc.Quiet(command)
-	command.Dir = dataRoot
-	command.Stdout = log.writer()
-	command.Stderr = log.writer()
-	launcherErrors := filepath.Join(dataRoot, "logs", "launcher-errors.log")
-	_, beforeSize := lastNonemptyLine(launcherErrors, 16<<10)
-	if err := command.Run(); err != nil {
-		if line, size := lastNonemptyLine(launcherErrors, 16<<10); size > beforeSize && line != "" {
-			return fmt.Errorf("launcher exited: %w; startup log: %s", err, line)
-		}
-		return fmt.Errorf("launcher exited: %w", err)
-	}
-	return nil
+	return launchNativeInstalled(applicationRoot, dataRoot, filepath.Join(dataRoot, "harness.json"), sessionID, reopenWindow, false)
 }
 
 func installedLaunchArguments(applicationRoot, dataRoot, sessionID string, reopenWindow bool) []string {
-	arguments := []string{"-NoLogo", "-NoProfile", "-File", filepath.Join(applicationRoot, "scripts", "launch-Agent_b.ps1"), "-ApplicationDirectory", applicationRoot, "-DataDirectory", dataRoot, "-Detached", "-NoPause", "-StartupTimeoutSeconds", "300"}
-	if !reopenWindow {
-		return append(arguments, "-NoBrowser")
+	args := []string{"-config", filepath.Join(dataRoot, "harness.json"), "-app-root", applicationRoot, "-data-root", dataRoot}
+	if reopenWindow {
+		args = append(args, "-window")
 	}
-	if sessionID == "" {
-		return arguments
+	if sessionID != "" {
+		args = append(args, "-reopen-session", sessionID)
 	}
-	return append(arguments, "-SessionID", sessionID)
+	return args
+}
+
+// launchNativeInstalled is the installed entry point: no shell, detached lifetime,
+// serialized starts, and readiness checked against the exact process incarnation.
+const installedStartupTimeout = 300 * time.Second
+
+func launchNativeInstalled(application, data, configuration, sessionID string, window, atLogon bool) (result error) {
+	defer func() {
+		if result != nil {
+			appendLauncherMessage(data, result.Error())
+		}
+	}()
+	unlock, err := lockInstalledLaunch()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	quit := filepath.Join(data, "autostart-disabled")
+	if _, err := os.Stat(quit); err == nil {
+		if atLogon {
+			return nil
+		}
+		if err := os.Remove(quit); err != nil {
+			return err
+		}
+	}
+	window = window && canonicalInstallRoot(application) && os.Getenv("AGENT_B_INSTALL_NO_BROWSER") == "" && os.Getenv("AGENTB_NO_BROWSER") == ""
+	if pid, ready := verifiedExistingInstance(data, application, false); ready {
+		if window {
+			if _, activated := activateExistingInstance(data, application); !activated {
+				return fmt.Errorf("Agent_b is running as PID %d, but its host window could not be activated", pid)
+			}
+		}
+		appendInstalledDecision(data, fmt.Sprintf("Agent_b is already running (PID %d answering on port %s); no new server was started.", pid, installedPort(configuration)))
+		return nil
+	}
+	encoded, err := os.ReadFile(configuration)
+	if err != nil {
+		return fmt.Errorf("Configuration error: %w", err)
+	}
+	var cfg struct {
+		Listen string `json:"listen"`
+	}
+	if err := json.Unmarshal(encoded, &cfg); err != nil {
+		return fmt.Errorf("Configuration error: %w", err)
+	}
+	if _, _, err := net.SplitHostPort(cfg.Listen); err != nil {
+		return fmt.Errorf("Configuration error: %w", err)
+	}
+	// An occupied port is never treated as this application's readiness.
+	probe, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("listen port is already in use: %w", err)
+	}
+	_ = probe.Close()
+	var marker runMarker
+	if raw, err := readMarker(filepath.Join(data, "agent_b-run.json")); err == nil && json.Unmarshal(raw, &marker) == nil && processRunning(marker.PID, marker.Created) {
+		return fmt.Errorf("Agent_b process %d is still running but not responding; it was not closed", marker.PID)
+	}
+	if err := os.MkdirAll(filepath.Join(data, "logs"), 0o700); err != nil {
+		return err
+	}
+	args := installedLaunchArguments(application, data, sessionID, window)
+	args[1] = configuration
+	args = append(args, "-startup-log", filepath.Join(data, "logs", launcherLogName))
+	pid, err := startBrowserDetached(filepath.Join(application, "Agent_b.exe"), args, data)
+	if err != nil {
+		return fmt.Errorf("startup process error: %w", err)
+	}
+	created := processCreated(pid)
+	deadline := time.Now().Add(installedStartupTimeout)
+	for time.Now().Before(deadline) {
+		if serving, ready := verifiedExistingInstance(data, application, false); ready && serving == pid {
+			appendInstalledDecision(data, fmt.Sprintf("Agent_b is ready (PID %d answering on port %s); started as process %d.", pid, installedPort(configuration), pid))
+			return nil
+		}
+		if !processRunning(pid, created) {
+			line, _ := lastNonemptyLine(filepath.Join(data, "logs", launcherLogName), 16<<10)
+			return fmt.Errorf("startup process %d exited: %s", pid, line)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("Agent_b process %d did not answer within 300 seconds; left running for diagnosis", pid)
+}
+
+func installedPort(configuration string) string {
+	var cfg struct {
+		Listen string `json:"listen"`
+	}
+	data, _ := os.ReadFile(configuration)
+	_ = json.Unmarshal(data, &cfg)
+	_, port, _ := net.SplitHostPort(cfg.Listen)
+	return port
+}
+
+func appendInstalledDecision(data, message string) {
+	life := newLifetime(data, time.Now)
+	life.logPath = filepath.Join(data, "logs", "launcher.log")
+	life.append(message)
 }
 
 // lastNonemptyLine reads only a bounded tail: launcher-errors.log is append-only

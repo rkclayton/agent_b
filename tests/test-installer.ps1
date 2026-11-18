@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+    [switch]$PolicyLaunchOnly,
     # Locks the workstation and disconnects the console session during the
     # session-lifetime scenario (item 2em). Off by default: it locks the
     # operator's screen.
@@ -45,6 +46,104 @@ function Assert-CleanArchiveIdentity {
     if ($Reported.commit -ne $Expected.commit -or [bool]$Reported.dirty -ne [bool]$Expected.dirty) {
         throw "identity differs: reported $($Reported.commit)/$($Reported.dirty), expected $($Expected.commit)/$($Expected.dirty)"
     }
+}
+if ($PolicyLaunchOnly) {
+    # Only these children's environments carry policy overrides. No policy is written.
+    $repo = Split-Path -Parent $PSScriptRoot
+    $proofRoot = Join-Path ([IO.Path]::GetTempPath()) ('Agent_b-installer-test-policy-' + [guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $proofRoot -Force
+    $setup = Join-Path $proofRoot 'Agent_b-setup.exe'
+    Copy-Item -LiteralPath (Join-Path $repo 'Agent_b.exe') -Destination $setup
+    $results = @()
+    $script:policyTrace = @()
+    function Invoke-PolicyChild([string]$File, [string[]]$Arguments, [string]$Policy) {
+        $info = [Diagnostics.ProcessStartInfo]::new($File)
+        $info.UseShellExecute = $false; $info.CreateNoWindow = $true
+        $info.Arguments = [string]::Join(' ', @($Arguments | ForEach-Object { '"' + $_ + '"' }))
+        $info.EnvironmentVariables['PSExecutionPolicyPreference'] = $Policy
+        $info.EnvironmentVariables['AGENT_B_INSTALL_NO_BROWSER'] = '1'
+        $info.EnvironmentVariables['AGENTB_NO_BROWSER'] = '1'
+        $info.EnvironmentVariables['AGENTB_NO_HOST_WINDOW'] = '1'
+        $child = [Diagnostics.Process]::Start($info)
+        $seen = @{ "$($child.Id)" = $true }; $deadline = [DateTime]::UtcNow.AddSeconds(330)
+        do {
+            foreach ($process in @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($child.Id)" -ErrorAction Stop)) {
+                if (-not $seen.ContainsKey("$($process.ProcessId)")) {
+                    $seen["$($process.ProcessId)"] = $true
+                    if ($seen.Count -gt 128) { throw 'unexpected process fan-out in launch proof' }
+                    $script:policyTrace += @{ policy=$Policy; parent=$child.Id; pid=$process.ProcessId; image=$process.Name; command=$process.CommandLine }
+                    if ($process.Name -match '^(powershell|pwsh)\.exe$' -or $process.CommandLine -match '\.ps1(?:\s|"|$)') { throw 'normal launch executed a script host' }
+                }
+            }
+            if ([DateTime]::UtcNow -gt $deadline) { throw 'policy child exceeded startup deadline' }
+        } while (-not $child.WaitForExit(50))
+        if ($child.ExitCode -ne 0) { throw "policy child exited $($child.ExitCode) under $Policy" }
+    }
+    function Assert-PolicyReady([string]$Data, [int]$Port) {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/chat" -TimeoutSec 5
+        if ($response.StatusCode -ne 200) { throw 'installed application did not answer' }
+        return (Get-Content -Raw -LiteralPath (Join-Path $Data 'agent_b-run.json') | ConvertFrom-Json).pid
+    }
+    try {
+        foreach ($policy in @('Restricted', 'AllSigned', 'RemoteSigned')) {
+            $root = Join-Path $proofRoot $policy
+            $application = Join-Path $root 'Application'; $data = Join-Path $root 'Data'
+            $null = New-Item -ItemType Directory -Path $data -Force
+            $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+            $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop()
+            $config = Get-Content -Raw -LiteralPath (Join-Path $repo 'harness.example.json') | ConvertFrom-Json
+            $config.listen = "127.0.0.1:$port"; $config.workspace = Join-Path $root 'Workspace'
+            $config.log_dir = Join-Path $data 'logs'; $config.memory.dir = Join-Path $data 'memory'
+            $config | Add-Member -Force NoteProperty telemetry @{ enabled = $false }
+            $configPath = Join-Path $data 'harness.json'
+            [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
+            $registration = 'HKCU:\Software\Agent_b-Installer-Test-Policy-' + [guid]::NewGuid().ToString('N')
+            $installArgs = @('--quiet', '--install-data', $data, '-ApplicationDirectory', $application, '-DataDirectory', $data, '-WorkspaceDirectory', $config.workspace, '-StartMenuDirectory', (Join-Path $root 'Start'), '-SendToDirectory', (Join-Path $root 'Send'), '-UninstallRegistryPath', $registration, '-NativeTestMode')
+            $launchArgs = @('-installed-launch', '-window', '-config', $configPath, '-app-root', $application, '-data-root', $data)
+            $serving = 0
+            try {
+                Invoke-PolicyChild $setup ($installArgs + '-NoStart') $policy
+                Invoke-PolicyChild (Join-Path $application 'Agent_b.exe') $launchArgs $policy
+                $serving = Assert-PolicyReady $data $port
+                $results += @{ policy=$policy; arm='install and first start'; ready=$true }
+                $same = $serving
+                Invoke-PolicyChild (Join-Path $application 'Agent_b.exe') @('-installed-launch', '-Detached', '-NoBrowser', '-NoPause', '-DataDirectory', $data) $policy
+                $serving = Assert-PolicyReady $data $port
+                if ($serving -ne $same) { throw 'a second launch created another instance' }
+                Stop-Process -Id $serving -Force; Wait-Process -Id $serving -ErrorAction SilentlyContinue
+                $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $root 'Start\Agent_b.lnk'))
+                if ($shortcut.TargetPath -ne (Join-Path $application 'Agent_b.exe') -or $shortcut.Arguments -notmatch '-installed-launch') { throw 'shortcut does not use native launch' }
+                Invoke-PolicyChild $shortcut.TargetPath $launchArgs $policy
+                $serving = Assert-PolicyReady $data $port
+                $results += @{ policy=$policy; arm='shortcut target'; ready=$true }
+                Invoke-PolicyChild $setup $installArgs $policy
+                $next = Assert-PolicyReady $data $port
+                if ($next -eq $serving) { throw 'update did not restart the application' }
+                $serving = $next
+                $results += @{ policy=$policy; arm='update restart'; ready=$true }
+                Stop-Process -Id $serving -Force; Wait-Process -Id $serving -ErrorAction SilentlyContinue
+                [IO.File]::WriteAllText((Join-Path $data 'autostart-disabled'), 'user')
+                Invoke-PolicyChild $shortcut.TargetPath ($launchArgs + '-at-logon') $policy
+                if (-not (Test-Path -LiteralPath (Join-Path $data 'autostart-disabled'))) { throw 'sign-in removed intentional-quit marker' }
+                Invoke-PolicyChild $shortcut.TargetPath $launchArgs $policy
+                $serving = Assert-PolicyReady $data $port
+                if (Test-Path -LiteralPath (Join-Path $data 'autostart-disabled')) { throw 'manual launch did not clear quit marker' }
+                if ($policy -ne 'RemoteSigned' -and (Get-Content -Raw -LiteralPath (Join-Path $data 'execution-policy.txt')) -notmatch 'service identity cannot be set up here') { throw 'existing policy notice missing' }
+            } finally {
+                if ($serving -gt 0) { Stop-Process -Id $serving -Force -ErrorAction SilentlyContinue }
+                foreach ($left in @(Get-CimInstance Win32_Process -Filter "Name='Agent_b.exe'" -ErrorAction SilentlyContinue)) {
+                    if ($left.ExecutablePath -eq (Join-Path $application 'Agent_b.exe') -and $left.CommandLine.Contains($data)) { Stop-Process -Id $left.ProcessId -Force -ErrorAction SilentlyContinue }
+                }
+                if (Test-Path -LiteralPath $registration) { Remove-Item -LiteralPath $registration -Force }
+            }
+        }
+    } finally {
+        $results | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $proofRoot 'results.json')
+        $script:policyTrace | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $proofRoot 'process-trace.json')
+        Write-Host "POLICY EVIDENCE: $proofRoot"
+    }
+    Write-Host 'PASS: native install, first start, shortcut, update, singleton and quit marker under all three child policies'
+    exit 0
 }
 if ($FailureDiagnosticSelfTest) {
     $script:matrixStage = 'first-run-onboarding'
@@ -803,11 +902,9 @@ try {
     }
     $batchLauncherSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'Agent_b.cmd')
     if ($batchLauncherSource -match '(?im)^\s*pause\s*$' -or
-        $batchLauncherSource -notmatch 'AGENTB_HIDDEN_REENTRY' -or
-        $batchLauncherSource -notmatch '"-Console"' -or
-        $batchLauncherSource -notmatch 'timeout /t 10 /nobreak' -or
-        $batchLauncherSource -notmatch 'AGENT_B_AUTO_CLOSE') {
-        throw 'Installed batch launcher does not hide by default with -Console opt-in, or can still wait indefinitely after a failure.'
+        $batchLauncherSource -match 'powershell|\.ps1|\btimeout\b' -or
+        $batchLauncherSource -notmatch 'start "" /b "%~dp0Agent_b\.exe" -installed-launch -window') {
+        throw 'Installed batch launcher must detach the native executable without a script host or an indefinite wait.'
     }
     $installedInstallerSource = Get-Content -Raw -LiteralPath (Join-Path $testApplication 'scripts\install-Agent_b.ps1')
     $expectedRuntimeScripts = @(Get-Content -LiteralPath (Join-Path $repositoryRoot 'runtime-scripts.txt') | Where-Object { $_ } | ForEach-Object { Split-Path -Leaf $_ } | Sort-Object)

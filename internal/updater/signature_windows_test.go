@@ -4,19 +4,45 @@ package updater
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// Item 2lb: the script the updater runs must emit nothing of its own and must
-// write its answer where only structured data can appear.
-func TestInspectionScriptWritesAReportAndSilencesTheConsole2lb(t *testing.T) {
-	script := authenticodeScript(`C:\dir\Agent_b-setup.exe`, `C:\temp\report.json`)
-	for _, want := range []string{"$ProgressPreference='SilentlyContinue'", "$WarningPreference='SilentlyContinue'", "$VerbosePreference='SilentlyContinue'", "[IO.File]::WriteAllText($report", "unavailable="} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("script is missing %q: %s", want, script)
-		}
+func TestInspectionReturnsOnlyStructuredEvidence2yx(t *testing.T) {
+	result := inspectAuthenticode(context.Background(), "signature.go")
+	var evidence authenticodeEvidence
+	if result.Err != nil || result.Output != "" || json.Unmarshal(result.Report, &evidence) != nil || evidence.Status != "NotSigned" {
+		t.Fatalf("inspection: %+v", result)
+	}
+	if result := inspectAuthenticode(context.Background(), "missing-file.exe"); result.Err == nil {
+		t.Fatal("missing file was not an inspection error")
+	}
+}
+
+func TestNativeSignatureDetectsPayloadTampering2yx(t *testing.T) {
+	path := os.Getenv("AGENTB_SIGNATURE_TEST_FILE")
+	if path == "" {
+		t.Skip("requires a signed disposable payload")
+	}
+	before, err := InspectSignature(path)
+	if err != nil || before.Status != "Valid" || before.Thumbprint == "" {
+		t.Fatalf("signed payload: %+v %v", before, err)
+	}
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes[1024] ^= 1
+	tampered := filepath.Join(t.TempDir(), "tampered.exe")
+	if err := os.WriteFile(tampered, bytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := InspectSignature(tampered)
+	if err != nil || after.Status != "HashMismatch" || after.Thumbprint != before.Thumbprint {
+		t.Fatalf("tampered payload: %+v %v", after, err)
 	}
 }
 

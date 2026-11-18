@@ -36,7 +36,7 @@ func TestLaunchersAreHiddenByDefaultWithConsoleOptIn(t *testing.T) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	checks := map[string][]string{
 		"start-Agent_b.cmd": {"AGENTB_HIDDEN_REENTRY", "launch-hidden.vbs", "-Console"},
-		filepath.Join("scripts", "launch-installed.cmd"): {"AGENTB_HIDDEN_REENTRY", `%~dp0scripts\launch-hidden.vbs`, "-Console"},
+		filepath.Join("scripts", "launch-installed.cmd"): {`start "" /b "%~dp0Agent_b.exe"`, "-installed-launch", "-window"},
 		// Item 2p8: Agent_b is a GUI-subsystem executable, so ShellExecute can
 		// again supply a detached Process object (including a reliable exit code)
 		// without creating a console. Start-Process also avoids inherited output

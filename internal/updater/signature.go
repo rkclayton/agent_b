@@ -26,6 +26,11 @@ type authenticodeEvidence struct {
 	TimestampTime  time.Time `json:"-"`
 }
 
+// Signature is Windows' Authenticode decision and the certificate that signed the file.
+type Signature struct {
+	Status, Subject, Thumbprint string
+}
+
 // inspection is what a child process produced. The decision is taken from the
 // report -- a payload written where only structured data can appear -- and never
 // from Output, which holds whatever the two streams happened to say and exists

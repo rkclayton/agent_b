@@ -476,10 +476,40 @@ test("the tag gate refuses a commit whose install-cycle job is missing or not gr
 
 test("the telemetry document carries both PC and device link session vectors", async () => {
   const { telemetryVectors } = await import("../tools/tag-release.mjs"), sessions = telemetryVectors().filter(({ type }) => type === "link.session");
-  assert.equal(sessions.length, 2);
+  assert.equal(sessions.length, 5);
   const device = sessions.find(({ role }) => role === "device"), document = await readFile(join(repoRoot, "docs", "telemetry-trace.md"), "utf8"), row = document.split("\n").find(line => line.startsWith("| `link.session`"));
   assert.ok(device.received_unacked > 0 && typeof device.wake_to_connect_ms === "number" && device.state === "bg");
   for (const field of Object.keys(device).filter(field => !["type", "at"].includes(field))) assert.ok(row.includes(`\`${field}\``), `${field} missing from allow-list`);
+});
+
+test("link extension vectors keep closed fields, causes and bounded counts before emission", async () => {
+  const { telemetryVectors } = await import("../tools/tag-release.mjs");
+  const document = await readFile(join(repoRoot, "docs", "telemetry-trace.md"), "utf8"), vectors = telemetryVectors().filter(v => /^link\.(session|handshake|health|replaced)$/.test(v.type));
+  const causes = "dns connect tls upgrade timeout refused protocol canceled other".split(" ");
+  const closes = "peer_closed network replaced suspended wake_done user other timeout server_closed refused".split(" ");
+  const codes = "unsupported_version malformed frame_too_large unexpected_frame auth_failed not_paired revoked offline rate_limited internal old_epoch wrong_session counter_invalid queue_full delivery_expired push_provider".split(" ");
+  const reasons = new Set([...causes, ...closes, ...codes, "eof", "reset", "closed"]);
+  const integer = (n, min = 0, max = 2147483647) => Number.isInteger(n) && n >= min && n <= max;
+  const valid = v => {
+    const row = document.split("\n").find(line => line.startsWith(`| \`${v.type}\` |`));
+    if (!row || Object.keys(v).some(k => !["type", "at"].includes(k) && !row.includes(`\`${k}\``))) return false;
+    if (v.code !== undefined && (!codes.includes(v.code) || (v.type === "link.session" ? v.close : v.error) !== "refused")) return false;
+    if (v.type === "link.session") return closes.includes(v.close) && ["agent", "device"].includes(v.role);
+    if (v.type === "link.health") return [v.drops, v.refused].every(map => Object.entries(map).every(([k, n]) => reasons.has(k) && Number.isSafeInteger(n) && n >= 0));
+    if (v.type === "link.replaced") return ["agent", "device"].includes(v.role) && ["same_process", "other_process", "unknown"].includes(v.second) && integer(v.age_s);
+    if (!["dial", "tls", "hello", "peer"].includes(v.step) || !integer(v.elapsed_ms)) return false;
+    if (v.outcome === "failed") return causes.includes(v.error) && integer(v.attempt, 1, 999) && integer(v.backoff_ms);
+    return [undefined, "ok"].includes(v.outcome) && ["error", "code", "attempt", "backoff_ms"].every(k => !(k in v));
+  };
+  for (const v of vectors) { assert.ok(valid(v), JSON.stringify(v)); assert.equal(valid({ ...v, free_text: "fixture" }), false); }
+  assert.deepEqual(new Set(vectors.filter(v => v.type === "link.session").map(v => v.close)), new Set(["network", "wake_done", "timeout", "server_closed", "refused"]));
+  assert.deepEqual(new Set(vectors.filter(v => v.type === "link.replaced").map(v => v.second)), new Set(["same_process", "other_process", "unknown"]));
+  assert.deepEqual(new Set(vectors.filter(v => v.type === "link.handshake").map(v => v.outcome)), new Set([undefined, "ok", "failed"]));
+  assert.ok(vectors.some(v => v.type === "link.health" && v.drops.server_closed === 1 && v.drops.dns === 2 && v.refused.auth_failed === 1));
+  assert.equal(valid({ ...vectors.find(v => v.type === "link.handshake" && v.error === "refused"), code: "fixture" }), false);
+  const failed = vectors.find(v => v.type === "link.handshake" && v.error === "timeout");
+  for (const patch of [{ error: "fixture" }, { attempt: 1000 }, { attempt: 0 }, { backoff_ms: -1 }, { backoff_ms: 2147483648 }, { code: "fixture" }]) assert.equal(valid({ ...failed, ...patch }), false);
+  for (const word of [...causes, ...codes]) assert.ok(document.includes(`\`${word}\``), `${word} missing from contract`);
 });
 
 test("the telemetry release gate names a refused or dropped event before tagging", async () => {

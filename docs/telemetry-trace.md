@@ -317,9 +317,9 @@ The phone link (the broker session), when it did anything in the hour.
 | Field | Type | Meaning |
 |---|---|---|
 | `connects` | int | sessions established |
-| `drops` | object | drops by reason class: `eof`, `timeout`, `reset`, `refused`, `closed`, `other` |
+| `drops` | object | counts by the link reason vocabulary below; existing `eof`, `timeout`, `reset`, `refused`, `closed`, `other` remain valid |
 | `reconnect_ms` | object, optional | `{"p50","p95"}` from a drop to the next connect |
-| `refused` | object | frames the broker refused, by its rule code |
+| `refused` | object | frames the broker refused, by its fixed rule code or the link reason vocabulary below |
 | `pushes` | object | push sends by the broker's answer (`accepted`, `no_token`, `refused`) |
 | `join_bytes` | int | the most one phone join sent, bucketed |
 
@@ -328,6 +328,17 @@ below carries those counts when a session closes.
 
 ```json vector:link.health
 {"type":"link.health","at":"2026-10-04T21:00:05Z","connects":3,"drops":{"eof":2},"reconnect_ms":{"p50":1200,"p95":4100},"refused":{"queue_full":1},"pushes":{"accepted":4},"join_bytes":67108864}
+```
+
+The additive link extensions below are admitted by the broker before any client
+emits them. They do not authorize an emitter change. Both count maps accept the
+union of existing drop words, `link.session.close` words, `link.handshake.error`
+words and the fixed refusal codes below. Each occurrence increments one key,
+using the specific known cause rather than also counting its fallback class.
+Counts are nonnegative integers; each map has at most one entry per fixed word.
+
+```json vector:link.health
+{"type":"link.health","at":"2026-10-04T21:00:05Z","connects":3,"drops":{"server_closed":1,"dns":2,"protocol":1},"reconnect_ms":{"p50":1200,"p95":4100},"refused":{"refused":1,"auth_failed":1},"pushes":{"accepted":4},"join_bytes":67108864}
 ```
 
 ### `link.session`
@@ -339,8 +350,16 @@ at close. `received_unacked` is what this side had received but not yet
 acknowledged at close; the PC reports zero. `ack_p50_ms` and `ack_max_ms` are
 the acknowledgement latency, `age_s` is the session age, and `close` is exactly
 one of `peer_closed`, `network`, `replaced`, `suspended`, `wake_done`, `user`,
-or `other`. A device may also send `wake_to_connect_ms` and `state`, where
+`other`, `timeout`, `server_closed`, or `refused`. A device may also send `wake_to_connect_ms` and `state`, where
 `state` is `fg`, `bg`, or `inactive`.
+
+`timeout` means no frame arrived within the dead-link limit; `server_closed`
+means the broker said it was going away; `refused` means an explicit broker
+refusal. Only `refused` may add optional `code`, from this closed broker code set:
+`unsupported_version`, `malformed`, `frame_too_large`, `unexpected_frame`,
+`auth_failed`, `not_paired`, `revoked`, `offline`, `rate_limited`, `internal`,
+`old_epoch`, `wrong_session`, `counter_invalid`, `queue_full`, `delivery_expired`,
+`push_provider`. Unknown codes are omitted; a broker's detail text is never sent.
 
 ```json vector:link.session
 {"type":"link.session","at":"2026-10-04T21:00:05Z","role":"agent","sent":3,"acked":1,"unacked":2,"received":1,"received_unacked":0,"ack_p50_ms":42,"ack_max_ms":42,"age_s":18,"close":"network"}
@@ -348,11 +367,33 @@ or `other`. A device may also send `wake_to_connect_ms` and `state`, where
 ```json vector:link.session
 {"type":"link.session","at":"2026-10-04T21:00:05Z","role":"device","sent":3,"acked":1,"unacked":2,"received":2,"received_unacked":1,"ack_p50_ms":42,"ack_max_ms":42,"age_s":18,"close":"wake_done","wake_to_connect_ms":350,"state":"bg"}
 ```
+```json vector:link.session
+{"type":"link.session","at":"2026-10-04T21:00:05Z","role":"agent","sent":3,"acked":1,"unacked":2,"received":1,"received_unacked":0,"ack_p50_ms":42,"ack_max_ms":42,"age_s":90,"close":"timeout"}
+```
+```json vector:link.session
+{"type":"link.session","at":"2026-10-04T21:00:05Z","role":"device","sent":0,"acked":0,"unacked":0,"received":0,"received_unacked":0,"ack_p50_ms":0,"ack_max_ms":0,"age_s":18,"close":"server_closed"}
+```
+```json vector:link.session
+{"type":"link.session","at":"2026-10-04T21:00:05Z","role":"agent","sent":0,"acked":0,"unacked":0,"received":0,"received_unacked":0,"ack_p50_ms":0,"ack_max_ms":0,"age_s":18,"close":"refused","code":"revoked"}
+```
 
 ### `link.handshake`
 
-One event for a failed handshake only. `step` is exactly `dial`, `tls`, `hello`,
-or `peer`; `elapsed_ms` is the elapsed time in that step.
+One event per handshake attempt. `step` remains exactly `dial`, `tls`, `hello`,
+or `peer`; `elapsed_ms` is the elapsed time in that step. Legacy events without
+`outcome` still mean a failed handshake and retain their original two fields.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `outcome` | string | `ok` or `failed`; absent only in legacy failed events |
+| `error` | string, failed only | exactly `dns`, `connect`, `tls`, `upgrade`, `timeout`, `refused`, `protocol`, `canceled`, `other` |
+| `code` | string, optional | only with `error: refused`, from the fixed broker code set above |
+| `attempt` | int, failed only | consecutive failures including this one, 1–999, saturated at 999; success resets the counter |
+| `backoff_ms` | int, failed only | wait before the next attempt, 0 when none is scheduled; saturated at 2147483647 |
+
+New failed events require `error`, `attempt` and `backoff_ms`. Successful events
+carry none of those fields or `code`. `error` describes the cause; `step` says
+where it happened, so a dial failure can now distinguish DNS from connection failure.
 
 Neither event ever carries content, an address, a token, a pairing code, or a
 full identifier; where an implementation needs an identifier for local
@@ -360,6 +401,40 @@ correlation, it may use a prefix only.
 
 ```json vector:link.handshake
 {"type":"link.handshake","at":"2026-10-04T21:00:05Z","step":"hello","elapsed_ms":240}
+```
+```json vector:link.handshake
+{"type":"link.handshake","at":"2026-10-04T21:00:05Z","step":"peer","elapsed_ms":240,"outcome":"ok"}
+```
+```json vector:link.handshake
+{"type":"link.handshake","at":"2026-10-04T21:00:05Z","step":"dial","elapsed_ms":15000,"outcome":"failed","error":"timeout","attempt":999,"backoff_ms":30000}
+```
+```json vector:link.handshake
+{"type":"link.handshake","at":"2026-10-04T21:00:05Z","step":"hello","elapsed_ms":240,"outcome":"failed","error":"refused","code":"auth_failed","attempt":1,"backoff_ms":0}
+```
+
+### `link.replaced`
+
+One session-less event from the side whose connection was replaced. It feeds
+replacement counts by `role` and `second`, never carries a session or identity
+identifier, and travels in its own batch after the broker admits the type.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `role` | string | `agent` or `device` |
+| `age_s` | int | replaced connection's age in seconds, 0–2147483647, saturated |
+| `second` | string | exactly `same_process`, `other_process`, `unknown`; which process opened the replacing connection |
+
+Use `same_process` or `other_process` only with positive evidence. A replacement
+notice alone does not identify the opener; it is `unknown`.
+
+```json vector:link.replaced
+{"type":"link.replaced","at":"2026-10-04T21:00:05Z","role":"agent","age_s":18,"second":"same_process"}
+```
+```json vector:link.replaced
+{"type":"link.replaced","at":"2026-10-04T21:00:05Z","role":"device","age_s":90,"second":"other_process"}
+```
+```json vector:link.replaced
+{"type":"link.replaced","at":"2026-10-04T21:00:05Z","role":"agent","age_s":2147483647,"second":"unknown"}
 ```
 
 ### `install`
@@ -496,8 +571,9 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `app.lifecycle` | `phase`, `previous_exit`, `cause`, `uptime_s` |
 | `page.health` | `state_bytes`, `state_ms`, `page_load_ms`, `longest_freeze_ms`, `js_errors` |
 | `link.health` | `connects`, `drops`, `reconnect_ms`, `refused`, `pushes`, `join_bytes` |
-| `link.session` | `role`, `sent`, `acked`, `unacked`, `received`, `received_unacked`, `ack_p50_ms`, `ack_max_ms`, `age_s`, `close`, `wake_to_connect_ms`, `state` |
-| `link.handshake` | `step`, `elapsed_ms` |
+| `link.session` | `role`, `sent`, `acked`, `unacked`, `received`, `received_unacked`, `ack_p50_ms`, `ack_max_ms`, `age_s`, `close`, `wake_to_connect_ms`, `state`, `code` |
+| `link.handshake` | `step`, `elapsed_ms`, `outcome`, `error`, `code`, `attempt`, `backoff_ms` |
+| `link.replaced` | `role`, `age_s`, `second` |
 | `install` | `step`, `class`, `from`, `to` |
 | `resource` | `memory_peak_bytes`, `data_bytes`, `chats_bytes`, `chats`, `ram_bytes`, `arch`, `os_version` |
 | `feature.use` | `chats_created`, `messages_sent`, `tools`, `attachments`, `voice`, `settings_pages`, `approvals` |

@@ -1394,7 +1394,7 @@ function renderComposer(session) {
   notice.onkeydown = thought ? event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); notice.click(); } } : null;
   if (thought) { notice.tabIndex = 0; setAttribute(notice, "role", "button"); setAttribute(notice, "aria-expanded", String(expanded.has(thought.key))); }
   else { notice.removeAttribute("tabindex"); notice.removeAttribute("role"); notice.removeAttribute("aria-expanded"); }
-  reconcileChildren(statusLine, [notice, ...(thought ? [thought.root] : [])]);
+  reconcileChildren(statusLine, [notice, retryModel, ...(thought ? [thought.root] : [])]);
   setAttribute(notice, "class", `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`);
   const showStatus = !!session && (isRunning(session) || message !== "idle");
   setProperty(statusLine, "hidden", !showStatus);

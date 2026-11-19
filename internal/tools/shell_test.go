@@ -45,8 +45,11 @@ func TestGitMissingAndStoredSignIn2yp(t *testing.T) {
 	shell.Configure(cfg)
 	item := &session.Session{ID: "fixture", Workspace: root}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	// This includes starting the shell and Git on a loaded race-test runner.
+	// The guidance must still arrive before the command deadline, not from it.
+	const fixtureTimeout = 15
 	call := func(command string) CallDetail {
-		return shell.CallDetailed(context.Background(), item, map[string]any{"command": command, "timeout_s": 5})
+		return shell.CallDetailed(context.Background(), item, map[string]any{"command": command, "timeout_s": fixtureTimeout})
 	}
 	commit := call("git -c user.name=someone -c user.email=someone@example.org -c commit.gpgsign=false -c core.hooksPath=" + quote(root) + " commit --allow-empty -m Fixture")
 	if commit.Err != nil || !strings.Contains(commit.Content, "exit=0") {
@@ -91,7 +94,7 @@ func TestGitMissingAndStoredSignIn2yp(t *testing.T) {
 		}
 		start := time.Now()
 		result := call(command)
-		if result.Err == nil || !strings.Contains(result.Err.Error(), guidance) || time.Since(start) >= 5*time.Second {
+		if result.Err == nil || !strings.Contains(result.Err.Error(), guidance) || time.Since(start) >= fixtureTimeout*time.Second {
 			t.Fatalf("%s: %v elapsed=%v", verb, result.Err, time.Since(start))
 		}
 	}

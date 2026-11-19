@@ -121,7 +121,10 @@ func TestTimedOutDialUsesExistingBackoff2yt(t *testing.T) {
 		defer second.Close()
 		elapsed := time.Since(start)
 		t.Logf("next dial after %s (15s attempt plus existing 1s backoff)", elapsed)
-		if elapsed < 16*time.Second || elapsed > 18*time.Second {
+		// Accept is observed after the dial deadline starts, and Windows timers
+		// have finite resolution. Keep the one-second backoff distinguishable
+		// from an immediate redial while allowing that observation skew.
+		if elapsed < 16*time.Second-100*time.Millisecond || elapsed > 18*time.Second {
 			t.Errorf("redial timing %s", elapsed)
 		}
 	case <-time.After(18 * time.Second):

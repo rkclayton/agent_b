@@ -1,12 +1,53 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { auditLayoutSnapshot, collectLayoutSnapshot } from "../layout-gate.mjs";
 
 const chatCSS = await readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8");
 
 const tokensCSS = await readFile(new URL("../../web/css/tokens.css", import.meta.url), "utf8");
 const webRoot = fileURLToPath(new URL("../../web/", import.meta.url));
 const indexHTML = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
+
+test("2z1 Retry remains clickable through unreachable redraws", async ({ page }, testInfo) => {
+  const session = { schema_version: 1, closed: false, created_at: "2026-10-09T00:00:00Z", label: "Retry proof", b_connection: "fixture", id: "fixture", agent_id: "agent_b", role: "b", connection_id: "fixture", complete: true, runnable: true, run: { status: "idle" }, model_unreachable: { host: "fixture" }, tools: [], messages: [], chat: [{ type: "user", key: "m1", text: "fixture request" }], timeline: [], budget: {}, activity: { completed_stages: [] } };
+  const snapshot = { sessions: { fixture: session }, connections: [{ id: "fixture", label: "fixture" }], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [{ id: "fixture", label: "fixture" }] }, flow: { stages: [], edges: [] }, tools: [], plans: [], profiles: { active: "", names: [] }, build: {} };
+  await page.addInitScript(data => {
+    localStorage.setItem("agentb.chat-list", JSON.stringify({ hidden: true, width: 240 }));
+    sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "agent_b", session_id: "fixture", surface: { kind: "chat", key: "fixture" } }));
+    globalThis.EventSource = class {
+      constructor() { this.listeners = new Map(); setTimeout(() => { this.onopen?.(); for (const listener of this.listeners.get("snapshot") || []) listener({ data: JSON.stringify({ type: "snapshot", data }) }); }); }
+      addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+      close() {}
+    };
+  }, snapshot);
+  let probes = 0;
+  await page.route("**/*", async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/chat") return route.fulfill({ contentType: "text/html", body: indexHTML });
+    if (url.pathname === "/api/connections/fixture/probe") { probes++; return route.fulfill({ contentType: "application/json", body: '{"status":"failed"}' }); }
+    if (url.pathname === "/api/chats/tree") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ folders: [], chats: [{ id: "fixture", folder: "" }] }) });
+    if (url.pathname === "/api/state") return route.fulfill({ contentType: "application/json", body: JSON.stringify(snapshot) });
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: "{}" });
+    return route.fulfill({ path: webRoot + url.pathname.replace(/^\/static\//, "") });
+  });
+  await page.goto("http://retry.test/chat?setup=skip&session=fixture");
+  const retry = page.locator("#chat-retry-model");
+  for (const [width, height] of [[304, 254], [1280, 860], [1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    await expect(retry).toBeVisible();
+    await retry.click();
+    await expect.poll(() => probes).toBeGreaterThan(0);
+    const box = await retry.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width); expect(box.y + box.height).toBeLessThanOrEqual(height);
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-status-line"))).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`retry-${width}.png`) });
+    await page.evaluate(async () => { const bus = await import("/static/js/bus.js"); bus.reduce({ type: "config.changed", data: { config: bus.store.config } }); });
+    await expect(retry).toBeVisible();
+  }
+  expect(probes).toBe(3);
+});
 
 test("2qm tight edges themed scrollbars stacked paperclip and four-pixel handle", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 800 });

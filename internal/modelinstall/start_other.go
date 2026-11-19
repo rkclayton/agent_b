@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+func missingDependency(string) bool             { return false }
+func lockDependencyFile(string) (func(), error) { return func() {}, nil }
+func runDependency(string) (uint32, error) {
+	return 0, errors.New("dependency installation is Windows-only")
+}
+func probeRuntime(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := quietproc.Quiet(exec.CommandContext(ctx, path, "--version")).Run(); err != nil {
+		return errors.New("Runtime could not load.")
+	}
+	return nil
+}
+
 func startDetached(string, []string, string) (int, error) {
 	return 0, errors.New("local model installation is supported only on Windows")
 }

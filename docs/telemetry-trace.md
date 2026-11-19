@@ -455,9 +455,9 @@ name, path, URL, address, key or error text is carried.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `step` | enum | `preflight`, `prepare`, `runtime_download`, `runtime_unpack`, `model_download`, `metadata`, `context`, `server_find`, `port`, `server_start`, `health`, `startup`, `manifest`, `connection`, `done` |
+| `step` | enum | `preflight`, `dependency_install`, `prepare`, `runtime_download`, `runtime_unpack`, `runtime_check`, `model_download`, `metadata`, `context`, `server_find`, `port`, `server_start`, `health`, `startup`, `manifest`, `connection`, `done` |
 | `outcome` | enum | `ok`, `failed`, `canceled` |
-| `error` | enum, failed only | `network`, `http_status`, `disk_space`, `hash_mismatch`, `unpack`, `server_start`, `port_in_use`, `gpu`, `timeout`, `size`, `permission`, `metadata`, `memory`, `catalog`, `other` |
+| `error` | enum, failed only | `network`, `http_status`, `disk_space`, `hash_mismatch`, `unpack`, `server_start`, `port_in_use`, `gpu`, `timeout`, `size`, `permission`, `metadata`, `memory`, `catalog`, `other`, `dependency_missing`, `dependency_declined`, `dependency_unverified`, `dependency_failed`, `dependency_restart`, `runtime_not_loadable` |
 | `elapsed_s` | int | whole seconds, 0–2147483647 |
 | `bytes_done`, `bytes_total` | int | sizes rounded up to powers of two; zero unknown or none; capped at 2^53 |
 | `backend` | enum | `cpu`, `cuda`, `vulkan`, `unknown` |
@@ -468,6 +468,8 @@ this event. A failure log stays local at `logs/model-install.log`: fixed-size
 slots retain the latest 256 step records, ordered by their sequence numbers,
 with sizes, durations and a bounded error description. It contains no credentials
 or remote address other than a download hostname. Log text never enters telemetry.
+Local dependency steps distinguish `dependency_download`, `dependency_verify`
+and `dependency_run`, with fixed result reasons and bounded byte counts.
 
 ```json vector:model.install
 {"type":"model.install","at":"2026-10-04T21:00:05Z","step":"done","outcome":"ok","elapsed_s":40,"bytes_done":1073741824,"bytes_total":1073741824,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
@@ -477,6 +479,25 @@ or remote address other than a download hostname. Log text never enters telemetr
 ```
 ```json vector:model.install
 {"type":"model.install","at":"2026-10-04T21:00:05Z","step":"model_download","outcome":"canceled","elapsed_s":12,"bytes_done":67108864,"bytes_total":1073741824,"backend":"vulkan","ram_bytes":17179869184,"gpu_bytes":4294967296}
+```
+
+```json vector:model.install
+{"type":"model.install","at":"2026-10-04T21:00:05Z","step":"preflight","outcome":"failed","error":"dependency_missing","elapsed_s":0,"bytes_done":0,"bytes_total":0,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
+```
+```json vector:model.install
+{"type":"model.install","at":"2026-10-04T21:00:05Z","step":"dependency_install","outcome":"failed","error":"dependency_declined","elapsed_s":1,"bytes_done":0,"bytes_total":0,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
+```
+```json vector:model.install
+{"type":"model.install","at":"2026-10-04T21:00:05Z","step":"dependency_install","outcome":"failed","error":"dependency_unverified","elapsed_s":1,"bytes_done":0,"bytes_total":0,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
+```
+```json vector:model.install
+{"type":"model.install","at":"2026-10-04T21:00:05Z","step":"dependency_install","outcome":"failed","error":"dependency_failed","elapsed_s":1,"bytes_done":0,"bytes_total":0,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
+```
+```json vector:model.install
+{"type":"model.install","at":"2026-10-04T21:00:05Z","step":"dependency_install","outcome":"failed","error":"dependency_restart","elapsed_s":1,"bytes_done":0,"bytes_total":0,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
+```
+```json vector:model.install
+{"type":"model.install","at":"2026-10-04T21:00:05Z","step":"runtime_check","outcome":"failed","error":"runtime_not_loadable","elapsed_s":1,"bytes_done":1024,"bytes_total":2048,"backend":"cpu","ram_bytes":17179869184,"gpu_bytes":0}
 ```
 
 ### `resource`

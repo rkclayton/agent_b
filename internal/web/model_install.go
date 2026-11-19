@@ -210,11 +210,44 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"catalog": s.modelInstaller.Catalog(0, true, true), "state": s.modelInstaller.Snapshot()})
 	case http.MethodPost:
 		var body struct {
-			ModelID string `json:"model_id"`
-			Backend string `json:"backend"`
+			ModelID      string `json:"model_id"`
+			Backend      string `json:"backend"`
+			Action       string `json:"action"`
+			Confirmation string `json:"confirmation"`
 		}
 		if !decode(w, r, &body) {
 			return
+		}
+		if body.Action != "" {
+			cookie, err := r.Cookie(browserSessionCookie)
+			if pairedDeviceAuthenticated(r) || err != nil || cookie.Value != s.browserSession || r.Header.Get("X-AgentB-Mutation-Token") != s.mutationToken || !sameRequestOrigin(r.Header.Get("Origin"), r.Host) {
+				writeError(w, 403, "desktop confirmation required", "model_install")
+				return
+			}
+			if !s.operatorRequestAvailable() || s.operatorOwnedRequest(r) != nil {
+				writeError(w, 403, "local browser required", "model_install")
+				return
+			}
+			switch body.Action {
+			case "dependency-confirm":
+				token, err := s.modelInstaller.ConfirmDependency()
+				if err != nil {
+					writeError(w, 409, err.Error(), "model_install")
+					return
+				}
+				writeJSON(w, 200, map[string]string{"confirmation": token})
+				return
+			case "dependency-install":
+				if err := s.modelInstaller.InstallDependency(context.Background(), body.Confirmation); err != nil {
+					writeError(w, 403, err.Error(), "model_install")
+					return
+				}
+				writeJSON(w, 202, s.modelInstaller.Snapshot())
+				return
+			default:
+				writeError(w, 400, "unknown install action", "model_install")
+				return
+			}
 		}
 		available, ram, gpu, err := s.modelInstallResources(r.Context(), body.Backend)
 		request := modelinstall.Request{ModelID: body.ModelID, Backend: body.Backend, AvailableBytes: available, RAMBytes: ram, GPUBytes: gpu}

@@ -563,6 +563,13 @@ approval registers exactly as the operator's sentence does, a decline registers 
   `GET /api/model-install` returns the server-pinned catalog filtered in the browser by those facts plus progress state;
   `POST /api/model-install {model_id,backend}` accepts IDs only,
   obtains system memory for CPU or the selected backend's GPU VRAM from a fresh server-side detection, and starts the verified local pipeline.
+  Before downloads, absent Visual C++ imports produce `dependency_missing` state.
+  Desktop-only `POST {action:"dependency-confirm"}` returns a single-use five-minute confirmation;
+  `POST {action:"dependency-install",confirmation}` consumes it, downloads the fixed TLS prerequisite,
+  verifies its native signature, and invokes only the verified installer through Windows elevation.
+  Cancel or another model attempt revokes the confirmation; GET never returns it.
+  Success rechecks imports and continues automatically. After unpack, a hidden `--version`
+  must exit zero within 15 seconds before the model download can begin.
   After verifying the GGUF, the installer reads its declared context and KV shape, reserves 1 GiB,
   rounds the largest fitting f16-KV context down to 4096-token increments with an 8192-token floor, refuses a model below that floor,
   and persists the calculation both beside the GGUF and in the installed connection.

@@ -1,10 +1,12 @@
 package modelinstall
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"harness/internal/quietproc"
+	"harness/internal/updater"
 	"io"
 	"net"
 	"net/http"
@@ -13,10 +15,108 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMissingNativeImport2z4(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows loader")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte("kernel32.dll\x00")) {
+		t.Fatal("fixture import absent")
+	}
+	b = bytes.ReplaceAll(b, []byte("kernel32.dll\x00"), []byte("absentxx.dll\x00"))
+	target := filepath.Join(t.TempDir(), "llama-server.exe")
+	if err = os.WriteFile(target, b, 0700); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	err = probeRuntime(context.Background(), target)
+	if err == nil || !strings.Contains(err.Error(), "0xC0000135") || !strings.Contains(err.Error(), "absentxx.dll") || time.Since(started) > 16*time.Second {
+		t.Fatalf("missing DLL result: %v", err)
+	}
+	t.Logf("native missing-import exit verified in %s", time.Since(started))
+}
+
+// Opt-in native proof uses an already signed disposable fixture, never a redistributable.
+func TestSignedDependencyFixture2z4(t *testing.T) {
+	path := os.Getenv("AGENTB_DEPENDENCY_TEST_FIXTURE")
+	if path == "" || runtime.GOOS != "windows" {
+		t.Skip("signed disposable fixture not supplied")
+	}
+	sig, err := updater.InspectSignature(path)
+	if err != nil || sig.Status != "Valid" || sig.Subject != "CN=Agent_b Disposable Test Signing" {
+		t.Fatal("fixture must have the disposable test signer")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exit := range []uint32{0, 1638, 0x80070666, 1602, 1223, 1603, 3010, 1641} {
+		t.Run(fmt.Sprint(exit), func(t *testing.T) {
+			m := New(t.TempDir(), "", nil, Runtime{}, nil, nil)
+			var downloaded string
+			m.dependencyClient = &http.Client{Transport: installRoundTrip(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, ContentLength: int64(len(b)), Body: io.NopCloser(bytes.NewReader(b)), Request: r}, nil
+			})}
+			m.verify = func(p string) bool {
+				downloaded = p
+				if err := os.WriteFile(p, []byte("replacement"), 0600); err == nil {
+					t.Fatal("verified file could be replaced")
+				}
+				s, e := updater.InspectSignature(p)
+				return e == nil && s.Status == "Valid" && s.Subject == sig.Subject
+			}
+			m.install = func(p string) (uint32, error) {
+				cmd := quietproc.Quiet(exec.Command(p, strconv.FormatUint(uint64(exit), 10)))
+				err := cmd.Run()
+				if cmd.ProcessState != nil {
+					return uint32(cmd.ProcessState.ExitCode()), nil
+				}
+				return 0, err
+			}
+			want := "dependency_failed"
+			switch exit {
+			case 0, 1638, 0x80070666:
+				want = ""
+			case 1602, 1223:
+				want = "dependency_declined"
+			case 3010, 1641:
+				want = "dependency_restart"
+			}
+			if got := m.installDependency(context.Background()); got != want {
+				t.Fatalf("result %s want %s", got, want)
+			}
+			if _, err := os.Stat(downloaded); !os.IsNotExist(err) {
+				t.Fatal("signed download retained")
+			}
+			if microsoftSignature(path) {
+				t.Fatal("production verifier trusts disposable signer")
+			}
+		})
+	}
+	if err := probeRuntime(context.Background(), path); err != nil {
+		t.Fatalf("loadable native control failed: %v", err)
+	}
+	t.Setenv("AGENTB_TEST_RUNTIME_WAIT", "1")
+	started := time.Now()
+	err = probeRuntime(context.Background(), path)
+	if err == nil || !strings.Contains(err.Error(), "timeout") || time.Since(started) < 14*time.Second || time.Since(started) > 17*time.Second {
+		t.Fatalf("15-second limit failed: %v", err)
+	}
+	t.Logf("native runtime timeout=%s", time.Since(started))
+}
 
 func TestCustomAlreadyAnsweringNeedsStopCommand2yb(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))

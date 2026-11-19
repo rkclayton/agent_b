@@ -5,6 +5,7 @@ package modelinstall
 import (
 	"archive/zip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"harness/internal/updater"
 )
 
 type Artifact struct {
@@ -81,22 +84,30 @@ type Outcome struct {
 }
 
 type Manager struct {
-	mu            sync.RWMutex
-	root          string
-	startupDir    string
-	client        *http.Client
-	requireHTTPS  bool
-	runtime       Runtime
-	models        []Model
-	state         State
-	cancel        context.CancelFunc
-	done          chan struct{}
-	start         func(string, []string, string) (int, error)
-	onReady       func(context.Context, State) error
-	last          Outcome
-	logMu         sync.Mutex
-	port          func() (int, error)
-	healthTimeout time.Duration
+	mu               sync.RWMutex
+	root             string
+	startupDir       string
+	client           *http.Client
+	requireHTTPS     bool
+	runtime          Runtime
+	models           []Model
+	state            State
+	cancel           context.CancelFunc
+	done             chan struct{}
+	start            func(string, []string, string) (int, error)
+	onReady          func(context.Context, State) error
+	last             Outcome
+	logMu            sync.Mutex
+	port             func() (int, error)
+	healthTimeout    time.Duration
+	missing          func(string) bool
+	probe            func(context.Context, string) error
+	verify           func(string) bool
+	install          func(string) (uint32, error)
+	dependencyClient *http.Client
+	pending          Request
+	confirmation     string
+	confirmUntil     time.Time
 }
 
 func New(root, startupDir string, client *http.Client, runtime Runtime, models []Model, onReady func(context.Context, State) error) *Manager {
@@ -115,7 +126,12 @@ func New(root, startupDir string, client *http.Client, runtime Runtime, models [
 			},
 		}
 	}
-	return &Manager{root: root, startupDir: startupDir, client: client, requireHTTPS: requireHTTPS, runtime: runtime, models: append([]Model(nil), models...), start: startDetached, onReady: onReady, port: freePort, healthTimeout: 60 * time.Second}
+	return &Manager{root: root, startupDir: startupDir, client: client, requireHTTPS: requireHTTPS, runtime: runtime, models: append([]Model(nil), models...), start: startDetached, onReady: onReady, port: freePort, healthTimeout: 60 * time.Second, missing: missingDependency, probe: probeRuntime, verify: microsoftSignature, install: runDependency, dependencyClient: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		if r.URL.Scheme != "https" || len(via) >= 10 {
+			return errors.New("dependency redirect refused")
+		}
+		return nil
+	}}}
 }
 
 func (m *Manager) Catalog(memoryBytes uint64, cuda, vulkan bool) map[string]any {
@@ -164,6 +180,14 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 		}
 		return m.Reject(request, coded(code, errors.New("available memory for the selected backend is unknown")))
 	}
+	m.confirmation = ""
+	m.pending = request
+	if m.missing(request.Backend) {
+		m.state = State{Phase: "dependency_missing", Text: dependencyLines["dependency_missing"], Error: dependencyLines["dependency_missing"]}
+		m.mu.Unlock()
+		m.finish(request, "preflight", "failed", time.Now(), coded("dependency_missing", errors.New("dependency_missing")))
+		return nil
+	}
 	runContext, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 	done := make(chan struct{})
@@ -181,6 +205,7 @@ func (m *Manager) Start(ctx context.Context, request Request) error {
 // remove their .part file, and onReady is never reached after cancellation.
 func (m *Manager) Cancel() State {
 	m.mu.Lock()
+	m.confirmation = ""
 	if m.state.Running && m.cancel != nil {
 		m.cancel()
 		m.state.Running = false
@@ -201,6 +226,169 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 	if done != nil {
 		<-done
+	}
+}
+
+const dependencyURL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+const dependencyFailedLine = "The Visual C++ runtime was not installed. Install it from https://aka.ms/vs/17/release/vc_redist.x64.exe, then press Retry."
+
+var dependencyLines = map[string]string{
+	"dependency_missing":  "The local model needs the Microsoft Visual C++ runtime, which is not on this PC.",
+	"dependency_declined": dependencyFailedLine, "dependency_failed": dependencyFailedLine,
+	"dependency_unverified": "The download could not be verified as Microsoft's and was not run.",
+	"dependency_restart":    "The Visual C++ runtime is installed. Restart this PC, then press Retry.",
+}
+
+// One short-lived capability, returned only to the confirming desktop tab.
+// It never appears in Snapshot, and cancel, retry and consumption revoke it.
+func (m *Manager) ConfirmDependency() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state.Phase != "dependency_missing" || m.done != nil {
+		return "", errors.New("dependency confirmation unavailable")
+	}
+	var token [32]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", err
+	}
+	m.confirmation = hex.EncodeToString(token[:])
+	m.confirmUntil = time.Now().Add(5 * time.Minute)
+	return m.confirmation, nil
+}
+
+func (m *Manager) InstallDependency(ctx context.Context, confirmation string) error {
+	m.mu.Lock()
+	if confirmation == "" || confirmation != m.confirmation || time.Now().After(m.confirmUntil) || m.done != nil || m.state.Phase != "dependency_missing" {
+		m.mu.Unlock()
+		return errors.New("dependency confirmation required")
+	}
+	m.confirmation = ""
+	request := m.pending
+	model, _ := m.model(request.ModelID)
+	assets := m.runtime.Backend[request.Backend]
+	ctx, m.cancel = context.WithCancel(ctx)
+	done := make(chan struct{})
+	m.done = done
+	m.state = State{Running: true, Phase: "dependency_install", Text: "Installing the Visual C++ runtime…"}
+	m.mu.Unlock()
+	go func() {
+		defer func() { m.mu.Lock(); close(done); m.done = nil; m.mu.Unlock() }()
+		started := time.Now()
+		m.logStep("dependency_install", "started", started, nil)
+		code := m.installDependency(ctx)
+		if code == "" && m.missing(request.Backend) {
+			code = "dependency_failed"
+		}
+		if code == "" && ctx.Err() != nil {
+			code = "dependency_declined"
+		}
+		if code != "" {
+			m.finish(request, "dependency_install", "failed", started, coded(code, errors.New(code)))
+			m.set(func(s *State) { *s = State{Phase: code, Text: dependencyLines[code], Error: dependencyLines[code]} })
+			return
+		}
+		m.logStep("dependency_install", "completed", started, nil)
+		total := model.Artifact.Bytes
+		for _, asset := range assets {
+			total += asset.Bytes
+		}
+		m.set(func(s *State) {
+			*s = State{Running: true, Phase: "queued", Text: "Preparing verified downloads", Total: total, Model: model.Label}
+		})
+		m.run(ctx, model, request, assets)
+	}()
+	return nil
+}
+
+func microsoftSignature(path string) bool {
+	s, err := updater.InspectSignature(path)
+	return err == nil && s.Status == "Valid" && strings.HasPrefix(s.Subject, "CN=Microsoft Corporation,O=Microsoft Corporation,")
+}
+
+func (m *Manager) installDependency(ctx context.Context) (result string) {
+	started := time.Now()
+	step := "dependency_download"
+	m.logStep(step, "started", started, nil)
+	advance := func(next string) {
+		m.logStep(step, "completed", started, nil)
+		step = next
+		m.logStep(step, "started", started, nil)
+	}
+	defer func() {
+		if result != "" {
+			m.logStep(step, "failed", started, coded(result, errors.New(result)))
+		} else {
+			m.logStep(step, "completed", started, nil)
+		}
+	}()
+	if err := os.MkdirAll(m.root, 0700); err != nil {
+		return "dependency_failed"
+	}
+	dir, err := os.MkdirTemp(m.root, "dependency-")
+	if err != nil {
+		return "dependency_failed"
+	}
+	defer func() {
+		if os.RemoveAll(dir) != nil {
+			result = "dependency_failed"
+		}
+	}()
+	path := filepath.Join(dir, "vc_redist.x64.exe")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dependencyURL, nil)
+	if err != nil {
+		return "dependency_failed"
+	}
+	res, err := m.dependencyClient.Do(req)
+	if err != nil {
+		return "dependency_failed"
+	}
+	defer res.Body.Close()
+	const limit = 100 << 20
+	if res.StatusCode != http.StatusOK || res.ContentLength > limit || res.Request.URL.Scheme != "https" {
+		return "dependency_failed"
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return "dependency_failed"
+	}
+	m.set(func(s *State) { s.Total = max(0, res.ContentLength); s.Downloaded = 0 })
+	n, copyErr := io.Copy(io.MultiWriter(f, progressWriter{add: func(n int64) { m.set(func(s *State) { s.Downloaded += n }) }}), io.LimitReader(res.Body, limit+1))
+	closeErr := f.Close()
+	if copyErr != nil || closeErr != nil || n == 0 || n > limit {
+		return "dependency_failed"
+	}
+	unlock, err := lockDependencyFile(path)
+	if err != nil {
+		return "dependency_failed"
+	}
+	defer unlock()
+	advance("dependency_verify")
+	if !m.verify(path) {
+		return "dependency_unverified"
+	}
+	if ctx.Err() != nil {
+		return "dependency_declined"
+	}
+	advance("dependency_run")
+	exit, err := m.install(path)
+	if errors.Is(err, syscall.Errno(1223)) {
+		return "dependency_declined"
+	}
+	if err != nil {
+		return "dependency_failed"
+	}
+	if exit&0xffff0000 == 0x80070000 {
+		exit &= 0xffff
+	}
+	switch exit {
+	case 0, 1638:
+		return ""
+	case 1602, 1223:
+		return "dependency_declined"
+	case 3010, 1641:
+		return "dependency_restart"
+	default:
+		return "dependency_failed"
 	}
 }
 
@@ -238,6 +426,9 @@ func (m *Manager) run(ctx context.Context, model Model, request Request, runtime
 		}
 		m.finish(request, step, "failed", started, err)
 		line := FailureLine(step, failureCode(err))
+		if failureCode(err) == "runtime_not_loadable" {
+			line += " " + err.Error()
+		}
 		if strings.Contains(err.Error(), "HTTPS is required") {
 			line = "Runtime download failed: HTTPS is required. Retry after updating the app."
 		}
@@ -293,6 +484,17 @@ func (m *Manager) run(ctx context.Context, model Model, request Request, runtime
 		}
 		zipFile.Close()
 	}
+	advance("server_find")
+	serverPath, err := findServer(runtimeRoot)
+	if err != nil {
+		fail(err)
+		return
+	}
+	advance("runtime_check")
+	if err := m.probe(ctx, serverPath); err != nil {
+		fail(coded("runtime_not_loadable", err))
+		return
+	}
 	modelPath := filepath.Join(modelRoot, model.Artifact.Name)
 	advance("model_download")
 	if err := ctx.Err(); err != nil {
@@ -319,12 +521,6 @@ func (m *Manager) run(ctx context.Context, model Model, request Request, runtime
 	sizingJSON, _ := json.MarshalIndent(sizing, "", "  ")
 	if err := os.WriteFile(sizingPath, append(sizingJSON, '\n'), 0o600); err != nil {
 		fail(fmt.Errorf("write context sizing: %w", err))
-		return
-	}
-	advance("server_find")
-	serverPath, err := findServer(runtimeRoot)
-	if err != nil {
-		fail(err)
 		return
 	}
 	advance("port")
@@ -503,6 +699,9 @@ var installActions = map[string]string{"network": "Check the connection, then Re
 
 func FailureLine(step, code string) string {
 	label := installSteps[step]
+	if step == "runtime_check" {
+		label = "Runtime"
+	}
 	if label == "" {
 		label = "Install"
 	}

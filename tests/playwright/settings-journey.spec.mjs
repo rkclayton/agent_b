@@ -199,6 +199,36 @@ test.describe("setup wizard 2xz", () => {
 		}
 	});
 
+	for (const outcome of ["cancel", "success", "unverified", "declined", "cancelled", "failed", "restart", "runtime"]) test(`2z4 dependency consent ${outcome}`, async () => {
+		const page = await wizardHarness.context.newPage(); let downloads = 0, phase = "dependency_missing";
+		const missing = "The local model needs the Microsoft Visual C++ runtime, which is not on this PC.";
+		const lines = {runtime:"Runtime failed (runtime not loadable). Check model-install.log, then Retry with Install. Runtime exit: 0xC0000135. Missing DLL: absentxx.dll.",unverified:"The download could not be verified as Microsoft's and was not run.", restart:"The Visual C++ runtime is installed. Restart this PC, then press Retry."};
+		const failed = "The Visual C++ runtime was not installed. Install it from https://aka.ms/vs/17/release/vc_redist.x64.exe, then press Retry.";
+		const captures=join(repo,"logs/evidence/rel-1.62.242/captures");await mkdir(captures,{recursive:true});
+		const capture = async name => {
+			for(const [width,height] of [[304,254],[1280,860],[1920,1080]]) {
+				await page.setViewportSize({width,height});
+				const message=page.locator(name==="confirm"?".setup-dependency-confirm":".setup-install-error");
+				await message.scrollIntoViewIfNeeded();
+				expect(await message.evaluate(el=>el.scrollWidth<=el.clientWidth&&el.scrollHeight<=el.clientHeight)).toBe(true);
+				const snapshot=await page.evaluate(collectLayoutSnapshot,".setup-main"), failures=auditLayoutSnapshot(snapshot);
+				expect(failures).toEqual([]);
+				const capture=join(captures,`${outcome}-${name}-${width}.png`);
+				await page.screenshot({path:capture});
+				await writeFile(capture+".json",JSON.stringify({page:"setup",state:`${outcome}-${name}`,size:{width,height},capture,failures,snapshot}));
+			}
+		};
+		try {
+			await page.route("**/api/local-detection",route=>route.fulfill({json:{system_memory_bytes:8*1024**3,gpus:[]}}));
+			await page.route("**/api/model-install",async route=>{const body=route.request().method()==="POST"?route.request().postDataJSON():{};if(body.action==="dependency-confirm")return route.fulfill({json:{confirmation:"fixture-confirm"}});if(body.action==="dependency-install"){expect(body.confirmation).toBe("fixture-confirm");downloads++;phase=outcome==="success"?"dependency_install":outcome==="runtime"?"failed":outcome==="cancelled"?"dependency_declined":"dependency_"+outcome;}const line=phase==="dependency_missing"?missing:phase==="dependency_install"?"Installing the Visual C++ runtime…":lines[outcome]||failed;return route.fulfill({json:{catalog:{models:[{id:"fixture",label:"Fixture",min_gib:1,artifact:{bytes:1024}}]},state:{running:phase==="dependency_install",phase,text:line,error:phase==="dependency_install"?"":line}}});});
+			await openSetup(page);await page.getByRole("button",{name:"Install",exact:true}).click();
+			await expect(page.getByRole("alert")).toHaveText(missing);await expect(page.getByRole("button",{name:"Install it",exact:true})).toBeVisible();expect(downloads).toBe(0);await capture("missing");
+			await page.getByRole("button",{name:"Install it",exact:true}).click();await expect(page.getByText("Download and install it from Microsoft? Windows will ask for permission.",{exact:true})).toBeVisible();await capture("confirm");
+			await page.getByRole("button",{name:outcome==="cancel"?"Cancel":"Install",exact:true}).click();
+			if(outcome==="cancel"){await expect(page.getByRole("button",{name:"Install it",exact:true})).toBeVisible();expect(downloads).toBe(0);}else{await expect(page.locator(".setup-install-error")).toHaveText(outcome==="success"?"Installing the Visual C++ runtime…":lines[outcome]||failed);expect(downloads).toBe(1);await capture("outcome");}
+		} finally {await page.close();}
+	});
+
 	test("2xz CHECK 2 connects, saves the reported window, finishes and answers", async () => {
 		const model = await standIn({ window: 32768 }); const page = await wizardHarness.context.newPage();
 		try {

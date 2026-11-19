@@ -586,3 +586,20 @@ The fetch browser’s retained profile is an ordinary folder under the active pr
 Browser-data size and clearing (item 2ym) require the local page session and mutation capability, including reads. Paired-device dispatch exposes neither operation. Clearing stops the owned fetch browser and removes only its retained profile; a later fetch creates a fresh profile. No age-based clearing runs.
 
 The retained fetch browser deletes only Default/Cache, Default/Code Cache and Default/GPUCache when their combined size exceeds 256 MiB, after verifying the browser is stopped at stop/start boundaries (item 2yn); cookies, site storage and history are retained.
+
+Local-model prerequisite installation (operator, item 2z4) downloads only
+`https://aka.ms/vs/17/release/vc_redist.x64.exe`, following TLS-only redirects,
+into a unique temporary directory beneath the active data root (100 MiB maximum).
+Only the setup page's explicit **Install** confirmation can consume its single-use,
+five-minute capability. It is absent from shared state; cancel and retry revoke it.
+The endpoint requires the desktop browser cookie, mutation capability, same origin
+and existing local-operator process check; paired-device dispatch cannot grant it.
+The page ignores synthetic confirmation clicks. These checks do not contain code
+already executing as the operator; Windows identity and UAC remain the boundary.
+Before execution, native Authenticode inspection must report a valid trust chain
+and Microsoft Corporation as both signer common name and organization. A retained
+read-only file handle denies replacement from verification through process exit.
+Only that verified installer receives `runas` and `/install /passive /norestart`;
+Agent_b never elevates itself. The temporary download is removed on every outcome.
+The three pinned Visual C++ imports are checked before downloads; the extracted
+runtime must also pass a hidden, 15-second `--version` check before model download.

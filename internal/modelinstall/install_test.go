@@ -26,7 +26,190 @@ import (
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
+// Archive fixtures below contain text, not executables. Native loader and
+// prerequisite behavior are exercised separately; their download checks remain real.
+func fixtureManager(root, startup string, client *http.Client, runtime Runtime, models []Model, ready func(context.Context, State) error) *Manager {
+	m := New(root, startup, client, runtime, models, ready)
+	m.missing = func(string) bool { return false }
+	m.probe = func(context.Context, string) error { return nil }
+	return m
+}
+
+func TestDependencyConsentOutcomes2z4(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		exit     uint32
+		err      error
+		verified bool
+		want     string
+	}{
+		{"success", 0, nil, true, ""}, {"already", 1638, nil, true, ""}, {"newer", 0x80070666, nil, true, ""}, {"still_missing", 0, nil, true, "dependency_failed"},
+		{"wrong_signer", 0, nil, false, "dependency_unverified"}, {"declined", 0, syscall.Errno(1223), true, "dependency_declined"},
+		{"cancelled", 1602, nil, true, "dependency_declined"}, {"failed", 1603, nil, true, "dependency_failed"},
+		{"restart", 3010, nil, true, "dependency_restart"}, {"restarting", 1641, nil, true, "dependency_restart"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtimeBytes := runtimeZip(t, "llama-server.exe")
+			modelBytes := ggufFixture(t, "fixture", 32768, 8, 2, 64, 64)
+			modelDownloads, downloads, runs, probes := 0, 0, 0, 0
+			present := false
+			var downloaded string
+			client := &http.Client{Transport: installRoundTrip(func(r *http.Request) (*http.Response, error) {
+				data := runtimeBytes
+				if r.URL.Path == "/model" {
+					modelDownloads++
+					data = modelBytes
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data)), ContentLength: int64(len(data)), Request: r}, nil
+			})}
+			a := Artifact{URL: "https://example.org/runtime", Name: "runtime.zip", Bytes: int64(len(runtimeBytes)), SHA256: digest(runtimeBytes)}
+			m := New(t.TempDir(), "", client, Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {a}}}, []Model{{ID: "fixture", Artifact: Artifact{URL: "https://example.org/model", Name: "model.gguf", Bytes: int64(len(modelBytes)), SHA256: digest(modelBytes)}}}, nil)
+			m.missing = func(string) bool { return !present }
+			m.probe = func(context.Context, string) error { probes++; return nil }
+			m.start = func(string, []string, string) (int, error) {
+				return 0, errors.New("fixture stops after verified model download")
+			}
+			m.dependencyClient = &http.Client{Transport: installRoundTrip(func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() != dependencyURL {
+					t.Error("nonfixed dependency address")
+				}
+				downloads++
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("signed stand-in")), ContentLength: 14, Request: r}, nil
+			})}
+			m.verify = func(path string) bool { downloaded = path; return tc.verified }
+			m.install = func(path string) (uint32, error) {
+				if path != downloaded {
+					t.Error("run before verification")
+				}
+				runs++
+				present = tc.name != "still_missing"
+				return tc.exit, tc.err
+			}
+			request := Request{ModelID: "fixture", Backend: "cpu", AvailableBytes: 4 << 30}
+			if err := m.Start(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			if m.Snapshot().Error != dependencyLines["dependency_missing"] || downloads != 0 || modelDownloads != 0 || m.LastOutcome().Error != "dependency_missing" {
+				t.Fatal("missing preflight did not stop downloads")
+			}
+			if err := m.InstallDependency(context.Background(), ""); err == nil {
+				t.Fatal("unconfirmed accepted")
+			}
+			token, err := m.ConfirmDependency()
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.Cancel()
+			if err := m.InstallDependency(context.Background(), token); err == nil || downloads != 0 {
+				t.Fatal("cancelled capability accepted")
+			}
+			token, _ = m.ConfirmDependency()
+			m.confirmUntil = time.Now().Add(-time.Second)
+			if m.InstallDependency(context.Background(), token) == nil {
+				t.Fatal("expired capability accepted")
+			}
+			token, _ = m.ConfirmDependency()
+			if err = m.InstallDependency(context.Background(), token); err != nil {
+				t.Fatal(err)
+			}
+			if m.InstallDependency(context.Background(), token) == nil {
+				t.Fatal("replayed capability accepted")
+			}
+			m.mu.RLock()
+			done := m.done
+			m.mu.RUnlock()
+			if done != nil {
+				<-done
+			}
+			defer m.Close()
+			if downloads != 1 || runs != map[bool]int{true: 1, false: 0}[tc.verified] {
+				t.Fatalf("download/run counts %d/%d", downloads, runs)
+			}
+			if _, err = os.Stat(downloaded); !os.IsNotExist(err) {
+				t.Fatal("download retained")
+			}
+			left, _ := filepath.Glob(filepath.Join(m.root, "dependency-*"))
+			if len(left) != 0 {
+				t.Fatal("temporary directory retained")
+			}
+			if tc.want == "" {
+				if modelDownloads != 1 || probes != 1 || m.LastOutcome().Step != "server_start" {
+					t.Fatalf("did not continue automatically: %+v", m.LastOutcome())
+				}
+			} else {
+				if modelDownloads != 0 || m.LastOutcome().Error != tc.want || m.Snapshot().Error != dependencyLines[tc.want] {
+					t.Fatalf("wrong outcome: %+v", m.LastOutcome())
+				}
+			}
+			log, err := os.ReadFile(filepath.Join(m.root, "logs", "model-install.log"))
+			if err != nil || !bytes.Contains(log, []byte("dependency_missing")) || (tc.want != "" && !bytes.Contains(log, []byte(tc.want))) {
+				t.Fatal("fixed outcome missing in log")
+			}
+		})
+	}
+}
+
+func TestUnloadedRuntimeStopsBeforeModelDownload2z4(t *testing.T) {
+	b := runtimeZip(t, "llama-server.exe")
+	models := 0
+	c := &http.Client{Transport: installRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/model" {
+			models++
+		}
+		return &http.Response{StatusCode: 200, ContentLength: int64(len(b)), Body: io.NopCloser(bytes.NewReader(b)), Request: r}, nil
+	})}
+	a := Artifact{URL: "https://example.org/runtime", Name: "runtime.zip", Bytes: int64(len(b)), SHA256: digest(b)}
+	m := fixtureManager(t.TempDir(), "", c, Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {a}}}, []Model{{ID: "fixture", Artifact: Artifact{URL: "https://example.org/model", Name: "model.gguf", Bytes: 1, SHA256: digest([]byte{0})}}}, nil)
+	m.probe = func(context.Context, string) error {
+		return errors.New("Runtime exit: 0xC0000135. Missing DLL: absentxx.dll.")
+	}
+	if err := m.Start(context.Background(), Request{ModelID: "fixture", Backend: "cpu", AvailableBytes: 4 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.RLock()
+	done := m.done
+	m.mu.RUnlock()
+	if done != nil {
+		<-done
+	}
+	defer m.Close()
+	if models != 0 || m.LastOutcome().Error != "runtime_not_loadable" || !strings.Contains(m.Snapshot().Error, "absentxx.dll") {
+		t.Fatalf("unloadable runtime continued: %+v", m.Snapshot())
+	}
+}
+
 type installRoundTrip func(*http.Request) (*http.Response, error)
+
+type dependencyZeroStream struct{}
+
+func (dependencyZeroStream) Read(b []byte) (int, error) { clear(b); return len(b), nil }
+func TestDependencyDownloadBound2z4(t *testing.T) {
+	for _, size := range []int64{100 << 20, 100<<20 + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			m := New(t.TempDir(), "", nil, Runtime{}, nil, nil)
+			runs := 0
+			m.dependencyClient = &http.Client{Transport: installRoundTrip(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, ContentLength: -1, Body: io.NopCloser(io.LimitReader(dependencyZeroStream{}, size)), Request: r}, nil
+			})}
+			m.verify = func(string) bool { return true }
+			m.install = func(string) (uint32, error) { runs++; return 0, nil }
+			started := time.Now()
+			got := m.installDependency(context.Background())
+			want := ""
+			if size > 100<<20 {
+				want = "dependency_failed"
+			}
+			if got != want || runs != map[bool]int{true: 0, false: 1}[size > 100<<20] {
+				t.Fatalf("bound result=%s runs=%d", got, runs)
+			}
+			files, _ := filepath.Glob(filepath.Join(m.root, "dependency-*"))
+			if len(files) != 0 {
+				t.Fatal("bounded download retained")
+			}
+			t.Logf("download bytes=%d elapsed=%s retained=0", size, time.Since(started))
+		})
+	}
+}
 
 func (f installRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
@@ -82,7 +265,7 @@ func TestInstallFailureLines2z0(t *testing.T) {
 			if name == "network" {
 				source.Close()
 			}
-			m := New(root, "", client, Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {artifact}}}, []Model{{ID: "fixture", Artifact: Artifact{URL: source.URL + "/model", Name: "model.gguf", Bytes: int64(len(modelBytes)), SHA256: digest(modelBytes)}}}, func(context.Context, State) error { return errors.New("fixture registration refused") })
+			m := fixtureManager(root, "", client, Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {artifact}}}, []Model{{ID: "fixture", Artifact: Artifact{URL: source.URL + "/model", Name: "model.gguf", Bytes: int64(len(modelBytes)), SHA256: digest(modelBytes)}}}, func(context.Context, State) error { return errors.New("fixture registration refused") })
 			defer m.Close()
 			if name == "port" {
 				m.port = func() (int, error) { return 0, syscall.EADDRINUSE }
@@ -177,7 +360,7 @@ func TestInstallFailureLines2z0(t *testing.T) {
 }
 
 func TestInstallLogBoundAndPrivateOutcome2z0(t *testing.T) {
-	m := New(t.TempDir(), "", nil, Runtime{}, nil, nil)
+	m := fixtureManager(t.TempDir(), "", nil, Runtime{}, nil, nil)
 	download := (&url.URL{Scheme: "https", Host: "example.org", Path: "/file", RawQuery: "token=planted-token", User: url.UserPassword("someone", "planted-password")}).String()
 	start := time.Now()
 	for i := 0; i < installLogSlots+20; i++ {
@@ -300,7 +483,7 @@ func TestVerifiedInstallDownloadsExtractsStartsAndRegisters(t *testing.T) {
 	models := []Model{{ID: "fixture", Label: "Fixture", Source: server.URL, Artifact: Artifact{URL: server.URL + "/model", Name: "model.gguf", Bytes: int64(len(modelBytes)), SHA256: digest(modelBytes)}}}
 	root, startup := t.TempDir(), t.TempDir()
 	ready := make(chan State, 1)
-	manager := New(root, startup, server.Client(), runtime, models, func(_ context.Context, state State) error { ready <- state; return nil })
+	manager := fixtureManager(root, startup, server.Client(), runtime, models, func(_ context.Context, state State) error { ready <- state; return nil })
 	var health *http.Server
 	var startArgs []string
 	manager.start = func(_ string, args []string, _ string) (int, error) {
@@ -384,7 +567,7 @@ func TestTamperedDownloadIsRefusedBeforeExecution(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(data) }))
 	defer server.Close()
 	runtime := Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {{URL: server.URL, Name: "runtime.zip", Bytes: int64(len(data)), SHA256: digest([]byte("expected"))}}}}
-	manager := New(t.TempDir(), t.TempDir(), server.Client(), runtime, []Model{{ID: "fixture", Artifact: Artifact{URL: server.URL, Name: "model.gguf", Bytes: int64(len(data)), SHA256: digest(data)}}}, nil)
+	manager := fixtureManager(t.TempDir(), t.TempDir(), server.Client(), runtime, []Model{{ID: "fixture", Artifact: Artifact{URL: server.URL, Name: "model.gguf", Bytes: int64(len(data)), SHA256: digest(data)}}}, nil)
 	started := false
 	manager.start = func(string, []string, string) (int, error) { started = true; return 1, nil }
 	if err := manager.Start(context.Background(), Request{ModelID: "fixture", Backend: "cpu", AvailableBytes: 4 << 30}); err != nil {
@@ -408,7 +591,7 @@ func TestCancelStopsDownloadAndNeverRegistersPartialModel2xz(t *testing.T) {
 	}))
 	defer server.Close()
 	artifact := Artifact{URL: server.URL, Name: "runtime.zip", Bytes: 1048576, SHA256: strings.Repeat("0", 64)}
-	manager := New(t.TempDir(), t.TempDir(), server.Client(), Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {artifact}}}, []Model{{ID: "fixture", Artifact: artifact}}, func(context.Context, State) error {
+	manager := fixtureManager(t.TempDir(), t.TempDir(), server.Client(), Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {artifact}}}, []Model{{ID: "fixture", Artifact: artifact}}, func(context.Context, State) error {
 		t.Fatal("cancelled install registered a connection")
 		return nil
 	})
@@ -442,7 +625,7 @@ func TestCancelStopsDownloadAndNeverRegistersPartialModel2xz(t *testing.T) {
 func TestProductionDownloadsRequireHTTPSBeforeNetworkOrExecution(t *testing.T) {
 	data := []byte("never requested")
 	runtime := Runtime{Version: "fixture", Backend: map[string][]Artifact{"cpu": {{URL: "http://127.0.0.1/runtime", Name: "runtime.zip", Bytes: int64(len(data)), SHA256: digest(data)}}}}
-	manager := New(t.TempDir(), t.TempDir(), nil, runtime, []Model{{ID: "fixture", Artifact: Artifact{URL: "https://example.invalid/model", Name: "model.gguf", Bytes: int64(len(data)), SHA256: digest(data)}}}, nil)
+	manager := fixtureManager(t.TempDir(), t.TempDir(), nil, runtime, []Model{{ID: "fixture", Artifact: Artifact{URL: "https://example.invalid/model", Name: "model.gguf", Bytes: int64(len(data)), SHA256: digest(data)}}}, nil)
 	started := false
 	manager.start = func(string, []string, string) (int, error) { started = true; return 1, nil }
 	if err := manager.Start(context.Background(), Request{ModelID: "fixture", Backend: "cpu", AvailableBytes: 4 << 30}); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"harness/internal/events"
 	"harness/internal/modelinstall"
@@ -12,11 +13,43 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"harness/internal/config"
 )
+
+func TestDependencyRequestsRequireDesktopConfirmation2z4(t *testing.T) {
+	for _, who := range []string{"model_no_cookie", "model_descendant", "phone", "second_tab_no_confirmation", "cross_origin"} {
+		t.Run(who, func(t *testing.T) {
+			s := &Server{browserSession: "fixture-cookie", mutationToken: "fixture-mutation", modelInstaller: modelinstall.New(t.TempDir(), "", nil, modelinstall.Runtime{}, nil, nil)}
+			s.operatorState.request = func(*http.Request) error {
+				if who == "model_descendant" {
+					return errors.New("descendant client refused")
+				}
+				return nil
+			}
+			r := httptest.NewRequest("POST", "http://localhost/api/model-install", strings.NewReader(`{"action":"dependency-install"}`))
+			r.Header.Set("Origin", "http://localhost")
+			r.Header.Set("X-AgentB-Mutation-Token", s.mutationToken)
+			if who != "model_no_cookie" {
+				r.AddCookie(&http.Cookie{Name: browserSessionCookie, Value: s.browserSession})
+			}
+			if who == "cross_origin" {
+				r.Header.Set("Origin", "https://example.org")
+			}
+			if who == "phone" {
+				r = r.WithContext(context.WithValue(r.Context(), pairedDeviceContextKey{}, "fixture-device"))
+			}
+			w := httptest.NewRecorder()
+			s.modelInstall(w, r)
+			if w.Code != 403 {
+				t.Fatalf("request accepted: %d", w.Code)
+			}
+		})
+	}
+}
 
 func TestWebModelStandIn(t *testing.T) {
 	a := os.Args

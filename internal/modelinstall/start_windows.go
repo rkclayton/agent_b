@@ -4,18 +4,155 @@ package modelinstall
 
 import (
 	"context"
+	"debug/pe"
 	"errors"
+	"fmt"
 	"harness/internal/quietproc"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
+
+// b10964's CPU, Vulkan and CUDA import inventories have the same VC dependency.
+func missingDependency(string) bool {
+	dir, err := windows.GetSystemDirectory()
+	if err != nil {
+		return true
+	}
+	for _, name := range []string{"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+func lockDependencyFile(path string) (func(), error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	return func() { windows.CloseHandle(h) }, nil
+}
+
+func runDependency(path string) (uint32, error) {
+	// ShellExecute elevates only Microsoft's verified file. The harness token is unchanged.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	ole := windows.NewLazySystemDLL("ole32.dll")
+	hr, _, _ := ole.NewProc("CoInitializeEx").Call(0, 6)
+	if int32(hr) < 0 {
+		return 0, errors.New("dependency shell initialization failed")
+	}
+	defer ole.NewProc("CoUninitialize").Call()
+	verb, _ := windows.UTF16PtrFromString("runas")
+	file, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, err
+	}
+	args, _ := windows.UTF16PtrFromString("/install /passive /norestart")
+	var info struct {
+		Size, Mask                        uint32
+		Window                            uintptr
+		Verb, File, Parameters, Directory *uint16
+		Show                              int32
+		Instance, List                    uintptr
+		Class                             *uint16
+		Key                               uintptr
+		HotKey                            uint32
+		Icon                              uintptr
+		Process                           windows.Handle
+	}
+	info.Size = uint32(unsafe.Sizeof(info))
+	info.Mask = 0x40 | 0x100 | 0x400
+	info.Verb = verb
+	info.File = file
+	info.Parameters = args
+	info.Show = 1
+	ok, _, callErr := windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW").Call(uintptr(unsafe.Pointer(&info)))
+	if ok == 0 {
+		return 0, callErr
+	}
+	defer windows.CloseHandle(info.Process)
+	if _, err := windows.WaitForSingleObject(info.Process, windows.INFINITE); err != nil {
+		return 0, err
+	}
+	var exit uint32
+	err = windows.GetExitCodeProcess(info.Process, &exit)
+	return exit, err
+}
+
+var runtimeProbeMode sync.Mutex
+
+func probeRuntime(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := quietproc.Quiet(exec.CommandContext(ctx, path, "--version"))
+	cmd.Dir = filepath.Dir(path)
+	// A missing import must produce an exit status, never a loader or WER dialog.
+	runtimeProbeMode.Lock()
+	mode := windows.NewLazySystemDLL("kernel32.dll").NewProc("SetErrorMode")
+	previous, _, _ := mode.Call(0x8003)
+	err := cmd.Start()
+	mode.Call(previous)
+	runtimeProbeMode.Unlock()
+	if err == nil {
+		err = cmd.Wait()
+	}
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return ctx.Err()
+		}
+		return errors.New("Runtime exit: timeout (15 s).")
+	}
+	code := uint32(0xffffffff)
+	if cmd.ProcessState != nil {
+		code = uint32(cmd.ProcessState.ExitCode())
+	} else {
+		var systemError syscall.Errno
+		if errors.As(err, &systemError) {
+			code = uint32(systemError)
+		}
+	}
+	line := fmt.Sprintf("Runtime exit: 0x%08X.", code)
+	if code == 0xc0000135 {
+		if p, e := pe.Open(path); e == nil {
+			defer p.Close()
+			symbols, _ := p.ImportedSymbols()
+			system, _ := windows.GetSystemDirectory()
+			for _, s := range symbols {
+				parts := strings.Split(s, ":")
+				dll := parts[len(parts)-1]
+				if filepath.Base(dll) != dll || strings.HasPrefix(strings.ToLower(dll), "api-ms-") {
+					continue
+				}
+				_, local := os.Stat(filepath.Join(filepath.Dir(path), dll))
+				_, global := os.Stat(filepath.Join(system, dll))
+				if local != nil && global != nil {
+					line += " Missing DLL: " + dll + "."
+					break
+				}
+			}
+		}
+	}
+	return errors.New(line)
+}
 
 func startDetached(path string, args []string, directory string) (int, error) {
 	command := quietproc.Quiet(exec.Command(path, args...))

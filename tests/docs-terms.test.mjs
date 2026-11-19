@@ -558,8 +558,8 @@ test("local model install vectors are closed and client emission remains absent 
  const vectors=telemetryVectors().filter(v=>v.type==="model.install");
  assert.deepEqual(new Set(vectors.map(v=>v.outcome)),new Set(["ok","failed","canceled"]));
  const keys="type at step outcome error elapsed_s bytes_done bytes_total backend ram_bytes gpu_bytes".split(" ");
- const steps="preflight prepare runtime_download runtime_unpack model_download metadata context server_find port server_start health startup manifest connection done".split(" ");
- const errors="network http_status disk_space hash_mismatch unpack server_start port_in_use gpu timeout size permission metadata memory catalog other".split(" ");
+ const steps="preflight dependency_install prepare runtime_download runtime_unpack runtime_check model_download metadata context server_find port server_start health startup manifest connection done".split(" ");
+ const errors="network http_status disk_space hash_mismatch unpack server_start port_in_use gpu timeout size permission metadata memory catalog other dependency_missing dependency_declined dependency_unverified dependency_failed dependency_restart runtime_not_loadable".split(" ");
  const valid=v=>Object.keys(v).every(k=>keys.includes(k))&&steps.includes(v.step)&&["ok","failed","canceled"].includes(v.outcome)&&["cpu","cuda","vulkan","unknown"].includes(v.backend)&&(v.outcome==="failed"?errors.includes(v.error):!("error"in v))&&Number.isInteger(v.elapsed_s)&&v.elapsed_s>=0&&v.elapsed_s<=2147483647&&["bytes_done","bytes_total","ram_bytes","gpu_bytes"].every(k=>Number.isInteger(v[k])&&v[k]>=0&&v[k]<=2**53&&(v[k]===0||Number.isInteger(Math.log2(v[k]))));
  for(const v of vectors){assert.ok(valid(v));for(const patch of [{path:"fixture"},{step:"custom"},{error:"raw error"},{bytes_done:3},{backend:"custom"}])assert.equal(valid({...v,...patch}),false);}
  const filter=await readFile(join(repoRoot,"internal/telemetry/filter.go"),"utf8");assert.ok(!filter.includes('"model.install"'));

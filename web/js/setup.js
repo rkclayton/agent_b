@@ -7,6 +7,7 @@ const fullTools = ["read_file", "list_dir", "write_file", "edit_file", "search",
 const suggestedContext = 8192;
 let snapshot, detection, catalog, installState;
 let installError = "";
+let dependencyConfirm = "";
 let screen = 1, connectionID = "";
 let addingFromSettings = false, more = false, installing = false, checking = false, contextNeedsInput = false;
 let draft = { label: "My model", base_url: "http://127.0.0.1:8080", api_key: "", model: "", context: 0 };
@@ -52,10 +53,15 @@ function chooseScreen() {
   const chosen = recommendedModel();
   const size = chosen?.artifact?.bytes ? bytes(chosen.artifact.bytes) : chosen?.min_gib ? `${chosen.min_gib} GiB` : "";
   const installFact = chosen ? `${html(chosen.label)}${size ? ` · ${html(size)}` : ""}` : "";
-  const progress = installing
+  const dependency = installState?.phase === "dependency_missing" && installError;
+  const dependencyRunning = installing && installState?.phase === "dependency_install";
+  const progress = dependencyRunning ? "" : dependency
+    ? dependencyConfirm ? `<div class="setup-dependency-confirm"><span>Download and install it from Microsoft? Windows will ask for permission.</span><div class="setup-line"><button type="button" data-action="dependency-install">Install</button><button type="button" data-action="dependency-cancel">Cancel</button></div></div>` : `<button type="button" data-action="dependency-confirm">Install it</button>`
+    : installing
     ? `<div class="setup-progress"><progress max="${Number(installState?.total_bytes || 1)}" value="${Number(installState?.downloaded_bytes || 0)}"></progress><span class="setup-fact">${html(progressText())}</span><button type="button" data-action="cancel-install">Cancel</button></div>`
-    : `<button type="button" class="setup-primary" data-action="install" ${chosen ? "" : "disabled"}>Install</button>`;
-  return `<h1>Set up a model</h1><div class="setup-option"><strong>Install on this computer</strong><span class="setup-fact">${installFact}</span>${progress}${installError ? `<div class="setup-install-error" role="alert">${html(installError)}</div>` : ""}</div><div class="setup-option"><strong>Connect to a server</strong><div class="setup-line"><input data-field="address" aria-label="Address" value="${attr(draft.base_url)}"><button type="button" data-action="connect">Connect</button></div><button type="button" class="setup-more" data-action="more">More options ${more ? "⌄" : "›"}</button>${more ? `<div class="setup-grid"><label>Name</label><input data-field="name" aria-label="Name" value="${attr(draft.label)}"><label>API key</label><input data-field="api-key" aria-label="API key" type="password" autocomplete="off" value="${attr(draft.api_key)}"><label>Model</label><input data-field="model" aria-label="Model" value="${attr(draft.model)}"><label>Context size</label><input data-field="context" aria-label="Context size" type="number" value="${draft.context > 0 ? draft.context : ""}"></div>` : ""}</div>`;
+    : `<button type="button" class="setup-primary" data-action="install" ${chosen ? "" : "disabled"}>${installState?.phase?.startsWith("dependency_") && installError ? "Retry" : "Install"}</button>`;
+  const dependencyStatus = dependencyRunning ? installState.text : installError;
+  return `<h1>Set up a model</h1><div class="setup-option"><strong>Install on this computer</strong><span class="setup-fact">${installFact}</span>${progress}${dependencyStatus ? `<div class="setup-install-error" role="${dependencyRunning ? "status" : "alert"}">${html(dependencyStatus)}</div>` : ""}</div><div class="setup-option"><strong>Connect to a server</strong><div class="setup-line"><input data-field="address" aria-label="Address" value="${attr(draft.base_url)}"><button type="button" data-action="connect">Connect</button></div><button type="button" class="setup-more" data-action="more">More options ${more ? "⌄" : "›"}</button>${more ? `<div class="setup-grid"><label>Name</label><input data-field="name" aria-label="Name" value="${attr(draft.label)}"><label>API key</label><input data-field="api-key" aria-label="API key" type="password" autocomplete="off" value="${attr(draft.api_key)}"><label>Model</label><input data-field="model" aria-label="Model" value="${attr(draft.model)}"><label>Context size</label><input data-field="context" aria-label="Context size" type="number" value="${draft.context > 0 ? draft.context : ""}"></div>` : ""}</div>`;
 }
 
 function checkingScreen() {
@@ -83,6 +89,10 @@ async function click(event) {
   if (action === "more") { captureDraft(); more = !more; return render(); }
   if (action === "connect") { captureDraft(); return startChecks(); }
   if (action === "install") return installModel();
+  if (action.startsWith("dependency-") && !event.isTrusted) return;
+  if (action === "dependency-confirm") { try { dependencyConfirm = (await request("/api/model-install", { action })).confirmation; render(); } catch (error) { showHeaderError(error); } return; }
+  if (action === "dependency-cancel") { dependencyConfirm = ""; await request("/api/model-install", undefined, "DELETE"); return render(); }
+  if (action === "dependency-install" && dependencyConfirm) return installModel(dependencyConfirm);
   if (action === "cancel-install") return cancelInstall();
   if (action === "back") { screen = Math.max(1, screen - 1); failure = null; return render(); }
   if (action === "retry") return runChecks(failure?.index || 0);
@@ -128,15 +138,16 @@ function recommendedModel() {
   return largestFitting(catalog.models.filter((item) => !available || available >= item.min_gib), available);
 }
 
-async function installModel() {
+async function installModel(confirmation = "") {
   const model = recommendedModel();
   if (!model) return;
   installing = true;
   installError = "";
-  installState = { running: true, total_bytes: model.artifact?.bytes || 1, downloaded_bytes: 0 };
+  dependencyConfirm = "";
+  installState = { running: true, phase:confirmation ? "dependency_install" : "queued", text:confirmation ? "Installing the Visual C++ runtime…" : "", total_bytes: model.artifact?.bytes || 1, downloaded_bytes: 0 };
   render();
   try {
-    await request("/api/model-install", { model_id: model.id, backend: localBackend(detection).backend });
+    await request("/api/model-install", confirmation ? { action:"dependency-install", confirmation } : { model_id: model.id, backend: localBackend(detection).backend });
     while (installing) {
       await delay(300);
       installState = (await request("/api/model-install", undefined, "GET")).state;

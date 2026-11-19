@@ -7,3 +7,4 @@
 @media(max-width:560px){.setup-main{place-items:start center;padding:8px}.setup-wizard{border-radius:8px}.setup-line{align-items:stretch;flex-direction:column}.setup-line button{align-self:flex-start}.setup-grid{grid-template-columns:1fr}.setup-grid label{margin-top:4px}}@media(prefers-reduced-motion:reduce){.setup-page *,.setup-page *::before,.setup-page *::after{transition-duration:0ms!important;animation-duration:0ms!important}}
 
 .setup-install-error{color:var(--alarm);overflow-wrap:anywhere}
+.setup-install-error[role="status"]{color:var(--ink)}

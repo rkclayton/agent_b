@@ -16,8 +16,8 @@ import (
 // closed the moment it exits. So every complaint the install mode made before
 // it had a window was addressed to nobody.
 //
-// The fix is an order, not a feature: the LOG FILE IS THE FIRST THING THE
-// PROCESS DOES. Before elevation, before the marker, before a single check.
+// Once setup owns the installation lock, it opens the log before the marker
+// or candidate checks. Repeated launches leave that first process's log alone.
 // After that every exit is logged with its reason, and a failure early enough
 // that there is no Setup page to show it puts up a message box naming the log.
 

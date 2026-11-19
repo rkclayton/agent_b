@@ -16,6 +16,48 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+func TestConcurrentSetupLeavesFirstProgressAlone2z3(t *testing.T) {
+	if root := os.Getenv("AGENTB_SETUP_REPEAT_FIXTURE"); root != "" {
+		os.Exit(runInstall(installOptions{quiet: true, dataRoot: root, sourceDir: filepath.Join(root, "source")}, []string{"-ApplicationDirectory", filepath.Join(root, "application")}))
+	}
+	root := t.TempDir()
+	unlock, err := lockSetup(filepath.Join(root, "application"))
+	if err != nil || unlock == nil {
+		t.Fatalf("first setup lock: %v", err)
+	}
+	defer unlock()
+	progress := []byte("first setup progress\n")
+	if err := os.WriteFile(installProgressPath(root), progress, 0600); err != nil {
+		t.Fatal(err)
+	}
+	self, _ := os.Executable()
+	children := make([]*exec.Cmd, 4)
+	started := time.Now()
+	for index := range children {
+		child := quietproc.Quiet(exec.Command(self, "-test.run=^TestConcurrentSetupLeavesFirstProgressAlone2z3$"))
+		child.Env = append(os.Environ(), "AGENTB_SETUP_REPEAT_FIXTURE="+root)
+		if err := child.Start(); err != nil {
+			t.Fatal(err)
+		}
+		children[index] = child
+	}
+	for _, child := range children {
+		if err := child.Wait(); err != nil {
+			t.Errorf("repeated setup: %v", err)
+		}
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Errorf("four repeated setups took %s", elapsed)
+	}
+	got, _ := os.ReadFile(installProgressPath(root))
+	if string(got) != string(progress) {
+		t.Errorf("repeated setup replaced first progress: %q", got)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, "logs")); len(entries) != 0 {
+		t.Error("repeated setup opened an install log")
+	}
+}
+
 func TestNativeUninstallRemovesExactDisposableRegistration(t *testing.T) {
 	root := t.TempDir()
 	application, data := filepath.Join(root, "application"), filepath.Join(root, "data")

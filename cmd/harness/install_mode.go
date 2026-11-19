@@ -155,6 +155,16 @@ func outerSignatureDecision(status, subject string) (string, error) {
 
 func runInstall(options installOptions, args []string) (result int) {
 	dataRoot := installDataRoot(options.dataRoot, args)
+	unlock, err := lockSetup(installerArgument(args, "ApplicationDirectory", defaultInstallRoot(options.allUsers)))
+	if err != nil {
+		log := openInstallLog(dataRoot, options.quiet)
+		defer log.close()
+		return log.fail("cannot coordinate setup: %v", err)
+	}
+	if unlock == nil {
+		return 0
+	}
+	defer unlock()
 	log := openInstallLog(dataRoot, options.quiet)
 	defer log.close()
 	_ = os.Remove(installProgressPath(dataRoot))

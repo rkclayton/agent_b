@@ -7,3 +7,5 @@ import "os/exec"
 func detachChild(*exec.Cmd) {}
 
 func lockInstalledLaunch() (func(), error) { return func() {}, nil }
+
+func lockSetup(string) (func(), error) { return func() {}, nil }

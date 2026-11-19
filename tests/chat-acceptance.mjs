@@ -1369,6 +1369,8 @@ if (realModel) {
     const created = [], mutation = (await state()).mutation_token;
     for (let index = 0; index < 40; index++) created.push((await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": mutation }, body: JSON.stringify({ agent_id: "agent_b" }) })).session.id);
     const tree = (body) => page.evaluate(async (value) => (await import(new URL("/static/js/bus.js", location.href).href)).api("/api/chats/tree", value), body);
+    // Item 2xs (08d8f51) caps Recent at twenty; pinned rows retain this overflow proof.
+    for (const id of [...created, sessionID]) await tree({ action: "pin", id, pinned: true });
     for (const folder of ["Alpha", "Beta", "Gamma"]) await tree({ action: "add", name: folder });
     for (let index = 0; index < 3; index++) for (let attempt = 0; attempt < 40; attempt++) { try { await tree({ action: "move", id: created[index], folder: ["Alpha", "Beta", "Gamma"][index] }); break; } catch (error) { if (attempt === 39) throw error; await sleep(50); } }
     await page.reload(); await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 40); await page.locator(".chat-list-folder").evaluateAll((folders) => folders.forEach((folder) => { folder.open = true; }));
@@ -1444,6 +1446,8 @@ if (realModel) {
   assert.match(partialProse.status, /^writing · \d+ tokens(?: ·|$)/);
   releaseProse();
   await waitProjectedChatText(sessionID, "VISIBLE PARTIAL COMPLETE", "completed prose stream");
+  // Item 2xt omits Archive during a run; final text can precede its stopped event.
+  await page.waitForFunction(async (id) => { const { store } = await import("/static/js/bus.js"); const chat = store.sessions[id]; return !!chat && chat.run?.status !== "running" && !chat.pending_approval && !chat.pending_repo_policy; }, sessionID);
   record("mid-stream-prose-visible-without-expansion");
 
   // Plan remains a Settings entry and the removed tab strip stays absent.
@@ -3130,10 +3134,13 @@ if (realModel) {
   record("delete-removes-the-chat-and-keeps-what-it-produced");
   await page.setViewportSize({ width: 320, height: 975 });
   // Fifty chats is the realistic-size list for 2rv and exceeds the engineering floor.
+  // Item 2xs (08d8f51) caps Recent at twenty, leaving pinned rows uncapped.
   const beforeLongList = await state();
   for (let index = 0; index < 50; index++) {
-    await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ connection_id: "acceptance" }) });
+    const created = await json(`http://127.0.0.1:${appPort}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json", "X-AgentB-Mutation-Token": beforeLongList.mutation_token }, body: JSON.stringify({ connection_id: "acceptance" }) });
+    await treeAction({ action: "pin", id: created.session.id, pinned: true });
   }
+  await treeAction({ action: "pin", id: scriptSessionID, pinned: true });
   await page.reload();
   await page.waitForFunction(() => document.querySelectorAll(".chat-list-row[data-session]").length >= 40);
   const listOverflow = await page.evaluate(() => {

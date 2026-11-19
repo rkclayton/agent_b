@@ -17,7 +17,7 @@ export function updateAgentRobot(robot, { state = "idle", doing = "", label } = 
   if (doing) { if (robot.dataset.doing !== doing) robot.dataset.doing = doing; }
   else if ("doing" in robot.dataset) delete robot.dataset.doing;
   if (label !== undefined) {
-    robot.title = label;
-    robot.setAttribute("aria-label", label);
+    if (robot.title !== label) robot.title = label;
+    if (robot.getAttribute("aria-label") !== label) robot.setAttribute("aria-label", label);
   }
 }

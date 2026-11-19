@@ -22,6 +22,84 @@ type failingDeviceTransport struct {
 	kind byte
 }
 
+func TestCancelledSocketEndsSession2z6(t *testing.T) {
+	for _, role := range []string{"agent", "device"} {
+		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+			b := newStandIn(t)
+			b.deadline = time.Hour
+			agentID, deviceID, pairingID := newIdentity(t), newIdentity(t), make([]byte, 16)
+			_, _ = rand.Read(pairingID)
+			agent := NewClient(agentID, Pairing{PairingID: pairingID, DeviceKeyID: deviceID.KeyID(), DeviceSigning: deviceID.SigningPublic(), DeviceAgreement: deviceID.AgreementPublic()}, Dial(b.address), echo)
+			device := NewDeviceClient(deviceID, Pairing{PairingID: pairingID, DeviceKeyID: agentID.KeyID(), DeviceSigning: agentID.SigningPublic(), DeviceAgreement: agentID.AgreementPublic()})
+			agentCtx, stopAgent := context.WithCancel(context.Background())
+			deviceCtx, stopDevice := context.WithCancel(context.Background())
+			defer stopAgent()
+			defer stopDevice()
+			defer device.Close()
+			closed := make(chan map[string]any, 1)
+			observe := func(kind string, fields map[string]any) {
+				if kind == "link.session" {
+					select {
+					case closed <- fields:
+					default:
+					}
+				}
+			}
+			if role == "agent" {
+				agent.OnTelemetry(observe)
+			} else {
+				device.OnTelemetry(observe)
+			}
+			go func() { _ = agent.Run(agentCtx) }()
+			for deadline := time.Now().Add(5 * time.Second); agent.Status().State != "holding"; time.Sleep(time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("agent not holding")
+				}
+			}
+			ready := make(chan struct{}, 1)
+			if err := device.Connect(deviceCtx, Dial(b.address), func([]byte) {}, func(line string) {
+				if strings.HasPrefix(line, "session ") {
+					select {
+					case ready <- struct{}{}:
+					default:
+					}
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-ready:
+			case <-time.After(5 * time.Second):
+				t.Fatal("session not ready")
+			}
+			// Let the peer's final frame reach its blocked socket read before cancellation.
+			for deadline := time.Now().Add(5 * time.Second); agent.Status().State != "phone connected"; time.Sleep(time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("agent session not ready")
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+			started := time.Now()
+			if role == "agent" {
+				stopAgent()
+			} else {
+				stopDevice()
+			}
+			select {
+			case fields := <-closed:
+				elapsed := time.Since(started)
+				t.Logf("%s cancellation to link.session: %s; close=%v", role, elapsed, fields["close"])
+				if elapsed >= 2*time.Second || fields["close"] != "user" {
+					t.Fatalf("cancelled session ended late or with changed reason: %s %v", elapsed, fields["close"])
+				}
+			case <-time.After(95 * time.Second):
+				t.Fatal("cancelled session did not end")
+			}
+		})
+	}
+}
+
 func TestDialAndPairingBoundedAcrossTLSAndUpgrade2yt(t *testing.T) {
 	for _, mode := range []string{"tls", "upgrade", "cancel", "pairing"} {
 		t.Run(mode, func(t *testing.T) {

@@ -1017,6 +1017,9 @@ test("the model sheet keeps required fields above Test and derived controls unde
 
 test("servers group their models and add one without repeating server fields 2y4", async () => {
   test.setTimeout(120000);
+  // Earlier editor journeys intentionally leave connections in their shared fixture.
+  const harness = await start({ exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(root, "grouped-servers"), modelIDs: ["journey-model", "second-model"] });
+  try {
   const evidence = join(repo, "logs", "evidence", "rel-1.62.206", "captures"); await mkdir(evidence, { recursive: true });
   const page = await harness.context.newPage();
   const network = [];
@@ -1061,6 +1064,7 @@ test("servers group their models and add one without repeating server fields 2y4
     for (const id of ids) await bus.api(`/api/connections/${id}`, undefined, "DELETE");
   }, { ids: [addedID, "ui-second", "third-server"], original });
   await page.close();
+  } finally { await harness.stop(); }
 });
 
 // Item 2nq (c) and (d): HIS PICK SURVIVES TEST AND SAVE, and it is VISIBLE.

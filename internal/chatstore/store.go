@@ -16,6 +16,10 @@ import (
 
 const MetadataFile = "chat.json"
 
+// Windows readers can hold the replacement target open; writers also share a
+// temporary filename. One lock bounds coordination without a per-chat lock map.
+var metadataIO sync.RWMutex
+
 type Metadata struct {
 	ID              string    `json:"id"`
 	Created         time.Time `json:"created"`
@@ -82,6 +86,8 @@ func WriteMetadata(path string, metadata Metadata) error {
 		return err
 	}
 	content = append(content, '\n')
+	metadataIO.Lock()
+	defer metadataIO.Unlock()
 	temporary := filepath.Join(path, ".chat.json.tmp")
 	if err := os.WriteFile(temporary, content, 0o600); err != nil {
 		return err
@@ -94,7 +100,9 @@ func WriteMetadata(path string, metadata Metadata) error {
 }
 
 func ReadMetadata(path string) (Metadata, error) {
+	metadataIO.RLock()
 	content, err := os.ReadFile(filepath.Join(path, MetadataFile))
+	metadataIO.RUnlock()
 	if err != nil {
 		return Metadata{}, err
 	}

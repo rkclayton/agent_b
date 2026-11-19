@@ -6,9 +6,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestConcurrentMetadataReadWrite2z6(t *testing.T) {
+	store := New(t.TempDir())
+	paths := make([]string, 50)
+	for i := range paths {
+		var err error
+		paths[i], err = store.Create(fmt.Sprint(i), "fixture", time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := time.Now()
+	var workers sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		workers.Add(1)
+		go func(writer bool) {
+			defer workers.Done()
+			for i := 0; i < 200; i++ {
+				path := paths[i%len(paths)]
+				metadata, err := ReadMetadata(path)
+				if err == nil && writer {
+					metadata.Pinned = true
+					err = WriteMetadata(path, metadata)
+				}
+				if err != nil {
+					t.Errorf("concurrent metadata operation: %v", err)
+					return
+				}
+			}
+		}(worker%2 == 0)
+	}
+	workers.Wait()
+	t.Logf("50 chats, 1600 reads and 800 writes: %s", time.Since(started))
+}
 
 func TestWatchRescansExplorerMoveByIdentity(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "chats"))

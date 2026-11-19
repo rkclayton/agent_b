@@ -216,6 +216,8 @@ func (t *socketTransport) end(err error) {
 }
 
 func (t *socketTransport) Receive(ctx context.Context) ([]byte, error) {
+	stop := context.AfterFunc(ctx, func() { t.end(ctx.Err()) })
+	defer stop()
 	deadline := time.Now().Add(90 * time.Second)
 	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
 		deadline = callerDeadline

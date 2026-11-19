@@ -184,6 +184,11 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	s.OfferReflectionProposals()
 	selected := r.URL.Query().Get("session")
+	// A phone's default state is its list. Only an explicit resync selects
+	// transcript content; choosing the newest chat here can copy a large history.
+	if pairedDeviceAuthenticated(r) && selected == "" {
+		selected = "-"
+	}
 	var snapshot map[string]any
 	total, next := 0, ""
 	if s.replay != nil {

@@ -28,6 +28,54 @@ func TestLargeStoreFirstAnswersAreBounded2qc(t *testing.T) {
 	}
 }
 
+func TestPhoneListIgnoresTranscriptSize2z2(t *testing.T) {
+	var smallBytes int
+	for _, size := range []int{32, 4 << 20} {
+		server := measuredServer(t, 4, 0)
+		content := strings.Repeat("x", size)
+		for chat := 0; chat < 4; chat++ {
+			for step := 0; step < 8; step++ {
+				server.bus.Publish(events.New(events.MessageAppended, fmt.Sprintf("chat-%d", chat), "fixture", map[string]any{
+					"message": events.Message{ID: fmt.Sprint(step), Role: "tool", ToolCallID: fmt.Sprint(step), Content: content},
+				}))
+			}
+		}
+		for _, route := range []string{"state", "chat.list.page"} {
+			raw := server.dispatchAppMessage("fixture", []byte(fmt.Sprintf(`{"v":1,"kind":"request","id":"list","route":%q,"body":{"n":200}}`, route)), newPhoneStreamState())
+			var response appResponseUnit
+			if err := json.Unmarshal(raw, &response); err != nil || response.Status != 200 {
+				t.Fatalf("%s: status=%d error=%v", route, response.Status, err)
+			}
+			var page struct {
+				Sessions map[string]projection.Snapshot `json:"sessions"`
+			}
+			if err := json.Unmarshal(response.Body, &page); err != nil || len(page.Sessions) != 4 {
+				t.Fatalf("%s: rows=%d error=%v", route, len(page.Sessions), err)
+			}
+			for _, row := range page.Sessions {
+				if len(row.Messages)+len(row.Chat)+len(row.Timeline) != 0 {
+					t.Errorf("%s contains transcript rows", route)
+				}
+			}
+			if len(raw) > 64<<10 || strings.Contains(string(raw), content) {
+				t.Fatalf("%s includes transcript: %d bytes", route, len(raw))
+			}
+			if size == 32 && route == "state" {
+				smallBytes = len(raw)
+			} else if len(raw) > smallBytes*2 {
+				t.Errorf("%s = %d bytes, small state = %d", route, len(raw), smallBytes)
+			}
+			t.Logf("tool results=%d bytes route=%s response=%d bytes", size*32, route, len(raw))
+		}
+		if size == 32 {
+			raw := server.dispatchAppMessage("fixture", []byte(`{"v":1,"kind":"request","id":"open","route":"resync","body":{"session_id":"chat-0"}}`), newPhoneStreamState())
+			if !strings.Contains(string(raw), content) {
+				t.Error("explicit resync lost the selected transcript")
+			}
+		}
+	}
+}
+
 func TestLargeStorePhoneJoinAndReconnectAreBounded2qc(t *testing.T) {
 	server := measuredServer(t, 30, 3000)
 	resume := map[string]projection.Snapshot{}

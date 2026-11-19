@@ -62,6 +62,12 @@ func TestClosedAgentLinkReportsItsDeliveryCounts2xl(t *testing.T) {
 	standIn := newScriptedBroker(t, agent, device, pairing)
 	client := NewClient(agent, pairing, func(context.Context) (Transport, error) { return standIn, nil }, nil)
 	reported := make(chan map[string]any, 1)
+	closedLog := make(chan string, 1)
+	client.OnSessionEvent(func(line string) {
+		if line == "session ended reason=user" {
+			closedLog <- line
+		}
+	})
 	client.OnTelemetry(func(kind string, fields map[string]any) {
 		if kind == "link.session" {
 			reported <- fields
@@ -90,6 +96,11 @@ func TestClosedAgentLinkReportsItsDeliveryCounts2xl(t *testing.T) {
 	}
 	cancel()
 	<-done
+	select {
+	case <-closedLog:
+	default:
+		t.Error("PC-ended session has no documented close reason in the link log")
+	}
 	select {
 	case fields := <-reported:
 		for name, want := range map[string]any{"role": "agent", "sent": int64(3), "acked": int64(1), "unacked": int64(2), "close": "user"} {

@@ -139,6 +139,34 @@ func TestTimedOutDialUsesExistingBackoff2yt(t *testing.T) {
 	}
 }
 
+func TestOversizedDeliveryKeepsSessionUsable2z2(t *testing.T) {
+	received := make(chan string, 4)
+	_, agent, _ := linkThroughStandIn(t, echo, func(raw []byte) { received <- string(raw) })
+	for deadline := time.Now().Add(2 * time.Second); agent.Status().State != "phone connected"; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("session not ready")
+		}
+	}
+	before := agent.Pending()
+	if err := agent.DeliverNow(make([]byte, 8<<20)); err == nil {
+		t.Fatal("oversized encrypted frame was accepted")
+	}
+	if agent.Pending() != before {
+		t.Error("refused frame was retained for retry")
+	}
+	if err := agent.DeliverNow([]byte("small refusal")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case text := <-received:
+		if text != "small refusal" {
+			t.Fatal(text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a rejected frame advanced the cipher and the refusal could not be read")
+	}
+}
+
 func (f failingDeviceTransport) Send(raw []byte) error {
 	frame, err := Decode(raw)
 	if err == nil && frame.Type == f.kind {

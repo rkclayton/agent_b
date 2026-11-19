@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -771,6 +772,9 @@ func (c *Client) dropSession(reason string) {
 	if stats == nil {
 		return
 	}
+	if reason == "user" {
+		c.recordEvent("session ended reason=user")
+	}
 	age := c.now().Sub(stats.started)
 	if age < 0 {
 		age = 0
@@ -1049,10 +1053,6 @@ func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
 	session := c.session
 	counter := c.sendCount
 	epoch := c.epoch
-	c.sendCount++
-	if session != nil {
-		c.retainPendingLocked(&Delivery{MessageID: messageID, Plaintext: plaintext, Counter: counter, Epoch: epoch, session: session})
-	}
 	c.mu.Unlock()
 	if session == nil {
 		return errors.New("broker: no session")
@@ -1061,23 +1061,37 @@ func (c *Client) Send(messageID, plaintext []byte, transport Transport) error {
 	if err != nil {
 		return err
 	}
+	frame := CiphertextFrame{
+		PairingID: hexID(c.pairing.PairingID), SessionID: session.SessionID(),
+		MessageID: hexID(messageID), SenderKeyID: hexID(c.identity.KeyID()),
+		RecipientKeyID: hexID(c.pairing.DeviceKeyID), Epoch: epoch,
+		Counter: counter, PlaintextBytes: len(plaintext),
+	}
+	// Noise's ChaChaPoly adds a 16-byte tag, then the frame base64-encodes it.
+	// Refuse before Encrypt advances its nonce or we retain an unsendable frame.
+	header, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	if len(plaintext) > ciphertextPayloadMax || len(header)+base64.RawURLEncoding.EncodedLen(len(plaintext)+16) > ciphertextPayloadMax {
+		return errors.New("broker frame: application message exceeds the encrypted payload limit")
+	}
+	c.mu.Lock()
+	if c.session != session {
+		c.mu.Unlock()
+		return errors.New("broker: no session")
+	}
+	c.sendCount++
+	c.retainPendingLocked(&Delivery{MessageID: messageID, Plaintext: plaintext, Counter: counter, Epoch: epoch, session: session})
+	c.mu.Unlock()
 	aad := TransportAAD(c.pairing.PairingID, sessionID, epoch, DirectionAgentToDevice,
 		c.identity.KeyID(), c.pairing.DeviceKeyID, messageID, counter)
 	ciphertext, err := session.SealMessage(aad, plaintext)
 	if err != nil {
 		return err
 	}
-	out, err := Encode(FrameCiphertext, CiphertextFrame{
-		PairingID:      hexID(c.pairing.PairingID),
-		SessionID:      session.SessionID(),
-		MessageID:      hexID(messageID),
-		SenderKeyID:    hexID(c.identity.KeyID()),
-		RecipientKeyID: hexID(c.pairing.DeviceKeyID),
-		Epoch:          epoch,
-		Counter:        counter,
-		PlaintextBytes: len(plaintext),
-		Ciphertext:     base64.RawURLEncoding.EncodeToString(ciphertext),
-	})
+	frame.Ciphertext = base64.RawURLEncoding.EncodeToString(ciphertext)
+	out, err := Encode(FrameCiphertext, frame)
 	if err != nil {
 		return err
 	}

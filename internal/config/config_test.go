@@ -1238,6 +1238,37 @@ func TestChatReadingSettingsUsePixelsAndMigrateNamedSteps2rg(t *testing.T) {
 	}
 }
 
+func TestBackgroundPersistsPerInstallAndUnknownFallsBack2z5(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	cfg := Defaults(t.TempDir())
+	for _, colour := range BackgroundColors {
+		cfg.BackgroundColor = colour
+		if err := cfg.Save(path); err != nil {
+			t.Fatal(err)
+		}
+		loaded, _, _, err := Load(path)
+		if err != nil || loaded.BackgroundColor != colour {
+			t.Fatalf("restart colour=%s err=%v", colour, err)
+		}
+		if scope, _ := ScopeOf("background_color"); scope != ScopeMachine {
+			t.Fatal("background is not per install")
+		}
+		if err = ApplyOverlay(loaded, Overlay{"background_color": json.RawMessage(`"black"`)}); err != nil || loaded.BackgroundColor != colour {
+			t.Fatal("profile changed install background")
+		}
+	}
+	b, _ := os.ReadFile(path)
+	var document map[string]any
+	_ = json.Unmarshal(b, &document)
+	document["background_color"] = "unknown"
+	b, _ = json.Marshal(document)
+	_ = os.WriteFile(path, b, 0600)
+	loaded, _, _, err := Load(path)
+	if err != nil || loaded.BackgroundColor != "graphite" {
+		t.Fatalf("unknown fallback failed: %v", err)
+	}
+}
+
 func TestGlobalSkillChoicesMigrateOnceToEveryAgentProfile2u7(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	cfg := Defaults(t.TempDir())

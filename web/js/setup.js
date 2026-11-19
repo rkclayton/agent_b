@@ -1,5 +1,6 @@
 import { acquireBrowserSessionToken } from "./browser-session.js";
 import { largestFitting } from "./local-recommendations.js";
+import { applyBackground } from "./settings-chats.js";
 
 const root = document.getElementById("setup");
 const connectionStatus = document.getElementById("connection");
@@ -30,6 +31,7 @@ function emptyRows() {
 async function load() {
   try {
     snapshot = await request("/api/state", undefined, "GET");
+    applyBackground(snapshot.config?.background_color);
     addingFromSettings = new URLSearchParams(location.search).get("from") === "settings";
     telemetryChoice = snapshot.config?.telemetry?.enabled !== false;
     if (!addingFromSettings) {

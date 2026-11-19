@@ -1107,7 +1107,7 @@
   position: fixed;
   z-index: 27;
   inset: var(--app-header-height) 0 0;
-  background: rgba(13, 16, 20, 0.72);
+  background: rgba(var(--bezel-rgb), 0.72);
 }
 .settings-backdrop[hidden] {
   display: none;

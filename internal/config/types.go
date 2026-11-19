@@ -8,33 +8,34 @@ import (
 )
 
 type Config struct {
-	ConfigVersion int                     `json:"config_version"`
-	Listen        string                  `json:"listen"`
-	Workspace     string                  `json:"workspace"`
-	LogDir        string                  `json:"log_dir"`
-	Connections   []Connection            `json:"connections"`
-	Images        Images                  `json:"images"`
-	Profiles      ProfileCatalog          `json:"profiles"`
-	Services      map[string]Service      `json:"services"`
-	Hooks         []Hook                  `json:"hooks"`
-	Agents        []Agent                 `json:"agents"`
-	Chat          Chat                    `json:"chat"`
-	Run           RunConfig               `json:"run"`
-	Cron          Cron                    `json:"cron"`
-	Approval      Approval                `json:"approval"`
-	Credentials   CredentialApproval      `json:"credentials"`
-	Context       GlobalContext           `json:"context"`
-	Memory        Memory                  `json:"memory"`
-	Tools         Tools                   `json:"tools"`
-	Shell         Shell                   `json:"shell"`
-	Sandbox       Sandbox                 `json:"sandbox"`
-	Deliver       Deliver                 `json:"deliver"`
-	OperatorFiles OperatorFiles           `json:"operator_files"`
-	Notifications Notifications           `json:"notifications"`
-	Updates       Updates                 `json:"updates"`
-	Telemetry     Telemetry               `json:"telemetry"`
-	Reflection    Reflection              `json:"reflection"`
-	Skills        map[string]SkillSetting `json:"skills"`
+	ConfigVersion   int                     `json:"config_version"`
+	Listen          string                  `json:"listen"`
+	Workspace       string                  `json:"workspace"`
+	LogDir          string                  `json:"log_dir"`
+	Connections     []Connection            `json:"connections"`
+	Images          Images                  `json:"images"`
+	Profiles        ProfileCatalog          `json:"profiles"`
+	Services        map[string]Service      `json:"services"`
+	Hooks           []Hook                  `json:"hooks"`
+	Agents          []Agent                 `json:"agents"`
+	Chat            Chat                    `json:"chat"`
+	BackgroundColor string                  `json:"background_color"`
+	Run             RunConfig               `json:"run"`
+	Cron            Cron                    `json:"cron"`
+	Approval        Approval                `json:"approval"`
+	Credentials     CredentialApproval      `json:"credentials"`
+	Context         GlobalContext           `json:"context"`
+	Memory          Memory                  `json:"memory"`
+	Tools           Tools                   `json:"tools"`
+	Shell           Shell                   `json:"shell"`
+	Sandbox         Sandbox                 `json:"sandbox"`
+	Deliver         Deliver                 `json:"deliver"`
+	OperatorFiles   OperatorFiles           `json:"operator_files"`
+	Notifications   Notifications           `json:"notifications"`
+	Updates         Updates                 `json:"updates"`
+	Telemetry       Telemetry               `json:"telemetry"`
+	Reflection      Reflection              `json:"reflection"`
+	Skills          map[string]SkillSetting `json:"skills"`
 	// ONE KEY. Empty is off and nothing dials; a URL is the broker this
 	// AgentB reaches its phone through. Everything else about the broker — the
 	// identity, the pairing, the device — is state, not configuration.
@@ -177,6 +178,7 @@ type Chat struct {
 var HideableSurfaces = []string{"plan"}
 
 var ChatTextColors = []string{"default", "white", "red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"}
+var BackgroundColors = []string{"graphite", "black", "midnight", "deep-sea", "forest", "wine", "umber"}
 
 func ChatTextPixels(value any) (int, bool) {
 	switch typed := value.(type) {

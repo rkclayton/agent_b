@@ -2,6 +2,7 @@ import { compareWithServer } from "./build-check.js";
 import { createOperatorReconciler } from "./operator-reconcile.js";
 import { navigationEventSourceConstructed, navigationEventSourceOpened, navigationSnapshotStarted, navigationStateFetchEnded, navigationStateFetchStarted } from "./navigation-telemetry.js";
 import { acquireBrowserSessionToken } from "./browser-session.js";
+import { applyBackground } from "./settings-chats.js";
 
 const browserMutationToken = await acquireBrowserSessionToken();
 
@@ -96,6 +97,7 @@ export function reduce(event) {
     store.selection.session_id = mine && chosen.closed ? selected : store.active;
     persistSelection();
     operatorReconciler.observed();
+    applyBackground(store.config.background_color);
     notify(event);
     return;
   }
@@ -174,6 +176,7 @@ export function reduce(event) {
       return;
     default: return;
   }
+  if(event.type==="config.changed")applyBackground(store.config.background_color);
   notify(event);
 }
 

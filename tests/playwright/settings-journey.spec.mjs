@@ -34,6 +34,63 @@ const toggleSettings = async (page) => {
 	await page.locator(".chat-list-menu-button").click();
 	await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
 };
+
+test("2z5 background menu follows text colour", async () => {
+	const page=await harness.context.newPage();
+	try {
+		await page.goto(harness.base+"/chat?setup=skip");await toggleSettings(page);
+		await page.locator('.settings-nav [data-id="chats"]').click();
+		const ground=page.locator('[data-menu-path="background_color"]');
+		await expect(ground).toBeVisible();
+		expect(await ground.evaluate(node=>getComputedStyle(node).color)).toBe("rgb(232, 238, 244)");
+		const paths=await page.locator('.settings-content [data-menu-path]').evaluateAll(nodes=>nodes.map(n=>n.dataset.menuPath));
+		expect(paths.indexOf("background_color")).toBe(paths.indexOf("chat.text_color")+1);
+		await expect(ground.locator('xpath=ancestor::*[@title][1]')).toHaveAttribute("title","Choose the window background colour.");
+		await ground.click();await expect(ground.locator('xpath=following-sibling::*').locator('strong')).toHaveText(["Graphite","Black","Midnight","Deep sea","Forest","Wine","Umber"]);
+	} finally {await page.close();}
+});
+
+test("2z5 background surfaces and texture measurements", async () => {
+	test.setTimeout(180000);const page=await harness.context.newPage();
+	const baseline=process.env.AGENTB_BACKGROUND_BASELINE==="1",dir=join(repo,"logs/evidence/rel-1.62.243",baseline?"before":"after");await mkdir(dir,{recursive:true});
+	const themes=baseline?["graphite"]:["graphite","black","midnight","deep-sea","forest","wine","umber"],results=[];
+	try {
+		await page.goto(harness.base+"/chat?setup=skip");await page.locator('#chat-task').fill("Example message");await page.locator('#chat-send').click();await expect(page.locator('#chat-log')).toContainText("ui harness reply");
+		for(const theme of themes){
+			await page.setViewportSize({width:1280,height:860});await toggleSettings(page);await page.locator('.settings-nav [data-id="chats"]').click();
+			if(!baseline){await page.locator('[data-menu-path="background_color"]').click();await page.locator(`[data-path="background_color"][data-value="${theme}"]`).click();await expect.poll(async()=>(await harness.getState()).config.background_color).toBe(theme);}
+			await toggleSettings(page);
+			for(const [width,height] of [[304,254],[1280,860],[1920,1080]]){
+				await page.setViewportSize({width,height});
+				for(const surface of ["chat","list","settings"]){
+					if(surface==="list")await page.keyboard.press("Control+k");
+					if(surface==="settings"){await page.locator('.chats-window-close').click();await toggleSettings(page);await page.locator('.settings-nav [data-id="chats"]').click();}
+					const selector=surface==="settings"?".settings-content":surface==="list"?".chats-window":"#chat-log";
+					const snapshot=await page.evaluate(collectLayoutSnapshot,selector),failures=auditLayoutSnapshot(snapshot);
+					const colours=await page.evaluate(()=>{const s=getComputedStyle(document.documentElement);return Object.fromEntries(["--bezel","--well","--raised-fill","--raised-fill-deep","--ink","--mute","--signal","--trace","--alarm","--accent-plan"].map(k=>[k,s.getPropertyValue(k).trim()]));});
+					const opacity=await page.evaluate(()=>getComputedStyle(document.body,"::before").opacity);expect(Number(opacity)).toBe(baseline?.0825:.12);
+					const capture=join(dir,`${theme}-${surface}-${width}.png`);await page.screenshot({path:capture});results.push({theme,page:surface,size:{width,height},snapshot,failures,colours,opacity,capture});
+					if(surface==="settings")await toggleSettings(page);
+				}
+			}
+		}
+		await writeFile(join(dir,"measurements.json"),JSON.stringify(results,null,2));
+        if(!baseline)expect(results.flatMap(r=>r.failures)).toEqual([]);
+	}finally{await page.close();}
+});
+test("2z5 background survives restart and unknown values fall back", async () => {
+	test.setTimeout(120000);
+	const options={exe:join(root,"Agent_b.exe"),appRoot:repo,data:join(root,"background-restart")};
+	let fresh=await start(options);
+	try {
+		const page=await fresh.context.newPage();await page.goto(fresh.base+"/chat?setup=skip");await toggleSettings(page);await page.locator('.settings-nav [data-id="chats"]').click();
+		await page.locator('[data-menu-path="background_color"]').click();await page.locator('[data-path="background_color"][data-value="wine"]').click();await expect.poll(async()=>(await fresh.getState()).config.background_color).toBe("wine");
+		await fresh.stop();fresh=await start({...options,reuseConfig:true});
+		const restarted=await fresh.context.newPage();await restarted.goto(fresh.base+"/chat?setup=skip");await expect.poll(()=>restarted.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--bezel").trim())).toBe("#170D12");
+		await fresh.stop();const path=join(options.data,"harness.json"),config=JSON.parse(await readFile(path,"utf8"));config.background_color="unknown";await writeFile(path,JSON.stringify(config));fresh=await start({...options,reuseConfig:true});
+		expect((await fresh.getState()).config.background_color).toBe("graphite");
+	}finally{await fresh.stop();}
+});
 let root;
 let harness;
 let hermesHome;
@@ -431,9 +488,9 @@ test("Chats keeps profile reading approval context delete and General Advanced 2
 		return performance.now() - window.__fontMenuClosed.at >= 250;
 	});
 	await stabilizeMenu("chat.text_color");
-	await expect(page.locator('.colour-menu .setting-menu')).toBeVisible();
+	await expect(page.locator('.colour-menu:has([data-menu-path="chat.text_color"]) .setting-menu')).toBeVisible();
 	const expectedColours = [[232,238,244],[255,255,255],[255,107,107],[255,159,67],[255,209,102],[60,240,138],[77,223,247],[108,168,255],[199,146,234],[255,133,194]];
-	const colourRows = page.locator('.colour-menu .setting-menu [role="option"] strong');
+	const colourRows = page.locator('.colour-menu:has([data-menu-path="chat.text_color"]) .setting-menu [role="option"] strong');
 	await expect(colourRows).toHaveCount(10);
 	expect(await colourRows.evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).color))).toEqual(expectedColours.map((colour) => `rgb(${colour.join(", ")})`));
 	await page.evaluate(() => { const anchor = document.querySelector('[data-menu-path="chat.text_color"]'); anchor.nextElementSibling.hidden = true; anchor.removeAttribute("aria-expanded"); });

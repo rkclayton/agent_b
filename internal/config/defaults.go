@@ -38,8 +38,9 @@ func Defaults(workspace string) Config {
 	// with wording the operator could not act on.
 	connection.ID, connection.Label, connection.BaseURL, connection.Model = "local", "Local", "http://127.0.0.1:8080", ""
 	return Config{
-		ConfigVersion: CurrentConfigVersion,
-		Listen:        "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
+		BackgroundColor: "graphite",
+		ConfigVersion:   CurrentConfigVersion,
+		Listen:          "127.0.0.1:8790", Workspace: abs, LogDir: "logs",
 		Connections: []Connection{connection}, Agents: []Agent{{Name: "agent_b", Toolset: FullToolset(), Thinking: true}},
 		Services: map[string]Service{}, Hooks: []Hook{},
 		Sandbox: Sandbox{Enabled: false, initialized: true},
@@ -51,6 +52,9 @@ func Defaults(workspace string) Config {
 }
 
 func applyDefaults(c *Config) {
+	if !allowed(c.BackgroundColor, BackgroundColors) {
+		c.BackgroundColor = "graphite"
+	}
 	d := Defaults(c.Workspace)
 	legacyFull := FullToolset()[:12]
 	previousFull := FullToolset()[:13]

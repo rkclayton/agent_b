@@ -83,6 +83,9 @@ func (c Config) validateBasics() error {
 	if c.Chat.TextColor != "" && !allowed(c.Chat.TextColor, ChatTextColors) {
 		return fmt.Errorf("chat.text_color: %q is not offered", c.Chat.TextColor)
 	}
+	if c.BackgroundColor != "" && !allowed(c.BackgroundColor, BackgroundColors) {
+		return fmt.Errorf("background_color: %q is not offered", c.BackgroundColor)
+	}
 	// an unknown hidden surface would be a surface nothing can bring
 	// back, so the name is refused rather than stored and forgotten.
 	for _, name := range c.Chat.HiddenSurfaces {

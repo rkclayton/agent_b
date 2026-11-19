@@ -42,6 +42,7 @@ const (
 // list is a test failure, because absence is indistinguishable from an oversight
 // the same rule the telemetry allow-list lives by.
 var scopes = map[string]Scope{
+	"background_color": ScopeMachine, // the window ground belongs to this install
 	// ------------------------------------------------------------ machine-wide
 	"config_version": ScopeMachine, // the file's own format
 	"listen":         ScopeMachine, // one port, one machine

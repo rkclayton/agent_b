@@ -725,6 +725,8 @@ Enter to send, Shift+Enter for a newline, and Escape to clear the draft. Every i
 
 ## Configuration
 
+`background_color` is a machine-scoped setting: `graphite` (default), `black`, `midnight`, `deep-sea`, `forest`, `wine`, or `umber`. It applies immediately to the window ground and derived fills, survives restart and profile changes, and an unknown stored value loads as Graphite. Text and status colours are independent.
+
 - `connections[].capabilities.vision` is `reads images`, `accepts images but does not read them`, or `rejected`;
   automatic native image routing requires the first value. `sandbox.workspaces` is an object whose absolute-path keys explicitly select Docker Sandbox
   execution. Both keys are present in `harness.example.json` and are additive under the current schema.

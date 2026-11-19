@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { BACKGROUND_COLORS, applyBackground } from "./settings-chats.js";
+
+test("background choices share the exact Graphite surface offsets 2z5",()=>{
+  assert.deepEqual(BACKGROUND_COLORS.map(row=>row[1]),["Graphite","Black","Midnight","Deep sea","Forest","Wine","Umber"]);
+  for(const [key,,hex]of BACKGROUND_COLORS){const palette=applyBackground(key,null);assert.equal(palette["--bezel"],hex);assert.equal(palette["--raised-fill-deep"],hex);assert.deepEqual(Object.keys(palette),["--bezel","--bezel-rgb","--well","--raised-fill","--raised-fill-deep"]);}
+  assert.deepEqual(applyBackground("unknown",null),applyBackground("graphite",null));
+  assert.equal(applyBackground("graphite",null)["--well"],"#080a0d");assert.equal(applyBackground("graphite",null)["--raised-fill"],"#15181c");
+});
 
 // Item 2m7: the operator's two reading complaints, asserted rather than
 // eyeballed — which is the item's own word for (c).
@@ -9,12 +17,10 @@ const tokens = read("../css/tokens.css");
 const chatCSS = read("../css/chat.css");
 const chatJS = read("./chat.js");
 
-test("the background texture is half what it was", () => {
-  // (a): the value before this item was .165, and the report states it so the
-  // change is checkable rather than asserted.
+test("the background texture is the approved stronger default 2z5", () => {
   const match = /--etch-fade:\s*([0-9.]+)/.exec(tokens);
   assert.ok(match, "the etch dial is gone");
-  assert.equal(Number(match[1]), 0.0825);
+  assert.equal(Number(match[1]), 0.12);
 });
 
 test("no bold is synthesized: every weight asked for is one the product ships", () => {

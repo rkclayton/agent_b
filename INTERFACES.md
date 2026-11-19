@@ -754,7 +754,9 @@ so the page neither shows nor edits it; a `broker.url` written into the file sti
 uses (`BeginPair` then `ConfirmPair`, or `Pair` for both; `Connect`, `Send`, `Counters`, `Close`), with the payload types and `KeyIDFor` exported so no other repository copies them.
 Another repository imports them only as `harness/pkg/brokerclient`, which re-exports those and nothing else. `Connect`'s `received` runs on
 its own goroutine behind a queue of 256, so it may call `Send`; a message that finds the queue full is not acknowledged and ends the link.
-`Connect` asks for presence and its `event` says `peer connected` / `peer gone`. Each side keeps at most 64 messages unacknowledged, the broker's
+`Connect` asks for presence and its `event` says `peer connected` / `peer gone`.
+`DeviceClient.OnClosed` optionally receives the terminal error after link cleanup, outside the client mutex, before the existing `closed` string event. Explicit Close/context cancellation suppresses both notifications. A mid-session revoked notice yields the same fatal `Problem{Code:"revoked"}` as a HELLO refusal; no wire or telemetry word changes.
+Each side keeps at most 64 messages unacknowledged, the broker's
 intent bound (`Client.Deliver` and `DeviceClient.Send` wait; a handler on the reader uses `DeliverNow`); a device frees one at DELIVERY_EXPIRED
 or after the broker's five-minute lifetime. A RESEND for a message no longer held is answered once with RESEND_DECLINED (frame 28), never an ERROR;
 after a nonfatal `queue_full` the agent sends the refused message again, same message id, under the next session, a second after its READY.

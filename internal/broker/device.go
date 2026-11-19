@@ -52,6 +52,7 @@ type DeviceClient struct {
 	pairing   *devicePairing // between BeginPair and ConfirmPair
 	client    string
 	telemetry func(string, map[string]any)
+	closed    func(error)
 	stats     *deviceSessionStats
 }
 
@@ -191,6 +192,14 @@ func (d *DeviceClient) endPairing() {
 	}
 }
 
+// OnClosed observes a terminal link error after cleanup. Close/context cancellation
+// does not notify it. The callback runs outside the client mutex and should return promptly.
+func (d *DeviceClient) OnClosed(closed func(error)) {
+	d.mu.Lock()
+	d.closed = closed
+	d.mu.Unlock()
+}
+
 // Connect authenticates as the device and serves the link on its own goroutine until
 // Close or the context ends. received is given each opened message, in order, on a
 // goroutine of its own, so it may call Send (item 2wp); event gets one line per session
@@ -238,6 +247,7 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 		close(inbox)
 		_ = t.Close(1000, "done")
 		d.mu.Lock()
+		closed := d.closed
 		var record map[string]any
 		if d.link == t { // a Connect that came after this link ended keeps its own
 			record = d.sessionRecordLocked(linkCloseReason(err, ctx))
@@ -248,6 +258,9 @@ func (d *DeviceClient) Connect(ctx context.Context, dial Dialer, received func([
 			d.observe("link.session", record)
 		}
 		if ctx.Err() == nil {
+			if closed != nil {
+				closed(err)
+			}
 			event("closed: " + err.Error())
 		}
 	}()
@@ -455,6 +468,12 @@ func (d *DeviceClient) serve(ctx context.Context, t Transport, inbox chan<- []by
 				openedAt = time.Time{}
 				event("handshake abandoned")
 			}
+		case FrameRevoked:
+			var revoked revokePayload
+			if err := DecodeInto(frame.Payload, &revoked); err != nil {
+				return err
+			}
+			return &Problem{Code: "revoked", Detail: "pairing revoked", Fatal: true}
 		case FrameError:
 			var in ErrorPayload
 			_ = DecodeInto(frame.Payload, &in)

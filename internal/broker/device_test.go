@@ -22,6 +22,61 @@ type failingDeviceTransport struct {
 	kind byte
 }
 
+func TestDeviceTerminalProblems2z7(t *testing.T) {
+	for _, mode := range []string{"hello", "revoked", "closed", "silent"} {
+		t.Run(mode, func(t *testing.T) {
+			id := newIdentity(t)
+			b := newScriptedBroker(t, id, id, Pairing{})
+			timeout := 5 * time.Second
+			if mode == "silent" {
+				timeout = 20 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			var err error
+			switch mode {
+			case "hello":
+				b.push(FrameError, ErrorPayload{Code: "revoked", Detail: "pairing revoked", Fatal: true})
+				err = deviceRead(ctx, b, FrameChallenge, &challengePayload{})
+			case "revoked":
+				b.push(FrameRevoked, revokePayload{})
+			case "closed":
+				close(b.closed)
+			}
+			if mode != "hello" {
+				err = NewDeviceClient(id, Pairing{}).serve(ctx, b, make(chan []byte, 1), func(string) {})
+			}
+			var problem *Problem
+			if mode == "hello" || mode == "revoked" {
+				if !errors.As(err, &problem) || problem.Code != "revoked" || !problem.Fatal {
+					t.Fatalf("terminal error = %T %v", err, err)
+				}
+			} else if errors.As(err, &problem) || (mode == "silent" && !errors.Is(err, context.DeadlineExceeded)) || (mode == "closed" && err.Error() != "closed") {
+				t.Fatalf("changed terminal error: %T %v", err, err)
+			}
+			if got, want := linkCloseReason(err, context.Background()), map[string]string{"hello": "user", "revoked": "user", "closed": "peer_closed", "silent": "network"}[mode]; got != want {
+				t.Fatalf("close word = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestDeviceRevokedNotifiesCaller2z7(t *testing.T) {
+	b, _, device := linkThroughStandIn(t, echo, func([]byte) {})
+	ended := make(chan error, 1)
+	device.OnClosed(func(err error) { _ = device.Counters(); ended <- err })
+	b.sendTo("device", FrameRevoked, revokePayload{PairingID: hexID(device.Pairing().PairingID)})
+	select {
+	case err := <-ended:
+		var problem *Problem
+		if !errors.As(err, &problem) || problem.Code != "revoked" || !problem.Fatal {
+			t.Fatalf("caller error = %T %v", err, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("caller did not receive typed closure outside the mutex")
+	}
+}
+
 func TestCancelledSocketEndsSession2z6(t *testing.T) {
 	for _, role := range []string{"agent", "device"} {
 		t.Run(role, func(t *testing.T) {

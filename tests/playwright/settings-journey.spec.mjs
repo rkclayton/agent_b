@@ -451,12 +451,32 @@ test("Chats keeps profile reading approval context delete and General Advanced 2
 		await size.fill(invalid); await size.press("Tab");
 		await expect(page.locator(".field-error")).toContainText("9 to 32");
 	}
+	// Hold the first save response while the page receives a later config event.
+	const sizeSaved = Promise.withResolvers();
+	const releaseSizeReply = Promise.withResolvers();
+	const holdSizeReply = async (route) => {
+		const request = route.request();
+		if (request.method() !== "POST" || request.postDataJSON().chat?.text_size !== 16) return route.continue();
+		const response = await route.fetch();
+		sizeSaved.resolve();
+		await releaseSizeReply.promise;
+		await route.fulfill({ response });
+	};
+	await page.route("**/api/config", holdSizeReply);
 	await size.fill("16"); await size.press("Tab");
-	await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.text_size).toBe(16);
+	try {
+		await sizeSaved.promise;
+		await expect.poll(async () => (await (await page.request.get(`${harness.base}/api/state`)).json()).config.chat.text_size).toBe(16);
 
-	const configured = { run: { cycle_window: 7, queue_depth: 3, max_concurrent: 2 }, reflection: { floor: { model_calls: 5, tool_calls: 4 } }, chat: { hidden_surfaces: ["plan"], typeface: "Absent Font Fixture" } };
-	const patched = await page.request.post(`${harness.base}/api/config`, { headers: mutationHeaders, data: configured });
-	expect(patched.ok()).toBe(true);
+		const configured = { run: { cycle_window: 7, queue_depth: 3, max_concurrent: 2 }, reflection: { floor: { model_calls: 5, tool_calls: 4 } }, chat: { hidden_surfaces: ["plan"], typeface: "Absent Font Fixture" } };
+		const patched = await page.request.post(`${harness.base}/api/config`, { headers: mutationHeaders, data: configured });
+		expect(patched.ok()).toBe(true);
+		await expect(page.locator('[data-menu-path="chat.typeface"]')).toContainText("Absent Font Fixture · missing");
+	} finally {
+		releaseSizeReply.resolve();
+	}
+	await expect(size.locator("xpath=following-sibling::*[contains(@class,'setting-applied')]")).toBeVisible();
+	await page.unroute("**/api/config", holdSizeReply);
 	await expect(page.locator('[data-menu-path="chat.typeface"]')).toContainText("Absent Font Fixture · missing");
 	const evidence = join(repo, "logs", "evidence", "rel-1.62.33"); await mkdir(evidence, { recursive: true });
 	const stabilizeMenu = async (path) => page.waitForFunction((menuPath) => {

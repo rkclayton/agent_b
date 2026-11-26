@@ -73,7 +73,7 @@ function configFor({ appPort, modelPort, data, workspace, agents = [], connectio
 // start brings up the harness. `reachable: false` leaves the model port unbound,
 // which is what the operator had. `routeFailures` is a set of API path prefixes
 // the browser context fails, so a scenario can break `/api/plan` alone.
-export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768, freshSetup = false, browserSite = "" }) {
+export async function start({ exe, appRoot, data, reachable = true, viewport = { width: 1250, height: 975 }, readyTimeout = 15000, agents = [], modelIDs = ["ui-harness"], connectionModel = "ui-harness", brokerURL = "", streamDelayMs = 0, memoryEnabled = false, reuseConfig = false, validEfforts = [], contextSize = 32768, reportedContext = 32768, freshSetup = false, browserSite = "", configure }) {
   const dataRoot = resolve(data);
   const workspace = join(dataRoot, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -138,6 +138,7 @@ export async function start({ exe, appRoot, data, reachable = true, viewport = {
 		config.listen = `127.0.0.1:${appPort}`;
 		for (const connection of config.connections || []) connection.base_url = `http://127.0.0.1:${modelPort}`;
 	}
+  if (configure) configure(config);
   await writeFile(configPath, JSON.stringify(config, null, 2));
 
   let stderr = "";

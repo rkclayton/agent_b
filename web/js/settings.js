@@ -2069,6 +2069,7 @@ async function saveSettings(pathPrefix = "") {
   const entries = [...drafts.entries()].filter(([path]) => !pathPrefix || (Array.isArray(pathPrefix) ? pathPrefix.includes(path) : path.startsWith(pathPrefix)));
   if (!entries.length) return true;
   const changedPaths = entries.map(([path]) => path);
+  const configBeforeSave = store.config;
   settingsSaving = true;
   let finishSave;
   settingsSaveDone = new Promise((resolve) => { finishSave = resolve; });
@@ -2087,7 +2088,9 @@ async function saveSettings(pathPrefix = "") {
       draftKinds.delete(path);
       errors.delete(path);
     }
-    reduce({ type: "config.changed", data: { config: result } });
+    // The event stream can apply a newer config while this response is in flight.
+    // Apply the response only when no authoritative config update has arrived.
+    if (store.config === configBeforeSave) reduce({ type: "config.changed", data: { config: result } });
     settingsSaveMessage = drafts.size ? `${drafts.size} unsaved change${drafts.size === 1 ? "" : "s"} remain` : "All changes saved";
     if (changedPaths.some((path) => path === "shell.service_account.account" || path === "shell.service_account.domain"))
       await refreshServiceAccountStatus();

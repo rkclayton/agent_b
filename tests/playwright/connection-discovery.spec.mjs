@@ -1079,25 +1079,48 @@ test("local command editor stays private and remote rows have no fields 2yb", as
 
 test("installed model controls show all states and confirm removal size 2ya", async () => {
   test.setTimeout(120_000);
-  const page = await harness.context.newPage({ viewport: { width:1280,height:860 } });
-  await page.goto(`${harness.base}/chat`); await openSettings(page); await page.locator('.settings-nav [data-id="connections"]').click();
-  await page.evaluate(async () => {const {store,reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);const c={...store.config.connections[0],id:'installed-local',label:'local',model:'fixture-model',stop_when_idle_minutes:60};reduce({type:'config.changed',data:{config:{...store.config,connections:[c]}}});});
-  const folder='logs/evidence/rel-1.62.212/captures';await mkdir(folder,{recursive:true});
-  for(const width of [304,1280,1920]){
-    await page.setViewportSize({width,height:width===304?254:width===1920?1080:860});
-    for(const state of ['stopped','loading','running','failed']){
-      await page.evaluate(async state=>{const {reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);reduce({type:'model.state',data:{connection_id:'installed-local',state,reason:state==='failed'?'health':'requested',model:'Example model',bytes:1024**3}})},state);
-      const row=page.locator('[data-managed-model="installed-local"]');await expect(row).toContainText('This computer');await expect(row).toContainText(state==='failed'?'did not start':state);
-      await expect(row.getByRole('button',{name:['running','loading'].includes(state)?'Stop':'Start',exact:true})).toBeVisible();
-      await expect(row.locator('[data-path$="stop_when_idle_minutes"]')).toHaveValue('60');
-      await row.scrollIntoViewIfNeeded(); await page.screenshot({path:`${folder}/model-${state}-${width}.png`}); await row.screenshot({path:`${folder}/row-${state}-${width}.png`});
-      expect(await row.evaluate(el=>el.scrollWidth<=el.clientWidth&&el.getBoundingClientRect().right<=innerWidth)).toBe(true);
-      const findings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'[data-managed-model="installed-local"]')); await writeFile(`${folder}/layout-${state}-${width}.json`,JSON.stringify(findings)); expect(findings).toEqual([]);
-      if(width===304){await row.locator(".managed-model-idle").scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/idle-${state}-${width}.png`});}
+  const fresh = await start({
+    exe: join(root, "Agent_b.exe"),
+    appRoot: repo,
+    data: join(root, "installed-model"),
+    configure(config) {
+      const model = config.connections[0];
+      Object.assign(model, { id: "installed-local", label: "local", model: "fixture-model", stop_when_idle_minutes: 60 });
+      config.agents[0].b = model.id;
+    },
+  });
+  try {
+    const page = await fresh.context.newPage({ viewport: { width: 1280, height: 860 } });
+    await page.goto(`${fresh.base}/chat`);
+    await openSettings(page);
+    await page.locator('.settings-nav [data-id="connections"]').click();
+    // The server supplies the connection on every snapshot. Wait for the first
+    // one before injecting model states, which this fixture drives in the page.
+    await page.waitForFunction(async () => {
+      const bus = performance.getEntriesByType("resource").find(entry => /\/bus\.js(?:\?|$)/.test(entry.name));
+      if (!bus) return false;
+      const { store } = await import(bus.name);
+      return store.loaded && store.config.connections?.some(connection => connection.id === "installed-local");
+    });
+    const folder='logs/evidence/rel-1.62.212/captures';await mkdir(folder,{recursive:true});
+    for(const width of [304,1280,1920]){
+      await page.setViewportSize({width,height:width===304?254:width===1920?1080:860});
+      for(const state of ['stopped','loading','running','failed']){
+        await page.evaluate(async state=>{const {reduce}=await import(performance.getEntriesByType('resource').find(e=>/\/bus\.js(?:\?|$)/.test(e.name)).name);reduce({type:'model.state',data:{connection_id:'installed-local',state,reason:state==='failed'?'health':'requested',model:'Example model',bytes:1024**3}})},state);
+        const row=page.locator('[data-managed-model="installed-local"]');await expect(row).toContainText('This computer');await expect(row).toContainText(state==='failed'?'did not start':state);
+        await expect(row.getByRole('button',{name:['running','loading'].includes(state)?'Stop':'Start',exact:true})).toBeVisible();
+        await expect(row.locator('[data-path$="stop_when_idle_minutes"]')).toHaveValue('60');
+        await row.scrollIntoViewIfNeeded(); await page.screenshot({path:`${folder}/model-${state}-${width}.png`}); await row.screenshot({path:`${folder}/row-${state}-${width}.png`});
+        expect(await row.evaluate(el=>el.scrollWidth<=el.clientWidth&&el.getBoundingClientRect().right<=innerWidth)).toBe(true);
+        const findings=auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot,'[data-managed-model="installed-local"]')); await writeFile(`${folder}/layout-${state}-${width}.json`,JSON.stringify(findings)); expect(findings).toEqual([]);
+        if(width===304){await row.locator(".managed-model-idle").scrollIntoViewIfNeeded();await page.screenshot({path:`${folder}/idle-${state}-${width}.png`});}
+      }
     }
+    await page.setViewportSize({width:1280,height:860});
+    await page.locator('[data-action="model-remove"]').click();await expect(page.getByRole('dialog')).toContainText(/1.*GB/);await page.getByRole('button',{name:'Cancel',exact:true}).click();
+    let action='';await page.route('**/api/model/start',route=>{action=route.request().postDataJSON().connection_id;return route.fulfill({json:{connection_id:action,state:'running',reason:'ready',model:'Example model',bytes:1024**3}})});
+    await page.locator('[data-action="model-start"]').click();await expect.poll(()=>action).toBe('installed-local');await page.locator('[data-managed-model="installed-local"]').getByRole('button',{name:'Change',exact:true}).click();await expect(page).toHaveURL(/\/setup\?from=settings/);await page.close();
+  } finally {
+    await fresh.stop();
   }
-  await page.setViewportSize({width:1280,height:860});
-  await page.locator('[data-action="model-remove"]').click();await expect(page.getByRole('dialog')).toContainText(/1.*GB/);await page.getByRole('button',{name:'Cancel',exact:true}).click();
-  let action='';await page.route('**/api/model/start',route=>{action=route.request().postDataJSON().connection_id;return route.fulfill({json:{connection_id:action,state:'running',reason:'ready',model:'Example model',bytes:1024**3}})});
-  await page.locator('[data-action="model-start"]').click();await expect.poll(()=>action).toBe('installed-local');await page.locator('[data-managed-model="installed-local"]').getByRole('button',{name:'Change',exact:true}).click();await expect(page).toHaveURL(/\/setup\?from=settings/);await page.close();
 });

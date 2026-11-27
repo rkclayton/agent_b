@@ -253,7 +253,9 @@ func overlappingStreams(ctx context.Context, client *llm.Client, count int) bool
 			earliestEnd = emission.last
 		}
 	}
-	return latestStart.Before(earliestEnd)
+	// A queued response can reach its reader before another reader consumes the
+	// last buffered delta. Require a sustained overlap to rule out that handoff.
+	return earliestEnd.Sub(latestStart) >= 25*time.Millisecond
 }
 
 func probeImages(ctx context.Context, client *llm.Client) bool {

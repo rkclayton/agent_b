@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/probe"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
@@ -43,6 +45,12 @@ type SubmitResult struct {
 	Queued   bool   `json:"queued,omitempty"`
 	Position int    `json:"position,omitempty"`
 }
+
+type learnedCapacity struct {
+	route [sha256.Size]byte
+	slots int
+}
+
 type Scheduler struct {
 	mu          sync.Mutex
 	runner      *Runner
@@ -57,10 +65,13 @@ type Scheduler struct {
 	// a run paused on a card holds no model slot. paused marks it;
 	// resuming lists answered runs waiting to take a slot back, served before
 	// the queue.
-	paused    map[string]bool
-	resuming  []resumeWaiter
-	ids       atomic.Int64
-	agentIdle func(string)
+	paused           map[string]bool
+	resuming         []resumeWaiter
+	ids              atomic.Int64
+	agentIdle        func(string)
+	capacityContext  context.Context
+	capacityChecking bool
+	capacity         map[string]learnedCapacity
 }
 
 // ReserveIDs moves the run-id counter past floor.
@@ -228,6 +239,11 @@ func (s *Scheduler) submitAttachmentsFrom(ctx context.Context, sessionID, text s
 		return SubmitResult{}, err
 	}
 	runID := fmt.Sprintf("r%d", s.ids.Add(1))
+	if s.capacityContext != nil && !s.capacityChecking {
+		if connection, ok := s.cfg().Connection(item.ConnectionID); ok && s.needsCapacity(connection) {
+			s.checkCapacityLocked(item.ConnectionID)
+		}
+	}
 	if s.admitLocked(item) {
 		s.startLocked(queuedRun{s: item, runID: runID, userMessageID: message.ID, source: source})
 		return SubmitResult{RunID: runID}, nil
@@ -322,15 +338,81 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	go s.runner.nameAfterFirstRun(entry.s, entry.runID)
 }
 
-// Runs are admitted per model connection. A connection
-// serves at most its own override, reported capacity, or one when neither is set, so a
-// planner and a worker on a shared connection never overlap unless the operator
-// has raised that connection's limit.
+// EnableCapacityLearning checks saved routes in the background, one connection at a time.
+// Results belong to this scheduler and never write back to the operator's configuration.
+func (s *Scheduler) EnableCapacityLearning(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.capacityContext != nil {
+		return
+	}
+	s.capacityContext = ctx
+	s.capacity = make(map[string]learnedCapacity)
+	s.checkCapacityLocked("")
+}
+
+func capacityRoute(c *config.Connection) [sha256.Size]byte {
+	return sha256.Sum256([]byte(strings.Join([]string{c.BaseURL, c.Protocol, c.Model, c.APIKey}, "\x00")))
+}
+
+func (s *Scheduler) needsCapacity(c *config.Connection) bool {
+	return c.MaxConcurrent <= 0 && c.Capabilities.ParallelCapacity <= 0 && c.ProbeMode != "off" &&
+		c.BaseURL != "" && c.Model != "" && s.capacity[c.ID].route != capacityRoute(c)
+}
+
+func (s *Scheduler) checkCapacityLocked(preferred string) {
+	if s.capacityContext.Err() != nil {
+		return
+	}
+	cfg := s.cfg()
+	for id := range s.capacity {
+		if _, ok := cfg.Connection(id); !ok {
+			delete(s.capacity, id)
+		}
+	}
+	connection, ok := cfg.Connection(preferred)
+	if !ok || !s.needsCapacity(connection) {
+		connection = nil
+		for i := range cfg.Connections {
+			if candidate := &cfg.Connections[i]; s.needsCapacity(candidate) {
+				connection = candidate
+				break
+			}
+		}
+	}
+	if connection != nil {
+		s.capacityChecking = true
+		go s.measureCapacity(s.capacityContext, *connection)
+	}
+}
+
+func (s *Scheduler) measureCapacity(ctx context.Context, connection config.Connection) {
+	started := time.Now()
+	slots, source := probe.TestParallelCapacity(ctx, &connection)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.capacityChecking = false
+	current, ok := s.cfg().Connection(connection.ID)
+	if ctx.Err() == nil && ok && s.needsCapacity(current) && capacityRoute(current) == capacityRoute(&connection) {
+		s.capacity[current.ID] = learnedCapacity{route: capacityRoute(current), slots: slots}
+		log.Printf("connection capacity: source=%s slots=%d duration_ms=%d", source, slots, time.Since(started).Milliseconds())
+		s.drainLocked()
+		s.repositionLocked()
+	}
+	s.checkCapacityLocked("")
+}
+
+// Runs are admitted per model connection. A typed limit takes precedence over
+// the saved capacity and the current scheduler's measurement.
 func (s *Scheduler) connectionLimit(connectionID string) int {
 	if connection, ok := s.cfg().Connection(connectionID); ok && connection.MaxConcurrent > 0 {
 		return connection.MaxConcurrent
 	} else if ok && connection.Capabilities.ParallelCapacity > 0 {
 		return connection.Capabilities.ParallelCapacity
+	} else if ok && connection.ProbeMode != "off" {
+		if learned := s.capacity[connection.ID]; learned.slots > 0 && learned.route == capacityRoute(connection) {
+			return learned.slots
+		}
 	}
 	return 1
 }

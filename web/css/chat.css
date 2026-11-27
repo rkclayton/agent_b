@@ -479,8 +479,8 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
 .chat-file-undo { flex:0 0 auto; color:var(--trace); background:transparent; }
 .chat-file-changed { color:var(--alarm); }
 .chat-file-diff-message,.chat-file-diff-more { color:var(--mute); }
-.chat-file-diff { display:grid; min-width:0; max-width:100%; font:var(--ct)/var(--lead) var(--mono); }
-.chat-file-diff-line { display:grid; grid-template-columns:4ch 4ch minmax(0,1fr); min-width:0; }
+.chat-file-diff { min-width:0; max-width:100%; font:var(--ct)/var(--lead) var(--mono); }
+.chat-file-diff-line { display:grid; grid-template-columns:4ch 4ch minmax(0,1fr); min-width:0; content-visibility:auto; contain-intrinsic-block-size:auto var(--lead); }
 .chat-file-diff-line > span { color:var(--mute); text-align:right; padding-right:1ch; user-select:none; }
 .chat-file-diff-line > code { min-width:0; overflow-wrap:anywhere; white-space:pre-wrap; }
 .chat-file-diff-line.added,.chat-file-diff-line.added > code { color:var(--signal); }

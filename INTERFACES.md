@@ -377,7 +377,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
 - `log.retention` is the global startup/daily prune record `{days,files,count}`. `files` contains removed top-level operational JSONL basenames;
   evidence archives and retained chat journals are never candidates.
 - `run.queued` [4] `{run_id,position,behind?,behind_session_id?}` — `behind` (`agent_<role>`) when the run waits because its model connection is serving as many runs as
-  `connections[].max_concurrent` overrides the connection's probed parallel capacity; when both are absent the limit is one. The legacy `run.max_concurrent` is ignored; only each connection limits admission, projected as the run's `waiting_behind`.
+  `connections[].max_concurrent` takes precedence over saved parallel capacity and a measurement held by the running scheduler. An eligible saved connection with neither value is measured in the background, and queued runs can start as soon as a higher capacity is established. The measurement does not change saved settings. Connections with probing off and no saved capacity use one slot. The legacy `run.max_concurrent` is ignored, and the chat ahead is projected as the run's `waiting_behind`.
   A run paused on a card holds no model slot, per connection or in total (item 2fs): once answered it takes one back, ahead of queued runs,
   and when none is free it reports `run.queued` with `resuming:true` and then `run.resumed` `{run_id}` — which returns it to `running` without resetting it —
   when it has one; `run.started` [4] `{run_id,user_message_id,backstops:{wall_clock_seconds}}`; `run.stopping` `{reason}`;

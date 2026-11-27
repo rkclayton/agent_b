@@ -198,5 +198,8 @@ func (a *harnessApp) wireTools() {
 		return action.Decision, err
 	})
 	a.web.SetRuntime(a.scheduler, a.runner, a.renderer)
+	capacityContext, cancelCapacity := context.WithCancel(context.Background())
+	a.cleanup(cancelCapacity)
+	a.scheduler.EnableCapacityLearning(capacityContext)
 	a.web.StartConnectionHealth(context.Background())
 }

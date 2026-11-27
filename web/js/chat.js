@@ -95,6 +95,8 @@ const thinkingRenderer = createThinkingRenderer({
 const entryViews = new Map();
 const fileStates = new Map();
 const fileViews = new Map();
+const diffLineTemplate = document.createElement("template");
+diffLineTemplate.innerHTML = '<div class="chat-file-diff-line"><span></span><span></span><code></code></div>';
 const toolViews = new Map();
 const composerFileViews = new Map();
 const composerApprovalViews = new Map();
@@ -872,7 +874,15 @@ function renderFileUndoList(session, work) {
       if (diff.message) { const message = document.createElement("div"); message.className = "chat-file-diff-message"; message.textContent = diff.message; item.append(message); }
       else {
         const body = document.createElement("div"); body.className = "chat-file-diff";
-        for (const line of diff.lines || []) { const node = document.createElement("div"); node.className = `chat-file-diff-line ${line.kind}`; const old = document.createElement("span"), current = document.createElement("span"), text = document.createElement("code"); old.textContent = line.old_line || ""; current.textContent = line.new_line || ""; text.textContent = line.text; node.append(old, current, text); body.append(node); }
+        for (const line of diff.lines || []) {
+          const node = diffLineTemplate.content.firstElementChild.cloneNode(true);
+          node.className = `chat-file-diff-line ${line.kind}`;
+          const [old, current, text] = node.children;
+          old.textContent = line.old_line || "";
+          current.textContent = line.new_line || "";
+          text.textContent = line.text;
+          body.append(node);
+        }
         if (diff.more) { const more = document.createElement("div"); more.className = "chat-file-diff-more"; more.textContent = `${diff.more.toLocaleString()} more`; body.append(more); }
         item.append(body);
       }

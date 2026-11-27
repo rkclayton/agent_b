@@ -1062,6 +1062,58 @@ func TestIndependentConnectionsIgnoreTheOldGlobalDefault2yg(t *testing.T) {
 	}
 }
 
+func TestColdCapacityLearningKeepsTypedAndSavedValues304(t *testing.T) {
+	for _, tc := range []struct{ served, typed, want, requests int }{{4, 0, 4, 6}, {1, 0, 1, 2}, {4, 1, 1, 0}} {
+		t.Run(fmt.Sprintf("served=%d/typed=%d", tc.served, tc.typed), func(t *testing.T) {
+			slots := make(chan struct{}, tc.served)
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/chat/completions" {
+					http.NotFound(w, r)
+					return
+				}
+				requests.Add(1)
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+				w.(http.Flusher).Flush()
+				for range 5 {
+					time.Sleep(60 * time.Millisecond)
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+					w.(http.Flusher).Flush()
+				}
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"b\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer server.Close()
+			cfg := config.Defaults(t.TempDir())
+			c := &cfg.Connections[0]
+			c.BaseURL, c.Model, c.ProbeMode, c.MaxConcurrent = server.URL, "fixture", "minimal", tc.typed
+			current := func() config.Config { return cfg }
+			scheduler := NewScheduler(nil, nil, events.NewBus(), current)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			scheduler.EnableCapacityLearning(ctx)
+			for {
+				scheduler.mu.Lock()
+				checking := scheduler.capacityChecking
+				got := scheduler.connectionLimit(c.ID)
+				scheduler.mu.Unlock()
+				if !checking {
+					if got != tc.want || requests.Load() != int32(tc.requests) || c.MaxConcurrent != tc.typed || c.Capabilities.ParallelCapacity != 0 {
+						t.Fatalf("effective=%d requests=%d typed=%d saved=%d", got, requests.Load(), c.MaxConcurrent, c.Capabilities.ParallelCapacity)
+					}
+					return
+				}
+				if ctx.Err() != nil {
+					t.Fatal("capacity learning did not finish")
+				}
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+}
+
 func TestNextUserAfterStoppedRun2yh(t *testing.T) {
 	for _, reason := range []string{"length", "aborted", "model_unreachable"} {
 		t.Run(reason, func(t *testing.T) {

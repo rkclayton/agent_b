@@ -73,10 +73,8 @@ Names follow the OpenTelemetry GenAI conventions where one exists.
 
 A tool name that is not a registered-tool shape is sent as `<invalid>`.
 
-Proposed receiver addition, awaiting admission: a `model_retry` span with `seq`,
-`class` (`dial`, `connected`, `stream`, `server_unavailable`), `attempt`,
-`max_attempts`, `partial` (boolean), and `delay_ms`. It carries no request,
-response, endpoint, or error text. The client records those fields locally.
+The local `model.retry` event records retry details. The shared retry outcome
+is defined under Run health.
 
 ```json vector:trace
 {"type":"trace","at":"2026-10-04T21:00:00Z","report_id":"5c1e09ab","runs":[
@@ -154,6 +152,56 @@ The client begins sending after the intake admits this event.
 
 ```json vector:scheduled.outcome
 {"type":"scheduled.outcome","at":"2026-10-04T21:00:05Z","outcome":"failed","reason":"model_unavailable","tries":4,"waited_seconds":3030,"worked_seconds":0}
+```
+
+### `model_retry`
+
+One record per transport retry, emitted at the end of its run so `answered`
+can say whether that run presented an answer (boolean). `cause` is `dial`
+(no connection), `headers` (connected, no response headers), `read` (response
+body interrupted), or `server_transient` (retryable HTTP status). `attempt`
+is the number of the new attempt, a whole number from 2 to 4. The client begins
+sending after the intake admits this event.
+
+```json vector:model_retry
+{"type":"model_retry","at":"2026-10-04T21:00:05Z","cause":"read","attempt":2,"answered":true}
+```
+
+### `chat.restore_failed`
+
+One record when a saved chat fails to restore and the local restore callback
+reports it. `stage` is `read`, `decode`, or `restore`. `reason` is `missing`,
+`unreadable`, `invalid_record`, `invalid_state`, or `other`. The client begins
+sending after the intake admits this event.
+
+```json vector:chat.restore_failed
+{"type":"chat.restore_failed","at":"2026-10-04T21:00:05Z","stage":"restore","reason":"invalid_state"}
+```
+
+### `run.not_sent`
+
+One record when input in a waiting run returns to the composer before it has
+received an answer. `cause` is `user_canceled` or `model_unavailable`.
+`waited_seconds` is elapsed waiting time in whole seconds from 0 to 2147483647,
+saturated at the upper bound. The client begins sending after the intake admits
+this event.
+
+```json vector:run.not_sent
+{"type":"run.not_sent","at":"2026-10-04T21:00:05Z","cause":"user_canceled","waited_seconds":20}
+```
+
+### `credential.setup`
+
+One record at the end of a setup operation. `kind` is `sign_in`, `key`, or
+`login`. `provider` is `microsoft` or `google` for sign-in and `none` for key or
+login. `outcome` is `completed`, `failed`, or `canceled`. `failure_class` is
+`none` for completed, `canceled` for canceled, or one of `invalid_input`,
+`refused`, `expired`, `revoked`, `scope`, `unavailable`, `storage`, or `other` for
+failed. `elapsed_seconds` is a whole number from 0 to 2147483647, saturated at
+the upper bound. The client begins sending after the intake admits this event.
+
+```json vector:credential.setup
+{"type":"credential.setup","at":"2026-10-04T21:00:05Z","kind":"sign_in","provider":"microsoft","outcome":"failed","failure_class":"refused","elapsed_seconds":7}
 ```
 
 ### `model.perf`
@@ -630,6 +678,10 @@ dropped by the allow-list in `internal/telemetry` before it can.
 | `trace` | `report_id`, `runs` |
 | `run.summary` | `inference_calls`, `tool_calls`, `max_fill_pct`, `loop`, `stop_reason`, `ttft_ms`, `reasoning_tokens`, `compactions`, `approval_wait_seconds`, `wall_seconds` |
 | `scheduled.outcome` | `outcome`, `reason`, `tries`, `waited_seconds`, `worked_seconds` |
+| `model_retry` | `cause`, `attempt`, `answered` |
+| `chat.restore_failed` | `stage`, `reason` |
+| `run.not_sent` | `cause`, `waited_seconds` |
+| `credential.setup` | `kind`, `provider`, `outcome`, `failure_class`, `elapsed_seconds` |
 | `model.perf` | `connection_kind`, `calls`, `ttft_ms`, `prompt_ms`, `tokens_per_second`, `prompt_tokens`, `cached_tokens`, `completion_tokens`, `reasoning_tokens`, `cache_hit_pct`, `cache_hit_pct_after_compaction`, `reasoning_share_pct` |
 | `tool.perf` | `tools` |
 | `model.behaviour` | `empty_replies`, `unparseable_tool_calls`, `unoffered_tool_calls`, `cut_by_length`, `thinking_only_answers` |

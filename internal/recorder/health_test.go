@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -178,6 +179,36 @@ func TestTheNewTypesVectorsValidateAgainstTheBuilder2q6(t *testing.T) {
 		if picked := telemetry.Pick(mustClassify(t, kind), vector); len(picked) != len(documented) {
 			t.Errorf("%s: the allow-list keeps %d of the vector's %d fields", kind, len(picked), len(documented))
 		}
+	}
+}
+
+func TestPendingReceiverVectorsUseTheWireBuilder2zk(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "telemetry-trace.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vectors := documentVectors(t, string(body))
+	const at = "2026-10-04T21:00:05Z"
+	tests := []telemetry.Event{
+		{Type: "model_retry", At: at, Data: map[string]any{"cause": "read", "attempt": 2, "answered": true}},
+		{Type: "chat.restore_failed", At: at, Data: map[string]any{"stage": "restore", "reason": "invalid_state"}},
+		{Type: "run.not_sent", At: at, Data: map[string]any{"cause": "user_canceled", "waited_seconds": 20}},
+		{Type: "credential.setup", At: at, Data: map[string]any{"kind": "sign_in", "provider": "microsoft", "outcome": "failed", "failure_class": "refused", "elapsed_seconds": 7}},
+	}
+	for _, event := range tests {
+		t.Run(event.Type, func(t *testing.T) {
+			built, buildErr := json.Marshal(event)
+			documented, docErr := json.Marshal(vectors[event.Type])
+			if buildErr != nil || docErr != nil || !bytes.Equal(built, documented) {
+				t.Fatalf("builder %s (%v), document %s (%v)", built, buildErr, documented, docErr)
+			}
+			if class, _ := telemetry.Classify(event.Type); class.Sent || telemetry.RecorderTypes[event.Type] {
+				t.Fatal("the future record is already enabled for sending")
+			}
+		})
+	}
+	if class, ok := telemetry.Classify(events.CredentialNeeded); !ok || class.Sent {
+		t.Fatal("the credential-needed event must stay local")
 	}
 }
 

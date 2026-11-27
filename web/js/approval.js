@@ -114,15 +114,6 @@ export function approvalText(data = {}) {
 		reason: data.args?.reason || "The restricted account cannot complete it.",
 		detail: value,
 	};
-	// the registration decision: reflection proposes a plan, it never
-	// registers one. The card is the ordinary Allow-this card; these two lines
-	// say who proposed it and what activity led to it.
-	if (data.args?.proposed_by === "reflection") return {
-		title: "Allow this",
-		request: "Register this folder as a plan?",
-		reason: data.args?.activity ? `Proposed by reflection — ${data.args.activity}.` : "Proposed by reflection.",
-		detail: value,
-	};
 	return {
 		title: "Allow this",
 		request: `${data.name || "This operation"} is restricted by your approval rules.`,
@@ -163,14 +154,6 @@ export function createApprovalCard(document, entry = {}, options = {}) {
 	if (data.boundary_escape) content.classList.add("alarm");
 	const title = document.createElement("span");
 	title.textContent = wording.title;
-	if (options.author) {
-		// A card from the worker is drawn in another thread, so it names who asks.
-		content.classList.add("worker-approval");
-		const author = document.createElement("span");
-		author.className = "chat-notice-author";
-		author.textContent = options.author;
-		title.append(" ", author);
-	}
 	const request = document.createElement("strong");
 	request.textContent = wording.request;
 	const reason = document.createElement("span");

@@ -10,7 +10,7 @@ import { createApprovalCard } from "./approval.js";
 import { callServiceKey, callServiceStatus } from "./call-service-display.js";
 import { attachmentChipFile, attachmentMetadata, exchangeFiles, exchangeUpload, uploadAttachment } from "./attachment-upload.js";
 import { attachmentReadability } from "./attachment-readability.js";
-import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
+import { agentAuthor, isRunning, openSessions } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
 import { runTimeSentence } from "./run-summary.js";
 import { classifyResponseBlocks, finishedWorkKey, finishedWorkSentence, hasVisibleChatContent, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget } from "./chat-response-groups.js";
@@ -18,7 +18,6 @@ import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { registerMenu, requestConfirmation } from "./menu-behavior.js";
 import { liveActivityLook, liveActivityText, showsStreamCaret } from "./chat-activity.js";
 import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
-import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecord } from "./transcript-copy.js";
 
 const microsoftServiceNames = new Map([
@@ -35,7 +34,6 @@ const resizeHandle = document.getElementById("chat-resize-handle");
 const send = document.getElementById("chat-send");
 const notice = document.getElementById("chat-notice");
 const pendingApproval = document.getElementById("chat-pending-approval");
-const chatProposals = document.getElementById("chat-proposals");
 const narrowWorkHead = matchMedia("(max-width: 360px)");
 narrowWorkHead.addEventListener("change", schedule);
 const composer = document.querySelector(".chat-composer");
@@ -134,6 +132,7 @@ jumpButton.onclick = () => {
 	const session = store.sessions[selectedID()];
 	if (session && !showsLatest(session)) void loadSessionHistory(session.id, false);
 	else renderLog(session);
+	syncJumpAfterLayout();
 };
 // Reading settings are custom properties on the document root. Chat CSS keeps
 // every relative size tied to --chat-size, and prose alone inherits --chat-ink.
@@ -182,24 +181,10 @@ subscribe((_state, event) => {
   // snapshot that set it, and clearing it there is what made the first attempt
   // at this bounce straight back off the closed chat.
   if (!askedFor && store.selection.agent_id === "agent_b" && store.sessions[selectedID()]?.closed) changeBound(newestOpenSessions()[0]?.id || "");
-  if (event.session_id && selectedID() && event.session_id !== selectedID()) {
-    // The worker has no thread of its own: a change to its pending card is drawn
-    // in the design thread of its plan, and at once, because it waits on the operator.
-    if (sameWorkerPlan(store.sessions, event.session_id, selectedID())) renderNow();
-    return;
-  }
-  // A question waiting on the operator is not drawn on an animation frame: a
-  // page that is not in the foreground gets none, and the worker would be
-  // waiting on an answer nobody was shown.
-  if (waitsOnTheOperator(event)) { renderNow(); return; }
+  if (event.session_id && selectedID() && event.session_id !== selectedID()) return;
   schedule();
 });
 
-function waitsOnTheOperator(event) {
-  if (event?.type !== "projection.patch") return false;
-  return (event.data?.operations || []).some((operation) =>
-    String(operation?.path || "").startsWith("/chat") && operation?.value?.event?.type === "c.job");
-}
 
 function renderNow() {
   if (!mounted) return;
@@ -297,9 +282,7 @@ export function unmountChat() {
 //
 // This is the user's sighting, found against a copy of his own restored journal
 // set: of his 34 chats, 33 are closed and the one that is not is s23, role `c` — a
-// WORKER. The strip refuses role c ("a worker has no chat"), and this fallback only
 // filtered `closed`, so with every chat of his own closed the window bound to the
-// worker's transcript and no tab was lit. "when no chat tabs are open its showing me
 // an old chat still in the window."
 //
 // One rule, in one place: open, and something the strip would draw. In replay there
@@ -307,7 +290,6 @@ export function unmountChat() {
 // the established rule and is kept.
 function newestOpenSessions() {
   return openSessions(store.sessions)
-    .filter((session) => store.replay || session.role !== "c")
     .sort((left, right) => Date.parse(right.created_at || 0) - Date.parse(left.created_at || 0));
 }
 
@@ -451,10 +433,8 @@ function buildEntries(session) {
 function changeBound(value) {
   const previous = selectedID();
   if (previous) attachmentQueues.set(previous, queuedAttachments);
-  setSelection(`agent_${store.sessions[value]?.role === "d" ? "d" : "b"}`, value);
+  setSelection("agent_b", value);
   queuedAttachments = attachmentQueues.get(value) || [];
-  // "Build plan now?" opens the planning chat with its request in
-  // the composer; the operator sends it, so the harness speaks for no one.
   try {
     const draft = sessionStorage.getItem(`agentb.draft.${value}`);
     if (draft !== null && !input.value) {
@@ -503,14 +483,13 @@ function groupResponses(entries) {
 			continue;
 		}
     // A notice that is waiting on the operator is never folded into a steps
-    // group: an unreachable model, and a question from the worker, are the two
     // things in this thread that nobody can answer without seeing them. Item
     // 2fg: nor is a run stopped mid-tool, so the transcript shows the stop.
     // nor is a finished run's time sentence, for a different
     // reason — it is the line that CLOSES the run, and folding it into the steps
     // group buries it under a collapsed "Steps · 1 row", which is where my first
     // version of this put it. The screenshot gate is what showed me.
-    if (entry.type === "notice" && (sizeRefusalNotice(entry.event) || (entry.event?.type === "run.stopped" && ["model_unreachable", "length", "aborted_mid_tool", "done"].includes(entry.event?.data?.reason)) || (entry.event?.type === "compaction" && ["fresh", "prune", "prune+fresh"].includes(entry.event?.data?.kind)) || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
+    if (entry.type === "notice" && (sizeRefusalNotice(entry.event) || (entry.event?.type === "run.stopped" && ["model_unreachable", "length", "aborted_mid_tool", "done"].includes(entry.event?.data?.reason)) || (entry.event?.type === "compaction" && ["fresh", "prune", "prune+fresh"].includes(entry.event?.data?.kind)) || entry.event?.type === "service.identity_unavailable")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -1356,9 +1335,6 @@ function noticeContent(session, entry, actionable) {
       content.append(line);
     }
     if (data.reason !== "done") content.classList.add("alarm");
-  } else if (event.type === "c.job") {
-    content.textContent = data.question || "the worker asked a question";
-    if (data.item) content.title = `item ${data.item}`;
   } else if (event.type === "files.delivered") {
     const items = data.items || [];
     if (!items.length) content.hidden = true;
@@ -1545,13 +1521,13 @@ async function loadMicAvailability() {
 }
 
 function renderComposer(session) {
-  renderChatProposals(chatProposals, session, input);
 	document.body.classList.toggle("no-open-chats", !session);
 	document.body.classList.toggle("run-active", isRunning(session));
+	document.body.classList.toggle("read-only-chat", Boolean(session?.read_only_history));
   const phoneOwned = session?.origin === "phone" && session?.owner === "phone";
-  send.disabled = !!store.replay || phoneOwned;
-  input.disabled = !!store.replay || phoneOwned;
-  attachButton.disabled = !session || !!store.replay || attachmentsBusy || phoneOwned;
+  input.disabled = !!store.replay || phoneOwned || !!session?.read_only_history;
+  send.disabled = input.disabled;
+  attachButton.disabled = !session || attachmentsBusy || input.disabled;
   input.removeAttribute("placeholder");
   const queued = session?.queued_messages || 0;
   // a run queued behind its model connection says whose run it waits on.
@@ -1651,19 +1627,13 @@ function renderComposer(session) {
 	}
   reconcileChildren(pendingFiles, fileNodes);
 	for (const [key, row] of composerFileViews) if (!fileNodes.includes(row)) composerFileViews.delete(key);
-	const worker = workerApproval(store.sessions, session);
-	setProperty(pendingApproval, "hidden", !(session?.pending_approval || session?.pending_repo_policy || worker));
+	setProperty(pendingApproval, "hidden", !(session?.pending_approval || session?.pending_repo_policy));
 	const approvalNodes = [];
 	if (session?.pending_approval) approvalNodes.push(cachedComposerApproval(`session:${session.id}`, session.pending_approval, () => createApprovalCard(document, session.pending_approval, {
 		replay: store.replay,
 		decide: (callID, decision, answer) => api("/api/approve", { session_id: session.id, call_id: callID, decision, answer }),
 	})));
 	else if (session?.pending_repo_policy) approvalNodes.push(cachedComposerApproval(`policy:${session.id}`, session.pending_repo_policy, () => createPolicyCard(session)));
-	if (worker) approvalNodes.push(cachedComposerApproval(`worker:${worker.id}`, worker.pending_approval, () => createApprovalCard(document, worker.pending_approval, {
-		replay: store.replay,
-		author: agentAuthor(worker, "c"),
-		decide: (callID, decision, answer) => api("/api/approve", { session_id: worker.id, call_id: callID, decision, answer }),
-	})));
 	reconcileChildren(pendingApproval, approvalNodes);
 	for (const key of composerApprovalViews.keys()) if (!approvalNodes.includes(composerApprovalViews.get(key).node)) composerApprovalViews.delete(key);
   renderSendStop(send, session, store.replay);
@@ -1728,7 +1698,7 @@ async function submit() {
   if (micState.listening) stopDictation();
   let session = await loadedSession();
   if (!session && !store.replay) session = await shell?.newChat();
-  if (!session || store.replay) return;
+  if (!session || store.replay || session.read_only_history) return;
   const draft = { text: input.value, attachments: queuedAttachments };
   const text = draft.text.trim();
   if (!text && !draft.attachments.length) return;

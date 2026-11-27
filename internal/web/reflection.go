@@ -212,7 +212,7 @@ func (s *Server) reflectOnClosedRun(sessionID, runID string) {
 	if state == nil || sessionID == "" || runID == "" {
 		return
 	}
-	workspace, planID, connectionID := s.reflectionSessionFacts(sessionID)
+	workspace, connectionID := s.reflectionSessionFacts(sessionID)
 	if connectionID == "" {
 		return
 	}
@@ -220,12 +220,7 @@ func (s *Server) reflectOnClosedRun(sessionID, runID string) {
 	defer cancel()
 	// No aux connection exists on this schema: the run's own connection summarises
 	// and the summary says so.
-	summary := state.runner.SummariseRun(ctx, sessionID, runID, workspace, planID, connectionID, false)
-	if summary.PlannerNote != "" && !summary.Untrusted && s.plannerNotes != nil {
-		if err := s.plannerNotes.Add(sessionID, summary.PlannerNote); err != nil {
-			log.Printf("reflection: planner note: %v", err)
-		}
-	}
+	summary := state.runner.SummariseRun(ctx, sessionID, runID, workspace, connectionID, false)
 	if summary.Failed != "" {
 		log.Printf("reflection: the summary for run %s was not written (the run is unaffected): %s", runID, summary.Failed)
 	}
@@ -246,29 +241,26 @@ func (s *Server) reflectionPass(manual bool) (reflection.PassResult, error) {
 	for _, skipped := range result.Skipped {
 		log.Printf("reflection: skipped %s", skipped)
 	}
-	// A pass may have proposed a plan; the operator meets it as an ordinary
-	// card when they are next here.
-	s.OfferReflectionProposals()
 	return result, err
 }
 
-// reflectionSessionFacts reads the workspace, plan and connection of a chat.
-func (s *Server) reflectionSessionFacts(sessionID string) (workspace, planID, connectionID string) {
+// reflectionSessionFacts reads the workspace and connection of a chat.
+func (s *Server) reflectionSessionFacts(sessionID string) (workspace, connectionID string) {
 	if s.registry == nil {
-		return "", "", ""
+		return "", ""
 	}
 	item, ok := s.registry.Get(sessionID)
 	if !ok {
-		return "", "", ""
+		return "", ""
 	}
 	snapshot := item.Snapshot()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	agent, found := s.cfg.Agent(snapshot.AgentID)
 	if !found {
-		return snapshot.Workspace, snapshot.PlanID, ""
+		return snapshot.Workspace, ""
 	}
-	return snapshot.Workspace, snapshot.PlanID, agent.ConnectionFor(snapshot.Role)
+	return snapshot.Workspace, agent.ConnectionFor(snapshot.Role)
 }
 
 // reflectionCall is reflection's one model call.
@@ -315,7 +307,6 @@ func (s *Server) reflectionAllLogs() []string {
 type reflectionResponse struct {
 	Enabled  bool   `json:"enabled"`
 	At       string `json:"at,omitempty"`
-	PlanID   string `json:"plan_id,omitempty"`
 	Tier     string `json:"tier,omitempty"`
 	Overview string `json:"overview,omitempty"`
 	ReportAt string `json:"report_at,omitempty"`
@@ -330,10 +321,8 @@ func (s *Server) reflectionEndpoint(w http.ResponseWriter, r *http.Request) {
 	response := reflectionResponse{}
 	if state := s.reflectionNow(); state != nil {
 		response.Enabled = true
-		planID := r.URL.Query().Get("plan_id")
-		if overviews, err := state.store.Overviews(planID, 1); err == nil && len(overviews) > 0 {
+		if overviews, err := state.store.Overviews("", 1); err == nil && len(overviews) > 0 {
 			response.At = overviews[0].At.Format(time.RFC3339)
-			response.PlanID = overviews[0].PlanID
 			response.Tier = overviews[0].Tier
 			response.Overview = overviews[0].Text
 		}

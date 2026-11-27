@@ -252,35 +252,6 @@ export function unmountPanels() {
   flowFrame = 0;
 }
 
-// one row per role the product has, each with the role's
-// plain-language name and a model picker listing the connection profiles with
-// state. Nothing else in the row.
-//
-// b is settable here and from the strip's switcher, through the one write route
-// that exists. c and d are NOT settable: there is no route for them, and 2iq's
-// @keep protects "the write route" and "the c/d semantics in the run loop" from
-// this item. So their pickers show what is configured and say where it is set,
-// rather than pretending to write. The finding is in the report.
-const roleNames = { b: "the one you talk to", c: "the worker", d: "the planner" };
-
-// what a role's change affects, in the same words the run loop
-// obeys. measured it rather than assuming:
-//
-//   - a run resolves its connection from the SESSION, so a session already bound
-//     is never moved by a role change;
-//   - but r.cfg is a live accessor, and the aux and compaction paths read
-//     agent.C at the point of use, so a compaction taken after the change uses
-//     the new one;
-//   - b alone is deferred until the agent is idle.
-//
-// So b says "pending" when it is, and c and d say what is true of them: the next
-// run that reads them.
-const roleEffect = {
-  b: "changes when this agent is idle",
-  c: "takes effect on the next run that reads it",
-  d: "takes effect on the next run that reads it",
-};
-
 function renderAgentConnection(agent) {
   // The live projection can briefly lag config after a connection is saved. The
   // picker must still offer every configured connection so the operator can
@@ -296,12 +267,6 @@ function renderAgentConnection(agent) {
   };
   const name = document.createElement("input"); name.value = agent.name || ""; name.dataset.field = "name"; name.disabled = builtIn;
   const prompt = document.createElement("textarea"); prompt.value = builtIn ? "Shipped opening prompt" : (agent.prompt || ""); prompt.dataset.field = "prompt"; prompt.disabled = builtIn;
-  const helper = (role) => {
-    const select = document.createElement("select"); select.dataset.role = role;
-    select.append(option("", role === "c" ? "chat connection" : "not assigned", !agent[role]));
-    select.append(...connections.map((value) => option(value.id, value.label || value.id, value.id === agent[role])));
-    return field(roleNames[role], select);
-  };
   const thinking = button("", "thinking"); thinking.type = "button"; thinking.dataset.action = "thinking"; thinking.setAttribute("role", "switch"); thinking.setAttribute("aria-checked", String(!!agent.thinking)); thinking.className = `switch ${agent.thinking ? "on" : ""}`;
   const effortOrder = ["low", "medium", "high"];
   const offeredEfforts = new Set((store.config.connections || []).flatMap((connection) => connection.reasoning?.valid_efforts || connection.capabilities?.valid_efforts || []));
@@ -314,7 +279,7 @@ function renderAgentConnection(agent) {
   const thinkingControl = node("span", "profile-thinking-control"); thinkingControl.append(thinking); if (agent.thinking) thinkingControl.append(effort);
   const powershell = document.createElement("select"); powershell.dataset.field = "powershell";
   powershell.append(option("", "Off", !agent.powershell), option("read", "Read only", agent.powershell === "read"), option("full", "Full", agent.powershell === "full"));
-  const rows = [field("name", name, "name"), field("thinking", thinkingControl, "thinking"), field("persistent PowerShell", powershell, "powershell"), field("opening prompt", prompt, "prompt"), helper("c"), helper("d")];
+  const rows = [field("name", name, "name"), field("thinking", thinkingControl, "thinking"), field("persistent PowerShell", powershell, "powershell"), field("opening prompt", prompt, "prompt")];
   if (!builtIn) {
     const privateToggle = document.createElement("input"); privateToggle.type = "checkbox"; privateToggle.checked = !!agent.private; privateToggle.dataset.field = "private";
     privateToggle.title = "this agent only writes to its own memory but can still read shared";

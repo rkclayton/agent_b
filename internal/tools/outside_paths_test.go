@@ -26,12 +26,11 @@ func requireWindowsPathFixture(t *testing.T) {
 func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *testing.T) {
 	requireWindowsPathFixture(t)
 	root := t.TempDir()
-	repo := t.TempDir()
 	cfg := config.Defaults(root)
 	cfg.Shell.ServiceAccount.Enabled = false
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
-	item := &session.Session{ID: "walk", Workspace: root, PlanRepos: func() []string { return []string{repo} }}
+	item := &session.Session{ID: "walk", Workspace: root}
 	script := NewRunScript(shell)
 	for _, source := range []string{
 		`[System.IO.File]::ReadAllLines("C:\Windows\win.ini")[0..39] -join "` + "`" + `n"`,
@@ -50,7 +49,6 @@ func TestOutsideReadsInScriptsAndCommandsRaiseTheCardWithNoServiceIdentity(t *te
 	}
 	for _, inside := range []string{
 		filepath.Join(root, "data.csv"),
-		filepath.Join(repo, "src", "main.go"),
 		`C:\Program Files\Git\cmd\git.exe`,
 	} {
 		if paths := outsideLiteralPaths(`Get-Content "`+inside+`"`, item); len(paths) != 0 {

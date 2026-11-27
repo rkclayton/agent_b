@@ -32,10 +32,9 @@ import (
 //	asked the model to consolidate, so the file grew forever and nobody met
 //	the limit. The write is refused now and the harness never trims.
 type Remember struct {
-	memory  *memory.Manager
-	bus     *events.Bus
-	cfg     func() config.Config
-	planner *memory.PlannerNotes
+	memory *memory.Manager
+	bus    *events.Bus
+	cfg    func() config.Config
 }
 
 func NewRemember(manager *memory.Manager, bus *events.Bus) *Remember {
@@ -44,19 +43,18 @@ func NewRemember(manager *memory.Manager, bus *events.Bus) *Remember {
 
 // SetConfig gives the tool the layer budget. Without it the budget is the
 // package default, which is what a caller that does not configure gets.
-func (r *Remember) SetConfig(cfg func() config.Config)      { r.cfg = cfg }
-func (r *Remember) SetPlanner(planner *memory.PlannerNotes) { r.planner = planner }
+func (r *Remember) SetConfig(cfg func() config.Config) { r.cfg = cfg }
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact for a future chat that will use it. Call recall first. Use scope user for facts, preferences and reply style, shared across profiles unless this agent is private. Other scopes: repository (project), environment (machine), planner (local feedback). For multiple projects, pass the folder or name as project. To supersede one note in this layer, pass a distinctive part of it as replaces. Never save transient state."
+	return "Save one durable fact for a future chat that will use it. Call recall first. Use scope user for facts, preferences and reply style, shared across profiles unless this agent is private. Other scopes: repository (project), environment (machine). For multiple projects, pass the folder or name as project. To supersede one note in this layer, pass a distinctive part of it as replaces. Never save transient state."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"note":     map[string]any{"type": "string"},
-			"scope":    map[string]any{"type": "string", "enum": []string{"user", "repository", "environment", "planner"}},
+			"scope":    map[string]any{"type": "string", "enum": []string{"user", "repository", "environment"}},
 			"replaces": map[string]any{"type": "string"},
 			"project":  map[string]any{"type": "string"},
 		},
@@ -85,20 +83,11 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	// up with facts about the operator.
 	scope := strings.ToLower(strings.TrimSpace(stringValue(args["scope"], "")))
 	switch scope {
-	case "user", "repository", "environment", "planner":
+	case "user", "repository", "environment":
 	case "":
-		return "error: scope is required: user, repository, environment, or planner", nil
+		return "error: scope is required: user, repository, or environment", nil
 	default:
-		return fmt.Sprintf("error: scope %q is not one of user, repository or environment; use planner for local product feedback", scope), nil
-	}
-	if scope == "planner" {
-		if r.planner == nil {
-			return "", errors.New("planner notes are unavailable")
-		}
-		if err := r.planner.Add("", note); err != nil {
-			return "", err
-		}
-		return "ok: noted for planner on this PC", nil
+		return fmt.Sprintf("error: scope %q is not one of user, repository or environment", scope), nil
 	}
 	target, fell := layerFor(scope), ""
 	path := ""

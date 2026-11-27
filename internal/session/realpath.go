@@ -9,7 +9,7 @@ import (
 // RealPath is where a path lands once the file system resolves every junction,
 // symbolic link and reparse point on its way: the deepest ancestor that exists
 // is resolved and the part not yet created is joined back on. the
-// file tools compare this, not the path text, against the plans folder.
+// Callers use this to compare canonical filesystem locations.
 func RealPath(path string) (string, error) {
 	clean, err := filepath.Abs(path)
 	if err != nil {

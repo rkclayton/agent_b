@@ -67,7 +67,6 @@ func (a *harnessApp) openJournal() {
 	a.web.SetUpdater(updateManager)
 
 	a.cleanup(updateManager.Close)
-	a.web.PublishPlanChanges()
 	a.web.SetProjection(a.projector, a.writers)
 	for _, notice := range a.cfg.LoadNotices {
 		a.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": a.cfg.Masked(), "notice": notice}))
@@ -205,15 +204,7 @@ func (a *harnessApp) wireServices() {
 		startupFatal(err)
 	}
 	a.renderer = renderer
-	if err := a.renderer.LoadPlanner(filepath.Join(a.paths.Application, "prompts", "planner.md")); err != nil {
-		startupFatal(err)
-	}
 
-	// The worker brief is optional in the same way the planner's is: an install
-	// without it simply has no worker, rather than refusing to start.
-	if err := a.renderer.LoadWorker(filepath.Join(a.paths.Application, "prompts", "worker.md")); err != nil {
-		log.Printf("debug: %v", err)
-	}
 	if err := a.renderer.LoadDelegate(filepath.Join(a.paths.Application, "prompts", "delegate.md")); err != nil {
 		log.Printf("debug: %v", err)
 	}

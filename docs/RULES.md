@@ -56,8 +56,8 @@ This page describes the build of 2026-10-16.
 | Call error | A tool returns an error to the model. | `error: ` | always | built-in |
 | **The web** |  |  |  |  |
 | **Memory** |  |  |  |  |
-| Scope invalid | A saved note names a scope outside the offered choices. | `error: scope %q is not one of user, repository or environment; use planner for local product feedback` | always | operator 2026-10-08 |
-| Scope required | A saved note omits its scope. | `error: scope is required: user, repository, environment, or planner` | always | operator 2026-10-08 |
+| Scope invalid | A saved note names a scope outside the offered choices. | `error: scope %q is not one of user, repository or environment` | always | operator 2026-10-08 |
+| Scope required | A saved note omits its scope. | `error: scope is required: user, repository, or environment` | always | operator 2026-10-08 |
 | **Scheduling** |  |  |  |  |
 
 | Stored SSH password once | The verified SSH child repeats its password prompt after receiving a stored login. | stored login for user@host was refused | stored login | operator 2026-11-16, item 2yd |

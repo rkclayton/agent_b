@@ -56,10 +56,6 @@ const (
 	RunStopped                 = "run.stopped"
 	RunLabeled                 = "run.labeled"
 	RunAborted                 = "run.aborted"
-	ItemDone                   = "item.done"
-	ItemStuck                  = "item.stuck"
-	PlanDone                   = "plan.done"
-	WorkerJob                  = "c.job"
 	Stage                      = "stage"
 	ModelRequest               = "model.request"
 	ModelProgress              = "model.progress"
@@ -215,32 +211,22 @@ type Attachment struct {
 	Kind    string `json:"kind,omitempty"`
 	Outcome string `json:"outcome,omitempty"`
 }
-type PlanProposal struct {
-	ID               string   `json:"id"`
-	Kind             string   `json:"kind"`
-	Path             string   `json:"path"`
-	OldText          string   `json:"old_text"`
-	NewText          string   `json:"new_text"`
-	ItemID           string   `json:"item_id"`
-	SourceMessageIDs []string `json:"source_message_ids,omitempty"`
-}
 type Message struct {
-	RequestID     string         `json:"request_id,omitempty"`
-	ID            string         `json:"id"`
-	Role          string         `json:"role"`
-	Content       string         `json:"content"`
-	Reasoning     string         `json:"reasoning,omitempty"`
-	ToolCalls     []ToolCall     `json:"tool_calls,omitempty"`
-	ToolCallID    string         `json:"tool_call_id,omitempty"`
-	Name          string         `json:"name,omitempty"`
-	Category      string         `json:"category"`
-	Tokens        int            `json:"tokens"`
-	Estimated     bool           `json:"estimated"`
-	Elided        bool           `json:"elided"`
-	Turn          int            `json:"turn"`
-	OK            *bool          `json:"ok,omitempty"`
-	Attachments   []Attachment   `json:"attachments,omitempty"`
-	PlanProposals []PlanProposal `json:"plan_proposals,omitempty"`
+	RequestID   string       `json:"request_id,omitempty"`
+	ID          string       `json:"id"`
+	Role        string       `json:"role"`
+	Content     string       `json:"content"`
+	Reasoning   string       `json:"reasoning,omitempty"`
+	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
+	ToolCallID  string       `json:"tool_call_id,omitempty"`
+	Name        string       `json:"name,omitempty"`
+	Category    string       `json:"category"`
+	Tokens      int          `json:"tokens"`
+	Estimated   bool         `json:"estimated"`
+	Elided      bool         `json:"elided"`
+	Turn        int          `json:"turn"`
+	OK          *bool        `json:"ok,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 type Budget struct {
 	NCtx                int            `json:"n_ctx"`

@@ -1224,7 +1224,7 @@ func agentRoleHolding(agents []config.Agent, connectionID string) string {
 		for _, role := range []struct {
 			name string
 			id   string
-		}{{"B", agent.B}, {"C", agent.C}, {"D", agent.D}} {
+		}{{"B", agent.B}} {
 			if role.id == connectionID {
 				roles = append(roles, role.name)
 			}

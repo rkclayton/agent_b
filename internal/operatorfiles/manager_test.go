@@ -36,7 +36,7 @@ func writeInbox(t *testing.T, manager *Manager, value string) {
 	}
 }
 
-func TestInboxVerbsTaskDelayAndNote(t *testing.T) {
+func TestInboxVerbsDelayAndNote(t *testing.T) {
 	manager, _ := testManager(t)
 	writeInbox(t, manager, "REVISE: use the smaller patch\nand keep tests\n")
 	action, err := manager.CheckInbox("s1", false)
@@ -44,12 +44,11 @@ func TestInboxVerbsTaskDelayAndNote(t *testing.T) {
 		t.Fatalf("revision=%q err=%v", action.Revision, err)
 	}
 	writeInbox(t, manager, "TASK: add the export golden\n")
-	if _, err := manager.CheckInbox("s1", false); err != nil {
-		t.Fatal(err)
+	if action, err := manager.CheckInbox("s1", false); err != nil || action.Revision != "TASK: add the export golden" {
+		t.Fatalf("legacy verb became a note: %+v %v", action, err)
 	}
-	plan, err := os.ReadFile(filepath.Join(manager.Root(), "PLAN.md"))
-	if err != nil || string(plan) != "- [ ] add the export golden\n" {
-		t.Fatalf("plan=%q err=%v", plan, err)
+	if _, err := os.Stat(filepath.Join(manager.Root(), "PLAN.md")); !os.IsNotExist(err) {
+		t.Fatalf("the old verb created a file: %v", err)
 	}
 	writeInbox(t, manager, "DELAY: 250ms\n")
 	action, err = manager.CheckInbox("s1", false)

@@ -129,21 +129,3 @@ func TestSplitOffPromptContainsNoNetworkBoundaryLine(t *testing.T) {
 		t.Fatalf("split-off prompt=%q", value)
 	}
 }
-
-func TestPlannerPromptLoadsForDAndPlanPageFallbackAndStaysStable(t *testing.T) {
-	renderer := &PromptRenderer{text: "system", planner: "planner rules"}
-	connection := &config.Connection{}
-	d := &session.Session{Role: "d"}
-	if got := renderer.Render(connection, d, nil, ""); got != "system\n\nplanner rules" {
-		t.Fatalf("d prompt=%q", got)
-	}
-	b := &session.Session{Role: "b"}
-	if got := renderer.Render(connection, b, nil, ""); got != "system" {
-		t.Fatalf("ordinary b prompt=%q", got)
-	}
-	b.SetPlanPage(true)
-	before, after := renderer.Render(connection, b, nil, ""), renderer.Render(connection, b, nil, "")
-	if before != after || before != "system\n\nplanner rules" {
-		t.Fatalf("fallback prompt before=%q after=%q", before, after)
-	}
-}

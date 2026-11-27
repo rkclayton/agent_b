@@ -81,16 +81,8 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 			Happened:      fmt.Sprintf("The run stopped because of %s.", reason),
 			HarnessAction: "The harness kept completed work and did not start another action.",
 			Question:      "What should happen next?",
-			Actions:       []string{"Continue", "Revise plan", "Stop"},
+			Actions:       []string{"Continue", "Stop"},
 		}
-	case ItemDone:
-		return HumanNotice{Happened: "The current plan item finished.", HarnessAction: "The harness kept its completed work and advanced the plan record."}
-	case ItemStuck:
-		return HumanNotice{Happened: "The current plan item could not be finished.", HarnessAction: "The harness recorded why and moved to the next item."}
-	case WorkerJob:
-		return HumanNotice{Happened: "The worker asked a question it could not answer from the plan or the repository.", HarnessAction: "The harness paused that item and posted the question in the design thread.", Question: "What should the worker do?", Actions: []string{"Answer", "Skip this item", "Stop"}}
-	case PlanDone:
-		return HumanNotice{Happened: "The plan finished.", HarnessAction: "The harness kept the completed work and returned the chat to you."}
 	default:
 		return HumanNotice{}
 	}

@@ -18,7 +18,7 @@ func TestTheStoreKeepsSummariesOverviewsAndReports(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Now().UTC()
-	if _, err := store.PutSummary(Summary{At: now, SessionID: "s1", RunID: "r1", Workspace: `C:\ws`, PlanID: "p1", Connection: "acme", Read: []string{"a.go", "b.go"}, Written: []string{"a.go"}, Changed: "tightened the guard", Open: "the eval is carded", Text: "one run"}); err != nil {
+	if _, err := store.PutSummary(Summary{At: now, SessionID: "s1", RunID: "r1", Workspace: `C:\ws`, GroupKey: "p1", Connection: "acme", Read: []string{"a.go", "b.go"}, Written: []string{"a.go"}, Changed: "tightened the guard", Open: "the eval is carded", Text: "one run"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.PutSummary(Summary{At: now.Add(-40 * 24 * time.Hour), SessionID: "s0", RunID: "r0", Connection: "acme", Text: "old"}); err != nil {
@@ -39,10 +39,10 @@ func TestTheStoreKeepsSummariesOverviewsAndReports(t *testing.T) {
 	if err != nil || pruned != 1 {
 		t.Fatalf("pruned=%d err=%v", pruned, err)
 	}
-	if _, err := store.PutOverview(Overview{PlanID: "p1", Tier: "tier 1 (go list)", Text: "first"}); err != nil {
+	if _, err := store.PutOverview(Overview{GroupKey: "p1", Tier: "tier 1 (go list)", Text: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.PutOverview(Overview{PlanID: "p1", Tier: "tier 1 (go list)", Text: "second"}); err != nil {
+	if _, err := store.PutOverview(Overview{GroupKey: "p1", Tier: "tier 1 (go list)", Text: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	overviews, err := store.Overviews("p1", 0)

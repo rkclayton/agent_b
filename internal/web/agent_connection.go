@@ -69,18 +69,12 @@ func (s *pendingAgentConnectionState) takeSessionConnections() map[string]string
 // the existing idle-transition machinery.
 const (
 	roleB = "b"
-	roleC = "c"
-	roleD = "d"
 )
 
 func agentRoleConnection(agent *config.Agent, role string) (string, bool) {
 	switch role {
 	case roleB:
 		return agent.B, true
-	case roleC:
-		return agent.C, true
-	case roleD:
-		return agent.D, true
 	}
 	return "", false
 }
@@ -89,10 +83,6 @@ func setAgentRoleConnection(agent *config.Agent, role, connectionID string) bool
 	switch role {
 	case roleB:
 		agent.B = connectionID
-	case roleC:
-		agent.C = connectionID
-	case roleD:
-		agent.D = connectionID
 	default:
 		return false
 	}
@@ -101,7 +91,7 @@ func setAgentRoleConnection(agent *config.Agent, role, connectionID string) bool
 
 var (
 	errAgentNotFound = errors.New("agent not found")
-	errUnknownRole   = errors.New("role must be b, c or d")
+	errUnknownRole   = errors.New("role must be b")
 )
 
 func (s *Server) agentConnectionChanges() map[string]pendingAgentConnection {
@@ -159,7 +149,7 @@ func (s *Server) agentConnection(w http.ResponseWriter, r *http.Request, agentID
 	}
 	current, known := agentRoleConnection(agent, role)
 	if !known {
-		writeError(w, http.StatusBadRequest, "role must be b, c or d", "role")
+		writeError(w, http.StatusBadRequest, "role must be b", "role")
 		return
 	}
 	if s.registry == nil {

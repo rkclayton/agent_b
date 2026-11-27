@@ -54,5 +54,5 @@ type RunResult struct {
 type Manager interface {
 	Status(context.Context, Request) (Status, error)
 	Run(context.Context, string, Request) (RunResult, error)
-	GrantPlan(context.Context, string, string) error
+	GrantRepository(context.Context, string, string) error
 }

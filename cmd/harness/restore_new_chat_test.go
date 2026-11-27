@@ -41,7 +41,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 	firstBus := events.NewBus()
 	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
 	firstRegistry := session.NewRegistry(firstBus, firstWriters, connections, 40, func() config.Config { return cfg })
-	firstRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	firstRegistry.SetProfileRoot(root)
 	retained, err := firstRegistry.Create("", cfg.DefaultAgentID(), "")
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestNewChatAfterRestartCarriesNothingFromARetainedChat(t *testing.T) {
 		return secondWriters.WriteRecord(record)
 	}, nil, nil)
 	secondRegistry := session.NewRegistry(secondBus, secondWriters, connections, 40, func() config.Config { return cfg })
-	secondRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	secondRegistry.SetProfileRoot(root)
 	restored, restoredFloor, err := restoreRetainedChats(secondWriters, secondRegistry, secondBus, 0)
 	if err != nil || len(restored) != 1 || len(restored[0].Snapshot().Messages) != 3 {
 		t.Fatalf("restore: %d chats, err %v", len(restored), err)

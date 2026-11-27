@@ -14,7 +14,7 @@ import { renderWorkspacePage, workspaceActions } from "./settings-workspace.js";
 import { setWaitProgress, waitElement } from "./wait.js";
 import { agentKey } from "./panel-lifetime.js";
 import { mountPanels, unmountPanels } from "./app.js";
-import { mountPlan, unmountPlan } from "./plan.js";
+import { mountRepositories } from "./repositories.js";
 import { registerMenu } from "./menu-behavior.js";
 import { requestConfirmation } from "./menu-behavior.js";
 
@@ -87,9 +87,6 @@ const settingMenus = new WeakMap();
 // The view another document was on when it sent us here; "" when the sheet was
 // opened from inside this one, where it closes onto the chat beneath it.
 let openedFrom = "";
-// true when this document was opened AT the Plan — /plan,
-// ?from=plan, or #settings/plan.
-let planRequestedByAddress = false;
 let hardeningConnectionID = "";
 let skillAgent = "";
 let skillPreview = null;
@@ -101,14 +98,9 @@ const connectionList = () => Array.isArray(store.connections) ? store.connection
 // Agents and Activity are where the page that used to stand on its
 // own now lives. They come first because they are what the operator opened
 // that page to read.
-// and the Plan is one of them, its own top-level entry, third:
-// "why is plan a chat tab on the left side? ... i decided i think i want it under
-// settings, as its own top level item please implement." It comes after the two
-// the operator opened this sheet to read and before the machine settings, which is
-// where a document he writes in belongs.
 const sectionLabels = [
   ["activity", "Activity"],
-  ["plan", "Repos"],
+  ["repos", "Repos"],
   ["connections", "Connections"],
   ["profiles", "Profiles"],
   ["skills", "Skills"],
@@ -270,7 +262,7 @@ export function initSettings(entry = {}) {
         "connection.probed",
         "connection.health",
       ].includes(event.type) || (event.type === "projection.patch" && (event.data?.operations || []).some((operation) =>
-        ["/label", "/agent_id", "/connection_id", "/agent_name", "/b_connection", "/role", "/plan_id", "/plan_name", "/runnable", "/not_runnable_reason", "/tools", "/memory_path", "/memory_content", "/agent_memory_path", "/agent_memory_content", "/budget", "/closed"].includes(operation.path))))
+        ["/label", "/agent_id", "/connection_id", "/agent_name", "/b_connection", "/role", "/runnable", "/not_runnable_reason", "/tools", "/memory_path", "/memory_content", "/agent_memory_path", "/agent_memory_content", "/budget", "/closed"].includes(operation.path))))
     )
       render();
     if (open && event.type === "snapshot") {
@@ -292,7 +284,6 @@ export function openSettings(section = "") {
   if (section === "agents" || section === "users") section = "profiles";
   if (sectionLabels.some(([id]) => id === section)) activeSection = section;
   notePage(activeSection);
-  if (section === "plan") planRequestedByAddress = true;
   open = true;
   lastFocus = document.activeElement;
   // app.css dresses this sheet and the two panels it adopts, and
@@ -334,8 +325,6 @@ export function closeSettings(surface = "chat") {
   // inside a hidden surface where the next render would wipe them.
   returnAdoptedPanels();
   unmountPanels();
-  // closing the sheet is leaving the section, so the Plan stops too.
-  unmountPlan();
   setSheetStyles(false);
   sheet.hidden = true;
   sheet.setAttribute("aria-hidden", "true");
@@ -347,17 +336,14 @@ export function closeSettings(surface = "chat") {
   requestAnimationFrame(() => returnFocus?.focus());
   navigationSurfaceReady(surface, store);
   // Settings closes to the view it opened from. From inside this
-  // document that is the chat, which is already beneath it; from Plan it is
   // another document, so closing goes back rather than leaving the operator
   // somewhere he never asked for.
-  // there is no Plan document to go back to any more — `from=plan` and
-  // `/plan` both land on this sheet's Plan section, and closing it returns to the chat
   // beneath like every other section.
   openedFrom = "";
 }
 
 function setChatInert(value) {
-  for (const node of document.querySelectorAll("#chat-budget, #chat-log, #chat-composer, #panel-surface, #plan-panel, .chat-list-panel, .chat-list-handle")) {
+  for (const node of document.querySelectorAll("#chat-budget, #chat-log, #chat-composer, #panel-surface, .chat-list-panel, .chat-list-handle")) {
     if (sheet.contains(node)) continue;
     node.inert = value;
   }
@@ -397,11 +383,10 @@ function render(force = false) {
     // The two adopted panels are drawn by app.js, not here: this leaves the
     // seat and the nodes are moved into it below.
     activity: () => '<div data-adopt="activity-panel"></div>',
-    // the Plan page is its own document, so the entry NAVIGATES
     // there and this body is only what is shown when it cannot. The availability rule
     // that used to decide whether the tab existed decides that and nothing else: the
     // entry is always here.
-    plan: () => planSection(),
+    repos: () => repositorySection(),
     connections: () => renderConnectionsPage(settingsPageContext(active)),
     profiles: () => renderProfilesPage(settingsPageContext(active)),
     skills: () => renderSkillsPage(settingsPageContext(active)),
@@ -551,9 +536,8 @@ function placeConfirmPopover() {
 // the listeners app.js set, and the renderers write into them by id, so a rebuilt
 // copy would be a second, dead set of controls.
 function setSheetStyles(on) {
-  // plan.css dresses the Plan section now, so it is switched on with the
   // sheet beside app.css rather than linked by a document of its own.
-  for (const id of ["panel-styles", "plan-styles"]) {
+  for (const id of ["panel-styles"]) {
     const styles = document.getElementById(id);
     if (styles) styles.disabled = !on;
   }
@@ -562,7 +546,7 @@ function setSheetStyles(on) {
 function returnAdoptedPanels() {
   const sources = document.getElementById("panel-sources");
   if (!sources) return;
-  for (const panel of sheet.querySelectorAll("#agents-panel, #activity-panel, #plan-panel")) sources.append(panel);
+  for (const panel of sheet.querySelectorAll("#agents-panel, #activity-panel")) sources.append(panel);
 }
 
 function adoptPanels() {
@@ -578,11 +562,9 @@ function adoptPanels() {
   // into nodes nobody can see, once per event.
   if (sheet.querySelector("#agents-panel, #activity-panel")) mountPanels();
   else unmountPanels();
-  // the Plan keeps its own state the way the other sections keep
   // theirs — its subscriber and its timer run while it is on screen and stop when it
   // is not.
-  if (sheet.querySelector("#plan-panel")) mountPlan();
-  else unmountPlan();
+  mountRepositories(sheet.querySelector(".repository-settings"), () => closeSettings("chat"));
   void adopted;
 }
 
@@ -638,8 +620,6 @@ function controlKey(node) {
 // test was written second and found it.
 export const perProfileSections = new Set(["chats", "connections", "profiles", "notifications"]);
 
-// the AVAILABILITY RULE, moved with the Plan and not widened. It is
-// the rule the tab carried: the Plan is offered on a planner chat, or when no
 // separate d connection is configured at all. It decides what the section SHOWS.
 // probePhaseLine turns one discovery attempt into the phase the operator is waiting
 // through, in the words: connecting, then listing, then reading. The raw
@@ -653,11 +633,10 @@ function probePhaseLine(data) {
   return `connecting to ${address}`;
 }
 
-function planSection() {
-  return '<div data-adopt="plan-panel"></div>';
+function repositorySection() {
+  return '<section class="repository-settings"><input type="search" aria-label="Search repositories" placeholder="search"> <button type="button" data-repository-add>Add repo</button><p role="status"></p><table><thead><tr><th>Path</th></tr></thead><tbody></tbody></table><p data-repository-empty hidden>No repositories yet.</p></section>';
 }
 
-// hiding the Plan hides its ENTRY, which is the user's own choice
 // from Settings > Chats. The availability rule never removes an entry (2ni (b));
 // only this does.
 function navSections() { return sectionLabels; }
@@ -1092,7 +1071,7 @@ async function runAction(event, button, action, id) {
 	if (action === "close") return void leaveSettingsForChat();
 	if (action === "delete-all-chats") {
 		const count = Object.keys(store.sessions || {}).length;
-		if (!await requestConfirmation(`Delete all ${count} chat${count === 1 ? "" : "s"}? Memory notes, plans and files stay.`, { confirmLabel: "Delete", danger: true })) return;
+		if (!await requestConfirmation(`Delete all ${count} chat${count === 1 ? "" : "s"}? Memory notes and files stay.`, { confirmLabel: "Delete", danger: true })) return;
 		try { await api("/api/chats/delete-all", { confirm: true }); reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); leaveSettingsForChat(); }
 		catch (error) { errors.set("chat_root", error.message); render(); }
 		return;
@@ -1106,8 +1085,6 @@ async function runAction(event, button, action, id) {
     render(); return;
   }
   if (action === "settings-section") {
-    // every section is drawn in the pane, the Plan included. This used
-    // to be location.assign('/plan...') — a page navigation dressed as a section.
     activeSection = id;
     browserDataConfirm = false;
     if (id === "shell") void refreshBrowserData();
@@ -1322,23 +1299,6 @@ async function runAction(event, button, action, id) {
     }
     render();
     return void applySetting(path);
-  }
-  // SETTINGS BRINGS A HIDDEN SURFACE BACK. This is the promise the
-  // hide confirmation makes in the strip, so it belongs to that item rather than
-  // to a follow-up. The stored value is the list of hidden names, so a switch
-  // here adds or removes one name and saves the whole list; the surface itself
-  // was never discarded, and it returns pinned at the far right because that is
-  // where the surface list puts it.
-  if (action === "surface-visible") {
-    const kind = button.dataset.surface;
-    const show = button.dataset.value === "true";
-    const hidden = new Set(Array.isArray(store.config.chat?.hidden_surfaces) ? store.config.chat.hidden_surfaces : []);
-    show ? hidden.delete(kind) : hidden.add(kind);
-    drafts.set("chat.hidden_surfaces", [...hidden].sort().join(","));
-    draftKinds.set("chat.hidden_surfaces", "list");
-    settingsSaveAlarm = false;
-    render();
-    return void applySetting("chat.hidden_surfaces");
   }
   if (action === "probe") {
     const pendingPrefix = `connections.${id}.`;

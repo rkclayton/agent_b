@@ -8,7 +8,6 @@ import { recordViewMount } from "./navigation-telemetry.js";
 // stood beside the chat is gone; its six groups are two sections of Settings,
 // and the numbers that describe THIS chat are on the chat itself. So this file
 // no longer switches between two surfaces — it shows the chat, and the only
-// other destination, Plan, is its own document.
 const chatSurface = [
   document.getElementById("chat-budget"),
   document.getElementById("chat-log"),
@@ -34,13 +33,8 @@ const openedWith = new URLSearchParams(location.search).get("session") || "";
 const entry = (() => {
   const search = new URLSearchParams(location.search);
   const requested = location.hash.match(/^#settings(?:\/([a-z-]+))?$/);
-  const from = search.get("from");
-  // /plan STILL ANSWERS, and it lands on Settings > Plan. So does
-  // ?from=plan, which used to mean "another document sent you here and closing goes
-  // back to it" — there is no other document now, so it names the section instead.
-  const plan = location.pathname === "/plan" || from === "plan";
   return {
-    settings: requested ? (requested[1] || "connections") : (plan ? "plan" : ""),
+    settings: requested ? (requested[1] || "connections") : "",
     // The view to return to when Settings closes. Inside this one document, Settings
     // closes onto the chat beneath it.
     from: "",

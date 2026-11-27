@@ -138,7 +138,7 @@ test("all rendered Settings rows have one direct label and one control cell", ()
 
 test("Settings navigation has Skills directly after Profiles", () => {
   const controller = fs.readFileSync(new URL("settings.js", import.meta.url), "utf8");
-  const labels = [...controller.matchAll(/\["(?:activity|plan|connections|profiles|skills|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
+  const labels = [...controller.matchAll(/\["(?:activity|repos|connections|profiles|skills|chats|notifications|shell|about)", "([^"]+)"\]/g)].map((match) => match[1]);
   assert.deepEqual(labels, ["Activity", "Repos", "Connections", "Profiles", "Skills", "Chats", "Notifications", "Security", "About"]);
 });
 

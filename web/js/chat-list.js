@@ -3,7 +3,7 @@ const needsAttention = (chat) => !!(chat.pending_approval || chat.pending_repo_p
 
 export function arrangeChats(sessions = {}, tree = {}) {
   const metadata = new Map((tree.chats || []).map((chat) => [chat.id, chat]));
-  const chats = Object.values(sessions).filter((chat) => chat && (chat.role === "b" || chat.role === "d") && !metadata.get(chat.id)?.archived);
+  const chats = Object.values(sessions).filter((chat) => chat && chat.role === "b" && !metadata.get(chat.id)?.archived);
   const pinned = chats.filter((chat) => metadata.get(chat.id)?.pinned).sort(recentFirst);
   const unpinned = chats.filter((chat) => !metadata.get(chat.id)?.pinned);
   const folders = [...(tree.folders || [])].sort().map((path) => ({

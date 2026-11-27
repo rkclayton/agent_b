@@ -86,13 +86,6 @@ func (c Config) validateBasics() error {
 	if c.BackgroundColor != "" && !allowed(c.BackgroundColor, BackgroundColors) {
 		return fmt.Errorf("background_color: %q is not offered", c.BackgroundColor)
 	}
-	// an unknown hidden surface would be a surface nothing can bring
-	// back, so the name is refused rather than stored and forgotten.
-	for _, name := range c.Chat.HiddenSurfaces {
-		if !slices.Contains(HideableSurfaces, name) {
-			return fmt.Errorf("chat.hidden_surfaces: %q is not a surface that can be hidden", name)
-		}
-	}
 	if !c.Shell.AllowLocalNetwork && len(c.Shell.ConfirmedLocalSubnets) > 0 {
 		return fmt.Errorf("shell.confirmed_local_subnets: must be empty while allow_local_network is off")
 	}
@@ -210,12 +203,6 @@ func (c Config) validateAgents(seen map[string]bool) error {
 		}
 		if agent.B != "" && !seen[agent.B] {
 			return fmt.Errorf("%s.b: must name an existing connection", prefix)
-		}
-		if agent.C != "" && !seen[agent.C] {
-			return fmt.Errorf("%s.c: must be empty or name an existing connection", prefix)
-		}
-		if agent.D != "" && !seen[agent.D] {
-			return fmt.Errorf("%s.d: must be empty or name an existing connection", prefix)
 		}
 		toolSeen := map[string]bool{}
 		for _, tool := range agent.Toolset {

@@ -283,12 +283,6 @@ func (s *Server) modelInstall(w http.ResponseWriter, r *http.Request) {
 				if a.B == "installed-local" {
 					a.B = ""
 				}
-				if a.C == "installed-local" {
-					a.C = ""
-				}
-				if a.D == "installed-local" {
-					a.D = ""
-				}
 			}
 			if next.Images.Connection == "installed-local" {
 				next.Images.Connection = ""

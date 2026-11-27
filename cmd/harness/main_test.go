@@ -52,7 +52,7 @@ func scheduledFixture(t *testing.T, modelURL string) (*scheduledRuns, string) {
 	}
 	t.Cleanup(func() { _ = writers.Close() })
 	registry := session.NewRegistry(bus, writers, connection, 0, settings)
-	registry.SetPlansRoot(filepath.Join(root, "plans"))
+	registry.SetProfileRoot(root)
 	promptPath := filepath.Join(root, "prompt.txt")
 	if err := os.WriteFile(promptPath, []byte("Work on the test fixture. {{tools}}"), 0o600); err != nil {
 		t.Fatal(err)
@@ -332,7 +332,7 @@ func TestStartupRestoresMarkedChatAndKeepsArchiveMark2xt(t *testing.T) {
 	bus := events.NewBus()
 	bus.SetDurableSink(writers.WriteRecord, nil, nil)
 	registry := session.NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(root, "plans"))
+	registry.SetProfileRoot(root)
 	chat, err := registry.Create("kept name", cfg.DefaultAgentID(), "")
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +355,7 @@ func TestStartupRestoresMarkedChatAndKeepsArchiveMark2xt(t *testing.T) {
 	defer nextWriters.Close()
 	nextBus := events.NewBus()
 	nextRegistry := session.NewRegistry(nextBus, nextWriters, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	nextRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	nextRegistry.SetProfileRoot(root)
 	restored, _, err := restoreRetainedChats(nextWriters, nextRegistry, nextBus, 0)
 	if err != nil || len(restored) != 1 || restored[0].Snapshot().Label != "kept name" {
 		t.Fatalf("restore=%v err=%v", restored, err)
@@ -380,7 +380,7 @@ func TestRetainedChatsRestoreWithoutOperationalLogsAndDeleteExplicitly(t *testin
 	firstBus := events.NewBus()
 	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
 	firstRegistry := session.NewRegistry(firstBus, firstWriters, connections, 40, func() config.Config { return cfg })
-	firstRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	firstRegistry.SetProfileRoot(root)
 	item, err := firstRegistry.Create("main", cfg.DefaultAgentID(), workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -465,7 +465,7 @@ func TestDuplicateAndOrphanedHelperDoNotBlockStartup2sc(t *testing.T) {
 	firstBus := events.NewBus()
 	firstBus.SetDurableSink(firstWriters.WriteRecord, nil, nil)
 	firstRegistry := session.NewRegistry(firstBus, firstWriters, resolve, 40, func() config.Config { return cfg })
-	firstRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	firstRegistry.SetProfileRoot(root)
 	primary, err := firstRegistry.Create("primary stand-in", config.AgentID("Primary"), "")
 	if err != nil {
 		t.Fatal(err)
@@ -488,7 +488,7 @@ func TestDuplicateAndOrphanedHelperDoNotBlockStartup2sc(t *testing.T) {
 	secondBus := events.NewBus()
 	secondBus.SetDurableSink(secondWriters.WriteRecord, nil, nil)
 	secondRegistry := session.NewRegistry(secondBus, secondWriters, resolve, 40, func() config.Config { return cfg })
-	secondRegistry.SetPlansRoot(filepath.Join(root, "plans"))
+	secondRegistry.SetProfileRoot(root)
 	oldWriter := log.Writer()
 	defer log.SetOutput(oldWriter)
 	var output bytes.Buffer

@@ -22,7 +22,7 @@ func TestRegistrationRefusalJudgesTheResolvedFolder(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if resolved, reason := RegistrationRefusal(plans, repo); reason != "" || !SamePath(resolved, repo) {
+	if resolved, reason := RepositoryRegistration(plans, repo); reason != "" || !SamePath(resolved, repo) {
 		t.Fatalf("an ordinary repository was refused: %q %q", resolved, reason)
 	}
 	for name, path := range map[string]string{
@@ -31,12 +31,12 @@ func TestRegistrationRefusalJudgesTheResolvedFolder(t *testing.T) {
 		"the data root": data,
 		"drive root":    filepath.VolumeName(repo) + `\`,
 	} {
-		if _, reason := RegistrationRefusal(plans, path); reason == "" {
+		if _, reason := RepositoryRegistration(plans, path); reason == "" {
 			t.Errorf("%s (%s) was accepted", name, path)
 		}
 	}
 	if runtime.GOOS == "windows" {
-		if _, reason := RegistrationRefusal(plans, `\\nonexistent-host\share\repo`); !strings.Contains(reason, "network") {
+		if _, reason := RepositoryRegistration(plans, `\\nonexistent-host\share\repo`); !strings.Contains(reason, "network") {
 			t.Errorf("a share must be refused before it is touched: %q", reason)
 		}
 		link := filepath.Join(t.TempDir(), "j")
@@ -44,12 +44,12 @@ func TestRegistrationRefusalJudgesTheResolvedFolder(t *testing.T) {
 			t.Fatalf("mklink: %v %s", err, out)
 		}
 		t.Cleanup(func() { os.Remove(link) })
-		if _, reason := RegistrationRefusal(plans, link); !strings.Contains(reason, "inside the plans folder") {
+		if _, reason := RepositoryRegistration(plans, link); !strings.Contains(reason, "inside the application data folder") {
 			t.Errorf("a junction to the plans folder must be refused as the plans folder: %q", reason)
 		}
 		// The registry refuses it too, whatever route asked.
-		registry := &Registry{plansRoot: plans}
-		if _, _, err := registry.EnsurePlan(link); err == nil {
+		registry := &Registry{profileRoot: filepath.Dir(plans), dataRoot: plans}
+		if _, err := registry.AddRepository(link); err == nil {
 			t.Error("EnsurePlan registered a junction into the plans folder")
 		}
 	}
@@ -73,7 +73,7 @@ func TestRegistrationRefusesTheConnectionAndSystemFolders(t *testing.T) {
 		t.Fatalf("junction: %v %s", err, out)
 	}
 	for name, path := range map[string]string{"the connection": home, "a junction to the connection": link, "Windows": os.Getenv("SystemRoot"), "inside Program Files": filepath.Join(os.Getenv("ProgramFiles"), "Common Files")} {
-		if _, reason := RegistrationRefusal(plans, path); reason == "" {
+		if _, reason := RepositoryRegistration(plans, path); reason == "" {
 			t.Errorf("%s (%s) was accepted", name, path)
 		}
 	}
@@ -81,7 +81,7 @@ func TestRegistrationRefusesTheConnectionAndSystemFolders(t *testing.T) {
 	if err := os.MkdirAll(inside, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, reason := RegistrationRefusal(plans, inside); reason != "" {
+	if _, reason := RepositoryRegistration(plans, inside); reason != "" {
 		t.Errorf("a folder inside the connection was refused: %q", reason)
 	}
 }

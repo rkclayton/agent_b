@@ -6,7 +6,6 @@ import { registerMenu } from "./menu-behavior.js";
 const shell = await readFile(new URL("./shell.js", import.meta.url), "utf8");
 const chat = await readFile(new URL("./chat.js", import.meta.url), "utf8");
 const consoleApp = await readFile(new URL("./app.js", import.meta.url), "utf8");
-const plan = await readFile(new URL("./plan.js", import.meta.url), "utf8");
 const settings = await readFile(new URL("./settings.js", import.meta.url), "utf8");
 const tokens = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
 const appCSS = await readFile(new URL("../css/app.css", import.meta.url), "utf8");
@@ -30,7 +29,7 @@ test("new folder leaves the menu for its own far-edge button 2u6", () => {
 	assert.match(shell, /newFolderButton\.onclick = \(\) => beginFolderEdit\(\{ mode: "add", parent: "", draft: "" \}\)/);
 	assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)/);
 	assert.doesNotMatch(shell, /button\("Folder", "", "chat-list-menu-action"\)/);
-	assert.match(shell, /if \(hasD\) \{[\s\S]*newChatMenu\.append\(label, plan, rule\);[\s\S]*\}\s*newChatMenu\.append\(openSettings\)/);
+
 	assert.doesNotMatch(shell, /helpLabel|\/help\/reference|\/help\/rules/);
 	assert.match(chatCSS, /\.chat-list-new-folder\{[^}]*margin-left:auto[^}]*width:18px[^}]*height:18px[^}]*border-radius:50%/);
 });
@@ -68,7 +67,7 @@ test("every product menu registers the one shared behavior", () => {
   assert.doesNotMatch(shell, /openMenuSession|session\.id === openMenuSession/);
 });
 
-test("shared shell slot order is identical on the chat and Plan", () => {
+test("shared shell slot order is stable in Chat", () => {
   for (const [name, html] of pages) {
     assert.match(html, new RegExp(`id="app-shell"[^>]+data-page="${name === "index.html" ? "chat" : "plan"}"`));
     assert.doesNotMatch(html, /id="(?:shell-stop|shell-state|shell-operator-status)"/);
@@ -89,14 +88,7 @@ test("shared shell slot order is identical on the chat and Plan", () => {
   assert.doesNotMatch(shell, /rememberedAgentSide|rememberAgentSide\(|agentb\.side\./);
 });
 
-test("the menu keeps the plan choice for d while plus always creates an ordinary chat", () => {
-  assert.match(shell, /const current = configuredAgent\(store\.sessions\[store\.selection\.session_id\]\)/);
-  assert.match(shell, /showListMenu\(current, !!String\(current\?\.d \|\| ""\)\.trim\(\), act\)/);
-  assert.match(shell, /agent_d · \$\{name\} — plan/);
-  assert.match(shell, /createChat\("agent_d", configured\)/);
-  assert.match(shell, /newChatButton\.onclick = \(\) => void createChat\("agent_b"\)/);
-  assert.doesNotMatch(shell, /planRepoEditor|showPlanMenu|plan_id/);
-});
+
 
 // Item 2mf: Plan is a TAB now, not a one-entry nav. The chip is the same file at
 // the same drawn size and the accessible name is still there; what moved is where
@@ -107,27 +99,12 @@ test("the menu keeps the plan choice for d while plus always creates an ordinary
 // draws it at all, and the entry's name is the accessible name.
 test("Repos is a plain Settings entry with no graphic head", () => {
   assert.doesNotMatch(settings, /class="shell-page-chip"|plan-mark-nav/);
-  assert.match(settings, /\["plan", "Repos"\]/);
+  assert.match(settings, /\["repos", "Repos"\]/);
   assert.doesNotMatch(shell, /shell-page-chip/);
   assert.doesNotMatch(shell, /node\("nav", "shell-pages"\)/);
   assert.doesNotMatch(shell, /\[\["plan", "\/plan"\]\]/);
   assert.doesNotMatch(shell, /shell-settings|⚙/);
-  assert.match(shell, /button\("Settings"/);
-});
 
-test("compact window controls continue the top strip", () => {
-  assert.match(shell, /\["minimize", "maximize", "close"\]/);
-  assert.match(tokens, /\.shell-window-controls\{[^}]*grid-template-columns:repeat\(3,28px\)/);
-  assert.match(tokens, /\.shell-window-control\{[^}]*width:28px/);
-  assert.match(tokens, /\.shell-window-control-glyph\{[^}]*width:9px;height:9px/);
-  assert.match(shell, /sessionHeading\.textContent = message/);
-  assert.match(shell, /sessionHeading\.classList\.add\("alarm"\)/);
-});
-
-test("chat list keeps compact controls and transient chrome", () => {
-  assert.match(shell, /iconButton\("menu", "", "chat-list-primary-action chat-list-menu-button"\)/);
-  assert.match(shell, /iconButton\("plus", "New chat", "chat-list-primary-action chat-list-new"\)/);
-  assert.match(shell, /button\("Settings"[\s\S]*if \(hasD\) \{[\s\S]*label\.textContent = "New"[\s\S]*Open plan chat/);
   assert.doesNotMatch(shell, /button\("Chat", "", "chat-list-menu-action"\)|button\("Folder", "", "chat-list-menu-action"\)/);
   assert.doesNotMatch(shell, /rootHeading\.textContent = "Chats"/);
   assert.match(shell, /classList\.add\("menu-open"\)/);
@@ -141,8 +118,7 @@ test("Stop follows the selected chat from each page-local lower control", () => 
   assert.match(chat, /api\("\/api\/stop", \{ session_id: session\.id \}\)/);
   assert.match(consoleApp, /api\("\/api\/stop",\{session_id:id\}\)/);
   // Item 2fc: the Plan page shows plans, not a chat; the planning chat is its own tab.
-  assert.doesNotMatch(plan, /mountChat/);
-  assert.doesNotMatch(chat+consoleApp+plan, /all:\s*true/);
+  assert.doesNotMatch(chat+consoleApp, /all:\s*true/);
 });
 
 test("top-right label is the per-chat agent switcher", () => {
@@ -183,7 +159,7 @@ test("Repos has no chip or accent graphic", async () => {
   assert.doesNotMatch(settings, /class="shell-page-chip"/);
   assert.doesNotMatch(shell, /M9 4\.5A3\.5 3\.5 0 0 0 5\.5 8/); // the mark he did not recognise
   assert.doesNotMatch(shell, /shell-page-brain/); // 2he: the traced brain is gone
-  assert.match(tokens, /--accent-plan:#5AC8FA;/);
+  assert.doesNotMatch(tokens, /--accent-plan/);
   // Item 2le: the chip is the operator's own artwork now, so it carries its own
   // colour and needs no stroke. The accent keeps exactly one use, on the Plan
   // header the full-quality version of that same artwork heads.
@@ -203,8 +179,7 @@ test("Repos has no chip or accent graphic", async () => {
   // The palette rule records it as the operator's exception, not as a seventh
   // colour quietly added to the list.
   const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
-  assert.match(design, /The one exception, stated by the operator \(item 2ge/);
-  assert.match(design, /Accent-plan `#5AC8FA`/);
+  assert.doesNotMatch(design, /Accent-plan `#5AC8FA`/);
 });
 
 // Item 2he (v1.3.0/W2): the toggle renders web/assets/plan-chip.svg VERBATIM.
@@ -215,44 +190,11 @@ test("Repos has no chip or accent graphic", async () => {
 // Item 2le (v1.14.0): the operator supplied his own artwork — "i want this to be
 // the new plan icon … maintain the color of the icon itself" — so the chip is that
 // prepared asset, and the drawn 24-grid SVG it replaces is gone from shell.js.
-test("the retired Plan navigation artwork remains intact but unused", async () => {
-  // Item 2ni: read from settings.js, which is where the entry the chip belongs to
-  // now lives. The asset, the size set and the class are unchanged.
-  assert.doesNotMatch(settings, /plan-mark-nav|shell-page-chip/);
-  // The drawing it replaces is not left behind beside it.
-  assert.doesNotMatch(settings, /<rect x="7" y="7" width="10" height="10" rx="2"\/>/);
-  assert.doesNotMatch(shell, /stroke-width="2"/);
-  // Item 2lm (b): the nav mark is a SIZE SET now. The strip draws a 12px box and
-  // the product runs at more than one device pixel ratio -- rel-1.16.0/W0
-  // measured the operator's own display at 1.75x, where that box is 21 physical
-  // pixels while every screenshot captures it at 12. One asset cannot be sharp at
-  // all of them, so the browser picks.
-  // Every size ships, and each is a real PNG with an alpha channel: the background
-  // is removed, not repainted, so the mark sits on whatever is behind it.
-  for (const [name, expected] of [["plan-mark-nav.png", 12], ["plan-mark-nav@2x.png", 24], ["plan-mark-nav@3x.png", 36], ["plan-mark.png", 128]]) {
-    const png = await readFile(new URL(`../assets/${name}`, import.meta.url));
-    assert.equal(png.subarray(1, 4).toString("ascii"), "PNG", `${name} is not a PNG`);
-    assert.equal(png.readUInt32BE(16), expected, `${name} is not ${expected}px wide`);
-    assert.equal(png.readUInt8(25), 6, `${name} has no alpha channel`);
-  }
-  const tokensCss = await readFile(new URL("../css/tokens.css", import.meta.url), "utf8");
-  const chipRule = (tokensCss.split("}").find((rule) => rule.includes(".shell-page-chip{")) ?? "")
-    .replace(/\/\*[\s\S]*?\*\//g, "").split(".shell-page-chip{").pop();
-  assert.doesNotMatch(chipRule, /stroke/, "the artwork carries its own colour; no stroke is applied to it");
-  // The operator explicitly halved the displayed box; item 2lm (c) says the drawn
-  // size is not changed to make the artwork work, so it is still 12.
-  assert.match(chipRule, /width:12px;height:12px/);
-});
+
 
 // Item 2u0 removes the full-detail Plan header, while retaining the asset itself
 // and the compact navigation mark.
-test("the retired full-detail Plan mark remains an intact asset", async () => {
-  const png = await readFile(new URL("../assets/plan-mark.png", import.meta.url));
-  assert.equal(png.readUInt32BE(16), 128);
-  assert.equal(png.readUInt32BE(20), 128);
-  const plan = await readFile(new URL("../index.html", import.meta.url), "utf8");
-  assert.doesNotMatch(plan, /plan-mark\.png/, "the retired full-detail mark returned to the Plan section");
-});
+
 
 // Item 2gk (v1.3.0/W2): the readout left, and the marker that drew
 // tofu is gone. Operator, 2026-09-22, with a screenshot of the line sitting as

@@ -29,18 +29,7 @@ func (*EditFile) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "old_string": map[string]any{"type": "string"}, "new_string": map[string]any{"type": "string"}, "read_sha256": map[string]any{"type": "string", "description": "the [file sha256=...] value from the read this edit is based on"}}, "required": []string{"path", "old_string", "new_string"}}
 }
 func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
-	if s.Role == "d" && !s.PlanWriteAllowed() {
-		return "", fmt.Errorf("plan-page writes require accepting a proposal")
-	}
 	path, _ := args["path"].(string)
-	// A planner writing its plan.md takes the one plan-file lock every other
-	// writer of that file takes, so its edit and a worker's marker serialise.
-	if s.Role == "d" {
-		if planFile, isPlan := s.PlanFileFor(path); isPlan {
-			unlock := session.LockPlanFileWrite(planFile)
-			defer unlock()
-		}
-	}
 	old, oldOK := args["old_string"].(string)
 	replacement, newOK := args["new_string"].(string)
 	if path == "" {
@@ -55,11 +44,6 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	if old == "" {
 		return "", fmt.Errorf("old_string is empty; use write_file to create a file, or give the exact text to replace.")
 	}
-	if s.Role == "d" {
-		if err := refuseRepoPolicyWrite(".", path); err != nil {
-			return "", err
-		}
-	}
 	root, rootErr := s.WriteRoot(path)
 	if rootErr != nil {
 		return "", rootErr
@@ -67,14 +51,11 @@ func (e *EditFile) Call(ctx context.Context, s *session.Session, args map[string
 	if err := refuseRepoPolicyWrite(root, path); err != nil {
 		return "", err
 	}
-	resolved, err := resolveForWorkerWrite(ctx, s, root, path)
+	resolved, err := resolveForSessionTool(ctx, s, root, path)
 	if err != nil {
 		return "", err
 	}
 	if err := refuseRepoPolicyWrite(root, resolved); err != nil {
-		return "", err
-	}
-	if err := refusePlanManifestWrite(s, resolved); err != nil {
 		return "", err
 	}
 	displayPath := cleanRel(path)

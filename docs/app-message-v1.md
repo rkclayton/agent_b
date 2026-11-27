@@ -203,7 +203,7 @@ probe finding.
 `chat.create` carries an optional `label`, `agent_id`, and legacy `connection_id`, and NOTHING ELSE. State lists safe agent rows `{id,name,connection_id,model,tools,read_only?}` beside connections. A named agent creates the chat on it. A released client naming a connection maps to `agent_b` when it uses that connection, otherwise the first matching agent. With neither id, the desktop uses `agent_b`. A known id creates the
 same ordinary PC chat as choosing that agent in the top strip. An unknown id returns the ordinary
 `400` field refusal and creates nothing. It still cannot carry `role` or
-`source_session_id`, so a device cannot open a planner or worker chat. With no `label`, the desktop
+`source_session_id`. With no `label`, the desktop
 names the chat as it names any unlabelled one.
 
 An agents row's `tools` is `[{name,enabled}]` in the toolset's own order: the tools the PC's
@@ -326,7 +326,7 @@ including, explicitly:
   come from a loopback request whose client process carries the operator's Windows SID. A broker
   frame is not such a request and cannot become one.
 - `POST /api/update` — no install is startable from a device.
-- `POST /api/host-window`, `/api/plans`, `/api/plan/accept`, `/api/plan/marker`, `/api/plan/go`,
+- `POST /api/host-window` and `/api/repositories`,
   every session-lifecycle route EXCEPT the creation, rename, and delete routes named above — close,
   reopen, move, archive and the rest remain refused. `message` needs no reopen route: sending to a
   retained closed chat reopens it and accepts the message in that one request — `/api/notifications`,
@@ -337,7 +337,7 @@ including, explicitly:
 A stolen paired phone can therefore send a message, stop a run, answer an approval card, toggle a
 tool for the next request, read state, **create a chat**, mirror its own chats and their attachment
 bytes onto this machine, and request ownership of an already mirrored chat. It cannot change the
-  machine, install anything, register a plan, close, move or archive a chat, or reach a credential.
+  machine, install anything, register a repository, close, move or archive a chat, or reach a credential.
 
 **The exposure `chat.create` adds, stated plainly:** a stolen paired phone can see the safe
 Connection sheet and open empty chats, as many as it likes, on any listed connection. That can incur

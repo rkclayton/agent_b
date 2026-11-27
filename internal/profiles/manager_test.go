@@ -38,10 +38,13 @@ func TestOpenMigratesProfileDataAndLeavesSharedState(t *testing.T) {
 	if !migrated || manager.Active() == "" {
 		t.Fatalf("migrated=%t active=%q", migrated, manager.Active())
 	}
-	for _, relative := range []string{"chats/chat.jsonl", "logs/bootstrap.log", "memory/workspace.md", "plans/p1/plan.md", "stats/ledger.json", "attachments/a.txt", "INBOX.md", settingsFile} {
+	for _, relative := range []string{"chats/chat.jsonl", "logs/bootstrap.log", "memory/workspace.md", "stats/ledger.json", "attachments/a.txt", "INBOX.md", settingsFile} {
 		if _, err := os.Stat(filepath.Join(manager.Root(manager.Active()), relative)); err != nil {
 			t.Fatalf("profile path %s: %v", relative, err)
 		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "plans", "p1", "plan.md")); err != nil || string(data) != "plans/p1/plan.md" {
+		t.Fatalf("earlier history file changed during migration: %q %v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "logs", "bootstrap.log")); err != nil {
 		t.Fatalf("bootstrap logs were not retained at the install root: %v", err)

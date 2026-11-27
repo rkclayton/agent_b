@@ -35,5 +35,5 @@ The expected columns are the product contract. The measured columns stay explici
 9. Turn the ready identity on, run `whoami`, restart, and run it again. Both results must end in `\agentb-svc` and no elevation may appear. Repeat the off/on round three times.
 10. While a chat is running, press the switch. It must refuse the change and no later command in that run may use a different identity.
 11. Enable **Run everything as me for 20 minutes**, prove row 1 names the launching user, let the grant expire, and prove row 1 again ends in `\agentb-svc`.
-12. Inspect Windows directly: the service account is not an Administrator, the SID-scoped firewall rule exists, and the application, data, chat, plan, scratch, workspace and exchange ACL results match the Security page.
+12. Inspect Windows directly: the service account is not an Administrator, the SID-scoped firewall rule exists, and the application, data, chat, scratch, workspace and exchange ACL results match the Security page.
 13. Uninstall and remove the disposable VM. Do not reuse a machine which contains a person's real Agent_b installation or service identity.

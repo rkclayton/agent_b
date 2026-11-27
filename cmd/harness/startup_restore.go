@@ -34,7 +34,7 @@ func (a *harnessApp) onProfileChanged(nextRoot string) error {
 	a.web.StopReflection()
 	a.memoryManager.SetBaseDir(nextRoot)
 	nextWorkspaceManager := workspaceinfo.New(a.memoryManager.Dir(), a.memoryManager.Path)
-	if switchErr := a.registry.SwitchProfile(nextWriters, a.memoryManager.Load, a.memoryManager.LoadAgent, nextWorkspaceManager, filepath.Join(nextRoot, "plans")); switchErr != nil {
+	if switchErr := a.registry.SwitchProfile(nextWriters, a.memoryManager.Load, a.memoryManager.LoadAgent, nextWorkspaceManager, nextRoot); switchErr != nil {
 		_ = nextWriters.Close()
 		a.web.StartReflection(24 * time.Hour)
 		a.web.ApplyTelemetry()
@@ -104,7 +104,6 @@ func (a *harnessApp) onProfileChanged(nextRoot string) error {
 	}
 	a.web.StartReflection(24 * time.Hour)
 	a.web.ApplyTelemetry()
-	a.web.PublishPlanChanges()
 	return nil
 }
 

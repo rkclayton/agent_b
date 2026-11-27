@@ -822,10 +822,9 @@ func (x *runState) readAnswer() runOutcome {
 			}
 		}
 		r.stage(x.s, x.runID, x.turn, "append", func() {
-			visible, proposals := planProposalsFor(x.s, finalContent)
-			message, _ := r.makeMessage(x.ctx, x.connection, "assistant", visible, "history", x.turn)
+			message, _ := r.makeMessage(x.ctx, x.connection, "assistant", finalContent, "history", x.turn)
 			message.Reasoning = x.response.Reasoning
-			message.PlanProposals = bindPlanProposalSources(x.s.MessagesCopy(), proposals, message.ID)
+
 			x.currentReasoning[message.ID] = true
 			x.s.Append(message)
 			r.bus.Publish(events.New(events.MessageAppended, x.s.ID, x.runID, map[string]any{"message": message}))
@@ -848,10 +847,9 @@ func (x *runState) readAnswer() runOutcome {
 		}
 		return x.stop("done", "", x.turn)
 	}
-	visible, proposals := planProposalsFor(x.s, x.response.Content)
-	x.assistant, _ = r.makeMessage(x.ctx, x.connection, "assistant", visible, "history", x.turn)
+	x.assistant, _ = r.makeMessage(x.ctx, x.connection, "assistant", x.response.Content, "history", x.turn)
 	x.assistant.Reasoning = x.response.Reasoning
-	x.assistant.PlanProposals = bindPlanProposalSources(x.s.MessagesCopy(), proposals, x.assistant.ID)
+
 	x.currentReasoning[x.assistant.ID] = true
 	x.assistant.ToolCalls = x.durableToolCalls
 	return runGoOnOutcome

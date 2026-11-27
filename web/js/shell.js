@@ -250,24 +250,15 @@ function createShell(options = {}) {
     return session?.run?.status === "running" || session?.run?.status === "stopping";
   }
 
-  // THE PLAN IS NOT A TAB ANY MORE, so the strip's static-surface pass,
-  // its plan chip, its right-click Hide and that Hide's confirmation are all gone with
-  // it: "i decided i think i want it under settings, as its own top level item". The
-  // strip is chats only again, as it was before, and the Plan is a section in
-  // the Settings nav. Hiding it is the switch on Settings > Chats, which now hides that
-  // section; the surface, its URL and its page are untouched, exactly as 2mf (f) said.
-
-  // the one way back, used by the Plan toggle and by the stand-in
-  // "Chat" route. It must work with the model unreachable, with `/api/plan`
   // failing and with no chat selected yet, so it never reads anything that a
   // failed fetch could have left empty: with no chat at all it goes to /chat,
   // which is the empty launch well.
   function returnToChat() {
     const selected = store.sessions?.[store.selection?.session_id];
-    const open = Object.values(store.sessions || {}).filter((session) => !session.closed && session.role !== "c");
-    const session = (selected && !selected.closed && selected.role !== "c") ? selected : open[0];
+    const open = Object.values(store.sessions || {}).filter((session) => !session.closed);
+    const session = (selected && !selected.closed) ? selected : open[0];
     if (!session) return void requestNavigation({ kind: "flip", from: page, to: "chat", fullDocument: true, chatID: "", mutationToken: store.mutation_token }, "/chat");
-    openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat");
+    openSide("agent_b", session.id, "chat");
   }
 
   function openSide(agentID, sessionID, next) {
@@ -282,21 +273,13 @@ function createShell(options = {}) {
     return (store.config.agents || []).find((agent) => agentKey(agent) === (session?.agent_id || store.selection.agent_id)) || store.config.agents?.[0];
   }
 
-  function showListMenu(configured, hasD, act) {
+  function showListMenu() {
     newChatMenu.replaceChildren();
     const openSettings = button("Settings", "", "chat-list-menu-action");
     openSettings.onclick = () => {
       beginNavigation({ kind: "settings", from: "chat", to: "settings", fullDocument: false, chatID: store.active, mutationToken: store.mutation_token });
       document.dispatchEvent(new CustomEvent("settings.open"));
     };
-    if (hasD) {
-      const label = node("span", "chat-list-menu-label"); label.textContent = "New";
-      const name = configured?.name || "Agent";
-      const plan = button(`agent_d · ${name} — plan`, "Open plan chat", "chat-list-menu-action");
-      plan.onclick = () => void createChat("agent_d", configured);
-      const rule = document.createElement("hr");
-      newChatMenu.append(label, plan, rule);
-    }
     newChatMenu.append(openSettings);
     revealMenu(newChatMenu, listMenuButton);
   }
@@ -352,7 +335,7 @@ function createShell(options = {}) {
     listMenuButton.onclick = () => {
       if (!newChatMenu.hidden) return void menuControllers.get(newChatMenu)?.close();
       const current = configuredAgent(store.sessions[store.selection.session_id]);
-      showListMenu(current, !!String(current?.d || "").trim(), act);
+      showListMenu();
     };
     const folderTargets = new Map();
     const folderHeading = (path, parent) => {
@@ -405,10 +388,10 @@ function createShell(options = {}) {
         try {
           if (session.closed) await api(`/api/sessions/${encodeURIComponent(session.id)}/reopen`, {});
           if (session.closed) reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
-          setSelection(`agent_${session.role === "d" ? "d" : "b"}`, session.id);
+          setSelection("agent_b", session.id);
           const settingsOpen = !!document.querySelector("#settings-page:not([hidden])");
-          if (settingsOpen) document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat", after: () => openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat") } }));
-          else if (page !== "chat") openSide(`agent_${session.role === "d" ? "d" : "b"}`, session.id, "chat");
+          if (settingsOpen) document.dispatchEvent(new CustomEvent("settings.close", { detail: { surface: "chat", after: () => openSide("agent_b", session.id, "chat") } }));
+          else if (page !== "chat") openSide("agent_b", session.id, "chat");
           else render();
         } catch (error) { listError = { kind: "chat", id: session.id, message: error.message }; renderChatPanel(); }
       };
@@ -484,7 +467,7 @@ function createShell(options = {}) {
   function openIndexedChat(id) {
     const session = store.sessions[id];
     if (!session) return;
-    const show = () => { if (page !== "chat") openSide(`agent_${session.role === "d" ? "d" : "b"}`, id, "chat"); else { setSelection(`agent_${session.role === "d" ? "d" : "b"}`, id); render(); } };
+    const show = () => { if (page !== "chat") openSide("agent_b", id, "chat"); else { setSelection("agent_b", id); render(); } };
     if (!session.closed) return show();
     void api(`/api/sessions/${encodeURIComponent(id)}/reopen`, {}).then(() => api("/api/state", undefined, "GET")).then((data) => { reduce({ type:"snapshot", data }); show(); }).catch((error) => report(error.message));
   }
@@ -493,7 +476,7 @@ function createShell(options = {}) {
     await api(`/api/sessions/${encodeURIComponent(id)}`, undefined, "DELETE");
     reduce({ type:"snapshot", data:await api("/api/state", undefined, "GET") });
     chatTree = await api("/api/chats/tree", undefined, "GET"); chatTreeReady = true;
-    if (store.selection.session_id === id) { const next = Object.values(store.sessions).filter((chat) => chat.id !== id && chat.role !== "c").sort((a,b) => Date.parse(b.last_activity || b.created_at || 0)-Date.parse(a.last_activity || a.created_at || 0))[0]; setSelection(next ? `agent_${next.role === "d" ? "d" : "b"}` : "agent_b", next?.id || ""); }
+    if (store.selection.session_id === id) { const next = Object.values(store.sessions).filter((chat) => chat.id !== id).sort((a,b) => Date.parse(b.last_activity || b.created_at || 0)-Date.parse(a.last_activity || a.created_at || 0))[0]; setSelection("agent_b", next?.id || ""); }
     renderChatPanel();
   }
 
@@ -587,8 +570,8 @@ function createShell(options = {}) {
       await api(`/api/sessions/${encodeURIComponent(session.id)}`, undefined, "DELETE");
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       if (wasSelected) {
-        const next = Object.values(store.sessions).filter((chat) => chat.id !== session.id && chat.role !== "c").sort((a, b) => Date.parse(b.last_activity || b.created_at || 0) - Date.parse(a.last_activity || a.created_at || 0))[0];
-        setSelection(next ? `agent_${next.role === "d" ? "d" : "b"}` : "agent_b", next?.id || "");
+        const next = Object.values(store.sessions).filter((chat) => chat.id !== session.id).sort((a, b) => Date.parse(b.last_activity || b.created_at || 0) - Date.parse(a.last_activity || a.created_at || 0))[0];
+        setSelection("agent_b", next?.id || "");
       }
       renderChatPanel();
     } catch (error) { listError = { kind: "chat", id: session.id, message: error.message }; renderChatPanel(); }
@@ -614,9 +597,7 @@ function createShell(options = {}) {
     const source = store.sessions[store.selection.session_id] || null;
     try {
       const configuredID = configured ? agentKey(configured) : agentKey(configuredAgent(source));
-      const body = agentID === "agent_d"
-        ? { agent_id: configuredID, role: "d" }
-        : { agent_id: configuredID || agentID };
+      const body = { agent_id: configuredID || agentID };
       const result = await api("/api/sessions", body);
       reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") });
       setSelection(agentID, result.session.id);

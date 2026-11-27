@@ -710,7 +710,7 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 	// land in the PROFILE rather than in the machine file. (c)'s rejected fix
 	// failed exactly here -- it preserved the machine file's sections from disk
 	// and dropped this write entirely.
-	cfg.Agents[0].C = "local" // an existing connection; the point is the file it lands in
+	cfg.Agents[0].Prompt = "Use the fixture convention."
 	if err := server.saveProfileConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -718,7 +718,7 @@ func TestMachineFileKeepsItsOwnPerProfileSections2m0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(settings.Agents) == 0 || settings.Agents[0].C != "local" {
+	if len(settings.Agents) == 0 || settings.Agents[0].Prompt != "Use the fixture convention." {
 		t.Errorf("the agent-role write did not reach the profile: %+v", settings.Agents)
 	}
 	if onDisk, _, _, err := config.Load(path); err != nil {

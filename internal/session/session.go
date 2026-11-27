@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -41,10 +40,7 @@ type Snapshot struct {
 	AgentName         string                     `json:"agent_name"`
 	BConnection       string                     `json:"b_connection"`
 	Role              string                     `json:"role"`
-	PlanID            string                     `json:"plan_id,omitempty"`
-	PlanName          string                     `json:"plan_name,omitempty"`
-	PlanDir           string                     `json:"plan_dir,omitempty"`
-	PlanRepo          string                     `json:"plan_repo,omitempty"`
+	ReadOnlyHistory   bool                       `json:"read_only_history,omitempty"`
 	CreatedAt         string                     `json:"created_at"`
 	Closed            bool                       `json:"closed"`
 	NamePinned        bool                       `json:"name_pinned"`
@@ -96,11 +92,12 @@ type Snapshot struct {
 	CompactionCompletion  int      `json:"compaction_completion_tokens"`
 }
 type Session struct {
-	ID, Label, AgentID, ConnectionID, Workspace                                      string
-	Role, PlanID, PlanName, PlanDir, PlanRepo, PlansRoot, SkillsRoot, SkillStateRoot string
-	OperatorRoot                                                                     string
-	ParentSessionID                                                                  string
-	Unattended                                                                       bool
+	ID, Label, AgentID, ConnectionID, Workspace string
+	Role, SkillsRoot, SkillStateRoot            string
+	ReadOnlyHistory                             bool
+	OperatorRoot                                string
+	ParentSessionID                             string
+	Unattended                                  bool
 	// cards refused while unattended, for this run.
 	boundaryHits           []string
 	WorkspaceMissing       bool
@@ -115,7 +112,6 @@ type Session struct {
 	ProjectRouting         bool
 	PendingRepoPolicy      *workspaceinfo.PolicyState
 	RepoPolicy             *workspaceinfo.PolicyState
-	PlanRepos              func() []string
 	ProjectTouch           func(string)
 	AgentName, BConnection string
 	Closed                 bool
@@ -127,14 +123,10 @@ type Session struct {
 	Run                    RunState
 	ToolsEnabled           map[string]bool
 	// set when an untrusted tool result lands in this turn.
-	untrustedInTurn  bool
-	generatedImages  int
-	ToolCalls        map[string]int
-	LastSeen         map[string]time.Time
-	TouchedPlanRepos map[string]bool
-	// WrittenPlanRepos are the plan repositories this chat has written into,
-	// oldest first, for its lifetime; TouchedPlanRepos is per run.
-	WrittenPlanRepos []string
+	untrustedInTurn bool
+	generatedImages int
+	ToolCalls       map[string]int
+	LastSeen        map[string]time.Time
 	// LoadFolderMemory loads one folder's memory layer for this chat's connection.
 	LoadFolderMemory  func(folder string) (string, string, error)
 	CreatedAt         time.Time
@@ -169,17 +161,13 @@ type Session struct {
 	compactionCompletion int
 	submitting           int
 	runPinID             string
-	workerJob            WorkerJob
 	credentialGrants     map[string]bool
 	credentialIdleSince  time.Time
 	credentialIdleGap    time.Duration
-	planPage             bool
-	planAccept           bool
 	mu                   sync.Mutex
 }
 
 // every card this run would have raised while unattended.
-// The worker reads them onto its item and the morning report lists them.
 func (s *Session) RecordBoundaryHit(reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -215,7 +203,7 @@ func (s *Session) SnapshotUnlocked() Snapshot {
 			tools = append(tools, ToolState{Name: name, Enabled: enabled, Calls: s.ToolCalls[name], SchemaTokens: s.SchemaTokens[name], MarginalTokens: s.MarginalTokens[name]})
 		}
 	}
-	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ConnectionID: s.ConnectionID, AgentName: s.AgentName, BConnection: s.BConnection, Role: s.Role, PlanID: s.PlanID, PlanName: s.PlanName, PlanDir: s.PlanDir, PlanRepo: s.PlanRepo, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Origin: s.Origin, Owner: s.Owner, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), ProjectRoots: append([]string(nil), s.ProjectRoots...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, QueuedMessageIDs: append([]string(nil), s.queuedMessageIDs...), Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock, s.MemoryMaxTokens), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock, s.MemoryMaxTokens), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, NetworkBoundarySet: s.NetworkBoundarySet, MediaCapabilities: s.MediaCapabilities, MediaCapabilitiesSet: s.MediaCapabilitiesSet, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
+	return Snapshot{ID: s.ID, Label: s.Label, AgentID: s.AgentID, ConnectionID: s.ConnectionID, AgentName: s.AgentName, BConnection: s.BConnection, Role: s.Role, ReadOnlyHistory: s.ReadOnlyHistory, CreatedAt: s.CreatedAt.Format(time.RFC3339Nano), Closed: s.Closed, NamePinned: s.NamePinned, Origin: s.Origin, Owner: s.Owner, Workspace: s.Workspace, WorkspaceDir: s.Workspace, WorkspaceMissing: s.WorkspaceMissing, Scratch: s.Scratch, ProjectContent: s.ProjectBlock, ProjectFiles: append([]string(nil), s.ProjectFiles...), ProjectNotes: append([]string(nil), s.ProjectNotes...), ProjectRoots: append([]string(nil), s.ProjectRoots...), PendingRepoPolicy: clonePolicyState(s.PendingRepoPolicy), RepoPolicy: clonePolicyState(s.RepoPolicy), Run: s.Run, Tools: tools, Messages: append([]events.Message{}, s.Messages...), Budget: s.Budget, QueuedMessages: s.queuedMessages, QueuedMessageIDs: append([]string(nil), s.queuedMessageIDs...), Runnable: s.Runnable, NotRunnableReason: s.NotRunnableReason, DegradedNotes: append([]string(nil), s.DegradedNotes...), MemoryPath: s.MemoryPath, MemoryContent: s.MemoryBlock, AgentMemoryPath: s.AgentMemoryPath, AgentMemoryContent: s.AgentMemoryBlock, MemoryTokens: estimateMemoryTokens(s.MemoryBlock), AgentMemoryTokens: estimateMemoryTokens(s.AgentMemoryBlock), MemoryMaxTokens: s.MemoryMaxTokens, MemoryOverBudget: overBudget(s.MemoryBlock, s.MemoryMaxTokens), AgentMemoryOverBudget: overBudget(s.AgentMemoryBlock, s.MemoryMaxTokens), PromptAddendum: s.PromptAddendum, NetworkBoundary: s.NetworkBoundary, NetworkBoundarySet: s.NetworkBoundarySet, MediaCapabilities: s.MediaCapabilities, MediaCapabilitiesSet: s.MediaCapabilitiesSet, LogPath: s.LogPath, ModelTurns: s.modelTurns, CompactionCount: s.compactionCount, CompactionTokenDelta: s.compactionTokenDelta, CompactionModelCalls: s.compactionModelCalls, CompactionPrompt: s.compactionPrompt, CompactionCompletion: s.compactionCompletion}
 }
 
 const staleNetworkBoundaryNote = "network boundary text is stale until reopened"
@@ -264,28 +252,6 @@ func (s *Session) ReadRoot(path string) (string, error) {
 	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
 		return s.SkillsRoot, nil
 	}
-	if filepath.IsAbs(candidate) && s.PlansRoot != "" && pathWithin(s.PlansRoot, candidate) {
-		return s.PlansRoot, nil
-	}
-	if s.Role == "d" && s.PlanDir != "" {
-		if err := s.validatePlanDirLocked(); err != nil {
-			return "", err
-		}
-		if !filepath.IsAbs(candidate) || pathWithin(s.PlanDir, candidate) {
-			return s.PlanDir, nil
-		}
-		if s.PlanRepo != "" && pathWithin(s.PlanRepo, candidate) {
-			s.touchPlanRepoLocked(s.PlanRepo)
-			return s.PlanRepo, nil
-		}
-	}
-	// c reads its bound repo the way b reads any registered one.
-	if (s.Role == "b" || s.Role == "c" || s.Role == "e") && filepath.IsAbs(candidate) {
-		if root := s.planRepoRootLocked(candidate); root != "" {
-			s.touchPlanRepoLocked(root)
-			return root, nil
-		}
-	}
 	return s.Workspace, nil
 }
 
@@ -306,56 +272,6 @@ func (s *Session) WriteRoot(path string) (string, error) {
 	if filepath.IsAbs(candidate) && s.SkillsRoot != "" && pathWithin(s.SkillsRoot, candidate) {
 		return s.SkillsRoot, nil
 	}
-	// The worker never writes plan text. d writes its own plan folder; c is bound
-	// to a plan but may only ever write the repo, so the plans root is closed to
-	// it exactly as it is to b. Markers are the harness's writes, not the model's.
-	if filepath.IsAbs(candidate) && s.PlansRoot != "" && pathWithin(s.PlansRoot, candidate) && (s.Role != "d" || s.PlanDir == "" || !pathWithin(s.PlanDir, candidate)) {
-		return "", fmt.Errorf("path is outside the folder")
-	}
-	if s.Role == "c" && s.PlanDir != "" && filepath.IsAbs(candidate) && samePath(candidate, filepath.Join(s.PlanDir, "plan.md")) {
-		return "", fmt.Errorf("the worker cannot write plan.md")
-	}
-	if s.Role != "d" {
-		if filepath.IsAbs(candidate) {
-			if root := s.planRepoRootLocked(candidate); root != "" {
-				if samePath(candidate, filepath.Join(root, "plan.md")) {
-					return "", fmt.Errorf("only the bound planner can write plan.md")
-				}
-				s.touchPlanRepoLocked(root)
-				return root, nil
-			}
-		}
-		return s.Workspace, nil
-	}
-	if s.PlanDir != "" {
-		if err := s.validatePlanDirLocked(); err != nil {
-			return "", err
-		}
-		if !filepath.IsAbs(candidate) {
-			cleaned := filepath.Clean(candidate)
-			if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-				return "", fmt.Errorf("path is outside the folder")
-			}
-		}
-		if filepath.IsAbs(candidate) {
-			if pathWithin(s.PlanDir, candidate) {
-				return s.PlanDir, nil
-			}
-			if s.PlanRepo != "" && pathWithin(s.PlanRepo, candidate) {
-				s.touchPlanRepoLocked(s.PlanRepo)
-				return s.PlanRepo, nil
-			}
-			return s.Workspace, nil
-		}
-		return s.PlanDir, nil
-	}
-	if filepath.IsAbs(candidate) {
-		return s.Workspace, nil
-	}
-	cleaned := filepath.Clean(filepath.FromSlash(path))
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path is outside the folder")
-	}
 	return s.Workspace, nil
 }
 
@@ -374,55 +290,16 @@ func resolveOperatorAlias(path, root string) string {
 	return filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(value[len(prefix):], "/")))
 }
 
-func (s *Session) planRepoRootLocked(candidate string) string {
-	if s.PlanRepos == nil {
-		return ""
-	}
-	best := ""
-	for _, root := range s.PlanRepos() {
-		root = filepath.Clean(root)
-		if root != "." && pathWithin(root, candidate) && len(root) > len(best) {
-			best = root
-		}
-	}
-	return best
-}
-
-func (s *Session) touchPlanRepoLocked(root string) {
-	if s.TouchedPlanRepos == nil {
-		s.TouchedPlanRepos = map[string]bool{}
-	}
-	root = filepath.Clean(root)
-	s.TouchedPlanRepos[root] = true
-	kept := s.WrittenPlanRepos[:0]
-	for _, written := range s.WrittenPlanRepos {
-		if !strings.EqualFold(written, root) {
-			kept = append(kept, written)
-		}
-	}
-	s.WrittenPlanRepos = append(kept, root)
-}
-
-// MemoryFolder is where a folder-layer note from this chat belongs:
-// a scratch chat has no memory layer of its own, so a project fact goes to the
-// plan repository it wrote into most recently, and "" means none is in scope.
-// Any other chat's folder is its workspace.
 func (s *Session) MemoryFolder() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ProjectRouting {
-		if len(s.ProjectRoots) == 1 {
-			return s.ProjectRoots[0]
-		}
-		return ""
+	if s.ProjectRouting && len(s.ProjectRoots) == 1 {
+		return s.ProjectRoots[0]
 	}
-	if !s.Scratch {
+	if !s.ProjectRouting && !s.Scratch {
 		return s.Workspace
 	}
-	if len(s.WrittenPlanRepos) == 0 {
-		return ""
-	}
-	return s.WrittenPlanRepos[len(s.WrittenPlanRepos)-1]
+	return ""
 }
 
 func (s *Session) MemoryProject(name string) (string, []string) {
@@ -432,10 +309,7 @@ func (s *Session) MemoryProject(name string) (string, []string) {
 		if !s.Scratch {
 			return s.Workspace, nil
 		}
-		if len(s.WrittenPlanRepos) == 0 {
-			return "", nil
-		}
-		return s.WrittenPlanRepos[len(s.WrittenPlanRepos)-1], nil
+		return "", nil
 	}
 	choices := append([]string(nil), s.ProjectRoots...)
 	if len(choices) == 1 && strings.TrimSpace(name) == "" {
@@ -458,7 +332,6 @@ func (s *Session) RefreshScratchMemory() bool {
 
 func (s *Session) ResetRunTouches() {
 	s.mu.Lock()
-	s.TouchedPlanRepos = map[string]bool{}
 	s.generatedImages = 0
 	s.mu.Unlock()
 }
@@ -482,52 +355,7 @@ func (s *Session) ReleaseGeneratedImages(count int) {
 func (s *Session) SandboxMounts() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	mounts := []string{filepath.Clean(s.Workspace)}
-	for root := range s.TouchedPlanRepos {
-		if !pathWithin(s.Workspace, root) && !pathWithin(root, s.Workspace) {
-			mounts = append(mounts, root)
-		}
-	}
-	sort.Strings(mounts[1:])
-	return mounts
-}
-
-func (s *Session) validatePlanDirLocked() error {
-	if s.PlanDir == "" {
-		return fmt.Errorf("plan storage is unavailable")
-	}
-	info, err := os.Lstat(s.PlanDir)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("plan folder is not a directory")
-	}
-	if !regularFile(filepath.Join(s.PlanDir, "plan.md")) {
-		return fmt.Errorf("plan.md is unavailable")
-	}
-	return nil
-}
-
-func (s *Session) RefreshPlanName() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.Role != "d" || s.PlanDir == "" {
-		return
-	}
-	data, err := os.ReadFile(filepath.Join(s.PlanDir, "plan.md"))
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			if name := strings.TrimSpace(strings.TrimLeft(trimmed, "#")); name != "" {
-				s.PlanName = name
-			}
-			return
-		}
-	}
+	return []string{filepath.Clean(s.Workspace)}
 }
 
 func pathWithin(root, candidate string) bool {
@@ -746,9 +574,6 @@ func (s *Session) ToggleTool(name string, enabled bool) bool {
 	if _, ok := s.ToolsEnabled[name]; !ok {
 		return false
 	}
-	if s.Role == "d" && enabled && (name == "shell" || name == "run_script") {
-		return false
-	}
 	s.ToolsEnabled[name] = enabled
 	return true
 }
@@ -829,10 +654,6 @@ func (s *Session) ApplyAgentConfig(agentID string, agent config.Agent, connectio
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	connectionID := connection.ID
-	if s.Role == "d" {
-		enabled["shell"] = false
-		enabled["run_script"] = false
-	}
 	if s.RepoPolicy != nil && len(s.RepoPolicy.Policy.DefaultToolset) > 0 {
 		policy := map[string]bool{}
 		for _, name := range s.RepoPolicy.Policy.DefaultToolset {
@@ -973,6 +794,9 @@ func (s *Session) SetRunnable(ok bool, reason string) {
 		reason = "chat is not runnable"
 	}
 	s.mu.Lock()
+	if s.ReadOnlyHistory {
+		ok, reason = false, "Read-only history"
+	}
 	s.Runnable, s.NotRunnableReason = ok, reason
 	s.mu.Unlock()
 }
@@ -982,8 +806,11 @@ func (s *Session) SetRunnable(ok bool, reason string) {
 // never invented or redirected when it has disappeared.
 func (s *Session) EnsureWorkspace() (ok bool, reason string, changed bool) {
 	s.mu.Lock()
-	workspace, scratch := s.Workspace, s.Scratch
+	workspace, scratch, readOnly := s.Workspace, s.Scratch, s.ReadOnlyHistory
 	s.mu.Unlock()
+	if readOnly {
+		return false, "Read-only history", false
+	}
 
 	if scratch {
 		if err := os.MkdirAll(workspace, 0o700); err != nil {
@@ -1126,44 +953,6 @@ func RunPinFromTail(messages []events.Message) string {
 		first--
 	}
 	return messages[first].ID
-}
-
-// SetPlanPage marks a chat as using the operator-governed Plan surface. It is
-// deliberately session-local: the browser reasserts it when the surface opens.
-func (s *Session) SetPlanPage(enabled bool) {
-	s.mu.Lock()
-	s.planPage = enabled
-	s.mu.Unlock()
-}
-
-// BeginPlanAccept opens the narrow write gate used by the Plan tray. Model
-// tool calls never call this method.
-func (s *Session) BeginPlanAccept() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.planPage {
-		return false
-	}
-	s.planAccept = true
-	return true
-}
-
-func (s *Session) EndPlanAccept() {
-	s.mu.Lock()
-	s.planAccept = false
-	s.mu.Unlock()
-}
-
-func (s *Session) PlanWriteAllowed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return !s.planPage || s.planAccept
-}
-
-func (s *Session) IsPlanPage() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.planPage
 }
 
 func (s *Session) DropLastMessage() (events.Message, bool) {

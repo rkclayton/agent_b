@@ -100,7 +100,7 @@ func (g *Gate) WaitCredential(ctx context.Context, s *session.Session, runID, ca
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, approvalCredential, StandingGrant{})
 	wait.name = "credential"
-	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, workerApproval(s, map[string]any{"call_id": callID, "name": "credential", "kind": "credential", "args": args, "boundary_escape": false})))
+	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, map[string]any{"call_id": callID, "name": "credential", "kind": "credential", "args": args, "boundary_escape": false}))
 	g.sequenceMu.Unlock()
 	defer cleanup()
 	decision, err := g.awaitDecision(ctx, s, runID, callID, wait)
@@ -172,16 +172,8 @@ func (g *Gate) WaitPolicyRequired(ctx context.Context, s *session.Session, runID
 }
 
 func (g *Gate) WaitPolicyDecision(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) (string, error) {
-	// unattended means nothing asks. The refusal is recorded on the
-	// item and the run moves on rather than sitting on a card nobody will see.
 	if g.unattended(s) {
-		// Registering a plan is its own kind, so the morning list says which of
-		// the four it was rather than calling them all policy.
-		kind := boundaryPolicy
-		if strings.HasPrefix(name, "plan registration") {
-			kind = boundaryRegister
-		}
-		return g.refuseUnattended(s, runID, callID, kind, name, args), nil
+		return g.refuseUnattended(s, runID, callID, boundaryPolicy, name, args), nil
 	}
 	grant := standingGrant(s, name, args)
 	if g.standingPath == "" {
@@ -245,9 +237,9 @@ func (g *Gate) WaitCycleDecision(ctx context.Context, s *session.Session, runID,
 	g.sequenceMu.Lock()
 	wait, cleanup := g.beginWait(s, runID, callID, approvalCycle, StandingGrant{})
 	wait.name = "run.cycle"
-	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, map[string]any{
+	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, map[string]any{
 		"call_id": callID, "name": "run.cycle", "kind": "cycle", "args": args, "boundary_escape": false,
-	}))))
+	})))
 	g.sequenceMu.Unlock()
 	defer cleanup()
 	return g.awaitDecision(ctx, s, runID, callID, wait)
@@ -298,18 +290,7 @@ func (g *Gate) publishApprovalRequired(s *session.Session, runID, callID, name s
 	if grant.ID != "" {
 		data["standing_grant"] = grant
 	}
-	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, workerApproval(s, data))))
-}
-
-// workerApproval tags a worker's request with its plan. A worker has no chat, so
-// its card is drawn in that plan's design thread and its notification points
-// there; the decision itself still goes to the worker's own session.
-func workerApproval(s *session.Session, data map[string]any) map[string]any {
-	if s.Role == "c" && s.PlanID != "" {
-		data["role"] = "c"
-		data["plan_id"] = s.PlanID
-	}
-	return data
+	g.bus.Publish(events.New(events.ApprovalRequired, s.ID, runID, events.WithHuman(events.ApprovalRequired, data)))
 }
 
 func (g *Gate) awaitDecision(ctx context.Context, s *session.Session, runID, callID string, wait *approvalWait) (string, error) {

@@ -119,11 +119,8 @@ func workspaceRel(workspace, resolved string) string {
 }
 func (c *FileCoordinator) check(s *session.Session, path, resolved string) (string, error) {
 	root := s.Workspace
-	if s.Role == "d" {
-		root = s.PlanDir
-	}
 	// the CONFLICT is checked on the file's own identity, so a
-	// shared plan repository is shared however each session reached it. `rel`
+	// shared repository is shared however each session reached it. `rel`
 	// stays what the operator reads in the event, which is (d): the event's shape
 	// and the chat's rendering of it are unchanged.
 	rel := workspaceRel(root, resolved)
@@ -164,18 +161,10 @@ func (c *FileCoordinator) lastWriterNote(s *session.Session, resolved string) st
 
 func (c *FileCoordinator) record(s *session.Session, resolved string) {
 	// the write is recorded against the FILE. The session's own root
-	// no longer takes part, which is why a shared plan repository is now shared.
+	// no longer takes part, which is why a shared repository is now shared.
 	s.Touch(resolved)
 	c.workspaces.RecordWrite(resolved, s.ID)
-	c.publishPlan(s)
-}
 
-func (c *FileCoordinator) publishPlan(s *session.Session) {
-	if s.Role == "d" {
-		s.RefreshPlanName()
-		snapshot := s.Snapshot()
-		c.bus.Publish(events.New(events.SessionUpdated, s.ID, "", map[string]any{"role": snapshot.Role, "plan_id": snapshot.PlanID, "plan_name": snapshot.PlanName, "plan_dir": snapshot.PlanDir}))
-	}
 }
 
 type WriteFile struct{ coordinator *FileCoordinator }
@@ -189,29 +178,13 @@ func (*WriteFile) Schema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}}, "required": []string{"path", "content"}}
 }
 func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[string]any) (string, error) {
-	if s.Role == "d" && !s.PlanWriteAllowed() {
-		return "", fmt.Errorf("plan-page writes require accepting a proposal")
-	}
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
 		return "", fmt.Errorf("path is required")
 	}
-	// A planner writing its plan.md takes the one plan-file lock every other
-	// writer of that file takes, so its edit and a worker's marker serialise.
-	if s.Role == "d" {
-		if planFile, isPlan := s.PlanFileFor(path); isPlan {
-			unlock := session.LockPlanFileWrite(planFile)
-			defer unlock()
-		}
-	}
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content is required")
-	}
-	if s.Role == "d" {
-		if err := refuseRepoPolicyWrite(".", path); err != nil {
-			return "", err
-		}
 	}
 	root, rootErr := s.WriteRoot(path)
 	if rootErr != nil {
@@ -220,14 +193,11 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 	if err := refuseRepoPolicyWrite(root, path); err != nil {
 		return "", err
 	}
-	resolved, err := resolveForWorkerWrite(ctx, s, root, path)
+	resolved, err := resolveForSessionTool(ctx, s, root, path)
 	if err != nil {
 		return "", err
 	}
 	if err := refuseRepoPolicyWrite(root, resolved); err != nil {
-		return "", err
-	}
-	if err := refusePlanManifestWrite(s, resolved); err != nil {
 		return "", err
 	}
 	// an .xlsx path turns its Markdown tables into a workbook; every
@@ -250,7 +220,7 @@ func (w *WriteFile) Call(ctx context.Context, s *session.Session, args map[strin
 		content = string(workbook)
 	}
 	if existing, readErr := os.ReadFile(resolved); readErr == nil && string(existing) == content {
-		w.coordinator.publishPlan(s)
+
 		return fmt.Sprintf("unchanged: %s already has the requested bytes", cleanRel(path)), nil
 	}
 	prefix, err := w.coordinator.check(s, path, resolved)

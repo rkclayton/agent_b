@@ -160,7 +160,7 @@ func validNavigationMeasurement(body navigationMeasurementBody) bool {
 		return false
 	}
 	validSurface := func(value string) bool {
-		return value == "chat" || value == "console" || value == "settings" || value == "plan"
+		return value == "chat" || value == "console" || value == "settings"
 	}
 	if !validSurface(body.From) || !validSurface(body.To) || body.From == body.To {
 		return false
@@ -187,7 +187,7 @@ func validNavigationStart(body navigationStartBody) bool {
 		return false
 	}
 	validSurface := func(value string) bool {
-		return value == "chat" || value == "console" || value == "settings" || value == "plan"
+		return value == "chat" || value == "console" || value == "settings"
 	}
 	if !validSurface(body.From) || !validSurface(body.To) || body.From == body.To || len(body.ChatID) > 256 {
 		return false

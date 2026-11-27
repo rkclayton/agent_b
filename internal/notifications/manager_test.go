@@ -77,7 +77,7 @@ func TestTwoEventsProduceTwoHumanPostsWithoutDuplicates(t *testing.T) {
 	}
 }
 
-func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.T) {
+func TestReleaseGateDeliversRunAndSettingsTestOnceEach(t *testing.T) {
 	var mu sync.Mutex
 	var messages []string
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -106,9 +106,6 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 
 	for _, event := range []events.Event{
 		events.New(events.RunStopped, "run-chat", "r1", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})),
-		events.New(events.ItemDone, "", "", events.WithHuman(events.ItemDone, map[string]any{"item_id": "2hh"})),
-		events.New(events.PlanDone, "", "", events.WithHuman(events.PlanDone, map[string]any{"plan_id": "release"})),
-		events.New(events.WorkerJob, "worker", "", events.WithHuman(events.WorkerJob, map[string]any{"role": "c", "plan_id": "release"})),
 	} {
 		bus.Publish(event)
 	}
@@ -121,17 +118,17 @@ func TestReleaseGateDeliversRunItemPlanWorkerAndSettingsTestOnceEach(t *testing.
 		mu.Lock()
 		count := len(messages)
 		mu.Unlock()
-		if count == 5 {
+		if count == 2 {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(messages) != 5 {
+	if len(messages) != 2 {
 		t.Fatalf("posts=%d messages=%q", len(messages), messages)
 	}
-	for _, fragment := range []string{"The run finished.", "item", "plan", "/plan", "Agent_b test notification."} {
+	for _, fragment := range []string{"The run finished.", "Agent_b test notification."} {
 		count := 0
 		for _, message := range messages {
 			if strings.Contains(strings.ToLower(message), strings.ToLower(fragment)) {
@@ -254,16 +251,6 @@ func (fn roundTripFunc) Do(request *http.Request) (*http.Response, error) { retu
 
 // A worker has no chat, so the notification for its approval points at the
 // Plan page, where its card is drawn, and still carries the human sentence.
-func TestWorkerApprovalNotificationPointsAtThePlan(t *testing.T) {
-	manager := New(events.NewBus(), func(string) string { return "worker" }, "http://127.0.0.1:8790")
-	message := manager.message(events.New(events.ApprovalRequired, "c1", "r1", events.WithHuman(events.ApprovalRequired, map[string]any{"name": "read_file.operator_override", "boundary_escape": true, "role": "c", "plan_id": "p1"})))
-	if !strings.Contains(message, "http://127.0.0.1:8790/plan") || strings.Contains(message, "/chat?session=c1") {
-		t.Fatalf("worker approval link = %q", message)
-	}
-	if !strings.Contains(message, "needs your") {
-		t.Fatalf("worker approval lost its human sentence: %q", message)
-	}
-}
 
 type desktopStandIn struct {
 	notices []DesktopNotice
@@ -295,11 +282,11 @@ func TestEveryNoticeFansOutOnceAndDesktopHonorsViewingAndSwitch2rz(t *testing.T)
 	manager := New(bus, func(id string) string { return "title " + id }, "http://127.0.0.1:8790")
 	desktopOn := true
 	manager.SetChannels(desktop, phone, func(string) bool { return desktopOn })
-	for _, kind := range []string{events.ApprovalRequired, events.RunStopped, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob} {
+	for _, kind := range []string{events.ApprovalRequired, events.RunStopped} {
 		manager.deliverEvent(context.Background(), events.New(kind, "other", "r1", events.WithHuman(kind, map[string]any{"reason": "done", "scheduled_job": "job", "scheduled_answer": "one\ntwo\nthree"})))
 	}
 	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "open", "r2", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})))
-	if len(desktop.notices) != 6 || phone.sent != 7 {
+	if len(desktop.notices) != 2 || phone.sent != 3 {
 		t.Fatalf("desktop=%d phone=%d", len(desktop.notices), phone.sent)
 	}
 	if notice := desktop.notices[1]; notice.Title != "job" || notice.Body == "" || strings.Count(notice.Body, "\n") > 1 || notice.ChatID != "other" {
@@ -311,7 +298,7 @@ func TestEveryNoticeFansOutOnceAndDesktopHonorsViewingAndSwitch2rz(t *testing.T)
 	}
 	desktopOn = false
 	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "off", "r3", events.WithHuman(events.RunStopped, map[string]any{"reason": "done"})))
-	if len(desktop.notices) != 7 || phone.sent != 9 {
+	if len(desktop.notices) != 3 || phone.sent != 5 {
 		t.Fatalf("desktop=%d phone=%d", len(desktop.notices), phone.sent)
 	}
 }

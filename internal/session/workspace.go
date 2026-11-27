@@ -15,7 +15,7 @@ type WriteRecord struct {
 //
 // It was keyed by (the writing session's own root, the path relative to that
 // root). Two sessions with different scratch roots writing ONE file in a shared
-// plan repository therefore landed in two different maps, and no conflict could
+// registered repository landed in two different maps, and no conflict could
 // ever fire between them — confirmed by reading the source before this was
 // written, and by the reproduction in the item's @verify.
 //

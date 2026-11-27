@@ -12,8 +12,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"harness/internal/memory"
 )
 
 func TestReceiverRefusalIsCountedDroppedAndNeverRetried2ov(t *testing.T) {
@@ -118,9 +116,6 @@ func TestOffMeansThereIsNoSender2jg(t *testing.T) {
 // before that batch is neither picked nor sent.
 func TestTheRecorderTypesTravelInABatchOfTheirOwn2pw(t *testing.T) {
 	note := "PLANTED planner-only product note"
-	if err := memory.NewPlannerNotes(t.TempDir()).Add("", note); err != nil {
-		t.Fatal(err)
-	}
 	sink := &capture{}
 	sender, _ := newSender(t, sink)
 	sender.Observe("tool.result", "2026-10-04T17:00:00Z", map[string]any{"name": "read_file", "ok": true, "ms": 3})

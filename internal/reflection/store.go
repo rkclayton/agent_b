@@ -1,7 +1,7 @@
 // Package reflection is the pass that runs after a chat's run closes and on a
 // daily tick. It records one summary per run, extracts the shape of
 // a repository from the code rather than from history, joins the two into a
-// text overview per plan, and mines recorded tool calls for the tool-candidate
+// text overview per workspace, and mines recorded tool calls for the tool-candidate
 // report. It never touches the run loop's latency: everything here happens
 // after a run is over, and a failure of any part leaves the run untouched.
 package reflection
@@ -30,33 +30,32 @@ type Summary struct {
 	SessionID  string    `json:"session_id"`
 	RunID      string    `json:"run_id"`
 	Workspace  string    `json:"workspace"`
-	PlanID     string    `json:"plan_id"`
+	GroupKey   string    `json:"group_key"`
 	Connection string    `json:"connection"`
 	// Aux is false when the summary came from the run's own connection because no
 	// aux connection is configured; the text is marked the same way.
-	Aux         bool     `json:"aux"`
-	Read        []string `json:"read"`
-	Written     []string `json:"written"`
-	Changed     string   `json:"changed"`
-	Open        string   `json:"open"`
-	Text        string   `json:"text"`
-	PlannerNote string   `json:"-"`
-	Failed      string   `json:"failed,omitempty"`
-	Duration    int64    `json:"duration_ms"`
+	Aux      bool     `json:"aux"`
+	Read     []string `json:"read"`
+	Written  []string `json:"written"`
+	Changed  string   `json:"changed"`
+	Open     string   `json:"open"`
+	Text     string   `json:"text"`
+	Failed   string   `json:"failed,omitempty"`
+	Duration int64    `json:"duration_ms"`
 	// Untrusted marks a run that read content the operator did not write — a
 	// fetched page, an untrusted tool result. Reflection writes no memory note
 	// from such a run (cold review).
 	Untrusted bool `json:"untrusted"`
 }
 
-// Overview is one reflection pass's text for one plan, kept so two passes can
+// Overview is one reflection pass's text for one workspace, kept so two passes can
 // be diffed.
 type Overview struct {
-	ID     int64     `json:"id"`
-	At     time.Time `json:"at"`
-	PlanID string    `json:"plan_id"`
-	Tier   string    `json:"tier"`
-	Text   string    `json:"text"`
+	ID       int64     `json:"id"`
+	At       time.Time `json:"at"`
+	GroupKey string    `json:"group_key"`
+	Tier     string    `json:"tier"`
+	Text     string    `json:"text"`
 }
 
 // Report is the tool-candidate report: the text the operator reads and the
@@ -129,15 +128,6 @@ func (s *Store) migrate() error {
 			text TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS overviews_plan ON overviews (plan_id, at)`,
-		`CREATE TABLE IF NOT EXISTS proposals (
-			root TEXT PRIMARY KEY,
-			agent_file TEXT NOT NULL,
-			activity TEXT NOT NULL,
-			fingerprint TEXT NOT NULL,
-			state TEXT NOT NULL,
-			at INTEGER NOT NULL,
-			decided_at INTEGER NOT NULL
-		)`,
 		`CREATE TABLE IF NOT EXISTS reports (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			at INTEGER NOT NULL,
@@ -180,7 +170,7 @@ func (s *Store) PutSummary(summary Summary) (int64, error) {
 		summary.At = time.Now().UTC()
 	}
 	result, err := s.db.Exec(putSummarySQL,
-		summary.At.UTC().UnixMilli(), summary.SessionID, summary.RunID, summary.Workspace, summary.PlanID, summary.Connection,
+		summary.At.UTC().UnixMilli(), summary.SessionID, summary.RunID, summary.Workspace, summary.GroupKey, summary.Connection,
 		boolToInt(summary.Aux), joined(summary.Read), joined(summary.Written), summary.Changed, summary.Open, summary.Text, summary.Failed, summary.Duration, boolToInt(summary.Untrusted))
 	if err != nil {
 		return 0, fmt.Errorf("record summary: %w", err)
@@ -221,7 +211,7 @@ func (s *Store) Summaries(since time.Time, limit int) ([]Summary, error) {
 		var at int64
 		var aux, untrusted int
 		var read, written string
-		if err := rows.Scan(&summary.ID, &at, &summary.SessionID, &summary.RunID, &summary.Workspace, &summary.PlanID, &summary.Connection, &aux, &read, &written, &summary.Changed, &summary.Open, &summary.Text, &summary.Failed, &summary.Duration, &untrusted); err != nil {
+		if err := rows.Scan(&summary.ID, &at, &summary.SessionID, &summary.RunID, &summary.Workspace, &summary.GroupKey, &summary.Connection, &aux, &read, &written, &summary.Changed, &summary.Open, &summary.Text, &summary.Failed, &summary.Duration, &untrusted); err != nil {
 			return nil, fmt.Errorf("read summaries: %w", err)
 		}
 		summary.At = time.UnixMilli(at).UTC()
@@ -240,7 +230,7 @@ const (
 )
 
 // Prune drops summaries older than the retention window, and keeps the newest
-// overviews per plan and the newest reports.
+// overviews per workspace and the newest reports.
 func (s *Store) Prune(now time.Time) (int64, error) {
 	result, err := s.db.Exec(`DELETE FROM summaries WHERE at < ?`, now.Add(-Retention).UTC().UnixMilli())
 	if err != nil {
@@ -261,26 +251,26 @@ func (s *Store) Prune(now time.Time) (int64, error) {
 	return removed, nil
 }
 
-// PutOverview stores one pass's overview for a plan.
+// PutOverview stores one pass's overview for a workspace.
 func (s *Store) PutOverview(overview Overview) (int64, error) {
 	if overview.At.IsZero() {
 		overview.At = time.Now().UTC()
 	}
 	result, err := s.db.Exec(`INSERT INTO overviews (at, plan_id, tier, text) VALUES (?,?,?,?)`,
-		overview.At.UTC().UnixMilli(), overview.PlanID, overview.Tier, overview.Text)
+		overview.At.UTC().UnixMilli(), overview.GroupKey, overview.Tier, overview.Text)
 	if err != nil {
 		return 0, fmt.Errorf("record overview: %w", err)
 	}
 	return result.LastInsertId()
 }
 
-// Overviews returns a plan's overviews, newest first.
-func (s *Store) Overviews(planID string, limit int) ([]Overview, error) {
+// Overviews returns summaries for a group, newest first.
+func (s *Store) Overviews(groupKey string, limit int) ([]Overview, error) {
 	query := `SELECT id, at, plan_id, tier, text FROM overviews`
 	args := []any{}
-	if planID != "" {
+	if groupKey != "" {
 		query += ` WHERE plan_id = ?`
-		args = append(args, planID)
+		args = append(args, groupKey)
 	}
 	query += ` ORDER BY at DESC, id DESC`
 	if limit > 0 {
@@ -296,7 +286,7 @@ func (s *Store) Overviews(planID string, limit int) ([]Overview, error) {
 	for rows.Next() {
 		var overview Overview
 		var at int64
-		if err := rows.Scan(&overview.ID, &at, &overview.PlanID, &overview.Tier, &overview.Text); err != nil {
+		if err := rows.Scan(&overview.ID, &at, &overview.GroupKey, &overview.Tier, &overview.Text); err != nil {
 			return nil, fmt.Errorf("read overviews: %w", err)
 		}
 		overview.At = time.UnixMilli(at).UTC()
@@ -339,102 +329,4 @@ func (s *Store) LatestReport() (Report, error) {
 		return report, fmt.Errorf("read report clusters: %w", err)
 	}
 	return report, nil
-}
-
-// Plan proposals. Reflection
-// never registers a plan: it proposes one, the operator answers the existing
-// card, and the answer is remembered. A declined proposal stays declined until
-// the repository's agent files change — the fingerprint below — so the
-// operator is not asked the same question every day.
-type Proposal struct {
-	Root        string    `json:"root"`
-	AgentFile   string    `json:"agent_file"`
-	Activity    string    `json:"activity"`
-	Fingerprint string    `json:"fingerprint"`
-	State       string    `json:"state"`
-	At          time.Time `json:"at"`
-	DecidedAt   time.Time `json:"decided_at,omitempty"`
-}
-
-// Proposal states.
-const (
-	ProposalPending  = "pending"
-	ProposalOffered  = "offered"
-	ProposalApproved = "approved"
-	ProposalDeclined = "declined"
-)
-
-// UpsertProposal records a proposal. A root already approved is left alone; a
-// declined one returns only when its fingerprint changes.
-func (s *Store) UpsertProposal(proposal Proposal) error {
-	if proposal.At.IsZero() {
-		proposal.At = time.Now().UTC()
-	}
-	row := s.db.QueryRow(`SELECT state, fingerprint FROM proposals WHERE root = ?`, proposal.Root)
-	var state, fingerprint string
-	switch err := row.Scan(&state, &fingerprint); {
-	case err == sql.ErrNoRows:
-		_, err := s.db.Exec(`INSERT INTO proposals (root, agent_file, activity, fingerprint, state, at, decided_at) VALUES (?,?,?,?,?,?,0)`,
-			proposal.Root, proposal.AgentFile, proposal.Activity, proposal.Fingerprint, ProposalPending, proposal.At.UTC().UnixMilli())
-		return err
-	case err != nil:
-		return fmt.Errorf("read proposal: %w", err)
-	case state == ProposalApproved:
-		return nil
-	case state == ProposalDeclined && fingerprint == proposal.Fingerprint:
-		return nil
-	}
-	_, err := s.db.Exec(`UPDATE proposals SET agent_file = ?, activity = ?, fingerprint = ?, state = ?, at = ? WHERE root = ?`,
-		proposal.AgentFile, proposal.Activity, proposal.Fingerprint, ProposalPending, proposal.At.UTC().UnixMilli(), proposal.Root)
-	return err
-}
-
-// PendingProposals are the ones the operator has not answered.
-func (s *Store) PendingProposals(limit int) ([]Proposal, error) {
-	query := `SELECT root, agent_file, activity, fingerprint, state, at FROM proposals WHERE state = ? ORDER BY at ASC`
-	args := []any{ProposalPending}
-	if limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, limit)
-	}
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("read proposals: %w", err)
-	}
-	defer rows.Close()
-	proposals := []Proposal{}
-	for rows.Next() {
-		var proposal Proposal
-		var at int64
-		if err := rows.Scan(&proposal.Root, &proposal.AgentFile, &proposal.Activity, &proposal.Fingerprint, &proposal.State, &at); err != nil {
-			return nil, fmt.Errorf("read proposals: %w", err)
-		}
-		proposal.At = time.UnixMilli(at).UTC()
-		proposals = append(proposals, proposal)
-	}
-	return proposals, rows.Err()
-}
-
-// SetProposalState records what happened to a proposal.
-func (s *Store) SetProposalState(root, state string, at time.Time) error {
-	if at.IsZero() {
-		at = time.Now().UTC()
-	}
-	_, err := s.db.Exec(`UPDATE proposals SET state = ?, decided_at = ? WHERE root = ?`, state, at.UTC().UnixMilli(), root)
-	return err
-}
-
-// ProposalFor reads one proposal, or false when the root has none.
-func (s *Store) ProposalFor(root string) (Proposal, bool, error) {
-	row := s.db.QueryRow(`SELECT root, agent_file, activity, fingerprint, state, at FROM proposals WHERE root = ?`, root)
-	var proposal Proposal
-	var at int64
-	switch err := row.Scan(&proposal.Root, &proposal.AgentFile, &proposal.Activity, &proposal.Fingerprint, &proposal.State, &at); {
-	case err == sql.ErrNoRows:
-		return Proposal{}, false, nil
-	case err != nil:
-		return Proposal{}, false, fmt.Errorf("read proposal: %w", err)
-	}
-	proposal.At = time.UnixMilli(at).UTC()
-	return proposal, true, nil
 }

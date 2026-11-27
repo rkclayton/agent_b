@@ -239,31 +239,6 @@ func TestRecallSchemaExposesNoPath(t *testing.T) {
 	}
 }
 
-func TestRememberPlannerAppendsBoundedLocalNotes2s0(t *testing.T) {
-	remember, recall, item, root := memoryTools(t)
-	planner := memory.NewPlannerNotes(root)
-	remember.SetPlanner(planner)
-	if result, err := remember.Call(context.Background(), item, map[string]any{"note": "product should preserve the selected row", "scope": "planner"}); err != nil || !strings.Contains(result, "planner") {
-		t.Fatalf("planner remember=%q err=%v", result, err)
-	}
-	if recalled, _ := recall.Call(context.Background(), item, nil); strings.Contains(recalled, "selected row") {
-		t.Fatalf("planner note entered recall: %q", recalled)
-	}
-	for index := range 201 {
-		if err := planner.Add("", fmt.Sprintf("note %03d %s", index, strings.Repeat("x", 700))); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_ = planner.Add("same-chat", "first product failure")
-	_ = planner.Add("same-chat", "second product failure")
-	body, err := os.ReadFile(planner.Path())
-	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
-	if err != nil || len(lines) != 200 || strings.Contains(string(body), "note 000") || strings.Contains(string(body), "second product failure") || strings.Contains(string(body), strings.Repeat("x", 601)) {
-		t.Fatalf("planner file lines=%d bytes=%d err=%v", len(lines), len(body), err)
-	}
-	t.Logf("planner file full bound: %d notes, %d bytes", len(lines), len(body))
-}
-
 func TestRememberToolsBlockByteDelta(t *testing.T) {
 	legacy := map[string]any{"type": "function", "function": map[string]any{
 		"name": "remember", "description": "Save note as durable workspace memory for future sessions. Call recall first to avoid duplicates; unlike recall, remember writes.",
@@ -285,7 +260,7 @@ func TestRememberToolsBlockByteDelta(t *testing.T) {
 	// rewrote it to carry scope and replaces. 2vf removed the per-run cap and its
 	// schema wording. The pin is why that move has to be deliberate. 2tt adds
 	// project selection and 2tu documents distinctive fragment replacement.
-	const wantDelta = 451
+	const wantDelta = 415
 	if delta := len(after) - len(before); delta != wantDelta {
 		t.Fatalf("remember tools-block byte delta=%d, want %d", delta, wantDelta)
 	}

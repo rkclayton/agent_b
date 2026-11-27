@@ -49,17 +49,14 @@ func windowsCouldOpenLiteral(candidate string) bool {
 }
 
 // outsideLiteralPaths lists the absolute paths a command or script names that
-// lie outside the chat's own folder and the plan repositories it may work in
-//. An executable's path is not a file the script reads, so a path
+// lie outside the chat's own folder and the registered repositories it may work in
+// . An executable's path is not a file the script reads, so a path
 // to an .exe that exists as a file is left alone; .cmd and .bat are text a
 // script can read and are not (cold review: "win.ini .exe" and
 // "id_rsa#.exe" rode that exemption). Paths built at runtime are not seen:
 // with no service identity this is the card's ergonomics, not a boundary.
 func outsideLiteralPaths(source string, s *session.Session) []string {
 	roots := []string{s.Workspace}
-	if s.PlanRepos != nil {
-		roots = append(roots, s.PlanRepos()...)
-	}
 	seen := map[string]bool{}
 	outside := []string{}
 	for _, match := range literalPaths(source) {

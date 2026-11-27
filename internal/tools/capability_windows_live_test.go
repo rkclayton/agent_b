@@ -237,44 +237,6 @@ func TestCapabilitySuiteLiveServiceSplit(t *testing.T) {
 		}
 	})
 
-	t.Run("d_plan_file_boundary_under_service_identity", func(t *testing.T) {
-		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
-			t.Skip(reason)
-		}
-		repositoryFile := filepath.Join(workspace, "d-repository-source.txt")
-		if err := os.WriteFile(repositoryFile, []byte("repository evidence"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		d := &session.Session{ID: "capability-d", Role: "d", Workspace: workspace, PlansRoot: filepath.Join(workspace, "d-plans"), LastSeen: map[string]time.Time{}, ToolsEnabled: enabled}
-		if result := toolRegistry.CallDetailed(context.Background(), d, "write_file", map[string]any{"path": "plan.md", "content": "# Capability plan\n"}); !result.OK {
-			t.Fatalf("d write=%+v", result)
-		}
-		if d.PlanID == "" || d.PlanDir == "" {
-			t.Fatalf("d plan was not bound: %+v", d.Snapshot())
-		}
-		if result := toolRegistry.CallDetailed(context.Background(), d, "read_file", map[string]any{"path": repositoryFile}); !result.OK || !strings.Contains(result.Content, "repository evidence") {
-			t.Fatalf("d repository read=%+v", result)
-		}
-		if result := toolRegistry.CallDetailed(context.Background(), d, "write_file", map[string]any{"path": filepath.Join(workspace, "d-reach.txt"), "content": "reachable"}); !result.OK {
-			t.Fatalf("d ordinary absolute write=%+v", result)
-		}
-		sibling := filepath.Join(d.PlansRoot, "sibling")
-		if err := os.MkdirAll(sibling, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		siblingPlan := filepath.Join(sibling, "plan.md")
-		if err := os.WriteFile(siblingPlan, []byte("# Sibling plan\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if result := toolRegistry.CallDetailed(context.Background(), d, "read_file", map[string]any{"path": siblingPlan}); !result.OK || !strings.Contains(result.Content, "Sibling plan") {
-			t.Fatalf("d plan-tree read did not use the union jail: %+v", result)
-		}
-		if result := toolRegistry.CallDetailed(context.Background(), d, "write_file", map[string]any{"path": siblingPlan, "content": "changed"}); result.OK || result.OperatorOverrideReason != "" {
-			t.Fatalf("d wrote a sibling plan: %+v", result)
-		}
-		t.Log("contract=changed-by-2jt: ordinary absolute writes are reachable; sibling plan ownership remains enforced")
-	})
-
 	t.Run("service_identity_denies_operator_data_and_install_writes_2jz", func(t *testing.T) {
 		if reason := capabilityApplicability("service split", serviceSplitEnabled); reason != "" {
 			t.Skip(reason)

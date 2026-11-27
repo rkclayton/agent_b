@@ -32,16 +32,16 @@ type Registry struct {
 	memory      func(context.Context, string, string) (string, string, error)
 	agentMemory func(context.Context, string, string) (string, string, error)
 	// the machine layer takes no id — it is one layer for the box.
-	machineMemory  func(context.Context, string) (string, string, error)
-	workspaces     *workspaceinfo.Manager
-	plansRoot      string
-	skillsRoot     string
-	skillStateRoot string
-	operatorRoot   string
-	scratchRoot    string
-	chatRoot       string
-	dataRoot       string
-	planGrant      func(string) error
+	machineMemory   func(context.Context, string) (string, string, error)
+	workspaces      *workspaceinfo.Manager
+	skillsRoot      string
+	skillStateRoot  string
+	operatorRoot    string
+	scratchRoot     string
+	chatRoot        string
+	dataRoot        string
+	profileRoot     string
+	repositoryGrant func(string) error
 }
 
 func NewRegistry(bus *events.Bus, writers *events.Writers, connections func(string) (*config.Connection, bool), _ int, settings func() config.Config) *Registry {
@@ -61,7 +61,7 @@ func (r *Registry) SetWorkspaceManager(manager *workspaceinfo.Manager) { r.works
 // SwitchProfile replaces the idle registry's storage namespace in place. The
 // scheduler and runner retain this registry pointer, so changing profiles does
 // not restart the process or leave either component writing to the old root.
-func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory func(context.Context, string, string) (string, string, error), manager *workspaceinfo.Manager, plansRoot string) error {
+func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory func(context.Context, string, string) (string, string, error), manager *workspaceinfo.Manager, profileRoot string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, item := range r.sessions {
@@ -75,9 +75,9 @@ func (r *Registry) SwitchProfile(writers *events.Writers, memory, agentMemory fu
 	r.next = 2
 	r.writers = writers
 	r.memory, r.agentMemory, r.workspaces = memory, agentMemory, manager
-	r.plansRoot = filepath.Clean(plansRoot)
-	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
-	r.chatRoot = filepath.Join(filepath.Dir(r.plansRoot), "chats")
+	r.profileRoot = filepath.Clean(profileRoot)
+	r.scratchRoot = filepath.Join(r.profileRoot, "scratch")
+	r.chatRoot = filepath.Join(r.profileRoot, "chats")
 	return nil
 }
 
@@ -93,27 +93,29 @@ func (r *Registry) ReserveChatIDs(ids []string) {
 }
 func (r *Registry) SetDataRoot(root string) { r.dataRoot = root }
 
-func (r *Registry) SetPlansRoot(root string) {
-	r.plansRoot = filepath.Clean(root)
-	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
-	r.chatRoot = filepath.Join(filepath.Dir(r.plansRoot), "chats")
+func (r *Registry) SetProfileRoot(root string) {
+	r.profileRoot = filepath.Clean(root)
+	r.scratchRoot = filepath.Join(r.profileRoot, "scratch")
+	r.chatRoot = filepath.Join(r.profileRoot, "chats")
 }
-func (r *Registry) SetSkillsRoot(root string)             { r.skillsRoot = filepath.Clean(root) }
-func (r *Registry) SetSkillStateRoot(root string)         { r.skillStateRoot = filepath.Clean(root) }
-func (r *Registry) SetOperatorRoot(root string)           { r.operatorRoot = filepath.Clean(root) }
-func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant }
+func (r *Registry) SetSkillsRoot(root string)     { r.skillsRoot = filepath.Clean(root) }
+func (r *Registry) SetSkillStateRoot(root string) { r.skillStateRoot = filepath.Clean(root) }
+func (r *Registry) SetOperatorRoot(root string)   { r.operatorRoot = filepath.Clean(root) }
+func (r *Registry) SetRepositoryGrant(grant func(string) error) {
+	r.repositoryGrant = grant
+}
 func (r *Registry) Create(label, agentID, workspace string) (*Session, error) {
-	return r.create(label, agentID, workspace, nil, "b", "", "")
+	return r.create(label, agentID, workspace, nil, "b", "")
 }
 func (r *Registry) CreateScheduled(label, agentID string, unattended bool) (*Session, error) {
-	return r.create(label, agentID, "", nil, "b", "", "scheduled", unattended)
+	return r.create(label, agentID, "", nil, "b", "scheduled", unattended)
 }
 
-func (r *Registry) CreateRole(label, agentID, workspace, role, planID string) (*Session, error) {
-	return r.create(label, agentID, workspace, nil, role, planID, "")
+func (r *Registry) CreateRole(label, agentID, workspace, role string) (*Session, error) {
+	return r.create(label, agentID, workspace, nil, role, "")
 }
-func (r *Registry) CreateOperatorRole(label, agentID, workspace, role, planID string) (*Session, error) {
-	return r.create(label, agentID, workspace, nil, role, planID, "operator")
+func (r *Registry) CreateOperatorRole(label, agentID, workspace, role string) (*Session, error) {
+	return r.create(label, agentID, workspace, nil, role, "operator")
 }
 func (r *Registry) CreateLike(sourceID string) (*Session, error) {
 	return r.createLike(sourceID, "")
@@ -138,7 +140,7 @@ func (r *Registry) createLike(sourceID, createdBy string) (*Session, error) {
 			agentID = snapshot.ConnectionID
 		}
 	}
-	return r.create("", agentID, "", enabled, "b", "", createdBy)
+	return r.create("", agentID, "", enabled, "b", createdBy)
 }
 
 // Restore rehydrates a retained chat into a fresh operational tape. The
@@ -190,32 +192,17 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 		tools[tool.Name], calls[tool.Name] = tool.Enabled, tool.Calls
 		schemaTokens[tool.Name], marginalTokens[tool.Name] = tool.SchemaTokens, tool.MarginalTokens
 	}
-	role := saved.Role
-	if role == "" {
-		role = "b"
-	}
+	role := "b"
+	readOnlyHistory := saved.ReadOnlyHistory || saved.Role == "c" || saved.Role == "d"
 	connectionID := agent.ConnectionFor(role)
 	connection, connectionFound := r.agentConnection(config.AgentID(agent.Name), role)
 	if connectionFound {
 		connectionID = connection.ID
 	}
 	connectionRunnable, connectionReason := restoredConnectionRunnable(connectionID, connectionFound, saved.Runnable, saved.NotRunnableReason)
-	planID, planDir, planRepo := "", "", ""
-	if (role == "d" || role == "c") && saved.PlanID != "" {
-		planID, err = normalizePlanID(saved.PlanID)
-		if err != nil {
-			return nil, fmt.Errorf("restore session %s: %w", saved.ID, err)
-		}
-		plan, found := r.planningRepoLocked(planID)
-		if !found {
-			role, planID = "b", ""
-		} else {
-			planDir, planRepo = plan.Repo, plan.Repo
-		}
-	}
 	workspace := firstNonempty(saved.WorkspaceDir, saved.Workspace)
 	workspaceMissing, runnable, notRunnableReason := saved.WorkspaceMissing, connectionRunnable, connectionReason
-	if saved.Scratch {
+	if saved.Scratch && !readOnlyHistory {
 		if r.chatRoot != "" {
 			store := chatstore.New(r.chatRoot)
 			legacy := filepath.Join(r.scratchRoot, saved.ID)
@@ -248,18 +235,21 @@ func (r *Registry) RestoreWithTranscript(saved Snapshot, transcript any) (*Sessi
 	} else if workspaceMissing {
 		workspaceMissing, runnable, notRunnableReason = false, connectionRunnable, connectionReason
 	}
+	if readOnlyHistory {
+		runnable, notRunnableReason = false, "Read-only history"
+	}
 	connectionLabel := saved.BConnection
 	if connectionFound {
 		connectionLabel = connection.Label
 	}
 	s := &Session{
 		ID: saved.ID, Label: saved.Label, AgentID: config.AgentID(agent.Name), ConnectionID: connectionID,
-		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, PlanID: planID, PlanName: saved.PlanName, PlanDir: planDir, PlanRepo: planRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, OperatorRoot: r.operatorRoot, PlanRepos: r.planRepos, PromptAddendum: agent.Prompt, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
+		AgentName: saved.AgentName, BConnection: connectionLabel, Role: role, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, OperatorRoot: r.operatorRoot, PromptAddendum: agent.Prompt, NetworkBoundary: saved.NetworkBoundary, NetworkBoundarySet: saved.NetworkBoundarySet, MediaCapabilities: saved.MediaCapabilities, MediaCapabilitiesSet: saved.MediaCapabilitiesSet,
 		Workspace: workspace, WorkspaceMissing: workspaceMissing, Scratch: saved.Scratch,
 		ProjectBlock: saved.ProjectContent, ProjectFiles: append([]string(nil), saved.ProjectFiles...), ProjectNotes: append([]string(nil), saved.ProjectNotes...), ProjectRoots: append([]string(nil), saved.ProjectRoots...),
 		PendingRepoPolicy: clonePolicyState(saved.PendingRepoPolicy), RepoPolicy: clonePolicyState(saved.RepoPolicy),
 		Run: run, ToolsEnabled: tools, ToolCalls: calls, LastSeen: map[string]time.Time{}, CreatedAt: createdAt,
-		Closed: saved.Closed, NamePinned: saved.NamePinned, Origin: saved.Origin, Owner: saved.Owner, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
+		Closed: saved.Closed, ReadOnlyHistory: readOnlyHistory, NamePinned: saved.NamePinned, Origin: saved.Origin, Owner: saved.Owner, Messages: append([]events.Message(nil), saved.Messages...), Budget: saved.Budget,
 		LogPath: logPath, Runnable: runnable, NotRunnableReason: notRunnableReason,
 		LoadFolderMemory: r.folderLoader(connectionID), MemoryBlock: saved.MemoryContent, MemoryPath: saved.MemoryPath, AgentMemoryBlock: saved.AgentMemoryContent, AgentMemoryPath: saved.AgentMemoryPath,
 		SchemaTokens: schemaTokens, MarginalTokens: marginalTokens, queuedMessages: saved.QueuedMessages, queuedMessageIDs: append([]string(nil), saved.QueuedMessageIDs...),
@@ -300,26 +290,13 @@ func firstNonempty(values ...string) string {
 	}
 	return ""
 }
-func planDisplayName(dir string) string {
-	data, err := os.ReadFile(filepath.Join(dir, "plan.md"))
-	if err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if name := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#")); strings.HasPrefix(strings.TrimSpace(line), "#") && name != "" {
-				return name
-			}
-		}
-	}
-	return filepath.Base(dir)
-}
-func normalizePlanID(value string) (string, error) {
-	if value == "" || value == "." || value == ".." || filepath.IsAbs(value) || filepath.Base(value) != value || strings.ContainsAny(value, `/\`) {
-		return "", fmt.Errorf("plan_id: invalid plan id")
-	}
-	return value, nil
-}
-func (r *Registry) create(label, agentID, workspace string, enabled map[string]bool, role, planID, createdBy string, unattended ...bool) (*Session, error) {
+func (r *Registry) create(label, agentID, workspace string, enabled map[string]bool, role, createdBy string, unattended ...bool) (*Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.createLocked(label, agentID, workspace, enabled, role, createdBy, unattended...)
+}
+
+func (r *Registry) createLocked(label, agentID, workspace string, enabled map[string]bool, role, createdBy string, unattended ...bool) (*Session, error) {
 	agent, ok := r.resolveAgent(agentID)
 	if !ok {
 		return nil, fmt.Errorf("agent_id: unknown agent %s", agentID)
@@ -328,15 +305,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	if role == "" {
 		role = "b"
 	}
-	if role != "b" && role != "d" && role != "c" {
-		return nil, fmt.Errorf("role must be b, c or d")
+	if role != "b" {
+		return nil, fmt.Errorf("role must be b")
 	}
-	// The worker runs on the c connection when one is assigned and falls back to b,
-	// so Go works on a single-connection install rather than refusing to start.
 	connectionID := agent.ConnectionFor(role)
-	if role == "d" && connectionID == "" {
-		return nil, fmt.Errorf("agent_d is not assigned")
-	}
 	connection, ok := r.config().AgentConnection(agentID, role)
 	if !ok {
 		connection, ok = r.connections(connectionID)
@@ -361,25 +333,6 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	// after its own id - s14 - which told the operator nothing and was never
 	// something he wrote. The tab reads "new chat" until his first message
 	// names it.
-	planDir, planName, selectedRepo := "", "", ""
-	// d and c both bind to the plan: d to write its text, c to work in the
-	// repository the plan names. Without this the worker lands in scratch and
-	// every path in its item points at nothing.
-	if (role == "d" || role == "c") && planID != "" {
-		normalized, normalizeErr := normalizePlanID(planID)
-		if normalizeErr != nil {
-			return nil, normalizeErr
-		}
-		planID = normalized
-		plan, found := r.planningRepoLocked(planID)
-		if !found {
-			return nil, fmt.Errorf("plan_id: plan not found")
-		}
-		planDir, planName, selectedRepo = plan.Repo, plan.Name, plan.Repo
-		if workspace == "" {
-			workspace = selectedRepo
-		}
-	}
 	scratch := workspace == ""
 	if scratch {
 		if r.chatRoot == "" {
@@ -424,10 +377,6 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	tools["powershell_session"] = agent.PowerShell == "read" || agent.PowerShell == "full"
 	tools["powershell_session:full"] = agent.PowerShell == "full"
-	if role == "d" {
-		tools["shell"] = false
-		tools["run_script"] = false
-	}
 	var activePolicy, pendingPolicy *workspaceinfo.PolicyState
 	if setup.Policy.Path != "" {
 		copy := setup.Policy
@@ -448,12 +397,6 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			}
 		}
 		tools = selected
-	}
-	// cold review: a repository's policy picks tools within the
-	// role, never around it — a planner reads the folder and never runs it.
-	if role == "d" {
-		tools["shell"] = false
-		tools["run_script"] = false
 	}
 	memoryBlock, memoryPath := "", ""
 	if r.memory != nil {
@@ -479,7 +422,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 		}
 	}
 	settings := r.config()
-	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, OperatorRoot: r.operatorRoot, PlanRepos: r.planRepos, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle"}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
+	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, OperatorRoot: r.operatorRoot, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle"}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		r.configureProjects(session)
 	}
@@ -548,9 +491,6 @@ func (r *Registry) ApplyRepoPolicySession(sessionID string, state workspaceinfo.
 			s.ToggleTool(name, false)
 		}
 		for _, name := range state.Policy.DefaultToolset {
-			if s.Role == "d" && (name == "shell" || name == "run_script") {
-				continue
-			}
 			s.ToggleTool(name, true)
 		}
 	}
@@ -558,10 +498,7 @@ func (r *Registry) ApplyRepoPolicySession(sessionID string, state workspaceinfo.
 }
 
 func (r *Registry) excludeProjectPath(workspace string, scratch bool) func(string) bool {
-	profile := ""
-	if r.plansRoot != "" && r.plansRoot != "." {
-		profile = filepath.Dir(r.plansRoot)
-	}
+	profile := r.profileRoot
 	return func(path string) bool {
 		if scratch && PathWithin(workspace, path) {
 			return false
@@ -795,12 +732,12 @@ func (r *Registry) AgentRunnable(agentID string) (bool, string) {
 	return r.AgentRoleRunnable(agentID, "b")
 }
 func (r *Registry) AgentRoleRunnable(agentID, role string) (bool, string) {
-	agent, ok := r.resolveAgent(agentID)
+	_, ok := r.resolveAgent(agentID)
 	if !ok {
 		return false, "unknown agent " + agentID
 	}
-	if role == "d" && agent.ConnectionFor(role) == "" {
-		return false, "agent_d is not assigned"
+	if role != "b" {
+		return false, "role must be b"
 	}
 	connection, ok := r.config().AgentConnection(agentID, role)
 	if !ok {
@@ -924,11 +861,11 @@ func (r *Registry) SetAgent(id, agentID string) error {
 		return fmt.Errorf("agent_id: unknown agent %s", agentID)
 	}
 	snapshot := s.Snapshot()
+	if snapshot.ReadOnlyHistory {
+		return fmt.Errorf("read-only history")
+	}
 	previousAgent := snapshot.AgentName
 	connectionID := agent.ConnectionFor(snapshot.Role)
-	if snapshot.Role == "d" && connectionID == "" {
-		return fmt.Errorf("agent_id: agent_d is not assigned")
-	}
 	connection, ok := r.agentConnection(config.AgentID(agent.Name), snapshot.Role)
 	if !ok {
 		return fmt.Errorf("agent_id: %s connection %s was not found", snapshot.Role, connectionID)
@@ -972,10 +909,6 @@ func (r *Registry) SetAgent(id, agentID string) error {
 	}
 	for _, name := range agent.Toolset {
 		enabled[name] = true
-	}
-	if snapshot.Role == "d" {
-		enabled["shell"] = false
-		enabled["run_script"] = false
 	}
 	s.mu.Lock()
 	s.AgentID, s.ConnectionID, s.AgentName, s.BConnection = agentID, connectionID, agent.Name, connection.Label
@@ -1165,6 +1098,10 @@ func (r *Registry) BeginSubmission(id string, reopen bool) (*Session, error) {
 		return nil, fmt.Errorf("session not found")
 	}
 	s.mu.Lock()
+	if s.ReadOnlyHistory {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("read-only history")
+	}
 	wasClosed := s.Closed
 	if wasClosed && !reopen {
 		s.mu.Unlock()
@@ -1310,7 +1247,7 @@ func restoredConnectionRunnable(connectionID string, found, savedRunnable bool, 
 
 // folderMemory loads a chat's folder memory layer. A scratch folder has no
 // layer of its own: a scratch chat's folder memory is the layers of
-// the plan repositories it writes into, loaded at run start.
+// its project roots, loaded at run start.
 func (r *Registry) folderMemory(scratch bool, workspace, connectionID string) (string, string, error) {
 	if scratch || r.memory == nil {
 		return "", "", nil

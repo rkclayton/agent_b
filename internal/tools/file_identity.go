@@ -212,7 +212,7 @@ func (t *identityFileTool) CallAsOperator(ctx context.Context, s *session.Sessio
 
 // outsideTarget is the call's own path resolved as the tool resolves it: a
 // relative path is taken from the tool's read or write root (a d chat's is its
-// plan folder), falling back to the chat's folder.
+// registered repository), falling back to the chat's folder.
 func outsideTarget(s *session.Session, name string, args map[string]any) string {
 	path, _ := args["path"].(string)
 	if strings.TrimSpace(path) == "" {

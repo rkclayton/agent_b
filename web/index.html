@@ -12,7 +12,6 @@
        only while Settings is open, which is the only time anything it styles is
        on screen. -->
   <link id="panel-styles" rel="stylesheet" href="/static/css/app.css" disabled>
-  <link id="plan-styles" rel="stylesheet" href="/static/css/plan.css" disabled>
   <link id="chat-styles" rel="stylesheet" href="/static/css/chat.css">
 </head>
 <body data-page="chat" class="chat-page">
@@ -26,7 +25,6 @@
     </div>
   </main>
   <footer id="chat-composer" class="chat-composer" hidden>
-    <div id="chat-proposals" class="chat-proposals" aria-label="Proposed edits" hidden></div>
     <div id="chat-pending-approval" class="pending-approval" hidden></div>
     <div id="chat-resize-handle" class="chat-resize-handle" role="separator" aria-orientation="horizontal" aria-label="Drag to resize the message box" title="Drag to resize the message box"></div>
     <div class="chat-composer-row">
@@ -140,47 +138,6 @@
     <section class="panel-group panel-maintenance" aria-labelledby="panel-maintenance-title">
       <header class="panel-caption"><span id="panel-maintenance-title">Maintenance</span><span>selected agent and folder</span></header>
       <footer class="panel-actions"><button id="flush-memory" type="button">Flush memory</button><span id="panel-feedback" role="status"></span></footer>
-    </section>
-  </div>
-  <!-- Item 2no: THE PLAN IS A SECTION, NOT A PAGE. It was a document of its own at
-       /plan, and selecting it in the Settings nav navigated there: "the plan page is
-       wrong - it should be a subpage in settings, not a redirect to its own page ...
-       it glitches when transitioning." So its markup lives here beside the two panels
-       Settings already adopts, and Settings moves the nodes into its Plan section the
-       same way. The nodes are MOVED, never rebuilt, so every listener plan.js owns
-       keeps working. -->
-<div id="plan-panel" class="plan-workspace" aria-label="Repositories">
-    <nav class="plan-flyout" aria-label="Repositories">
-      <div class="plan-flyout-head">
-        <input id="plan-search" type="search" aria-label="Search repositories" placeholder="search" autocomplete="off" spellcheck="false">
-        <button id="plan-add" class="plan-add" type="button">Add repo</button>
-      </div>
-      <form id="plan-add-form" class="plan-add-form" hidden>
-        <input id="plan-add-path" type="hidden">
-        <div id="plan-add-preview" class="plan-add-preview" hidden>
-          <div><span>Folder</span><strong id="plan-preview-folder"></strong></div>
-          <div><span>Repository</span><strong id="plan-preview-repository"></strong></div>
-          <div><span>Planning</span><strong id="plan-preview-plan"></strong></div>
-          <div><span>AGENTS.md</span><strong id="plan-preview-agents"></strong></div>
-          <button id="plan-add-confirm" type="submit">Add</button>
-        </div>
-        <p id="plan-add-error" class="plan-add-error" hidden></p>
-      </form>
-      <table class="plan-repo-table"><thead><tr><th>Path</th><th>Planning</th><th>Open chats</th><th>Last Go</th><th></th></tr></thead><tbody id="plan-list"></tbody></table>
-      <p id="plan-list-empty" class="plan-list-empty" hidden>No repositories yet.</p>
-    </nav>
-    <section class="plan-view" aria-label="Repository planning">
-      <header class="plan-panel-head"><span id="plan-name">Repository</span><span class="plan-run-controls"><button type="button" id="plan-enable" hidden><span>Add to planning</span></button><button type="button" id="plan-go" class="plan-go" disabled>Go</button></span></header>
-      <div id="plan-lint" class="plan-lint" role="status" hidden></div>
-      <p id="plan-refusal" class="plan-refusal" hidden></p>
-      <div id="plan-done" class="plan-done" hidden></div>
-      <div class="plan-body">
-        <dl id="plan-facts" class="plan-facts" aria-label="Plan facts"></dl>
-        <details class="plan-text"><summary>Plan text</summary><pre id="plan-raw" class="plan-raw" aria-label="plan.md, read-only"></pre></details>
-        <section><h3>Chats</h3><table class="plan-data-table"><thead><tr><th>Chat</th><th>Last activity</th></tr></thead><tbody id="plan-chats"></tbody></table></section>
-        <section><h3>Changes</h3><table class="plan-data-table"><thead><tr><th>When</th><th>Chat</th><th>Files</th></tr></thead><tbody id="plan-changes"></tbody></table></section>
-        <dl id="plan-stats" class="plan-stats" aria-label="Plan statistics" hidden></dl>
-      </div>
     </section>
   </div>
   </div>

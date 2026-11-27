@@ -50,10 +50,7 @@ func withOSPathPolicy(ctx context.Context) context.Context {
 }
 
 func resolveForSessionTool(ctx context.Context, s *session.Session, root, path string) (string, error) {
-	// plan registration chooses a working directory; it is not a
-	// filesystem allow-list. Absolute paths are therefore decided by the OS
-	// identity running the tool. Relative paths still start at root. The
-	// plan-tree ownership check remains separately enforced for writes below.
+	// Paths use the current filesystem identity.
 	resolved, err := resolvePath(root, s.ResolveOperatorPath(path), false)
 	if err != nil {
 		return "", err
@@ -70,62 +67,6 @@ func protectedCredentialPath(path string) bool {
 	}
 	real, err := session.RealPath(path)
 	return err == nil && credential.IsStoragePath(real)
-}
-
-// resolveForWorkerWrite is the write resolution for every file tool. Plan text
-// is written only by the d session bound to that plan: the plans folder is
-// closed to b and c sessions even when an operator grant lets Windows, not the
-// jail, decide the rest of the path — a relative path climbing out of the
-// repository must not reach the item file whose verifier decides [x].
-// both sides are compared as real paths, so a junction, symbolic link or
-// reparse point cannot reach the plans folder under another name.
-func resolveForWorkerWrite(ctx context.Context, s *session.Session, root, path string) (string, error) {
-	resolved, err := resolveForSessionTool(ctx, s, root, path)
-	if err != nil {
-		return resolved, err
-	}
-	// Each side is compared both as written and as the file system resolves
-	// it; a path whose ancestors cannot be opened keeps only its text form,
-	// since the operator grant that let Windows decide it decides it there too.
-	forms := func(path string) []string {
-		values := []string{}
-		if abs, absErr := filepath.Abs(path); absErr == nil {
-			values = append(values, abs)
-		}
-		if real, realErr := session.RealPath(path); realErr == nil {
-			values = append(values, real)
-		}
-		return values
-	}
-	inside := func(roots, targets []string) bool {
-		for _, root := range roots {
-			for _, target := range targets {
-				if within(root, target) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	targets := forms(resolved)
-	if s.PlansRoot == "" {
-		return resolved, nil
-	}
-	if !inside(forms(s.PlansRoot), targets) {
-		return resolved, nil
-	}
-	// d writes its own plan: every form of the target that lies in the plans
-	// folder must lie in that plan.
-	if s.Role == "d" && s.PlanDir != "" {
-		own, plans := forms(s.PlanDir), forms(s.PlansRoot)
-		for _, target := range targets {
-			if inside(plans, []string{target}) && !inside(own, []string{target}) {
-				return "", fmt.Errorf("path is outside the folder")
-			}
-		}
-		return resolved, nil
-	}
-	return "", fmt.Errorf("path is outside the folder")
 }
 
 func within(root, candidate string) bool {
@@ -198,17 +139,6 @@ func refuseRepoPolicyWrite(workspace, path string) error {
 		if realCandidate, candidateErr := session.RealPath(candidate); candidateErr == nil && refused(realRoot, realCandidate) {
 			return fmt.Errorf("repo-policy immutability rule: model file tools cannot write .agentb/")
 		}
-	}
-	return nil
-}
-
-func refusePlanManifestWrite(s *session.Session, path string) error {
-	if s == nil || s.Role != "d" || s.PlanDir == "" {
-		return nil
-	}
-	manifest := filepath.Join(filepath.Clean(s.PlanDir), "plan.json")
-	if strings.EqualFold(filepath.Clean(path), manifest) {
-		return fmt.Errorf("plan manifest immutability rule: model file tools cannot write plan.json")
 	}
 	return nil
 }

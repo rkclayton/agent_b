@@ -97,7 +97,6 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
 .chat-log,
 .chat-composer,
 .chat-budget,
-.chat-proposals,
 .pending-approval,
 .approval-card {
   font-family: var(--chat-face, var(--sans));
@@ -788,7 +787,6 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
 .chat-empty.chat-render-failure { color: var(--mute); }
 .chat-notice-author { color: var(--mute); font: var(--ct)/var(--lead) var(--mono); margin-right: 8px; }
 .chat-response-author { display:block; margin:0; }
-.worker-approval .chat-notice-author { margin: 0 0 0 8px; text-transform: none; }
 .chat-approval button {
   min-height: 20px;
   margin-left: 6px;
@@ -1190,17 +1188,6 @@ details[open] > summary.chat-work-row::before { content: "▾"; }
   .tool-tick > span { min-width:0; white-space:normal; overflow-wrap:anywhere; }
 }
 
-/* proposed plan edits sit in the planning chat's own thread, above
- the composer, with the tray's rows and controls. */
-.chat-proposals { max-height:40vh; overflow-y:auto; border-top:1px solid rgba(112,125,139,.28); }
-.chat-proposals[hidden] { display:none; }
-.plan-proposal { padding:6px 10px; cursor:pointer; font-size:var(--ct); }
-.plan-proposal:hover { background:rgba(232,238,244,.04); }
-.plan-proposal code { display:block; color:var(--mute); font:var(--ct)/var(--lead-tight) var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.plan-proposal-actions { display:flex; gap:4px; margin-top:4px; }
-.plan-proposal-actions button { min-height:22px; padding:2px 7px; background:rgba(232,238,244,.08); }
-.plan-proposal-actions button:hover { background:rgba(232,238,244,.12); }
-.plan-proposal .field-error { margin:4px 0 0; color:var(--alarm); }
 
 /* BOLD IS A REAL WEIGHT.
  Markdown emits <strong>, nothing set its weight, and the browser's default is

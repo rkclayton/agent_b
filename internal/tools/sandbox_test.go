@@ -24,19 +24,12 @@ func TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash(t *testing
 	t.Setenv("SBX_STUB_LOG", logPath)
 
 	workspace := t.TempDir()
-	repoA, repoB := t.TempDir(), t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside-secret")
 	cfg := config.Defaults(workspace)
 	cfg.Sandbox.Enabled = true
 	shell := NewShell(cfg.Shell)
 	shell.Configure(cfg)
-	item := &session.Session{ID: "sandbox", Role: "b", Workspace: workspace, PlanRepos: func() []string { return []string{repoA, repoB} }}
-	if _, err := item.ReadRoot(filepath.Join(repoB, "b.txt")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := item.ReadRoot(filepath.Join(repoA, "a.txt")); err != nil {
-		t.Fatal(err)
-	}
+	item := &session.Session{ID: "sandbox", Role: "b", Workspace: workspace}
 
 	status := shell.SandboxStatus()
 	if !status.Available || !status.Installed || !status.SignedIn || !strings.Contains(status.Version, "0.47-test") {
@@ -63,7 +56,7 @@ func TestSandboxCapabilitySuiteStubRoutesOnlyDeclaredWorkspaceAndBash(t *testing
 		t.Fatal(err)
 	}
 	logText := string(logBytes)
-	if strings.Count(logText, "create --name") != 1 || !strings.Contains(logText, " shell "+workspace+" "+repoA+" "+repoB) {
+	if strings.Count(logText, "create --name") != 1 || !strings.Contains(logText, " shell "+workspace) {
 		t.Fatalf("create calls=%q", logText)
 	}
 	if strings.Contains(logText, outside) {

@@ -39,13 +39,13 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			ConnectionID    string `json:"connection_id"`
 			SourceSessionID string `json:"source_session_id"`
 			Role            string `json:"role"`
-			PlanID          string `json:"plan_id"`
+			Repository      string `json:"repository"`
 		}
 		if !decode(w, r, &body) {
 			return
 		}
 		if body.SourceSessionID != "" {
-			if body.Label != "" || body.AgentID != "" || body.ConnectionID != "" || body.Role != "" || body.PlanID != "" {
+			if body.Label != "" || body.AgentID != "" || body.ConnectionID != "" || body.Role != "" || body.Repository != "" {
 				writeError(w, 400, "source_session_id cannot be combined with overrides", "session")
 				return
 			}
@@ -58,7 +58,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 				s.mu.RLock()
 				agentID := s.cfg.DefaultAgentID()
 				s.mu.RUnlock()
-				item, err = s.registry.CreateOperatorRole("", agentID, "", "b", "")
+				item, err = s.registry.CreateOperatorRole("", agentID, "", "b")
 				if err != nil {
 					writeError(w, 400, err.Error(), "session")
 					return
@@ -92,15 +92,17 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		if role == "" {
 			role = "b"
 		}
-		if role != "d" && role != "c" && body.PlanID != "" {
-			writeError(w, 400, "plan_id is available only for roles c and d", "plan_id")
-			return
-		}
 		if runnable, reason := s.registry.AgentRoleRunnable(body.AgentID, role); !runnable {
 			writeError(w, 400, reason, "agent_id")
 			return
 		}
-		item, err := s.registry.CreateOperatorRole(body.Label, body.AgentID, "", role, body.PlanID)
+		var item *session.Session
+		var err error
+		if body.Repository != "" {
+			item, err = s.registry.CreateInRepository(body.Label, body.AgentID, body.Repository)
+		} else {
+			item, err = s.registry.CreateOperatorRole(body.Label, body.AgentID, "", role)
+		}
 		if err != nil {
 			writeError(w, 400, err.Error(), "session")
 			return
@@ -120,32 +122,31 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) plans(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		s.createPlan(w, r)
-		return
-	}
-	if r.Method != http.MethodGet {
+func (s *Server) repositories(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		repos, err := s.registry.Repositories()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "repository")
+			return
+		}
+		writeJSON(w, http.StatusOK, repos)
+	case http.MethodPost:
+		var request struct {
+			Path string `json:"path"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		repo, err := s.registry.AddRepository(request.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "repository")
+			return
+		}
+		writeJSON(w, http.StatusOK, repo)
+	default:
 		method(w)
-		return
 	}
-	root := filepath.Join(s.profileRoot(), "plans")
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		writeJSON(w, 200, []any{})
-		return
-	}
-	if err != nil {
-		writeError(w, 500, err.Error(), "plans")
-		return
-	}
-	_ = entries
-	values, err := session.ListPlans(root)
-	if err != nil {
-		writeError(w, 500, err.Error(), "plans")
-		return
-	}
-	writeJSON(w, 200, values)
 }
 
 func (s *Server) folderPicker(w http.ResponseWriter, r *http.Request) {
@@ -193,11 +194,12 @@ func (s *Server) knownFolders() []workspaceinfo.Entry {
 		seen[key] = true
 		entries = append(entries, entry)
 	}
-	for _, plan := range s.planList() {
-		if strings.TrimSpace(plan.Repo) == "" {
+	repos, _ := s.registry.Repositories()
+	for _, repo := range repos {
+		if strings.TrimSpace(repo.Path) == "" {
 			continue
 		}
-		clean := filepath.Clean(plan.Repo)
+		clean := filepath.Clean(repo.Path)
 		key := strings.ToLower(clean)
 		if !seen[key] {
 			seen[key] = true
@@ -681,7 +683,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		}
 		// as 2py changed it: the journal, the scratch folder, its
 		// attachments, its history entry and its tab go, and no copy is written;
-		// what the chat produced elsewhere - memory notes, plans, files written
+		// what the chat produced elsewhere - memory notes and files written
 		// into a repository - is not the chat and stays.
 		inventory, err := s.deleteChat(item)
 		if err != nil {

@@ -40,7 +40,7 @@ func (m *windowsManager) Status(ctx context.Context, request Request) (Status, e
 		}
 		acl.Applied, acl.Drift = len(drift) == 0, len(drift)
 		if acl.Applied {
-			acl.Summary = "root, plans, scratch, chats, workspace, and exchange-folder ACL policy verified"
+			acl.Summary = "root, scratch, chats, workspace, and exchange-folder ACL policy verified"
 		} else {
 			acl.Summary = fmt.Sprintf("%d ACL drift item(s)", len(drift))
 		}
@@ -105,7 +105,7 @@ func (m *windowsManager) Run(ctx context.Context, action string, request Request
 	return RunResult{Attempted: true}, nil
 }
 
-func (m *windowsManager) GrantPlan(ctx context.Context, account, repository string) error {
+func (m *windowsManager) GrantRepository(ctx context.Context, account, repository string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

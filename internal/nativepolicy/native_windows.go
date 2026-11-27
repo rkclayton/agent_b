@@ -17,8 +17,9 @@ import (
 	"time"
 	"unsafe"
 
-	"golang.org/x/sys/windows"
 	"harness/internal/credential"
+
+	"golang.org/x/sys/windows"
 )
 
 type ACLRequest struct{ Application, Data, Workspace, Exchange, SID string }
@@ -327,20 +328,14 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 		}
 	}
 	profiles, _ := os.ReadDir(filepath.Join(request.Data, "profiles"))
-	plans, scratch, chats := []string{}, []string{}, []string{}
+	scratch, chats := []string{}, []string{}
 	for _, profile := range profiles {
 		if profile.IsDir() {
-			plans = append(plans, filepath.Join(request.Data, "profiles", profile.Name(), "plans"))
 			scratch = append(scratch, filepath.Join(request.Data, "profiles", profile.Name(), "scratch"))
 			chats = append(chats, filepath.Join(request.Data, "profiles", profile.Name(), "chats"))
 		}
 	}
-	basePlans, baseScratch, baseChats := filepath.Join(request.Data, "plans"), filepath.Join(request.Data, "scratch"), filepath.Join(request.Data, "chats")
-	if len(plans) == 0 {
-		plans = append(plans, basePlans)
-	} else if _, err := os.Stat(basePlans); err == nil {
-		plans = append([]string{basePlans}, plans...)
-	}
+	baseScratch, baseChats := filepath.Join(request.Data, "scratch"), filepath.Join(request.Data, "chats")
 	if len(scratch) == 0 {
 		scratch = append(scratch, baseScratch)
 	} else if _, err := os.Stat(baseScratch); err == nil {
@@ -369,13 +364,13 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 		}
 	}
 	if create {
-		for _, path := range append(append(append(plans, scratch...), chats...), request.Exchange) {
+		for _, path := range append(append(scratch, chats...), request.Exchange) {
 			if err := os.MkdirAll(path, 0o700); err != nil {
 				return nil, err
 			}
 		}
 	}
-	reachable := append([]string{request.Application, request.Workspace, request.Exchange}, append(append(plans, scratch...), chats...)...)
+	reachable := append([]string{request.Application, request.Workspace, request.Exchange}, append(scratch, chats...)...)
 	seen, targets := map[string]bool{}, []aclTarget{}
 	programFiles, programData := clean(os.Getenv("ProgramFiles")), clean(os.Getenv("ProgramData"))
 	for _, path := range reachable {
@@ -388,9 +383,6 @@ func aclTargets(request ACLRequest, create bool) ([]aclTarget, error) {
 		}
 	}
 	targets = append(targets, aclTarget{request.Application, "deny application-tree mutation", 0xd0156, 3, true}, aclTarget{request.Application, "grant application-tree read and execute", 0x200a9, 3, false}, aclTarget{request.Data, "deny service identity access to user data except traversal", 0x1f01df, 3, true})
-	for _, path := range plans {
-		targets = append(targets, aclTarget{path, "grant plans-folder Modify", 0x301bf, 3, false})
-	}
 	for _, path := range scratch {
 		targets = append(targets, aclTarget{path, "grant scratch-folder Modify", 0x301bf, 3, false})
 	}

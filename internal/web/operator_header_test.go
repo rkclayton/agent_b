@@ -28,7 +28,7 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	// still exist — and it serves the SAME document, which opens Settings on its Plan
 	// section. There is no second page left to serve.
 	for _, item := range []struct{ path, page string }{
-		{"/", "chat"}, {"/chat", "chat"}, {"/plan", "chat"},
+		{"/", "chat"}, {"/chat", "chat"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, item.path, nil)
 		response := httptest.NewRecorder()
@@ -40,6 +40,11 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 		if !strings.Contains(body, `id="app-shell"`) || !strings.Contains(body, `data-page="`+item.page+`"`) {
 			t.Fatalf("GET %s does not contain the %s shared shell", item.path, item.page)
 		}
+	}
+	removed := httptest.NewRecorder()
+	server.Handler().ServeHTTP(removed, httptest.NewRequest(http.MethodGet, "/plan", nil))
+	if removed.Code != http.StatusNotFound {
+		t.Fatalf("retired document returned %d", removed.Code)
 	}
 	source, err := os.ReadFile(filepath.Join(webDir, "js", "shell.js"))
 	if err != nil {
@@ -64,7 +69,7 @@ func TestSharedShellIsServedOnEveryRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(settingsSource), `["plan", "Repos"]`) {
+	if !strings.Contains(string(settingsSource), `["repos", "Repos"]`) {
 		t.Fatalf("Repos must be an entry in the Settings nav")
 	}
 	if strings.Contains(string(settingsSource), `["rules", "Rules"]`) {

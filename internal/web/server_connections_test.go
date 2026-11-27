@@ -74,7 +74,7 @@ func TestARefusedDeleteNamesTheRoleAndLeavesTheSliceAlone2mb(t *testing.T) {
 	cfg := config.Defaults(root)
 	cfg.Connections = []config.Connection{runnableTestConnection("a"), runnableTestConnection("b"), runnableTestConnection("c")}
 	cfg.Connections[0].Fallback = "c"
-	cfg.Agents = []config.Agent{{Name: "Coder", B: "a", C: "b", Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{{Name: "Coder", B: "b", Toolset: config.FullToolset()}}
 	path := filepath.Join(root, "harness.json")
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestARefusedDeleteNamesTheRoleAndLeavesTheSliceAlone2mb(t *testing.T) {
 		refusal.Error, refusal.Field = response.Body.String(), response.Body.String()
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, "Coder") || !strings.Contains(body, "C role") {
+	if !strings.Contains(body, "Coder") || !strings.Contains(body, "B role") {
 		t.Errorf("the refusal does not name the agent and its role: %s", body)
 	}
 	// (c): the field is the row, so the client can put it where the click was.

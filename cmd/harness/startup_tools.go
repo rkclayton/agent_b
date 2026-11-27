@@ -61,13 +61,13 @@ func (a *harnessApp) wireTools() {
 	})
 	hardeningManager := hardening.NewNative()
 	a.web.SetHardeningManager(hardeningManager)
-	a.registry.SetPlanGrant(func(repository string) error {
+	a.registry.SetRepositoryGrant(func(repository string) error {
 		if !a.web.ConfigSnapshot().Shell.ServiceAccount.Enabled {
 			return nil
 		}
 		grantContext, cancelGrant := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelGrant()
-		return hardeningManager.GrantPlan(grantContext, a.web.ConfigSnapshot().Shell.ServiceAccount.Account, repository)
+		return hardeningManager.GrantRepository(grantContext, a.web.ConfigSnapshot().Shell.ServiceAccount.Account, repository)
 	})
 	a.web.SetSigningManager(signing.New(filepath.Join(a.paths.Application, "scripts", "manage-signing.ps1")))
 	// inspecting the installed signatures runs PowerShell and used to
@@ -86,7 +86,6 @@ func (a *harnessApp) wireTools() {
 	// guarded uTLS transport, so the older tools retain their relative order.
 	rememberTool := tools.NewRemember(a.memoryManager, a.bus)
 	rememberTool.SetConfig(a.web.ConfigSnapshot)
-	rememberTool.SetPlanner(a.web.PlannerNotes())
 	fetchTool := tools.NewFetch(a.cfg.Tools.Fetch)
 	if !strings.HasSuffix(strings.ToLower(os.Args[0]), ".test.exe") {
 		if err := removeLegacyBrowserProfiles(a.paths.Data, filepath.Join(os.TempDir(), "agentb-browser")); err != nil {

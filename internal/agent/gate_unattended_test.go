@@ -19,14 +19,13 @@ func unattendedGate(t *testing.T, on bool) (*Gate, *events.Bus) {
 	return NewGate(bus, func() config.Config { return cfg }), bus
 }
 
-// Item 5f (v1.2.5): with the switch on, a worker raises no card on any of the
-// four paths. Each is recorded as a boundary failure and the run moves on.
+// Each unattended approval path records a refusal and raises no card.
 func TestUnattendedRefusesEveryCardKindAndRecordsIt(t *testing.T) {
 	gate, bus := unattendedGate(t, true)
 	stream, stop := bus.Subscribe()
 	defer stop()
 
-	worker := &session.Session{ID: "w1", Role: "c", Unattended: true}
+	worker := &session.Session{ID: "w1", Role: "b", Unattended: true}
 	ctx := context.Background()
 	for _, item := range []struct {
 		name string
@@ -38,9 +37,6 @@ func TestUnattendedRefusesEveryCardKindAndRecordsIt(t *testing.T) {
 			return gate.WaitBoundaryDecision(ctx, worker, "r1", "c2", "shell.operator_override", nil)
 		}, "identity escalation"},
 		{"cycle", func() (string, error) { return gate.WaitCycleDecision(ctx, worker, "r1", "c3", nil) }, "cycle decision"},
-		{"registration", func() (string, error) {
-			return gate.WaitPolicyDecision(ctx, worker, "r1", "c4", "plan registration", nil)
-		}, "plan registration"},
 	} {
 		decision, err := item.call()
 		if err != nil || decision != "deny" {
@@ -63,10 +59,10 @@ func TestUnattendedRefusesEveryCardKindAndRecordsIt(t *testing.T) {
 		t.Fatalf("unattended raised %d cards", seen)
 	}
 	hits := worker.BoundaryHits()
-	if len(hits) != 4 {
+	if len(hits) != 3 {
 		t.Fatalf("boundary hits=%v", hits)
 	}
-	for _, want := range []string{"policy approval", "identity escalation", "cycle decision", "plan registration"} {
+	for _, want := range []string{"policy approval", "identity escalation", "cycle decision"} {
 		found := false
 		for _, hit := range hits {
 			if strings.Contains(hit, want) {

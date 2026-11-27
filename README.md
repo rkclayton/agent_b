@@ -1,6 +1,6 @@
 # Agent_b
 
-Agent_b is a Windows-first coding agent for OpenAI-compatible models. It is one Go process with a dependency-free browser UI, durable chats and plans, governed tools, context accounting, and an optional low-privilege service identity.
+Agent_b is a Windows-first coding agent for OpenAI-compatible models. It is one Go process with a dependency-free browser UI, durable chats and registered repositories, governed tools, context accounting, and an optional low-privilege service identity.
 
 ![Agent_b Chat](docs/images/chat.png)
 

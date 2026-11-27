@@ -15,10 +15,9 @@ import (
 type PromptRenderer struct {
 	mu         sync.RWMutex
 	path, text string
-	planner    string
-	worker     string
-	delegate   string
-	folders    func() []config.TrustedFolder
+
+	delegate string
+	folders  func() []config.TrustedFolder
 }
 
 func (r *PromptRenderer) SetTrustedFolders(folders func() []config.TrustedFolder) {
@@ -34,25 +33,6 @@ func (r *PromptRenderer) LoadDelegate(path string) error {
 	}
 	r.mu.Lock()
 	r.delegate = strings.TrimSpace(string(data))
-	r.mu.Unlock()
-	return nil
-}
-
-func (r *PromptRenderer) LoadPlanner(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("planner prompt %s: %w", path, err)
-	}
-	text := string(data)
-	const start = "## Session prompt"
-	if index := strings.Index(text, start); index >= 0 {
-		text = text[index+len(start):]
-		if end := strings.Index(text, "\n## "); end >= 0 {
-			text = text[:end]
-		}
-	}
-	r.mu.Lock()
-	r.planner = strings.TrimSpace(text)
 	r.mu.Unlock()
 	return nil
 }
@@ -91,12 +71,11 @@ func (r *PromptRenderer) RenderMemoryParts(connection *config.Connection, s *ses
 func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *session.Session, toolNames []string, project, skills string, layers ...string) string {
 	r.mu.RLock()
 	template := r.text
-	planner := r.planner
 	delegate := r.delegate
 	folders := r.folders
 	r.mu.RUnlock()
 	if s.Role == "e" && delegate != "" {
-		template, planner = delegate, ""
+		template = delegate
 	}
 	if connection.SystemPromptOverride != "" && s.Role != "e" {
 		template = connection.SystemPromptOverride
@@ -126,7 +105,6 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 		}
 	}
 	value = strings.ReplaceAll(value, "{{folders}}", folderText)
-	value = strings.ReplaceAll(value, "{{plans}}", "")
 	value = strings.ReplaceAll(value, "{{network_boundary}}", s.NetworkBoundary)
 	value = strings.ReplaceAll(value, "{{media_capabilities}}", s.MediaCapabilities)
 	value = strings.ReplaceAll(value, "{{tools}}", strings.Join(toolNames, ", "))
@@ -148,15 +126,6 @@ func (r *PromptRenderer) RenderSkillParts(connection *config.Connection, s *sess
 			value = strings.TrimRight(value, "\r\n") + "\n\nEarlier turns remain in this chat's record; use recall to search or read them."
 			break
 		}
-	}
-	if planner != "" && (s.Role == "d" || s.IsPlanPage()) {
-		value = strings.TrimRight(value, "\r\n") + "\n\n" + planner
-	}
-	// The worker is told what it is doing, not how the product works: its whole
-	// brief is the item in front of it, and it replaces the planner block rather
-	// than stacking with it.
-	if s.Role == "c" && r.worker != "" {
-		value = strings.TrimRight(value, "\r\n") + "\n\n" + r.renderWorker(s)
 	}
 	if memory == "" && project == "" {
 		value = strings.TrimRight(value, "\r\n")

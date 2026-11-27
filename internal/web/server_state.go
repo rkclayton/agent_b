@@ -218,7 +218,6 @@ func (s *Server) snapshotWithSessions(sessions any, replay bool) map[string]any 
 		"broker":                   brokerState,
 		"connection_health":        s.connectionHealthState(),
 		"model_states":             s.modelStates(),
-		"plans":                    s.planList(),
 		"signature":                s.signingState(),
 		"shell_credential":         credentialStatus, "shell_identity": identityStatus, "sandbox": sandboxStatus,
 		"serving_facts": servingFacts(filepath.Join(s.roots.Application, "SERVING.md")),
@@ -275,11 +274,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		method(w)
 		return
 	}
-	// the registration decision: the operator is here, so a plan
-	// reflection proposed can be put to them as an ordinary card. This returns
-	// at once unless something is pending.
 	started := time.Now()
-	s.OfferReflectionProposals()
 	selected := r.URL.Query().Get("session")
 	phone := pairedDeviceAuthenticated(r)
 	// A phone's default state is its list. Only an explicit resync selects
@@ -571,11 +566,7 @@ func (s *Server) pageContent(w http.ResponseWriter, r *http.Request) {
 		name = "setup.html"
 	} else if r.URL.Path == "/chat" {
 		name = "index.html"
-	} else if r.URL.Path == "/plan" {
-		// the Plan is a Settings section, so /plan is the SAME document
-		// every other route serves; the client opens Settings on its Plan section.
-		// It still answers, because a deep link and a bookmark still exist.
-		name = "index.html"
+
 	} else if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return

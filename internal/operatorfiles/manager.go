@@ -124,18 +124,6 @@ func (m *Manager) CheckInbox(sessionID string, approvalPending bool) (Action, er
 			action.Revision = strings.TrimSpace(action.Revision + "\n" + payload)
 		}
 		_ = m.appendOutboxLocked(sessionID, "pause: revision read from INBOX.md")
-	case strings.HasPrefix(upper, "TASK:"):
-		task := strings.TrimSpace(first[len("TASK:"):])
-		if payload != "" {
-			task = strings.TrimSpace(task + " " + strings.Join(strings.Fields(payload), " "))
-		}
-		if task == "" {
-			return Action{}, fmt.Errorf("TASK requires text")
-		}
-		if err := appendLine(filepath.Join(m.root, "PLAN.md"), "- [ ] "+task); err != nil {
-			return Action{}, err
-		}
-		_ = m.appendOutboxLocked(sessionID, "done: queued task in PLAN.md — "+oneLine(task))
 	case strings.HasPrefix(upper, "DELAY:"):
 		value := strings.TrimSpace(first[len("DELAY:"):])
 		delay, parseErr := time.ParseDuration(value)

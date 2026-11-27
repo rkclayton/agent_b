@@ -14,4 +14,6 @@ func (unsupportedManager) Run(context.Context, string, Request) (RunResult, erro
 	return RunResult{}, ErrUnsupported
 }
 
-func (unsupportedManager) GrantPlan(context.Context, string, string) error { return ErrUnsupported }
+func (unsupportedManager) GrantRepository(context.Context, string, string) error {
+	return ErrUnsupported
+}

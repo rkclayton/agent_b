@@ -18,47 +18,14 @@ key],config,agent_server_changes:{<agent_id>:{agent_id,from,to,requested_at}},re
 
 ## Shared records
 
-Session schema 1 additively carries `agent_id`, `role:b|c|d`, `scratch`, and the D-only `plan_id`, `plan_name`, `plan_dir`, and `plan_repo`.
-An absent role in a retained pre-v0.50 chat means `b`; B sessions carry no bound plan. A `c` session is the worker: it is bound to a plan and its repo,
-jailed like a `b` session, and refused the plans root exactly as `b` is, so it writes the repository and never plan text.
-It has no chat — it does not appear in the desktop chat list — and its only speech is a `c.job` post.
-It runs on the agent's `c` connection when one is assigned and on `b` otherwise. Plan markers are `[ ]` waiting, `[~]` running,
-`[x]` done and `[!]` stuck with the reason appended once after the item's text.
-An item line's identity is the `[[id]]` token written straight after its marker (`- [ ] [[2aa]] 2aa text`, id shape `[0-9]+[a-z]*`);
-the worker's writer assigns ids once, on first touch, keeping a leading item-file id no other line has claimed and otherwise the smallest number no line uses
-and no item file is named for, and changes nothing else on the line; markers resolve by id,
-so duplicate text is allowed and a reworded or moved line keeps its marker; the Plan panel shows the text without the token.
-Every write of a `plan.md` — its creation, worker markers and ids, the tray's and the cube's accepted edits,
-and a `d` session's own `edit_file`/`write_file` on it — takes one per-file lock in the process and re-reads the file under it.
-Registering a plan whose repository is inside the plans folder is refused with the reason,
-and an existing plan with such a repository returns `refusal` from `GET /api/plan` and `GET /api/plan/go` (which then reports `enabled:false`),
-shows it as one line on its panel, and `POST /api/plan/go` answers 409 with it; the harness writes them, never the model,
-and a marker write is refused if that line changed underneath. `[x]` is written only when the item's verifier command exits 0:
-the verifier is the `verify:` line in the header of `plan/items/<id>.md` (above its first heading),
-run after a clean `done` stop through the ordinary `shell` tool path as the worker — same gate,
-grants and identity as a model call — and nothing else can produce `[x]`. An item naming no verifier is not started and is `[!] no verifier named`;
-it is taken again by `Go` once its item file names one. The verifier's run, including any card it raises,
-is bounded by the item's deadline (`verifier did not finish before the item deadline`).
-A `c` session's `write_file` and `edit_file` refuse any path that resolves inside the plans folder even under an operator file grant,
-where the jail otherwise leaves the rest of the path to Windows, so a worker can never rewrite the item file whose verifier decides `[x]`.
-Other stuck reasons this path writes: `verifier failed: <output>`, `no verifier available`,
- and `waited for approval` when the item's deadline (six hours) expires while its run is paused on a card,
- or `waited for the model` when it expires while the run, its card answered, waits to take its model slot back; in either case the run is stopped.
- A worker's `approval.required` (including a cycle decision) carries `role:c` and `plan_id`;
- the Plan page draws it with the existing card in that plan's design thread, marked `agent_c`,
- and it is decided through `POST /api/approve` against the worker's own session id. A D session uses its agent's D connection,
- cannot enable `shell` or `run_script`, and its plan id is immutable. Plans live at `<data-root>/plans/<plan-id>/` with `plan.md`,
- `plan.json` (`repo` is the operator-changeable canonical repository path and the manifest is model-immutable), `NOTES.md`, and `plan/items/`;
- the first accepted relative write by an unbound D session creates and binds that layout. A chat created without a folder owns `<data-root>/scratch/<chat-id>/`;
- retained chats restore their prior folder unchanged. D file paths are canonicalized after union-root selection under every identity,
- so symlinks cannot widen its repository-read or plan-write roots.
+Session schema 1 carries `agent_id`, `role`, and `scratch`. Desktop chats use role `b`. Delegated helpers retain role `e`. Earlier saved chat roles are opened as ordinary read-only history and marked `read_only_history:true`.
 
 `SessionSnapshot` schema 1 is
 `{schema_version:1,cursor:{generation,offset},complete,projection_stale?,projection_stale_reason?,id,label,connection_id,agent_name,main_connection,created_at,closed,workspace,run:{status:idle|queued|running|paused|stopping,run_id,turn,queue_position,partial,last_stop_reason},activity,tools:[{name,enabled,calls,schema_tokens,marginal_tokens}],messages:[Message],budget:Budget,timeline:[durable operational events plus only the current model stream],chat:[server-projected ChatEntry with agent_role:main|aux when applicable],history_start?,history_end?,history_total?,pending_approval?:ChatEntry,queued_messages,runnable,not_runnable_reason,memory_path,memory_content,log_path,model_turns,compaction_count,compaction_token_delta,compaction_model_calls,compaction_prompt_tokens,compaction_completion_tokens}`. The history bounds describe the half-open window `[history_start,history_end)` within `history_total`; the browser retains at most 350 chat entries while walking backward. `last_stop_reason` distinguishes `aborted_mid_model`, `aborted_mid_tool`, and `aborted_mid_run` from `done`. `complete:false` means the generation lacks a reachable `session.created` seed, so absent values are not represented as guessed defaults. Replay is a transport/UI overlay and never rewrites historical `run.status`. Aggregate fields, Activity, History, and Chat are folded by the one pure server projector from JSONL; clients do not independently derive them from event types. Chat coalesces repeated `model_unreachable` stops for the same host into one condition entry until `model.reachable` sets that entry's `decision:"resolved"`; Timeline retains every underlying stop event. Completed `model.delta` and `model.progress` records remain in JSONL but leave the projected timeline once their response arrives, so token traffic cannot evict operational history. Compaction prompt/completion totals remain a separate inference-spend ledger. `memory_content` is the read-only injected view for Settings; `log_path` names the current generation. Tool token fields and memory fields remain zero/empty until accounting runs. `schema_tokens` is isolated rendered schema size; `marginal_tokens` is the current request-prefix saving from disabling that enabled tool, including its system-prompt name. The compacted-history archive is absent from model-visible `messages`; live lookup remains a session-scoped index of immutable JSONL record locations, and replay rebuilds the same non-model archive separately from the session snapshot. Session events are also appended to `chats/{id}.jsonl` under the operator data root. That retained journal rehydrates the chat and transcript into a fresh operational log generation at startup; log rotation and retention never remove it. On the first upgraded launch only, an empty retained store is seeded from the newest pre-v0.44 operational generation for each recorded session ID.
 
 Schema 1 additive workspace fields are `workspace_dir` (the canonical bound directory; legacy `workspace` remains an alias), `workspace_missing`,
 `project_content`, `project_files`, `project_notes`, `pending_repo_policy?`, and `repo_policy?`.
-A working folder's root `AGENTS.md` (with the existing `AGENT_B.md`, then `CLAUDE.md` fallback order) is loaded into the first request under that folder's name.
+The working folder's first available instruction file in the order `AGENT_B.md`, `AGENTS.md`, `CLAUDE.md` is loaded into the request and named in the chat. Application data and profile folders are excluded from instruction discovery.
 A repository outside the chat folder joins from the request after either the user names its absolute folder while it is trusted,
 or a successful file tool call works in it after any approval; its root instructions and repository notes then load, and a repository note routes there.
 With zero projects the note is refused; with more than one, `remember.project` must name its folder or basename.
@@ -252,8 +219,7 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   With the service split enabled, an out-of-workspace discovery path instead reports the operator-decision boundary and supplies no replacement call.
   The existing shell also exposes the executable's read-on-demand `browser` subcommand: `& $env:AGENTB_EXE browser` prints the verbs; `start`, `nav`, `eval`, `text`, `screenshot`, `click`, `fill`, `press`, `wait`, and `pick` drive headless Edge through its local DevTools protocol. This registers no tool and adds nothing to the system prompt. Drive results name the acted-on element, title, and address. A screenshot is written under the workspace's `screenshots/`, delivered as a file, and attached to the next model request only on a connection that reads images; the ordinary image bound applies.
 - `remember {note,scope,replaces?}` writes user, repository, or environment memory as below. Within the existing count and layer-size bounds, the note's words do not change whether it is saved or recalled.
-  Scope `planner` instead appends one dated local product note to `<data-root>/planner/notes-for-planner.md`; it is never returned by `recall`, sent,
-  or placed in a repository. The user memory file follows the operator across profiles. Profiles memory offers a manual move for existing profile-local user notes. A private custom agent reads shared and private memory, but every memory write goes only to its private file.
+  The user memory file follows the operator across profiles. Profiles memory can move existing profile-local user notes. A private custom agent reads shared and private memory, with new writes going to its private file.
   Neither tool accepts a path and neither is widened by operator mode.
 - `fetch_url {url?|urls?:[up to 5],offset?,limit?,mode?:feed|article|raw,via?:browser}` performs policy-checked public HTTP(S) GETs with no model-supplied headers, cookies,
   or credentials and returns every page in its own untrusted UTF-8-safe byte-window envelope. `urls` runs concurrently. HTML defaults to `article`;
@@ -439,48 +405,16 @@ Tool calls are classified as `reads` or `changes`. `read_file`, `list_dir`, `sea
   a plain failure `command was not started: no such file or directory outside the folder: <path>` (`script was not started:
   …` for `run_script`) with no decision.
 - `chat.deleted` `{session_id}` is published with an empty session ID when a chat is deleted (item 2py), so every client, the paired phone included,
-  drops what it holds of that chat. Deletion writes no export: nothing of the chat survives it except the memory notes, plans and repository files it produced.
-- `compaction.summary` [8] remains `{role,connection_id,model,outcome,reason?,fallback_reason?,dispatched,estimated_prompt_tokens,estimated,n_ctx,usage:{prompt_tokens,completion_tokens,cached_tokens},duration_ms,trigger?}` and records the one hand-off attempt, including error, refusal, and empty fallbacks. `compaction` [8] remains `{kind,trigger,before,after,affected_ids,summary_message_id?,role?,connection_id?,model?,fallback_reason?,usage?}`; context replacements use `kind:fresh`, `kind:prune` or `kind:prune+fresh` (the last two add `pruned_results` and `pruned_tokens`), while `kind:settled` remains for explicitly settled plan-chat spans. No new telemetry event or field is introduced. The projector applies `after` to the meter immediately. The immutable journal, read by `recall`, retains what the model-visible context replaced. A retained chat restored at startup still carries tool results older than the newest journal-named user message as stubs, and duplicate restored message IDs are reminted by position; both are restore behavior, not compaction. A snapshot (`GET /api/state` or an SSE connect) never advances the store's broadcast cursor for a session it has already been sent; only the fold of an appended record does, so a record appended but not yet folded when a snapshot is taken still reaches every subscriber as a patch, and a client whose snapshot is newer resyncs on the `previous_cursor` mismatch. `memory.noted` [8] is `{note,path}`.
- `item.done` and `item.stuck` are `{item,plan_id}` and `{item,plan_id,reason}`; `plan.done` is `{plan_id,done,stuck}`;
- `c.job` is `{plan_id,item,question,routed_to:d|operator,role:c,worker,proposal?}` and carries the worker's own last words, never a summary written for it;
- the one harness-worded `c.job` is the verifier request, whose `proposal` is `{id,kind:verifier,path,old_text,new_text:"",item_id}` and which the tray shows
- with Dismiss and quote only, because only the planner can name the command.
- All four carry human sentences and are dispatched by the notifications manager beside `approval.required` and `run.stopped`.
-
+  drops what it holds of that chat. Deletion writes no export: nothing of the chat survives it except the memory notes and repository files it produced.
+- `compaction.summary` [8] remains `{role,connection_id,model,outcome,reason?,fallback_reason?,dispatched,estimated_prompt_tokens,estimated,n_ctx,usage:{prompt_tokens,completion_tokens,cached_tokens},duration_ms,trigger?}` and records the one hand-off attempt, including error, refusal, and empty fallbacks. `compaction` [8] remains `{kind,trigger,before,after,affected_ids,summary_message_id?,role?,connection_id?,model?,fallback_reason?,usage?}`; context replacements use `kind:fresh`, `kind:prune` or `kind:prune+fresh` (the last two add `pruned_results` and `pruned_tokens`), and legacy settled records remain readable. No new telemetry event or field is introduced. The projector applies `after` to the meter immediately. The immutable journal, read by `recall`, retains what the model-visible context replaced. A retained chat restored at startup still carries tool results older than the newest journal-named user message as stubs, and duplicate restored message IDs are reminted by position; both are restore behavior, not compaction. A snapshot (`GET /api/state` or an SSE connect) never advances the store's broadcast cursor for a session it has already been sent; only the fold of an appended record does, so a record appended but not yet folded when a snapshot is taken still reaches every subscriber as a patch, and a client whose snapshot is newer resyncs on the `previous_cursor` mismatch. `memory.noted` [8] is `{note,path}`.
 ## HTTP API
 
-`POST /api/sessions` accepts `{label?,agent_id?,connection_id?,role?:b|d}` or `{source_session_id}`.
-Every new session receives a new `<data-root>/scratch/<session-id>` folder;
-the source form creates a B chat with the source connection and exact enabled toolset, never its folder.
-D requires the selected agent's assigned D connection and starts unbound. Legacy `workspace` and `plan_id` fields are rejected.
-`GET /api/plans` returns `[{id,name,repo?}]` from `<data-root>/plans`, using the first Markdown heading in `plan.md` as the display name and the id as fallback;
-it is read-only. The snapshot carries the same list as `plans`. Every new plan (registration, detection, AGENT_B.md write, deploy,
-a d-session's first write) starts from the five-section template — `# <name>`, `## Product and end goals`,
-`## Architecture` (a generated map of the plan's repository: top-level directories with one line each from a README or Go package comment, then top-level files,
-all quoted into single lines with control characters and backticks removed, links not followed, and labelled as the repository's text rather than instructions;
-plus `### Invariants`), `## Standing rules` (seeded with the harness's own rules, nothing taken from the repository),
-`## Milestones and current order` (with `### Milestones` and `### Current work order`, which the panel reads as the current order,
-as it reads a level-2 `## Current work order…` heading), `## Index` — with no marker line (item 2bq).
-Session-less events `plan.created` and `plan.updated` `{plan_id,
-plan:{id,name,repo?}}` are published when a plan folder is complete and whenever an existing `plan.md` is rewritten by any route (worker markers,
-accepted edits, file tools); `plan.removed` is reserved (no route removes a plan folder).
-`GET /api/plan/go` adds `diagnostics:[{severity:error|warning,message}]` from the plan lint:
-a duplicate item id or an entry of any `## Unresolved` section of an item not yet done (`[x]` items are exempt,
-so a finished record never refuses Go) other than `(none)`, `- [discovery] …` or `- [blocker] …` (`*` bullets too;
-fenced blocks are skipped) is an error that sets `refusal` and disables Go (`POST /api/plan/go` answers 409 with it);
-an item with no item file or no `verify:` line is a warning, since Go marks it `[!] no verifier named` and asks for one (2t-ii).
-`POST /api/plan/accept` returns the same `diagnostics` after the edit.
-An `add` proposal for `plan/items/<id>.md` must carry a `## Contract` block and a `verify:` line where the worker reads one,
-in the header before the first heading. An exact `Add <absolute-path> as a plan` chat message uses the standard approval interface and, when approved,
-registers the canonical repository without a model request. Registration by any route is judged on the folder the path resolves to (junctions and links resolved
-by the file system): a missing folder, a drive root, a network path (refused before it is touched),
-a folder inside the plans folder and a folder that contains it are refused with the reason, and a refused path raises no card;
-when the path resolves elsewhere the card's arguments carry `resolves_to`. A final model message consisting of exactly that line (b or d chat;
-never the worker) raises the same Allow-this card named `plan registration proposed by agent_b` after the line is in the transcript;
-approval registers exactly as the operator's sentence does, a decline registers nothing, and the model's write access to plan files is unchanged (item 2fa).
+`POST /api/sessions` accepts `{label?,agent_id?,connection_id?,repository?}` or `{source_session_id}`. A repository must be registered before use. The default creates a new chat folder. The source form copies the connection and enabled toolset into a new chat folder.
+
+`GET /api/repositories` returns registered paths, display names and missing state. `POST /api/repositories {path}` registers a canonical existing local folder. Registration refuses drive roots, network shares, protected system folders and paths that overlap application data. `POST /api/folder-picker` opens the native folder picker from a local browser action.
 
 - `GET /` and `/chat` serve the same workspace document and mount Chat. Settings remains a resident same-window view; `GET /static/*` serves `web/`.
-  Documents (`/`, `/chat`, `/plan`, `/setup`) are sent `Cache-Control: no-store`,
+  Documents (`/`, `/chat`, `/setup`) are sent `Cache-Control: no-store`,
   carry `<meta name="agentb-build" content="<executable_sha256>">` for the build that served them,
   and reference every `/static/X` asset as `/static/~<first 12 hex of executable_sha256>/X`,
   so relative module imports inherit the version (the server strips the segment); `/static/*` is sent `Cache-Control: no-cache`. On load,
@@ -613,14 +547,10 @@ approval registers exactly as the operator's sentence does, a decline registers 
   a newer operator event supersedes an older in-flight reconciliation response. `shell.operator_context` is runtime-only and is never persisted on;
   changes to it or `shell.service_account` require a loopback request whose actual client process has the Agent_b operator's Windows SID and is not Agent_b or
   its descendant. `shell.operator_context_idle_timeout_minutes` is changed only in the protected configuration file while Agent_b is stopped.
-- `chat.hidden_surfaces` is retained for profile compatibility; only `plan` is accepted and an unknown name is refused at validation.
-  Plan is a top-level Settings section, third after Agents and Activity, and the legacy switch hides that entry without discarding its document or URL.
-  Whether a planner is assigned decides whether the section opens the page or shows one line saying to assign one.
-  `selection.surface` remains `chat` for the workspace view and the selected session id identifies the chat.
 - `sandbox.enabled` is one install-global switch, defaults off, and replaces the removed per-folder map.
   Loading a legacy map sets it on when any entry was on only while `sbx` can start.
   A ready sandbox is named deterministically for the session and sorted mount set,
-  then receives the session scratch/retained root followed by only plan repositories selected by file operations in that run.
+  then receives the chat's working folder.
   An absent or signed-out `sbx` keeps the stored switch off and exposes the reason in state. If an enabled sandbox stops,
   the switch is saved off before ordinary shell falls back and the result begins with that disclosure;
   `run_script` bash refuses because it has no host fallback. The registry is twenty tools; `delegate` follows the twelve-tool 2ho order,
@@ -656,10 +586,6 @@ approval registers exactly as the operator's sentence does, a decline registers 
   connector, or host subject as a profile-scoped standing grant when one is present. An unknown call is 404.
   The state snapshot lists those exact grants as `standing_grants`; `POST /api/standing-grants {id}` revokes one.
   These mutation endpoints require the launch mutation token and are unavailable in replay mode.
-- `GET /api/plan?session_id=<id>` enters Plan-page mode and returns the bound plan's `plan.md`, `NOTES.md`, id, and whether b is the planner fallback.
-  A chat whose folder backs no plan gets 200 `{plan:"",notes:"",no_plan:true,reason}` (item 2fo), not a 409; other conflicts keep their 409.
-  `GET /api/plan?plan_id=<id>` (item 2fc) returns
-  `{plan_id,name,repo,plan,refusal,facts:{folder,repository:{root,branch,subject,day},plan_path,agents_path,agents_size,notes_path,notes_count},stats:{markers:{open,done,stuck,partial,dropped},changed_at?,last_go?,last_result?,running,related:[{id,name,repo}],chats:[{id,label,last_activity}],changes:[{run_id,chat_id,chat,when,files}]}}` for a plan in the plans folder's own listing, 404 otherwise; an unavailable changed-file count is `null`, never invented. `POST /api/plans {action:"preview",repo}` reads the Folder/Repository/Plan/AGENTS.md preview and writes nothing. `POST /api/plans {repo}` registers the absolute folder through the same `EnsurePlan` route and refusals as every other registration and returns `{plan,created}`; an existing plan for the folder is returned, not duplicated. `POST /api/folder-picker` opens the native folder picker for a local browser action. `POST /api/plans/build {plan_id,agent_id?,brief?:{purpose,done,do_not_touch}}` returns `{session_id,draft}`: the open d chat bound to the plan, or a new one on the agent's d connection (b when none). Each brief field is capped at 4,000 characters and is framed as scope data under explicit labels; all-empty produces the historical draft byte-for-byte. A chat with no message yet is sent `draft` as its first message (`sent:true,run_id`; since v0.70.1 the operator's Yes is the consent), and a chat already under way is only opened, with `draft` placed in its composer (`sent:false`); the harness composes no other message in the operator's name. `GET|POST /api/plan/go` and `GET /api/plan/worker` accept `plan_id` as well as `session_id`; Go carries only `{plan_id,stop}` and starts one c-role worker for the next order. Go is refused (409, and `enabled:false` with `refusal`) while the worker's model connection is serving as many runs as it may. `GET /favicon.ico` serves the application icon. While that mode is active, model-originated `write_file` and `edit_file` calls in a d-session refuse plan writes. `POST /api/plan/accept` accepts only a byte-identical proposal currently recorded in that session's tray: its kind is `add|reword|reorder|drop|agent_b_addition`, its clean relative path is `plan.md`, the direct `plan/items/<item_id>.md` child, or `AGENT_B.md` for the one-line addition kind, and `old_text` must match exactly once; add/drop/reorder semantics are checked against their labels. It opens the session-local acceptance gate for one existing D-path edit operation (including a transient D writer for b fallback), then replaces only the harness-bound source turn pair with `[settled → plan item N]`. `POST /api/plan/marker` flips only an exact current `[x]`/`[ ]` line. These mutation-token routes are browser actions; model output cannot accept itself.
 - `GET /api/operator-files` reports operator-root attachment count/bytes and instruction candidates.
   Its mutation-token-protected `POST` actions are `empty_attachments` (requires `confirm:true`) and `adopt_instructions` (creates `AGENT_B.md` only when absent;
   legacy cleanup additionally requires `cleanup:true,confirm_cleanup:true`).
@@ -833,7 +759,7 @@ The older browser enrolment, bearer session, `/phone` page and Web Push endpoint
 only their two persisted artifacts — `phone-push.json` and the `web-push-vapid` user credential — are removed from each profile as it becomes active.
 
 `chat.create` stands for `POST /api/sessions` with `{label?}` and nothing else — no `connection_id`, `role` or `source_session_id`,
-so a device cannot choose a model or open a planner chat; the desktop fills the default agent's connection.
+The desktop fills the default agent's connection.
 The bidirectional `chat.mirror` family has no loopback HTTP analogue and its fields are defined here:
 `chat.mirror` carries `MirrorAppend {chat_id,origin:phone|pc,owner:phone|pc,seq,event:{ts,run_id,type,data},files?:[{path,bytes,sha256,content}]}`;
 `chat.mirror.since` carries `{chat_id}` and returns `{chat_id,last_seq,origin,owner}`;

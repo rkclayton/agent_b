@@ -118,24 +118,6 @@ func TestOutsideProjectNamedOrWorkedInLoadsRulesAndNotes2tt(t *testing.T) {
 // The run loop re-binds a session to its agent on every turn. It must re-bind
 // to the connection that role runs on: a worker created on the c connection was
 // switched to b on its first turn, so the real Go ran on the wrong model.
-func TestApplyAgentConfigKeepsEachRoleOnItsOwnConnection(t *testing.T) {
-	agent := config.Agent{Name: "Worker", B: "fast", C: "strong", D: "planner", Toolset: []string{"read_file"}}
-	for _, row := range []struct{ role, want string }{{"b", "fast"}, {"c", "strong"}, {"d", "planner"}} {
-		item := &Session{ID: "s1", Role: row.role, ToolsEnabled: map[string]bool{}, LastSeen: map[string]time.Time{}}
-		item.ApplyAgentConfig("worker", agent, config.Connection{ID: row.want, Label: row.want})
-		if got := item.Snapshot().ConnectionID; got != row.want {
-			t.Errorf("role %q bound to %q, want %q", row.role, got, row.want)
-		}
-	}
-	// Without a c connection the worker falls back to b, so Go works on a
-	// single-connection install.
-	single := config.Agent{Name: "Solo", B: "fast", Toolset: []string{"read_file"}}
-	item := &Session{ID: "s2", Role: "c", ToolsEnabled: map[string]bool{}, LastSeen: map[string]time.Time{}}
-	item.ApplyAgentConfig("solo", single, config.Connection{ID: "fast", Label: "fast"})
-	if got := item.Snapshot().ConnectionID; got != "fast" {
-		t.Errorf("a worker with no c connection bound to %q, want the b connection", got)
-	}
-}
 
 func TestNetworkBoundaryFollowsTheToolIdentity(t *testing.T) {
 	cfg := config.Defaults(t.TempDir())
@@ -220,7 +202,7 @@ func TestCreateLikePreservesToolsetButCreatesFreshScratch(t *testing.T) {
 	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Defaults(source)
 	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(data, "plans"))
+	registry.SetProfileRoot(data)
 	manager := workspaceinfo.New(data, func(dir string) string { return filepath.Join(data, filepath.Base(dir)+".md") })
 	registry.SetWorkspaceManager(manager)
 	first, err := registry.Create("", connection.ID, source)
@@ -251,7 +233,7 @@ func TestReservedFolderAndJournalIDsAreNeverIssued2ta(t *testing.T) {
 	connection := &config.Connection{ID: "main", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Defaults(data)
 	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(data, "plans"))
+	registry.SetProfileRoot(data)
 	registry.ReserveChatIDs([]string{"main", "s2", "s8"})
 	first, err := registry.Create("first", connection.ID, "")
 	if err != nil {
@@ -308,7 +290,7 @@ func TestRenameAuthorsPinUserAndLeaveAuxUnpinned(t *testing.T) {
 	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Defaults(t.TempDir())
 	registry := NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(t.TempDir(), "plans"))
+	registry.SetProfileRoot(t.TempDir())
 	item, err := registry.Create("main", connection.ID, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +342,7 @@ func TestCreateLikeKeepsConnectionWorkspaceAndExactToolsetAfterClose(t *testing.
 	connection := &config.Connection{ID: "main", Label: "Coder", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
 	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}}
 	registry := NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(t.TempDir(), "plans"))
+	registry.SetProfileRoot(t.TempDir())
 	first, err := registry.Create("", connection.ID, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -387,66 +369,6 @@ func TestCreateLikeKeepsConnectionWorkspaceAndExactToolsetAfterClose(t *testing.
 	}
 	if len(registry.List()) != 2 || !registry.List()[0].Snapshot().Closed {
 		t.Fatalf("closed session was discarded: %+v", registry.List())
-	}
-}
-
-func TestRoleAndPlanSnapshotRestoreWithoutLegacyMigration(t *testing.T) {
-	logs := t.TempDir()
-	writers, err := events.NewWriters(logs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer writers.Close()
-	connection := &config.Connection{ID: "planner", Label: "Planner", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}
-	cfg := config.Config{Context: config.GlobalContext{Accounting: "estimated"}, Agents: []config.Agent{{Name: "Agent", B: "planner", D: "planner", Toolset: config.FullToolset()}}}
-	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return connection, id == connection.ID }, 40, func() config.Config { return cfg })
-	plans := t.TempDir()
-	registry.SetPlansRoot(plans)
-	legacy, err := registry.Create("legacy", "agent", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacySaved := legacy.Snapshot()
-	legacySaved.Role = ""
-	legacySaved.ID = "legacy-restored"
-	if restored, err := registry.Restore(legacySaved); err != nil || restored.Snapshot().Role != "b" || restored.Snapshot().PlanID != "" {
-		t.Fatalf("legacy restore=%+v err=%v", restored, err)
-	}
-	planDir := t.TempDir()
-	registered, _, err := registry.EnsurePlan(planDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	planID := registered.ID
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Stable name\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := registry.CreateRole("invalid", "agent", legacy.Workspace, "d", "."); err == nil || !strings.Contains(err.Error(), "invalid plan id") {
-		t.Fatalf("invalid plan id error=%v", err)
-	}
-	d, err := registry.CreateRole("design", "agent", legacy.Workspace, "d", planID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved := d.Snapshot()
-	saved.ID = "design-restored"
-	restored, err := registry.Restore(saved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := restored.Snapshot()
-	gotPlanDir, gotPathErr := finalPath(got.PlanDir)
-	wantPlanDir, wantPathErr := finalPath(planDir)
-	if got.Role != "d" || got.PlanID != planID || got.PlanName != "Stable name" || gotPathErr != nil || wantPathErr != nil || gotPlanDir != wantPlanDir {
-		t.Fatalf("d restore=%+v", got)
-	}
-	if restored.ToggleTool("shell", true) || restored.ToolEnabled("shell") {
-		t.Fatal("d session enabled shell outside its file jail")
-	}
-	d.ToolsEnabled["shell"] = true
-	d.ApplyAgentConfig("agent", cfg.Agents[0], *connection)
-	if d.ConnectionID != cfg.Agents[0].D || d.ToolEnabled("shell") || d.ToolEnabled("run_script") {
-		t.Fatalf("agent rebind widened d session: %+v", d.Snapshot())
 	}
 }
 
@@ -571,7 +493,7 @@ func TestScheduledChatStartsInItsCollisionResolvedFolder2za(t *testing.T) {
 	defer writers.Close()
 	cfg := config.Defaults(root)
 	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return cfg.Connection(id) }, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(root, "plans"))
+	registry.SetProfileRoot(root)
 	item, err := registry.CreateScheduled("fixture job", cfg.DefaultAgentID(), true)
 	if err != nil {
 		t.Fatal(err)
@@ -609,7 +531,7 @@ func TestProjectTouchOnlyAnnouncesLoadedInstructions307(t *testing.T) {
 	defer unsubscribe()
 	registry := &Registry{bus: bus}
 	registry.SetDataRoot(appData)
-	registry.SetPlansRoot(filepath.Join(profile, "plans"))
+	registry.SetProfileRoot(profile)
 	item := &Session{ID: "fixture", Workspace: root}
 	touch := registry.projectTouch(item)
 	for _, dir := range []string{appData, profile} {

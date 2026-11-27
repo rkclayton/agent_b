@@ -39,7 +39,6 @@ import (
 	"harness/internal/stats"
 	"harness/internal/tools"
 	"harness/internal/updater"
-	"harness/internal/worker"
 	workspaceinfo "harness/internal/workspace"
 )
 
@@ -61,8 +60,6 @@ type Server struct {
 	broker             BrokerHost
 	registry           *session.Registry
 	webDir             string
-	worker             *worker.Driver
-	workerStates       map[string]workerState
 	scheduler          *agent.Scheduler
 	runner             *agent.Runner
 	prompt             *agent.PromptRenderer
@@ -72,7 +69,6 @@ type Server struct {
 	credential         *credential.Store
 	notifications      notificationManager
 	notificationStore  *credential.Store
-	plannerNotes       *memory.PlannerNotes
 	updater            *updater.Manager
 	shell              *tools.Shell
 	account            serviceaccount.Manager
@@ -153,9 +149,6 @@ func New(cfg *config.Config, path, webDir string, roots RuntimeRoots, bus *event
 		},
 	}
 	server.recorder = recorder.New()
-	if roots.Data != "" {
-		server.plannerNotes = memory.NewPlannerNotes(roots.Data)
-	}
 	server.recorder.SetSink(server.queueRunTelemetry)
 	// the app around the runs, an hour at a time.
 	server.app = recorder.NewApp(time.Now())
@@ -193,8 +186,6 @@ func (s *Server) Close() {
 	s.StopReflection()
 }
 
-func (s *Server) PlannerNotes() *memory.PlannerNotes { return s.plannerNotes }
-
 func removeLegacyPhoneAccess(root string) error {
 	store, err := credential.NewNamed(root, "web-push-vapid")
 	if err != nil {
@@ -208,7 +199,7 @@ func removeLegacyPhoneAccess(root string) error {
 	return nil
 }
 func (s *Server) SetRegistry(registry *session.Registry) {
-	registry.SetPlansRoot(filepath.Join(s.profileRoot(), "plans"))
+	registry.SetProfileRoot(s.profileRoot())
 	registry.SetSkillsRoot(filepath.Join(s.profileRoot(), "skills"))
 	registry.SetSkillStateRoot(filepath.Join(s.profileRoot(), "skill-state"))
 	if err := skills.EnsureIncluded(filepath.Join(s.profileRoot(), "skills")); err != nil {
@@ -286,14 +277,6 @@ func (s *Server) SetRuntime(scheduler *agent.Scheduler, runner *agent.Runner, pr
 			s.applyPendingSessionConnections()
 		})
 		s.tryAgentIdle = scheduler.TryAgentIdle
-	}
-	// The worker drives ordinary runs through the same scheduler, so it exists
-	// only once there is one to drive.
-	if scheduler != nil {
-		s.worker = worker.New(s.bus, schedulerSubmitter{scheduler}, func() []*session.Session { return s.registry.List() })
-		if runner != nil {
-			s.worker.SetVerifier(runner)
-		}
 	}
 	if runner != nil {
 		runner.SetSkillHost(s)
@@ -469,7 +452,6 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.page)
 	mux.HandleFunc("/chat", s.page)
-	mux.HandleFunc("/plan", s.page)
 	mux.HandleFunc("/setup", s.page)
 	// a page that names no icon still asks for /favicon.ico.
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
@@ -506,14 +488,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/chats/tree", s.replayGuard(s.chatTree))
 	mux.HandleFunc("/api/chats/search", s.replayGuard(s.chatSearch))
 	mux.HandleFunc("/api/chats/delete-all", s.replayGuard(s.deleteAllChats))
-	mux.HandleFunc("/api/plans", s.replayGuard(s.plans))
+	mux.HandleFunc("/api/repositories", s.replayGuard(s.repositories))
 	mux.HandleFunc("/api/folder-picker", s.replayGuard(s.folderPicker))
-	mux.HandleFunc("/api/plans/build", s.replayGuard(s.buildPlanRoute))
-	mux.HandleFunc("/api/plan", s.replayGuard(s.planSurface))
-	mux.HandleFunc("/api/plan/accept", s.replayGuard(s.planAccept))
-	mux.HandleFunc("/api/plan/marker", s.replayGuard(s.planMarker))
-	mux.HandleFunc("/api/plan/go", s.replayGuard(s.planGo))
-	mux.HandleFunc("/api/plan/worker", s.replayGuard(s.planWorker))
 	mux.HandleFunc("/api/sessions/", s.replayGuard(s.session))
 	mux.HandleFunc("/api/workspaces", s.replayGuard(s.workspaces))
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))

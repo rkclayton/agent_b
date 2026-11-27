@@ -1027,7 +1027,7 @@ func TestAPairedDeviceSeesTheChatsAndIsAnswered2o7(t *testing.T) {
 
 	server.bus.Publish(events.New(events.ApprovalRequired, existing.ID, "r1", map[string]any{"call_id": "c1"}))
 	server.bus.Publish(events.New(events.RunStopped, existing.ID, "r1", map[string]any{"reason": "done"}))
-	server.bus.Publish(events.New(events.ItemStuck, existing.ID, "r1", map[string]any{"item": "2ok"}))
+	server.bus.Publish(events.New("item.stuck", existing.ID, "r1", map[string]any{"item": "2ok"}))
 	// A listed global event (2wt: only deviceSessionlessEvents reach a device).
 	server.bus.Publish(events.New(events.ChatDeleted, "", "", map[string]any{"session_id": "gone"}))
 	device.waitFor(t, "the global event", func(unit map[string]any) bool {

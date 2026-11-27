@@ -936,18 +936,6 @@ func TestOperatorContextNeverPersistsOrRestartsEnabled(t *testing.T) {
 	}
 }
 
-func TestAgentConnectionsUseLetteredSlots(t *testing.T) {
-	cfg := Defaults(t.TempDir())
-	c := cfg.Connections[0]
-	c.ID, c.Label = "small", "Small"
-	cfg.Connections = append(cfg.Connections, c)
-	cfg.Agents[0].C = "small"
-	agent, ok := cfg.ProfileForConnection("local")
-	if !ok || AgentID(agent.Name) != "agent_b" || agent.B != "" || agent.C != "small" || agent.D != "" {
-		t.Fatalf("lettered agent=%+v ok=%t", agent, ok)
-	}
-}
-
 func TestAgentNameReservesAgentA(t *testing.T) {
 	cfg := Defaults(t.TempDir())
 	for _, name := range []string{"agent_a", "Agent_A", "AGENT_A"} {

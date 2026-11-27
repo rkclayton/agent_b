@@ -344,10 +344,12 @@ func projectSessionUpdated(next Snapshot, record Record, data map[string]any) Sn
 	}
 	next.AgentID = firstString(stringValue(data["agent_id"]), next.AgentID)
 	next.ConnectionID = firstString(connectionField(data, "connection_id"), next.ConnectionID)
-	next.Role = firstString(stringValue(data["role"]), next.Role)
-	next.PlanID = firstString(stringValue(data["plan_id"]), next.PlanID)
-	next.PlanName = firstString(stringValue(data["plan_name"]), next.PlanName)
-	next.PlanDir = firstString(stringValue(data["plan_dir"]), next.PlanDir)
+	if role := stringValue(data["role"]); role == "c" || role == "d" {
+		next.ReadOnlyHistory = true
+	}
+	if next.ReadOnlyHistory {
+		next.Role = "b"
+	}
 	if value := stringValue(data["agent_name"]); value != "" {
 		next.AgentName = value
 	}
@@ -359,6 +361,9 @@ func projectSessionUpdated(next Snapshot, record Record, data map[string]any) Sn
 	}
 	if _, ok := data["not_runnable_reason"]; ok {
 		next.NotRunnableReason = stringValue(data["not_runnable_reason"])
+	}
+	if next.ReadOnlyHistory {
+		next.Runnable, next.NotRunnableReason = false, "Read-only history"
 	}
 	if !next.Runnable && strings.TrimSpace(next.NotRunnableReason) == "" {
 		next.NotRunnableReason = "chat is not runnable"

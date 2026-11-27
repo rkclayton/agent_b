@@ -20,17 +20,12 @@ import (
 //
 // A chat the operator is typing in stays attended whatever the switch says. He
 // is there; asking him is not an interruption, it is the point. Unattended is
-// for a worker started by Go and for a scheduled run, which have no one sitting
-// in front of them.
+// for scheduled runs.
 
-// boundaryKinds are the four card kinds the switch answers for. The inventory
-// is the scope of this item: a path found later that raises a card without
-// passing through one of these is a defect against it.
 const (
-	boundaryPolicy   = "policy approval"
-	boundaryEscape   = "identity escalation"
-	boundaryCycle    = "cycle decision"
-	boundaryRegister = "plan registration"
+	boundaryPolicy = "policy approval"
+	boundaryEscape = "identity escalation"
+	boundaryCycle  = "cycle decision"
 )
 
 // unattended is chosen on the job and inherited by a delegated run.
@@ -39,9 +34,7 @@ func (g *Gate) unattended(s *session.Session) bool {
 }
 
 // refuseUnattended records the boundary hit and returns the decision the gate
-// would have got from an operator who said no. The text is what the item names:
-// `[!] boundary: <what>`, so the worker's own reason line and the morning
-// report read the same way.
+// would have received from an operator who declined.
 func (g *Gate) refuseUnattended(s *session.Session, runID, callID, kind, name string, args map[string]any) string {
 	reason := fmt.Sprintf("[!] boundary: %s (%s)", kind, name)
 	g.bus.Publish(events.New(events.ApprovalDecided, s.ID, runID, map[string]any{

@@ -336,20 +336,7 @@ func (c Config) Connection(id string) (*Connection, bool) {
 	return nil, false
 }
 
-// ConnectionFor is the connection a session of this role runs on. c falls back to b so
-// Go works on a single-connection install; d has no fallback, because a planner
-// without a d connection is refused at creation.
-func (a Agent) ConnectionFor(role string) string {
-	switch role {
-	case "d":
-		return a.D
-	case "c":
-		if a.C != "" {
-			return a.C
-		}
-	}
-	return a.B
-}
+func (a Agent) ConnectionFor(_ string) string { return a.B }
 
 func (c Config) Agent(id string) (*Agent, bool) {
 	if id == "agent-b" {
@@ -379,7 +366,7 @@ func (c Config) AgentConnection(id, role string) (*Connection, bool) {
 		return nil, false
 	}
 	connectionID := agent.ConnectionFor(role)
-	if connectionID == "" && role != "d" {
+	if connectionID == "" {
 		if selected, found := c.ConnectionForProfile(id); found {
 			connectionID = selected.ID
 		}

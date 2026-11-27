@@ -317,9 +317,6 @@ func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
 		body = strings.Join(lines[:2], "\n")
 	}
 	link := m.baseURL + "/chat?session=" + url.QueryEscape(event.SessionID)
-	if data["role"] == "c" {
-		link = m.baseURL + "/plan"
-	}
 	if desktopOn && desktop != nil && !desktop.Viewing(event.SessionID) {
 		_ = desktop.Show(DesktopNotice{Title: title, Body: body, ChatID: event.SessionID, Link: link})
 	}
@@ -375,7 +372,7 @@ func (m *Manager) observe(event events.Event) {
 func (m *Manager) shouldNotify(event events.Event) bool {
 	data, _ := event.Data.(map[string]any)
 	job, _ := data["scheduled_job"].(string)
-	if event.SessionID == "" || data["role"] == "c" || strings.TrimSpace(job) != "" || event.Type == events.WorkerJob {
+	if event.SessionID == "" || strings.TrimSpace(job) != "" {
 		return true
 	}
 	m.mu.RLock()
@@ -394,10 +391,10 @@ func (m *Manager) shouldNotify(event events.Event) bool {
 }
 
 func notificationGroup(eventType string, data map[string]any) string {
-	if job, _ := data["scheduled_job"].(string); strings.TrimSpace(job) != "" || eventType == events.WorkerJob {
+	if job, _ := data["scheduled_job"].(string); strings.TrimSpace(job) != "" {
 		return "scheduled"
 	}
-	if eventType == events.ApprovalRequired || eventType == events.ItemStuck {
+	if eventType == events.ApprovalRequired {
 		return "needs_you"
 	}
 	return "finished"
@@ -406,9 +403,6 @@ func notificationGroup(eventType string, data map[string]any) string {
 func pushKind(eventType string) string {
 	if eventType == events.ApprovalRequired {
 		return "approval_required"
-	}
-	if eventType == events.ItemStuck {
-		return "item_stuck"
 	}
 	return "run_stopped"
 }
@@ -491,10 +485,7 @@ func (m *Manager) message(event events.Event) string {
 		parts = append(parts, "Actions: "+strings.Join(notice.Actions, " / "))
 	}
 	link := m.baseURL
-	if data["role"] == "c" && data["plan_id"] != nil && data["plan_id"] != "" {
-		// A worker has no chat; what it waits on is drawn on the Plan page.
-		link += "/plan"
-	} else if event.SessionID != "" {
+	if event.SessionID != "" {
 		link += "/chat?session=" + url.QueryEscape(event.SessionID)
 	}
 	parts = append(parts, link)
@@ -514,7 +505,7 @@ func humanNotice(data map[string]any, eventType string) events.HumanNotice {
 
 func notifiable(eventType string) bool {
 	switch eventType {
-	case events.ApprovalRequired, events.RunStopped, events.ScheduledFinished, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob:
+	case events.ApprovalRequired, events.RunStopped, events.ScheduledFinished:
 		return true
 	default:
 		return false

@@ -42,7 +42,7 @@ func TestTheReflectionEndpointIsReadOnlyTextAndSaysWhenItIsOff(t *testing.T) {
 	}
 	defer server.StopReflection()
 	store := server.reflection.store
-	if _, err := store.PutOverview(reflection.Overview{PlanID: "p1", Tier: "tier 1 (Go)", Text: "Reflection on p1"}); err != nil {
+	if _, err := store.PutOverview(reflection.Overview{GroupKey: "p1", Tier: "tier 1 (Go)", Text: "Reflection on p1"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.PutReport(reflection.Report{Text: "Tool candidates"}); err != nil {
@@ -145,9 +145,8 @@ func TestAClosedRunIsSummarisedThroughTheModelClientOnAFakeServer(t *testing.T) 
 	if !strings.Contains(summaries[0].Text, "no aux connection is configured") {
 		t.Fatalf("summary text = %q", summaries[0].Text)
 	}
-	planner, err := os.ReadFile(filepath.Join(root, "planner", "notes-for-planner.md"))
-	if err != nil || strings.Count(string(planner), "read tool refused") != 1 {
-		t.Fatalf("planner note=%q err=%v", planner, err)
+	if _, err := os.Stat(filepath.Join(root, "planner", "notes-for-planner.md")); !os.IsNotExist(err) {
+		t.Fatalf("reflection touched the former feedback file: %v", err)
 	}
 	if after := item.Snapshot().Run; !reflect.DeepEqual(after, before) {
 		t.Fatalf("the run's state changed: %+v -> %+v", before, after)

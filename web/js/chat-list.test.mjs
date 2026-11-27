@@ -5,10 +5,10 @@ import { arrangeChats, menuLabels, panelDrag } from "./chat-list.js";
 test("chat list is pinned, folders, then root; newest first and workers absent 2qz", () => {
   const sessions = {
     p1: { id: "p1", role: "b", last_activity: "2026-10-06T04:00:00Z" },
-    p2: { id: "p2", role: "d", last_activity: "2026-10-06T05:00:00Z" },
+    p2: { id: "p2", role: "b", read_only_history: true, last_activity: "2026-10-06T05:00:00Z" },
     f1: { id: "f1", role: "b", last_activity: "2026-10-06T03:00:00Z" },
     f2: { id: "f2", role: "b", last_activity: "2026-10-06T02:00:00Z", closed: true },
-    r1: { id: "r1", role: "d", last_activity: "2026-10-06T02:30:00Z" },
+    r1: { id: "r1", role: "b", read_only_history: true, last_activity: "2026-10-06T02:30:00Z" },
     r2: { id: "r2", role: "b", created_at: "2026-10-06T01:00:00Z" },
     worker: { id: "worker", role: "c", last_activity: "2026-10-06T06:00:00Z" },
   };

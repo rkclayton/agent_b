@@ -56,7 +56,7 @@ const Usage = `agentb — run one task in this folder
   -h, --help          this
 
 The workspace is the current directory, its subfolders, and any registered
-plans. Anything else needs an approval, exactly as in the app.`
+its working folder. Anything else needs an approval, exactly as in the app.`
 
 // ParseArgs reads one invocation. It is deliberately strict: an unknown flag is
 // an error rather than a silently ignored word, because "agentb --jsom task"

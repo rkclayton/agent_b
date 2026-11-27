@@ -31,10 +31,21 @@ func TestEveryProductEventTypeIsClassified2jg(t *testing.T) {
 	for _, name := range product {
 		known[name] = true
 	}
+	legacy := map[string]bool{"item.done": true, "item.stuck": true, "plan.done": true, "c.job": true}
 	for _, name := range ClassifiedTypes() {
+		if legacy[name] {
+			if policy, ok := Classify(name); !ok || policy.Sent {
+				t.Errorf("historical event %q must always be dropped", name)
+			}
+			delete(legacy, name)
+			continue
+		}
 		if !known[name] {
 			t.Errorf("the allow-list classifies %q, which the product no longer emits", name)
 		}
+	}
+	if len(legacy) != 0 {
+		t.Errorf("missing historical drop classifications: %v", legacy)
 	}
 }
 

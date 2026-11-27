@@ -55,7 +55,7 @@ func TestShippedPromptCarriesMemoryAndResolutionGuidanceAndIsByteStable(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	item := &session.Session{Workspace: filepath.Join(root, "repo"), PlansRoot: filepath.Join(root, "plans")}
+	item := &session.Session{Workspace: filepath.Join(root, "repo")}
 	connection := &config.Connection{}
 	first := renderer.Render(connection, item, []string{"read_file", "remember", "recall"}, "")
 	for attempt := 0; attempt < 5; attempt++ {

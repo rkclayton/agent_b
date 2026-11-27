@@ -14,25 +14,7 @@ export function sessionTitle(session) {
   return session.agent_name || session.agent_id || "agent";
 }
 
-export function agentAuthor(session, role = "b") {
-  const letter = ["b", "c", "d"].includes(role) ? role : role === "aux" ? "c" : "b";
-  return `agent_${letter}`;
-}
-
-// workerApproval is the card the worker of a plan is waiting on. The worker has
-// no chat, so its approvals and cycle decisions are drawn in the design thread
-// of the plan it is bound to, and answered against the session of the worker.
-export function workerApproval(sessions, session) {
-  const planID = session?.plan_id;
-  if (!planID || session?.role === "c") return null;
-  return Object.values(sessions || {}).find((item) => item?.role === "c" && !item.closed && item.plan_id === planID && item.pending_approval) || null;
-}
-
-export function sameWorkerPlan(sessions, sessionID, selectedID) {
-  const worker = sessions?.[sessionID];
-  const selected = sessions?.[selectedID];
-  return !!worker && worker.role === "c" && !!worker.plan_id && worker.plan_id === selected?.plan_id;
-}
+export function agentAuthor() { return "agent_b"; }
 
 // a chat shows its NAME. Before the operator has said
 // anything there is nothing to name it after, so it reads "new chat" - never

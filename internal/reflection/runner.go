@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 // The pass itself. One summary call when a run closes, and a
-// fuller pass on a tick: the overview per plan, the tool-candidate report, and
+// fuller pass on a tick: the overview per workspace, the tool-candidate report, and
 // the two durable outputs. Nothing here runs inside a run: the run is over
 // before any of it starts, and a failure of any part leaves the run's outcome
 // exactly as it was.
@@ -22,20 +21,11 @@ import (
 // package is deterministic.
 type ModelCall func(ctx context.Context, connectionID, system, user string) (string, error)
 
-// Registrar registers a plan for a repository (2dr's path). Reflection never
-// writes plan text; it only asks for the repository to be registered.
-type Registrar interface {
-	PlanRegistered(root string) bool
-	RegisterPlan(root string) error
-}
-
-// Runner carries what a pass needs. Any of the optional parts may be nil: a
-// pass does what it can and says what it skipped.
 type Runner struct {
-	Store     *Store
-	Call      ModelCall
-	Noter     Noter
-	Registrar Registrar
+	Store *Store
+	Call  ModelCall
+	Noter Noter
+
 	// SessionLogs returns the JSONL paths a session's events are in.
 	SessionLogs func(sessionID string) []string
 	// AllLogs returns every chat log, for the report.
@@ -61,8 +51,8 @@ func (r *Runner) now() time.Time {
 
 const summarySystemPrompt = `You summarise one finished run of a coding agent, for the user's own record.
 Answer with JSON only, no prose around it, in this shape:
-{"files_read":["..."],"files_written":["..."],"changed":"one or two sentences on what changed","open":"what was left unresolved, or an empty string","text":"three sentences at most, plain and concrete","planner_note":"product shortfall and what was wanted, or empty"}
-Set planner_note only when the product itself failed, refused a valid action, or lacked an ability the user asked for. Name only files the transcript shows. Never invent an outcome.`
+{"files_read":["..."],"files_written":["..."],"changed":"one or two sentences on what changed","open":"what was left unresolved, or an empty string","text":"three sentences at most, plain and concrete"}
+Name only files the transcript shows. Describe the observed outcome.`
 
 // RunDigest is what the summary call is given: the run's own record, read from
 // the JSONL, which is the authority.
@@ -203,7 +193,7 @@ func orUnknown(value string) string {
 // parseSummary reads the model's JSON, tolerating a fenced block or prose
 // around it. A summary that cannot be read is not an error for the run: the
 // raw text is kept as the summary's text.
-func parseSummary(answer string) (files, written []string, changed, open, text, planner string) {
+func parseSummary(answer string) (files, written []string, changed, open, text string) {
 	trimmed := strings.TrimSpace(answer)
 	if start := strings.Index(trimmed, "{"); start >= 0 {
 		if end := strings.LastIndex(trimmed, "}"); end > start {
@@ -213,21 +203,20 @@ func parseSummary(answer string) (files, written []string, changed, open, text, 
 				Changed      string   `json:"changed"`
 				Open         string   `json:"open"`
 				Text         string   `json:"text"`
-				PlannerNote  string   `json:"planner_note"`
 			}
 			if err := json.Unmarshal([]byte(trimmed[start:end+1]), &parsed); err == nil {
-				return parsed.FilesRead, parsed.FilesWritten, parsed.Changed, parsed.Open, strings.TrimSpace(parsed.Text), strings.TrimSpace(parsed.PlannerNote)
+				return parsed.FilesRead, parsed.FilesWritten, parsed.Changed, parsed.Open, strings.TrimSpace(parsed.Text)
 			}
 		}
 	}
-	return nil, nil, "", "", trimmed, ""
+	return nil, nil, "", "", trimmed
 }
 
 // SummariseRun is the call at a run's close. It never returns an error to its
 // caller's run: a failure is recorded on the summary row and nothing else.
-func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, planID, connectionID string, aux bool) Summary {
+func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, connectionID string, aux bool) Summary {
 	started := r.now()
-	summary := Summary{At: started, SessionID: sessionID, RunID: runID, Workspace: workspace, PlanID: planID, Connection: connectionID, Aux: aux}
+	summary := Summary{At: started, SessionID: sessionID, RunID: runID, Workspace: workspace, Connection: connectionID, Aux: aux}
 	paths := []string{}
 	if r.SessionLogs != nil {
 		paths = r.SessionLogs(sessionID)
@@ -245,14 +234,14 @@ func (r *Runner) SummariseRun(ctx context.Context, sessionID, runID, workspace, 
 		if callErr != nil {
 			summary.Failed = "summary call: " + callErr.Error()
 		} else {
-			read, written, changed, open, text, planner := parseSummary(answer)
+			read, written, changed, open, text := parseSummary(answer)
 			if len(read) > 0 {
 				summary.Read = mergeStrings(summary.Read, read)
 			}
 			if len(written) > 0 {
 				summary.Written = mergeStrings(summary.Written, written)
 			}
-			summary.Changed, summary.Open, summary.Text, summary.PlannerNote = changed, open, text, planner
+			summary.Changed, summary.Open, summary.Text = changed, open, text
 		}
 	}
 	if !aux {
@@ -293,16 +282,15 @@ func mergeStrings(current, extra []string) []string {
 
 // PassResult is what one reflection pass produced.
 type PassResult struct {
-	At            time.Time       `json:"at"`
-	Manual        bool            `json:"manual"`
-	Summaries     int             `json:"summaries"`
-	Overviews     []Overview      `json:"overviews"`
-	Diffs         []string        `json:"diffs"`
-	Report        Report          `json:"report"`
-	Notes         []NoteResult    `json:"notes"`
-	PlansProposed []PlanCandidate `json:"plans_proposed"`
-	Pruned        int64           `json:"pruned"`
-	Skipped       []string        `json:"skipped,omitempty"`
+	At        time.Time    `json:"at"`
+	Manual    bool         `json:"manual"`
+	Summaries int          `json:"summaries"`
+	Overviews []Overview   `json:"overviews"`
+	Diffs     []string     `json:"diffs"`
+	Report    Report       `json:"report"`
+	Notes     []NoteResult `json:"notes"`
+	Pruned    int64        `json:"pruned"`
+	Skipped   []string     `json:"skipped,omitempty"`
 }
 
 // Pass is the fuller reflection: overviews, the report, the durable outputs,
@@ -323,17 +311,10 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	}
 	result.Summaries = len(summaries)
 
-	result.PlansProposed = []PlanCandidate{}
-
-	// One overview per workspace the summaries name, so a plan's own text is
-	// about that plan's work.
 	byWorkspace := map[string][]Summary{}
 	order := []string{}
 	for _, summary := range summaries {
-		key := summary.PlanID
-		if key == "" {
-			key = summary.Workspace
-		}
+		key := summary.Workspace
 		if key == "" {
 			continue
 		}
@@ -345,13 +326,7 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 	sort.Strings(order)
 	for _, key := range order {
 		group := byWorkspace[key]
-		proposals := []PlanCandidate{}
-		for _, candidate := range result.PlansProposed {
-			if candidate.Root == filepath.Clean(group[0].Workspace) {
-				proposals = append(proposals, candidate)
-			}
-		}
-		overview, difference, err := r.Store.Overview(ctx, OverviewInput{PlanID: key, Root: group[0].Workspace, Summaries: group, At: result.At, Proposals: proposals})
+		overview, difference, err := r.Store.Overview(ctx, OverviewInput{GroupKey: key, Root: group[0].Workspace, Summaries: group, At: result.At})
 		if err != nil {
 			result.Skipped = append(result.Skipped, "overview for "+key+": "+err.Error())
 			continue
@@ -403,33 +378,8 @@ func (r *Runner) Pass(ctx context.Context, manual bool) (PassResult, error) {
 			}
 		}
 	}
-	// Plan registration itself is a durable change the operator approves
-	// through the existing card; reflection runs unattended, so it proposes in
-	// the overview and registers nothing (cold review; the second
-	// walk's step 16 is what a card with nobody present costs).
 	if pruned, err := r.Store.Prune(result.At); err == nil {
 		result.Pruned = pruned
 	}
 	return result, nil
-}
-
-// RecordProposals stores this pass's plan proposals so the user can be
-// asked through the existing card. Reflection registers nothing itself.
-func (r *Runner) RecordProposals(candidates []PlanCandidate) error {
-	if r.Store == nil {
-		return nil
-	}
-	for _, candidate := range candidates {
-		proposal := Proposal{
-			Root:        candidate.Root,
-			AgentFile:   candidate.AgentFile,
-			Activity:    ActivityLine(candidate),
-			Fingerprint: AgentFileFingerprint(candidate.Root),
-			At:          r.now(),
-		}
-		if err := r.Store.UpsertProposal(proposal); err != nil {
-			return err
-		}
-	}
-	return nil
 }

@@ -432,7 +432,7 @@ func Structure(ctx context.Context, root string) (*Graph, error) {
 	return tierThree(root)
 }
 
-// Text renders the graph as the text tree that lands beside the plan. Bounded:
+// Text renders the graph as a text tree. Bounded:
 // the biggest nodes, with the rest counted.
 func (g *Graph) Text(limit int) string {
 	lines := []string{fmt.Sprintf("Structure of %s — %s (%s)", filepath.Base(g.Root), g.Tier, g.TierNote),

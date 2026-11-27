@@ -9,20 +9,9 @@ Enabling a third-party skill trusts its instructions, while scripts it names ret
 
 ## Workspace and shell boundary
 
-A plan chooses a file tool's working directory; it is not a reach allow-list. Relative paths start in the session's scratch or selected repository,
-while absolute paths and relative climbs proceed to the filesystem under the identity running the tool.
-Plan files under `<data-root>/plans` remain readable by every B and D session but writable only by the D session bound to that plan;
-the internal `plan.json` repository manifest and a repository's `.agentb` policy remain model-immutable.
-Operator identity does not disable those ownership rules: write_file and edit_file compare a target with the plans and policy folders both as written and as the
-file system resolves them, so a junction, symbolic link or reparse point cannot reach protected files under another name (item 2fq).
-D still cannot enable `shell` or `run_script`, and a repository policy's `default_toolset` cannot turn them on.
-These application guards protect ownership and routing only; Windows identity, ACLs and firewall policy are the reach boundary.
+Relative file tool paths start in the chat folder. Windows identity decides filesystem reach. The repository policy under `.agentb` remains protected from model writes, including paths that reach it through a junction or symbolic link.
 
-The hardened ACL policy makes the minimum matching OS exceptions: the service account may traverse the operator data root but may not list, read, or mutate it,
-while every existing profile's `plans` and `scratch` children have explicit recursive `Modify`.
-Existing hardened installs must reapply Host protections after this layout migration and after creating a profile before relying on D writes or scratch chats in
-it; that operator-only action is never performed by an application upgrade. Configuration, credentials, logs, retained chats,
-and memory remain outside service-account reach.
+The service account can traverse the data root. Explicit recursive Modify grants cover the profile scratch and chat working folders. Configuration, credential storage, operational logs, retained journals, and memory remain outside the account’s reach. Registration grants Modify on the canonical repository only while the service identity is enabled.
 
 With the service identity disabled, built-in file tools run directly with the non-elevated operator's OS reach. With the split enabled,
 those tools impersonate the configured low-privilege Windows account and raise **Run as you** only when that identity is denied or unavailable.
@@ -42,19 +31,14 @@ it is not an OS sandbox.
 content or listing when allowed, and the OS not-found or access-denied result otherwise.
 With the service split disabled this exposes any file content the non-elevated operator can open; with it enabled,
 the service account's ACLs remain the boundary and an access denial may be retried only through the existing operator decision.
-Plan-file ownership and repository-policy immutability are independent of reach and remain enforced in both postures.
-
-Approving a new plan repository now grants the configured service account inherited Modify access on that exact canonical repository before the plan is
-published. The grant uses the operator-owned repository ACL without elevation and registration fails if Windows refuses it;
-it does not grant access to a parent, sibling, or unrelated path. Full host-protection repair remains the elevated provisioning pass.
+Repository policy remains protected under both identities. Registration with an enabled service identity fails if Windows refuses to grant access to the exact repository.
 
 **Reflection reads what the model read (item 17-i, v1.1.0; `internal/reflection`).** Reflection's summary is written by the model from a transcript that can
 contain text the operator did not write — a fetched page, a search snippet, a file's contents, a tool result. That summary is stored,
 shown on Settings -> Activity, and can produce a memory note, which is durable prompt material for every later run in that folder. So:
 a run that used `fetch_url`, `web_search`, or `call_service`, or whose result the tool layer marked untrusted, produces **no** memory note at all;
 every note reflection does write is prefixed `[reflection, unconfirmed]` so a reader knows nobody confirmed it; a pass writes at most six;
-and each is published as `memory.noted`, so dropping a chat's memory drops these too. Reflection registers no plan:
-it names candidate repositories in its overview text and the operator registers them through the existing card.
+and each is published as `memory.noted` so dropping a chat's memory drops these too.
 The structure extractor runs a repository's own toolchain, so its environment is pinned (`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`,
 `GOWORK=off`, `GOBIN=`; `CARGO_NET_OFFLINE=true`, `RUSTUP_TOOLCHAIN=`, `RUSTC=`) rather than inherited,
 so a hostile `go.mod` or `rust-toolchain.toml` cannot choose the binary that runs; files over 1 MiB are not read, and at most 4,000 are walked.
@@ -92,8 +76,7 @@ wider than the folders the command named.
 not access control, and Windows ACLs remain authoritative.
 
 The install-global Docker Sandbox switch defaults off. When `sbx` is ready, the operator can turn it on;
-`shell` and `run_script bash` then use a sandbox whose host mounts are the session scratch/retained root plus only registered plan repositories selected by file
-operations in that run. Docker's local daemon and OAuth authentication are bound to the operator's OS-user session,
+`shell` and `run_script bash` then use a sandbox whose host mounts are the chat's working folder. Docker's local daemon and OAuth authentication are bound to the operator's OS-user session,
 so these calls run under the operator's Docker session, not `agentb-svc`, and are outside the service account's SID-scoped firewall rule.
 Agent_b raises the existing **Run as you** identity decision before such execution. The microVM is the sandbox boundary;
 every supplied host mount is deliberately read-write. An absent or signed-out `sbx` keeps the switch off and exposes the reason.
@@ -187,7 +170,7 @@ bypass Windows ACLs, or create a sandbox.
 
 Built-in file tools deliberately let Windows ACLs authorize ordinary paths and do not pre-resolve every ancestor for reach decisions.
 This permits ACL-authorized targets beneath traversable but metadata-inaccessible parents and OS-authorized symlink paths.
-Protected plan and repository-policy writes are canonicalized separately before mutation so their ownership rules remain immutable under every identity.
+Repository-policy writes are canonicalized separately before mutation so their ownership rules remain immutable under every identity.
 
 The service-identity split defaults off. When its stored credential works,
 Agent_b creates shell processes under the configured low-privilege Windows identity with an explicit minimal environment.
@@ -296,7 +279,7 @@ The model prompt receives only OS-derived date, timezone, and (on Windows) a coa
 Agent_b does not collect precise device location or infer a city from that context; this information is convenience context, not a location-tracking feature.
 
 Settings can also apply and verify complete-tree service-account ACLs and an account-scoped outbound Block rule through UAC.
-The ACL policy grants mutation to data-root `plans` and `scratch`, the exchange folder, and a legacy workspace only when that compatibility root exists;
+The ACL policy grants mutation to profile `scratch` and `chats`, the exchange folder, and a legacy workspace only when that compatibility root exists;
 it must be reapplied after application updates create or replace files. The default firewall policy permits loopback and nothing else.
 **It names no model connection** (item 2nx): nothing in it is derived from a configured model server, no hostname is resolved when protection is applied,
 and changing or losing the active connection neither changes the rule nor reports drift. Model requests are made by the Agent_b process,
@@ -369,15 +352,13 @@ The Settings operator mode is the distinct process-global control and is never i
 there is no identity gate because the operator is already driving an unrestricted shell. Approval reduces accidental actions;
 it does not turn the shell wrapper into a sandbox.
 
-Only machine configuration can define a hook; repository files, project instructions, plans, skills, and chats cannot. A hook runs as the same non-elevated Windows user as Agent_b itself, not as the tool service account, so it can reach everything that user can reach. Agent_b sends the named event data to the hook on stdin, but journals only the event, selected tool, exit code, duration, and timeout state—never that input or the hook's output. A hook's permission does not replace or bypass a tool approval.
+Only machine configuration can define a hook; repository files, project instructions, skills, and chats cannot. A hook runs as the same non-elevated Windows user as Agent_b itself, not as the tool service account, so it can reach everything that user can reach. Agent_b sends the named event data to the hook on stdin, but journals only the event, selected tool, exit code, duration, and timeout state—never that input or the hook's output. A hook's permission does not replace or bypass a tool approval.
 
-In `boundary-only`, registering a valid plan and deciding a detected tool loop do not raise **Allow this**:
-chat records `registered <repo> as a plan` or `stopped a loop after <n> turns, continuing differently` and the run carries on.
-`mutating` and `all` keep both cards unchanged. Unattended keeps its stricter no-question refusal for both.
+In `boundary-only` a detected tool loop follows the existing continuation rule.
 
 **Unattended.** A scheduled job can be created or updated with `unattended:true`; false is the default. A delegated run inherits its parent's choice.
 Nothing infers unattended behavior from the agent role, the scheduler, or the hour. In an unattended run, a policy approval, identity escalation,
-cycle decision, question, or plan registration is declined instead of waiting for a person. Attended cards wait until answered or the run is stopped.
+cycle decision or question is declined instead of waiting for a person. Attended cards wait until answered or the run is stopped.
 Unattended and operator mode are independent choices.
 
 When Windows denies a built-in file operation, shell output looks like an OS permission denial, or a requested interpreter exists only for the operator,
@@ -528,9 +509,7 @@ the service-account firewall blocks public network access from `shell`;
 these two tools run in the Agent_b process and are therefore the sanctioned service-context paths. Operator mode deliberately removes that firewall enforcement,
 and an unhardened host may let shell clients reach the network.
 
-Each B chat may operate in its scratch/retained root and every repository named by the live plan list, and may read the plans tree.
 Writable delegated helpers receive an isolated bounded folder copy and the parent's ordinary file/shell boundary, approval mode and service identity; they receive no service, memory, schedule or delegation tools. A helper return is baseline-checked before any real file changes, applies all-or-none into the parent's undo store, and collision copies stay under the profile's chat storage.
-Each bound D chat writes only its immutable plan and may read its repository or any plan; operator identity cannot widen D write authority.
 
 ## Stored model content
 
@@ -544,8 +523,7 @@ the application derives the one reachable file from the operator-configured memo
 The model supplies only note content to `remember`, while `recall` is read-only. Operator mode does not widen either tool.
 Running these tools through the service identity would also conflict with the hardened installation's deliberate write denial on the memory directory.
 
-Each chat retains one canonical scratch or legacy base directory; B file tools add every live plan repository to that application-level root set,
-including while impersonating the service account, and no folder-selection or binding decision widens it. Repository instruction discovery prefers `AGENT_B.md`,
+Each chat retains its canonical working directory. Repository instruction discovery prefers `AGENT_B.md`,
 then `AGENTS.md`, then `CLAUDE.md` at each selected root and reads only the first present file; ancestor traversal is otherwise unchanged.
 That text is prompt content, never executable policy. A root `.agentb/policy.json` is honored only after the operator approves its exact SHA-256,
 which is stored under the operator-owned data/memory root rather than in the repository;

@@ -14,7 +14,6 @@ import (
 	"harness/internal/config"
 	"harness/internal/credential"
 	"harness/internal/events"
-	"harness/internal/session"
 	"harness/internal/tools"
 )
 
@@ -231,66 +230,6 @@ func TestConnectionRouteRefusalsLeaveDiskUnchanged2r9(t *testing.T) {
 				t.Fatalf("refusal changed disk: err=%v\nbefore=%s\nafter=%s", readErr, before, after)
 			}
 		})
-	}
-}
-
-func TestConfigPOSTAssignsConnectionsToLetteredAgentRoles(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "harness.json")
-	cfg := config.Defaults(root)
-	cfg.Connections[0] = runnableTestConnection("local")
-	small := cfg.Connections[0]
-	small.ID, small.Label = "small", "Small"
-	cfg.Connections = append(cfg.Connections, small)
-	if err := cfg.Save(path); err != nil {
-		t.Fatal(err)
-	}
-	server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
-	writers, err := events.NewWriters(filepath.Join(root, "logs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = writers.Close() })
-	server.SetRegistry(session.NewRegistry(events.NewBus(), writers, server.Connection, 0, server.ConfigSnapshot))
-
-	response := postConfigPatch(t, server, `{"agents":[{"name":"Coder","b":"small","c":"local","toolset":[]}]}`)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body)
-	}
-	var returned config.Config
-	if err := json.Unmarshal(response.Body.Bytes(), &returned); err != nil {
-		t.Fatal(err)
-	}
-	if len(returned.Agents) != 1 || returned.Agents[0].B != "small" || returned.Agents[0].C != "local" {
-		t.Fatalf("agents=%+v", returned.Agents)
-	}
-
-	response = postConfigPatch(t, server, `{"agents":[{"name":"Coder","b":"small","c":"small","toolset":[]}]}`)
-	if response.Code != http.StatusOK {
-		t.Fatalf("same-connection status=%d body=%s", response.Code, response.Body)
-	}
-	if got, _ := server.ConfigSnapshot().Agent("coder"); got.C != "small" {
-		t.Fatalf("c connection=%q", got.C)
-	}
-	request := httptest.NewRequest(http.MethodDelete, "/api/connections/small", nil)
-	authorizeMutation(request, server)
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	// Item 2mb (b), rel-1.23.0: the refusal NAMES the role rather than saying
-	// "an agent role", because the operator's next move has to be readable off
-	// the message. This fixture holds the connection on both B and C, so the
-	// message names both.
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "assigned to Coder's B and C role") {
-		t.Fatalf("delete status=%d body=%s", response.Code, response.Body)
-	}
-
-	request = httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"label":"uses main"}`))
-	request.Header.Set("Content-Type", "application/json")
-	authorizeMutation(request, server)
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"connection_id":"small"`)) {
-		t.Fatalf("new session status=%d body=%s", response.Code, response.Body)
 	}
 }
 

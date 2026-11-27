@@ -254,39 +254,7 @@ func (r *Runner) SetQueuedBoundary(fn func(*session.Session, string))     { r.ta
 func (r *Runner) SetMessageReturn(fn func(*session.Session, string) bool) { r.returnMessage = fn }
 func (r *Runner) BindDelegate(tool *tools.Delegate)                       { tool.SetRunner(r.runDelegate) }
 func (r *Runner) SetDelegateFileCoordinator(value *tools.FileCoordinator) { r.delegateFiles = value }
-func (r *Runner) AcceptPlanEdit(ctx context.Context, s *session.Session, path, oldText, newText string) tools.CallOutcome {
-	if !s.BeginPlanAccept() {
-		return tools.CallOutcome{Content: "error: plan acceptance is available only on the Plan page"}
-	}
-	defer s.EndPlanAccept()
-	args := map[string]any{"path": path, "old_string": oldText, "new_string": newText}
-	outcome := r.tools.CallDetailed(ctx, s, "edit_file", args)
-	if outcome.OperatorOverrideAvailable {
-		content, ok := r.tools.CallAsOperator(ctx, s, "edit_file", args)
-		return tools.CallOutcome{Content: content, OK: ok, OperatorContext: true}
-	}
-	return outcome
-}
 
-// Verify runs an item's verifier command as the worker: the ordinary shell tool,
-// through the same gate, grants and identity a model's shell call takes, so it
-// can raise the same card. It reports whether the command exited 0. The run it
-// belongs to has already stopped, so the session's run state is put back after.
-func (r *Runner) Verify(ctx context.Context, s *session.Session, command string) (bool, string) {
-	before := s.Snapshot().Run
-	defer s.SetRun(before)
-	runID := r.id("verify")
-	outcome := r.executeTool(ctx, s, runID, runID+"-call", "shell", map[string]any{"command": command})
-	return outcome.OK, outcome.Content
-}
-func (r *Runner) SettlePlanTurns(ctx context.Context, s *session.Session, itemID string, ids []string) bool {
-	pointer := fmt.Sprintf("[settled → plan item %s]", itemID)
-	p, ok := r.currentConnection(s)
-	if !ok {
-		return false
-	}
-	return r.compact.Settle(s, "", pointer, ids, func(text string) (int, bool) { return r.count(ctx, p, text) })
-}
 func (r *Runner) id(prefix string) string { return fmt.Sprintf("%s-%d", prefix, r.ids.Add(1)) }
 
 func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, request tools.DelegateRequest) (tools.DelegateResult, error) {
@@ -315,8 +283,8 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, reque
 	child := &session.Session{
 		ID: parent.ID + "-delegate-" + r.id("e"), Label: "delegate", Role: "e", AgentID: parentState.AgentID,
 		ParentSessionID: parent.ID,
-		ConnectionID:    connectionID, Workspace: workspace, PlanID: parentState.PlanID,
-		PlanDir: parent.PlanDir, PlanRepo: parent.PlanRepo, PlansRoot: parent.PlansRoot, SkillsRoot: parent.SkillsRoot, SkillStateRoot: parent.SkillStateRoot, PlanRepos: parent.PlanRepos,
+		ConnectionID:    connectionID, Workspace: workspace,
+		SkillsRoot: parent.SkillsRoot, SkillStateRoot: parent.SkillStateRoot,
 		NetworkBoundary: parentState.NetworkBoundary, NetworkBoundarySet: true,
 		MediaCapabilities: parentState.MediaCapabilities, MediaCapabilitiesSet: true, Runnable: true,
 		Run: session.RunState{Status: "idle"}, Unattended: parent.Unattended, ToolsEnabled: map[string]bool{
@@ -326,7 +294,6 @@ func (r *Runner) runDelegate(ctx context.Context, parent *session.Session, reque
 	if request.Write {
 		child.ToolsEnabled["write_file"], child.ToolsEnabled["edit_file"], child.ToolsEnabled["shell"], child.ToolsEnabled["run_script"] = true, true, true, true
 		child.Scratch, child.IsolatedHelper = true, true
-		child.PlanDir, child.PlanRepo, child.PlansRoot, child.PlanRepos = "", "", "", nil
 	}
 	r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "running"}))
 	defer r.bus.Publish(events.New(events.DelegatedUsage, parent.ID, "", map[string]any{"child_id": child.ID, "status": "completed"}))

@@ -57,7 +57,7 @@ func TestUserReplyPreferenceFollowsProfileSwitch(t *testing.T) {
 	connection := func(id string) (*config.Connection, bool) { return cfg.Connection(id) }
 	settings := func() config.Config { return cfg }
 	registry := session.NewRegistry(bus, writers, connection, 40, settings)
-	registry.SetPlansRoot(filepath.Join(data, "plans"))
+	registry.SetProfileRoot(data)
 	registry.SetAgentMemoryLoader(manager.LoadAgent)
 	remember := tools.NewRemember(manager, bus)
 	for _, item := range []struct{ agent, text string }{{cfg.DefaultAgentID(), "Use one short paragraph"}, {"private", "Use purple headings"}} {
@@ -104,7 +104,7 @@ func TestUserReplyPreferenceFollowsProfileSwitch(t *testing.T) {
 // "for later chats" a new chat carries, a project fact from a chat working in a
 // plan's repository lands in that plan's layer, and a scratch folder never has
 // a memory file of its own.
-func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T) {
+func TestMemoryCarriesAcrossScratchChatsAndFactsStayInTheirRepository(t *testing.T) {
 	root, repo := t.TempDir(), t.TempDir()
 	data := filepath.Join(root, "data")
 	cfg := config.Defaults(filepath.Join(data, "scratch"))
@@ -118,7 +118,7 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	bus := events.NewBus()
 	bus.SetDurableSink(writers.WriteRecord, nil, nil)
 	registry := session.NewRegistry(bus, writers, connections, 40, func() config.Config { return cfg })
-	registry.SetPlansRoot(filepath.Join(data, "plans"))
+	registry.SetProfileRoot(data)
 	manager := memory.New(data, func() config.Config { return cfg }, func(_ context.Context, _, text string) (int, error) { return len(text) / 4, nil })
 	registry.SetMemoryLoader(manager.Load)
 	registry.SetAgentMemoryLoader(manager.LoadAgent)
@@ -147,16 +147,16 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 		t.Fatalf("chat B does not carry chat A's note: %q", chatB.AgentMemoryBlock)
 	}
 
-	if _, _, err := registry.EnsurePlan(repo); err != nil {
+	if _, err := registry.AddRepository(repo); err != nil {
 		t.Fatal(err)
 	}
-	chatC, err := registry.Create("c", agentID, "")
+	chatC, err := registry.CreateInRepository("c", agentID, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	projectNote := filepath.Join(repo, "notes.txt")
 	if written, err := chatC.WriteRoot(projectNote); err != nil || !session.SamePath(written, repo) {
-		t.Fatalf("a write into the plan's repository: %q %v", written, err)
+		t.Fatalf("a write into the registered repository: %q %v", written, err)
 	}
 	if err := os.WriteFile(projectNote, []byte("fixture"), 0o600); err != nil {
 		t.Fatal(err)
@@ -164,22 +164,22 @@ func TestMemoryCarriesAcrossScratchChatsAndProjectFactsGoToThePlan(t *testing.T)
 	chatC.Touch(projectNote)
 	reply, err = remember.Call(context.Background(), chatC, map[string]any{"note": "the build uses make", "scope": "repository"})
 	if err != nil || strings.Contains(reply, "agent layer") {
-		t.Fatalf("a project fact from a chat working in a plan's repo: %q %v", reply, err)
+		t.Fatalf("a project fact from a chat working in its repository: %q %v", reply, err)
 	}
 	if notes, _ := manager.Read(chatC.MemoryFolder()); !strings.Contains(notes, "the build uses make") {
-		t.Fatalf("the fact did not land in the plan's layer: reply=%q folder=%q roots=%v notes=%q", reply, chatC.MemoryFolder(), chatC.Snapshot().ProjectRoots, notes)
+		t.Fatalf("the fact did not land in the repository layer: reply=%q folder=%q roots=%v notes=%q", reply, chatC.MemoryFolder(), chatC.Snapshot().ProjectRoots, notes)
 	}
 	if agentNotes, _ := manager.ReadAgent(agentID); strings.Contains(agentNotes, "the build uses make") {
 		t.Fatal("the project fact leaked into the agent layer")
 	}
 
-	// An existing chat's prompt head stays fixed even after it enters that plan.
+	// An existing chat's prompt head stays fixed even after it touches that repository.
 	chatE, err := registry.Create("e", agentID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(chatE.MemoryBlock, "the build uses make") {
-		t.Fatal("a chat that has not worked in the plan must not carry its layer")
+		t.Fatal("a chat that has not worked in the repository must not carry its layer")
 	}
 	if _, err := chatE.WriteRoot(filepath.Join(repo, "more.txt")); err != nil {
 		t.Fatal(err)

@@ -87,18 +87,12 @@ func TestARunIsSummarisedAndRecorded(t *testing.T) {
 			return "```json\n{\"files_read\":[\"guard.go\"],\"files_written\":[\"guard.go\"],\"changed\":\"tightened the routing guard\",\"open\":\"the eval is carded\",\"text\":\"Read and rewrote the guard.\",\"planner_note\":\"The write tool refused a valid guarded path; the user wanted the edit applied.\"}\n```", nil
 		},
 	}
-	summary := runner.SummariseRun(context.Background(), "s1", "r1", `C:\ws`, "", "acme", false)
+	summary := runner.SummariseRun(context.Background(), "s1", "r1", `C:\ws`, "acme", false)
 	if summary.Failed != "" || summary.ID == 0 {
 		t.Fatalf("summary = %+v", summary)
 	}
 	if summary.Changed != "tightened the routing guard" || summary.Open != "the eval is carded" {
 		t.Fatalf("summary = %+v", summary)
-	}
-	if !strings.Contains(summary.PlannerNote, "write tool refused") {
-		t.Fatalf("planner note = %q", summary.PlannerNote)
-	}
-	if _, _, _, _, _, quiet := parseSummary(`{"text":"Everything worked.","planner_note":""}`); quiet != "" {
-		t.Fatalf("successful chat proposed %q", quiet)
 	}
 	if len(summary.Written) != 1 || summary.Written[0] != "guard.go" {
 		t.Fatalf("written = %v", summary.Written)
@@ -130,7 +124,7 @@ func TestAFailingSummaryCallIsRecordedAndNothingElse(t *testing.T) {
 			return "", errors.New("model unreachable")
 		},
 	}
-	summary := runner.SummariseRun(context.Background(), "s1", "r1", `C:\ws`, "", "acme", false)
+	summary := runner.SummariseRun(context.Background(), "s1", "r1", `C:\ws`, "acme", false)
 	if !strings.Contains(summary.Failed, "model unreachable") {
 		t.Fatalf("summary = %+v", summary)
 	}
@@ -156,7 +150,7 @@ func TestTheOverviewNamesChurnAndDiffsAcrossPasses(t *testing.T) {
 	write(t, filepath.Join(root, "app.py"), "import os\n")
 	now := time.Now().UTC()
 	first := []Summary{{At: now, Workspace: root, Read: []string{"a.go"}, Written: []string{"a.go"}, Changed: "added the store", Open: "the eval is carded"}}
-	overview, difference, err := store.Overview(context.Background(), OverviewInput{PlanID: "p1", Root: root, Summaries: first, At: now})
+	overview, difference, err := store.Overview(context.Background(), OverviewInput{GroupKey: "p1", Root: root, Summaries: first, At: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +164,7 @@ func TestTheOverviewNamesChurnAndDiffsAcrossPasses(t *testing.T) {
 		t.Fatalf("difference = %q", difference)
 	}
 	second := append(first, Summary{At: now.Add(time.Hour), Workspace: root, Written: []string{"b.go"}, Changed: "added the runner"})
-	_, difference, err = store.Overview(context.Background(), OverviewInput{PlanID: "p1", Root: root, Summaries: second, At: now.Add(time.Hour)})
+	_, difference, err = store.Overview(context.Background(), OverviewInput{GroupKey: "p1", Root: root, Summaries: second, At: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +177,7 @@ func TestTheOverviewNamesChurnAndDiffsAcrossPasses(t *testing.T) {
 }
 
 // v1.1.0/W5: the durable outputs, under the existing rules.
-func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing.T) {
+func TestReflectionWritesDurableNotesOnce(t *testing.T) {
 	store, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -203,8 +197,7 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 		}
 	}
 	noter := &fakeNoter{}
-	registrar := &fakeRegistrar{}
-	runner := &Runner{Store: store, Noter: noter, Registrar: registrar, AllLogs: func() []string { return nil }, Now: func() time.Time { return now }}
+	runner := &Runner{Store: store, Noter: noter, AllLogs: func() []string { return nil }, Now: func() time.Time { return now }}
 	result, err := runner.Pass(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
@@ -232,13 +225,6 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	if len(noter.notes[plain]) != 0 {
 		t.Fatalf("a summary with nothing durable wrote a note: %v", noter.notes[plain])
 	}
-	// Registration is the operator's: reflection proposes and writes nothing.
-	if len(registrar.registered) != 0 {
-		t.Fatalf("reflection registered a plan itself: %+v", registrar.registered)
-	}
-	if len(result.PlansProposed) != 0 {
-		t.Fatalf("reflection proposed planning: %+v", result.PlansProposed)
-	}
 	if len(result.Overviews) != 2 {
 		t.Fatalf("overviews = %d", len(result.Overviews))
 	}
@@ -251,9 +237,6 @@ func TestReflectionWritesOneMemoryNoteAndRegistersAPlanOnlyWhenNeeded(t *testing
 	}
 	if len(noter.notes[repo]) != 2 {
 		t.Fatalf("the note was written twice: %v", noter.notes[repo])
-	}
-	if len(second.PlansProposed) != 0 {
-		t.Fatalf("reflection proposed planning on a second pass: %+v", second.PlansProposed)
 	}
 	for _, note := range second.Notes {
 		if note.Written {
@@ -321,23 +304,6 @@ func TestAPassBoundsHowManyNotesItWritesAndReportsEachOne(t *testing.T) {
 	}
 }
 
-func TestAnAgentFileWrittenDuringTheWindowIsNotAProposal(t *testing.T) {
-	root := t.TempDir()
-	write(t, filepath.Join(root, "AGENTS.md"), "written by the agent itself")
-	now := time.Now().UTC()
-	// The summaries are older than the agent file, so the file appeared during
-	// the very window being judged.
-	candidates := PlanCandidates([]Summary{{At: now.Add(-2 * time.Hour), Workspace: root}}, nil)
-	if len(candidates) != 0 {
-		t.Fatalf("candidates = %+v", candidates)
-	}
-	// A file that predates the work is a proposal.
-	older := PlanCandidates([]Summary{{At: now.Add(time.Hour), Workspace: root}}, nil)
-	if len(older) != 1 || older[0].AgentFile != "AGENTS.md" {
-		t.Fatalf("candidates = %+v", older)
-	}
-}
-
 func TestTheStoreKeepsOnlyTheNewestOverviewsAndReports(t *testing.T) {
 	store, err := Open(t.TempDir())
 	if err != nil {
@@ -346,7 +312,7 @@ func TestTheStoreKeepsOnlyTheNewestOverviewsAndReports(t *testing.T) {
 	defer store.Close()
 	now := time.Now().UTC()
 	for index := 0; index < KeptOverviews+5; index++ {
-		if _, err := store.PutOverview(Overview{At: now, PlanID: "p1", Text: "pass"}); err != nil {
+		if _, err := store.PutOverview(Overview{At: now, GroupKey: "p1", Text: "pass"}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -12,18 +12,15 @@ import (
 // Reflection joins the two: the structure comes from the
 // code, the narrative from the summaries. Which parts have seen churn, what
 // changed, what is open. It is text, stored per pass so two passes can be
-// diffed, and it is never written into plan.md.
+// diffed, independently of the history.
 
 // OverviewInput is one pass's material.
 type OverviewInput struct {
-	PlanID    string
+	GroupKey  string
 	Root      string
 	Graph     *Graph
 	Summaries []Summary
 	At        time.Time
-	// Proposals are repositories reflection would register as plans. They are
-	// proposals: registration is the user's, through the existing card.
-	Proposals []PlanCandidate
 }
 
 // churnOf counts how often each file appears in the summaries, written first.
@@ -88,7 +85,7 @@ func OverviewText(input OverviewInput) string {
 		at = time.Now().UTC()
 	}
 	lines := []string{
-		fmt.Sprintf("Reflection on %s — %s UTC", nameOf(input.PlanID, input.Root), at.UTC().Format("2006-01-02 15:04")),
+		fmt.Sprintf("Reflection on %s — %s UTC", nameOf(input.GroupKey, input.Root), at.UTC().Format("2006-01-02 15:04")),
 		"",
 	}
 	if input.Graph != nil {
@@ -141,12 +138,6 @@ func OverviewText(input OverviewInput) string {
 	} else if changed > 8 {
 		lines = append(lines, fmt.Sprintf("  … and %d more", changed-8))
 	}
-	if len(input.Proposals) > 0 {
-		lines = append(lines, "", "Repositories with agent files and no plan (the user registers a plan; reflection does not):")
-		for _, candidate := range input.Proposals {
-			lines = append(lines, fmt.Sprintf("  %s · %s · touched by %d run(s)", candidate.Root, candidate.AgentFile, candidate.Touched))
-		}
-	}
 	lines = append(lines, "", "What is open:")
 	open := 0
 	for _, summary := range input.Summaries {
@@ -167,9 +158,9 @@ func OverviewText(input OverviewInput) string {
 	return strings.Join(lines, "\n")
 }
 
-func nameOf(planID, root string) string {
-	if planID != "" {
-		return planID
+func nameOf(groupKey, root string) string {
+	if groupKey != "" {
+		return groupKey
 	}
 	if root != "" {
 		return filepath.Base(root)
@@ -216,7 +207,7 @@ func Diff(previous, current string) string {
 	return strings.Join(append(removed, added...), "\n")
 }
 
-// Overview runs one pass for one plan or folder: extract the structure, read
+// Overview runs one pass for one workspace: extract the structure, read
 // the summaries, write the text, and return it with the previous pass's diff.
 func (s *Store) Overview(ctx context.Context, input OverviewInput) (Overview, string, error) {
 	if input.Graph == nil && input.Root != "" {
@@ -229,11 +220,11 @@ func (s *Store) Overview(ctx context.Context, input OverviewInput) (Overview, st
 	if input.Graph != nil {
 		tier = input.Graph.Tier + " (" + input.Graph.TierNote + ")"
 	}
-	previous, err := s.Overviews(input.PlanID, 1)
+	previous, err := s.Overviews(input.GroupKey, 1)
 	if err != nil {
 		return Overview{}, "", err
 	}
-	overview := Overview{At: input.At, PlanID: input.PlanID, Tier: tier, Text: text}
+	overview := Overview{At: input.At, GroupKey: input.GroupKey, Tier: tier, Text: text}
 	id, err := s.PutOverview(overview)
 	if err != nil {
 		return Overview{}, "", err

@@ -133,7 +133,7 @@ func (s *Server) skillAuthorSession(agentID string) (*session.Session, error) {
 			return item, nil
 		}
 	}
-	return s.registry.CreateOperatorRole(skillAuthorChatLabel, agentID, "", "b", "")
+	return s.registry.CreateOperatorRole(skillAuthorChatLabel, agentID, "", "b")
 }
 
 func validSkillAuthorField(field skillAuthorField, texts []string) bool {

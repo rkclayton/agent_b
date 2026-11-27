@@ -15,12 +15,9 @@ const settings = (await Promise.all([
   "settings.js", "settings-chats.js", "settings-connections.js", "settings-general.js", "settings-context.js", "settings-run.js",
   "settings-about.js", "settings-workspace.js", "settings-security.js",
 ].map((name) => readFile(new URL(`./${name}`, import.meta.url), "utf8")))).join("\n");
-// Item 2no: the Plan is a Settings section, so its markup is in the one document
-// beside the panels Settings adopts. There is no plan.html any more.
-const plan = html;
 const consoleHTML = await readFile(new URL("../index.html", import.meta.url), "utf8");
-const pageSources = { app, chat, shell, settings, plan: await readFile(new URL("./plan.js", import.meta.url), "utf8"), timeline: await readFile(new URL("./timeline.js", import.meta.url), "utf8"), proposals: await readFile(new URL("./chat-proposals.js", import.meta.url), "utf8") };
-const serverFiles = ["server_actions.go", "server_sessions.go", "server_connections.go", "agent_connection.go", "agents.go", "attachments.go", "chats.go", "chat_mirror.go", "credentials_endpoint.go", "files.go", "hardening.go", "measure.go", "notifications.go", "operator_files.go", "plan.go", "plan_page.go", "profiles.go", "service_account.go", "skills.go", "telemetry.go", "update.go", "worker.go", "broker_endpoint.go"];
+const pageSources = { app, chat, shell, settings, repositories: await readFile(new URL("./repositories.js", import.meta.url), "utf8"), timeline: await readFile(new URL("./timeline.js", import.meta.url), "utf8") };
+const serverFiles = ["server_actions.go", "server_sessions.go", "server_connections.go", "agent_connection.go", "agents.go", "attachments.go", "chats.go", "chat_mirror.go", "credentials_endpoint.go", "files.go", "hardening.go", "measure.go", "notifications.go", "operator_files.go", "profiles.go", "service_account.go", "skills.go", "telemetry.go", "update.go", "broker_endpoint.go"];
 const serverSources = Object.fromEntries(await Promise.all(serverFiles.map(async (name) => [name, await readFile(new URL(`../../internal/web/${name}`, import.meta.url), "utf8")])));
 
 test("every page request body stays inside its route contract", () => {
@@ -28,7 +25,7 @@ test("every page request body stays inside its route contract", () => {
     "sessions/:id/messages/drop-last|||app|server_sessions.go", "stop|session_id|session_id|app,chat|server_actions.go", "sessions/:id/result-label|label,run_id|label,run_id|app|server_sessions.go",
     "agents|action,id,source_id,name,connection_id,model,prompt,tools,private,powershell|action,id,source_id,name,connection_id,model,prompt,tools,private,powershell|app|agents.go", "agents/:id/connection|action,role,connection_id|action,role,connection_id|app|agent_connection.go",
     "tools/:id|agent_id,enabled|agent_id,enabled|app,settings|server_actions.go", "stats/:id/clear|confirm|confirm|app|server_actions.go", "agents/:id/memory/flush|workspace,confirm|workspace,confirm|app|server_actions.go",
-    "approve|session_id,call_id,decision|session_id,call_id,decision|app,chat|server_actions.go", "plan/accept|session_id,proposal|session_id,proposal|proposals|plan.go", "sessions/:id/rebind|||chat|server_sessions.go",
+    "approve|session_id,call_id,decision|session_id,call_id,decision|app,chat|server_actions.go", "sessions/:id/rebind|||chat|server_sessions.go",
     "open-folder|session_id,path,scope|session_id,path,scope|chat,timeline|files.go", "open-file|session_id,path,scope|session_id,path,scope|chat|files.go", "service-account|action,connection_id,allow_local_network,local_subnets|action,connection_id,allow_local_network,local_subnets|chat,settings|service_account.go",
     "update|action,session_id|action,session_id|chat,settings|update.go", "message|session_id,text,attachments|session_id,text,attachments|chat|server_actions.go", "attachments/stop|upload_id|upload_id|chat|attachments.go", "speech/stop|||chat|server_actions.go",
     "connections/:id/probe||base_url,model,api_key,request_timeout_s|chat|server_connections.go", "connections/:id/probe|base_url,model,api_key,request_timeout_s|base_url,model,api_key,request_timeout_s|settings|server_connections.go", "connections/:id/models|base_url,api_key|base_url,api_key|settings|server_connections.go",
@@ -39,9 +36,9 @@ test("every page request body stays inside its route contract", () => {
     "eval/measure|connection_id|connection_id|settings|measure.go", "connections/:id/recommended|||settings|server_connections.go", "broker|action|action|settings|broker_endpoint.go", "credentials|action,name,origin,header,secret,tenant,client_id,scopes|action,name,origin,header,secret,tenant,client_id,scopes|settings|credentials_endpoint.go",
     "sign-in-start|enabled|enabled|settings|server_actions.go", "hardening|action,connection_id,allow_local_network,local_subnets|action,connection_id,allow_local_network,local_subnets|settings|hardening.go", "notifications|action,url|action,url|settings|notifications.go",
     "shell-credential|action,password|action,password|settings|server_connections.go", "sessions/:id|label,agent_id,connection_id|label,agent_id,connection_id|shell,settings|server_sessions.go", "connections/:id/duplicate|id,label|id,label|settings|server_connections.go",
-    "sessions|label,connection_id,agent_id,role,plan_id|label,connection_id,agent_id,source_session_id,role,plan_id|shell,settings|server_sessions.go", "sessions/:id/reopen|||shell,chat|server_sessions.go", "sessions/:id/reset|||settings|server_sessions.go",
+    "sessions|label,connection_id,agent_id,repository|label,connection_id,agent_id,source_session_id,role,repository|shell,settings,repositories|server_sessions.go", "sessions/:id/reopen|||shell,chat|server_sessions.go", "sessions/:id/reset|||settings|server_sessions.go",
     "host-window|action,title|action,title|shell|server_actions.go", "chats/tree|action,parent,name,path,id,folder,pinned|action,parent,name,path,id,folder,pinned|shell|chats.go", "header-state|state,reason_code|state,reason_code|shell|telemetry.go",
-    "plan/go|plan_id,stop|session_id,plan_id,stop|plan|worker.go", "plans|action,id,repo|action,id,repo|plan|plan_page.go",
+    "repositories|path|path|repositories|server_sessions.go",
   ].map((row) => row.split("|"));
   for (const [route, sentCSV, acceptedCSV, pagesCSV, serverFile] of rows) {
     const sent = sentCSV ? sentCSV.split(",") : [], accepted = new Set(acceptedCSV ? acceptedCSV.split(",") : []);
@@ -134,7 +131,7 @@ test("one named bubble rule dresses messages and every attachment 2u1", () => {
 
 test("one raised definition dresses every raised surface 2u4", () => {
   assert.match(tokens, /--raised-edge:#000;--raised-radius:calc\(var\(--chat-size,12px\) \* 5 \/ 6\);--raised-radius-tight:calc\(var\(--chat-size,12px\) \/ 4\);--raised-fill:#15181C;--raised-fill-deep:#0D1014;--raised-shadow:inset 0 1px 0 rgba\(232,238,244,\.10\),0 3px 8px rgba\(0,0,0,\.38\)/);
-  for (const selector of [".chat-bubble", ".file-chip", ".shell-menu", ".chat-attach-menu", ".setting-menu", ".approval-card", ".plan-proposal", ".settings-page", ".confirm-popover", ".settings-error-panel", ".chat-jump", ".chat-input-wrap"])
+  for (const selector of [".chat-bubble", ".file-chip", ".shell-menu", ".chat-attach-menu", ".setting-menu", ".approval-card", ".settings-page", ".confirm-popover", ".settings-error-panel", ".chat-jump", ".chat-input-wrap"])
     assert.match(tokens, new RegExp(selector.replaceAll(".", "\\.")));
   assert.doesNotMatch(tokens, /\.(chat-work-summary|thinking-line|chat-live-status)[,{]/);
   assert.match(tokens, /background:var\(--raised-fill\)!important;border:1px solid var\(--raised-edge\)!important;border-radius:var\(--raised-radius\)!important;box-shadow:var\(--raised-shadow\)!important/);
@@ -196,7 +193,7 @@ test("the composer stop state wins the send button's transparent background", ()
 test("Pending approval is pinned above the composer with zero idle space", () => {
 	assert.match(html, /id="chat-pending-approval" class="pending-approval" hidden[\s\S]*class="chat-composer-row"/);
 	assert.match(chat, /session\?\.pending_approval \|\| session\?\.pending_repo_policy \? "waiting for you"/);
-	assert.match(chat, /setProperty\(pendingApproval, "hidden", !\(session\?\.pending_approval \|\| session\?\.pending_repo_policy \|\| worker\)\)/);
+	assert.match(chat, /setProperty\(pendingApproval, "hidden", !\(session\?\.pending_approval \|\| session\?\.pending_repo_policy\)\)/);
 	assert.match(css, /\.pending-approval\[hidden\]\s*\{\s*display:\s*none/);
 	assert.match(css, /\.chat-list-state\.waiting,\.chat-list-state\.offline \{ background: var\(--alarm\); \}/);
 });
@@ -247,17 +244,17 @@ test("an unprovisioned refusal offers setup or the timed operator window", () =>
   assert.match(chat, /api\("\/api\/config", \{ shell: \{ operator_context: true \} \}\)/);
 });
 
-test("Chat navigation owns Plan Escape and the Settings save-or-discard guard", () => {
+test("Chat navigation owns Escape and the Settings save-or-discard guard", () => {
 	assert.match(shell, /event\.key === "Escape" && page !== "chat"/);
 	assert.match(settings, /Save unsaved settings before returning to Chat\?/);
 	assert.match(settings, /openedFrom = "";\s*closeSettings\("chat"\)/);
-	assert.match(shell, /after: \(\) => openSide\(`agent_\$\{session\.role === "d" \? "d" : "b"\}`, session\.id, "chat"\)/);
+	assert.match(shell, /after: \(\) => openSide\("agent_b", session\.id, "chat"\)/);
 });
 
-test("No-agent and empty Plan invitations are explicit and Console links to active tools", () => {
+test("No-agent and empty Repos states are explicit and Console links to active tools", () => {
   assert.match(chat, /No agent connected — add one in/);
   assert.doesNotMatch(chat, /operator-off-48\.png/);
-  assert.match(plan, />No repositories yet\.<\/p>/);
+  assert.match(settings, />No repositories yet\.<\/p>/);
   // Item 2iq (b): the tools link became the summary of the fold that now holds
   // the toggles, because they have no other home and stay on Agents behind it.
   assert.match(consoleHTML, /id="panel-tools-count"[^>]*>0 tools active<\/span>/);

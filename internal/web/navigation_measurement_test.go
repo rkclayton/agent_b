@@ -249,9 +249,9 @@ func TestNavigationMeasurementRejectsInvalidPhase(t *testing.T) {
 	}
 }
 
-func TestNavigationMeasurementAcceptsPlanSettingsSource(t *testing.T) {
+func TestNavigationMeasurementRejectsRetiredSource(t *testing.T) {
 	body := navigationMeasurementBody{NavigationID: "plan-settings", NavigationKind: "settings", From: "plan", To: "settings", ModelReachability: "unknown"}
-	if !validNavigationMeasurement(body) {
-		t.Fatal("Plan uses the shared settings cog and is a valid source surface")
+	if validNavigationMeasurement(body) {
+		t.Fatal("the retired surface accepted a navigation measurement")
 	}
 }

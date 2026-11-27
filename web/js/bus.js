@@ -7,7 +7,7 @@ import { applyBackground } from "./settings-chats.js";
 const browserMutationToken = await acquireBrowserSessionToken();
 
 export const store = {
-  sessions: {}, active: "", selection: readSelection(), connections: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {}, plans: [],
+  sessions: {}, active: "", selection: readSelection(), connections: [], config: {}, flow: { stages: [], edges: [] }, tools: [], serving_facts: {},
   agent_connection_changes: {}, profiles: { active: "", names: [] },
   build: { tag: "", commit: "unknown", dirty: false, known: false, source: "unknown", display: "unknown" }, signature: {},
   update: { enabled: false, checking: false, available: false, installing: false },
@@ -60,7 +60,6 @@ export function reduce(event) {
     // arriving on the event stream. A session this page already advanced past
     // the snapshot's cursor (same generation, later offset) keeps its newer
     // state: replacing it moved the page backwards, the patches it lost were
-    // already consumed, and a paused worker sends nothing that would reveal the
     // gap, so its approval card was never drawn.
 	if (data.incremental && store.loaded && data.sessions && store.sessions) {
 		for (const [id, incoming] of Object.entries(data.sessions)) {
@@ -151,16 +150,6 @@ export function reduce(event) {
     case "chat.list.patch":
       if (data.operation === "activity" && store.sessions[data.session_id]) store.sessions[data.session_id].last_activity = data.last_activity;
       break;
-    // a plan created, rewritten or removed by any route. The list
-    // follows, and every subscriber (the Plan panel) re-reads its plan.
-    case "plan.created":
-    case "plan.updated":
-    case "plan.removed": {
-      const plans = (store.plans || []).filter((plan) => plan.id !== data.plan_id);
-      if (event.type !== "plan.removed" && data.plan) plans.push(data.plan);
-      store.plans = plans;
-      break;
-    }
     case "operator.context":
       store.shell_identity = { ...store.shell_identity, operator_context: !!data.enabled,
         operator_context_expires_at: data.expires_at || "", reason: data.enabled ? data.reason || store.shell_identity.reason : "" };
@@ -170,7 +159,7 @@ export function reduce(event) {
       store.error = data;
       break;
     case "ui.error":
-      // A relayed UI error is evidence about the current render. Notifying view
+    // A relayed UI error is evidence about the current render. Notifying view
       // subscribers here would schedule the render that produced it again.
       store.error = data;
       return;
@@ -285,7 +274,7 @@ async function resync() {
   } finally { resyncing = false; }
 }
 
-function roleAgentID(session) { return `agent_${session?.role === "d" ? "d" : "b"}`; }
+function roleAgentID(session) { return "agent_b"; }
 // with nothing selected, a chat that already holds messages (a
 // retained chat restored at startup) is never picked for the operator — they
 // select its tab. Only an empty chat may become the target on its own.
@@ -313,7 +302,7 @@ export function setSelection(agentID, sessionID = "") {
 	const session = store.sessions[target];
 	// the opening stream carries list metadata only. Selecting one of
 	// those rows must ask for the bounded session projection, not just its Chat
-	// rows: proposal cards and other selected-chat state live in Messages.
+	// rows: the selected chat's transcript is fetched on demand.
 	if (target && !store.replay && Number(session?.history_total || 0) > 0 && !Array.isArray(session?.messages)) {
 		void loadSessionProjection(target).catch((error) => reduce({ type: "error", data: { where: "session_projection", message: error.message } }));
 	} else if (target && !store.replay && Number(session?.history_total || 0) > 0 && !(session?.chat || []).length) void loadSessionHistory(target);
@@ -360,7 +349,6 @@ export async function loadSessionHistory(id, earlier = false) {
 }
 // selecting a surface that is not a chat. The chat selection is
 // left exactly as it was, because the user's chat is still his chat while he
-// is reading the Plan, and one click on its tab must return to it.
 export function setSurface(surface) {
   store.selection = { ...store.selection, surface: surface ? { kind: surface.kind, key: surface.key } : null };
   persistSelection();
@@ -427,7 +415,7 @@ function applyServerEvent(event) {
   }
 }
 source.onmessage = applyServerEvent;
-for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "plan.created", "plan.updated", "plan.removed", "chat.list.patch", "update.changed"])
+for (const type of ["snapshot", "projection.patch", "connection.probed", "connection.health", "config.changed", "agent.connection_change", "shell.identity", "shell.credential", "operator.context", "chat.list.patch", "update.changed"])
   source.addEventListener(type, applyServerEvent);
 function reconcileVisibleClient() { if (!document.hidden) void operatorReconciler.reconcile().catch(() => {}); }
 document.addEventListener("visibilitychange", reconcileVisibleClient);

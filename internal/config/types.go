@@ -87,8 +87,6 @@ type Agent struct {
 	Thinking   bool                    `json:"thinking"`
 	Effort     string                  `json:"effort,omitempty"`
 	B          string                  `json:"b,omitempty"` // legacy primary binding; migrated to Connection.AgentProfile
-	C          string                  `json:"c,omitempty"`
-	D          string                  `json:"d,omitempty"`
 	Toolset    []string                `json:"toolset"`
 	Model      string                  `json:"model,omitempty"` // legacy model override; migrated into the connection
 	Prompt     string                  `json:"prompt,omitempty"`
@@ -163,19 +161,7 @@ type Chat struct {
 	// shipped default until the reader chooses another.
 	Typeface  string `json:"typeface,omitempty"`
 	TextColor string `json:"text_color,omitempty"`
-	// HiddenSurfaces retains the profile-scoped Plan-entry preference introduced
-	// before Plan moved into Settings. It lives here rather than under shell
-	// because it is a reader preference, not machine state.
-	//
-	// A hidden surface is hidden, NOT GONE: nothing about it is discarded and
-	// re-enabling puts its Settings entry back.
-	// Only the names in HideableSurfaces are accepted, because an unknown name
-	// would be a surface nothing could bring back.
-	HiddenSurfaces []string `json:"hidden_surfaces,omitempty"`
 }
-
-// HideableSurfaces are legacy static surfaces whose Settings entry may be hidden.
-var HideableSurfaces = []string{"plan"}
 
 var ChatTextColors = []string{"default", "white", "red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"}
 var BackgroundColors = []string{"graphite", "black", "midnight", "deep-sea", "forest", "wine", "umber"}

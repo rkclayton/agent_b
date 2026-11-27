@@ -125,7 +125,7 @@ func TestPlanBindingUpdateDoesNotEraseUnmentionedSessionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.Role != "d" || next.PlanID != "stable" || next.ConnectionID != "planner" || !next.Runnable || next.MemoryPath != "memory.md" || next.MemoryContent != "remembered" {
+	if next.Role != "b" || !next.ReadOnlyHistory || next.ConnectionID != "planner" || next.Runnable || next.MemoryPath != "memory.md" || next.MemoryContent != "remembered" {
 		t.Fatalf("plan update erased session state: %+v", next)
 	}
 }

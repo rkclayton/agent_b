@@ -18,7 +18,7 @@ import (
 	workspaceinfo "harness/internal/workspace"
 )
 
-func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
+func TestNewSessionsUseScratchOrARegisteredRepository308(t *testing.T) {
 	root, data, logs := t.TempDir(), t.TempDir(), t.TempDir()
 	bound := filepath.Join(root, "repo")
 	if err := os.MkdirAll(bound, 0o755); err != nil {
@@ -29,7 +29,7 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	}
 	cfg := config.Defaults(filepath.Join(root, "default"))
 	cfg.Connections = []config.Connection{{ID: "main", Label: "Main", BaseURL: "http://127.0.0.1:8000", Model: "test-model", Context: config.Context{NCtx: 32768, ReserveOutput: 8192}, Capabilities: config.Capabilities{Streaming: true, ToolCalls: true, OverflowBehavior: "error"}}}
-	cfg.Agents = []config.Agent{{Name: "Main", B: "main", D: "main", Toolset: config.FullToolset()}}
+	cfg.Agents = []config.Agent{{Name: "Main", B: "main", Toolset: config.FullToolset()}}
 	bus := events.NewBus()
 	writers, err := events.NewWriters(logs)
 	if err != nil {
@@ -75,37 +75,22 @@ func TestNewSessionsIgnoreLegacyFolderInputsAndUseScratch(t *testing.T) {
 	if !response.Session.Scratch || response.Session.WorkspaceDir == filepath.Clean(bound) || len(response.Session.ProjectFiles) != 0 {
 		t.Fatalf("session=%+v", response.Session)
 	}
-	planDir := filepath.Join(data, "plans", "stable")
-	if err := os.MkdirAll(planDir, 0o755); err != nil {
-		t.Fatal(err)
+	registered := call(http.MethodPost, "/api/repositories", map[string]any{"path": bound})
+	if registered.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", registered.Code, registered.Body.String())
 	}
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Stable display name\n"), 0o600); err != nil {
-		t.Fatal(err)
+	boundChat := call(http.MethodPost, "/api/sessions", map[string]any{"repository": bound})
+	if boundChat.Code != http.StatusCreated {
+		t.Fatalf("repository chat: %d %s", boundChat.Code, boundChat.Body.String())
 	}
-	manifest, _ := json.Marshal(map[string]any{"repo": bound})
-	if err := os.WriteFile(filepath.Join(planDir, "plan.json"), manifest, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	dLegacy := call(http.MethodPost, "/api/sessions", map[string]any{"agent_id": "main", "workspace": bound, "role": "d", "plan_id": "stable"})
-	if dLegacy.Code != http.StatusBadRequest {
-		t.Fatalf("legacy d folder create %d %s", dLegacy.Code, dLegacy.Body.String())
-	}
-	dCreated := call(http.MethodPost, "/api/sessions", map[string]any{"agent_id": "main", "role": "d"})
-	if dCreated.Code != http.StatusCreated {
-		t.Fatalf("d create %d %s", dCreated.Code, dCreated.Body.String())
-	}
-	var dResponse struct {
+	var repositoryResponse struct {
 		Session session.Snapshot `json:"session"`
 	}
-	if err := json.Unmarshal(dCreated.Body.Bytes(), &dResponse); err != nil {
+	if err := json.Unmarshal(boundChat.Body.Bytes(), &repositoryResponse); err != nil {
 		t.Fatal(err)
 	}
-	if dResponse.Session.Role != "d" || !dResponse.Session.Scratch || dResponse.Session.PlanID != "" || dResponse.Session.PlanName != "" || dResponse.Session.ConnectionID != "main" {
-		t.Fatalf("d session=%+v", dResponse.Session)
-	}
-	plans := call(http.MethodGet, "/api/plans", nil)
-	if plans.Code != http.StatusOK || !bytes.Contains(plans.Body.Bytes(), []byte(`"id":"stable","name":"Stable display name"`)) {
-		t.Fatalf("plans %d %s", plans.Code, plans.Body.String())
+	if repositoryResponse.Session.Scratch || !session.SamePath(repositoryResponse.Session.WorkspaceDir, bound) || len(repositoryResponse.Session.ProjectFiles) != 1 {
+		t.Fatalf("repository session: %+v", repositoryResponse.Session)
 	}
 	listed := call(http.MethodGet, "/api/workspaces", nil)
 	var known []workspaceinfo.Entry

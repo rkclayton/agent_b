@@ -132,6 +132,36 @@ test("credential needed opens the prefilled operator form and the table shows th
   await fixture.context.close();
 });
 
+test("settling identical streamed text keeps the answer and following rows in place 2zm", async ({ browser }, testInfo) => {
+  for (const width of [304, 1280, 1920]) {
+    const fixture = await thinkingFixture(browser, width);
+    const { page } = fixture;
+    if (width === 304) await page.locator("#chat-composer").evaluate(node => node.style.setProperty("--composer-height", "0px"));
+    const reply = { type: "agent", key: "reply", run_id: "run", text: "The first paragraph contains enough fixture text to wrap in a narrow window.\n\nThe reply ends here.", done: false };
+    const queued = { type: "user", key: "message:queued", text: "Next fixture message." };
+    const overrides = { queued_message_ids: ["queued"], queued_messages: 1 };
+    await fixture.emit([reply, queued], false, overrides);
+    const answer = page.locator(".chat-response-prose").filter({ hasText: "The reply ends here." });
+    const caret = answer.locator(".stream-caret");
+    const next = page.locator(".chat-user").filter({ hasText: queued.text });
+    const status = page.locator("#chat-status-line");
+    await expect(caret).toBeVisible();
+    const before = await Promise.all([answer.boundingBox(), next.boundingBox(), status.boundingBox()]);
+    const marker = await caret.boundingBox();
+    expect(marker.x + marker.width).toBeLessThanOrEqual(before[0].x);
+    expect(marker.y + marker.height).toBeLessThanOrEqual(before[0].y + before[0].height);
+    await page.screenshot({ path: testInfo.outputPath(`streaming-${width}.png`), animations: "disabled" });
+    await fixture.emit([{ ...reply, done: true }, queued], false, overrides);
+    await expect(caret).toHaveCount(0);
+    const after = await Promise.all([answer.boundingBox(), next.boundingBox(), status.boundingBox()]);
+    for (const [index, rect] of after.entries()) expect(Math.abs(rect.y - before[index].y)).toBeLessThanOrEqual(1);
+    expect(after[0].height).toBe(before[0].height);
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`settled-${width}.png`) });
+    await fixture.context.close();
+  }
+});
+
 test("a refused built-in token shows the service sign-in row 2zl", async ({ browser }, testInfo) => {
   const origin = "https://graph.microsoft.com:443";
   for (const width of [304, 1280, 1920]) {

@@ -687,6 +687,65 @@ func TestFirstRefusalReturnsDesktopMessageButNeverPhoneWorkerOrHelper2ub(t *test
 	}
 }
 
+func TestModelReadFailureRetriesBeforeFirstAnswer2zd(t *testing.T) {
+	for _, failure := range []string{"reset", "timeout", "partial", "exhausted"} {
+		t.Run(failure, func(t *testing.T) {
+			var requests atomic.Int32
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				if requests.Add(1) > 1 && failure != "exhausted" {
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+					return
+				}
+				w.Header().Set("Content-Length", "512")
+				if failure == "partial" {
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"discarded partial\"}}]}\n\n")
+				}
+				w.(http.Flusher).Flush()
+				if failure == "timeout" {
+					<-req.Context().Done()
+					return
+				}
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_ = conn.Close()
+			}))
+			defer model.Close()
+			_, connection, item, scheduler := schedulerFixture(t, model.URL)
+			connection.RequestTimeoutS = 1
+			scheduler.runner.modelRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+			eventsCh, unsubscribe := scheduler.bus.Subscribe()
+			defer unsubscribe()
+			if _, err := scheduler.Submit(context.Background(), item.ID, "recover from a failed read"); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.After(5 * time.Second)
+			for {
+				select {
+				case <-deadline:
+					t.Fatal("run did not stop")
+				case event := <-eventsCh:
+					if event.Type != events.RunStopped {
+						continue
+					}
+					data := event.Data.(map[string]any)
+					if failure == "exhausted" {
+						if requests.Load() != 3 || data["reason"] != "model_error" || data["retries"] != 2 || !strings.Contains(fmt.Sprint(data["detail"]), "your message is back in the box") || containsUser(item.MessagesCopy(), "recover from a failed read") {
+							t.Errorf("requests=%d, terminal event=%+v", requests.Load(), data)
+						}
+					} else if requests.Load() != 2 || data["reason"] != "done" || data["retries"] != 1 {
+						t.Errorf("requests=%d, terminal event=%+v", requests.Load(), data)
+					}
+					return
+				}
+			}
+		})
+	}
+}
+
 func waitSchedulerIdle(t *testing.T, scheduler *Scheduler, sessionID string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)

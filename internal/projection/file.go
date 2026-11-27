@@ -29,11 +29,11 @@ func ReadFile(path string, through int64) ([]Record, int64, error) {
 	return read(filepath.Base(path), source, through)
 }
 
-func SlimJournal(path, pending string) (bool, error) {
-	return slimJournal(path, pending, nil, tools.AtomicReplace)
+func SlimJournal(path, pending string, eligible ...func(Snapshot) bool) (bool, error) {
+	return slimJournal(path, pending, nil, tools.AtomicReplace, eligible...)
 }
 
-func slimJournal(path, pending string, alter func([]Record), replace func(string, string) error) (bool, error) {
+func slimJournal(path, pending string, alter func([]Record), replace func(string, string) error, eligible ...func(Snapshot) bool) (bool, error) {
 	records, _, err := ReadFile(path, 0)
 	if err != nil {
 		return false, err
@@ -50,6 +50,9 @@ func slimJournal(path, pending string, alter func([]Record), replace func(string
 	full, err := projectRecords(records)
 	if err != nil {
 		return false, err
+	}
+	if len(eligible) > 0 && !eligible[0](full) {
+		return false, nil
 	}
 	complete := map[string]bool{}
 	prepared, reducer := make([]events.Event, len(records)), NewRetainedReducer()

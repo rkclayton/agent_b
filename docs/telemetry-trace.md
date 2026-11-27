@@ -73,6 +73,11 @@ Names follow the OpenTelemetry GenAI conventions where one exists.
 
 A tool name that is not a registered-tool shape is sent as `<invalid>`.
 
+Proposed receiver addition, awaiting admission: a `model_retry` span with `seq`,
+`class` (`dial`, `connected`, `stream`, `server_unavailable`), `attempt`,
+`max_attempts`, `partial` (boolean), and `delay_ms`. It carries no request,
+response, endpoint, or error text. The client records those fields locally.
+
 ```json vector:trace
 {"type":"trace","at":"2026-10-04T21:00:00Z","report_id":"5c1e09ab","runs":[
  {"spans_dropped":0,"spans":[

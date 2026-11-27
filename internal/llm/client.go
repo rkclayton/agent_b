@@ -366,7 +366,7 @@ func (c *Client) ChatStreamStatus(ctx context.Context, request Request, onDelta 
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return Response{}, err
+		return result, streamReadError(err)
 	}
 	if recognizedChunks == 0 {
 		return Response{}, fmt.Errorf("chat stream contained no decodable chunks")

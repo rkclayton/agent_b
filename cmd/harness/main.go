@@ -215,12 +215,15 @@ func notificationFixtureURL() string {
 //
 // A miss is never an error: the chat is projected exactly as it always was. Nothing
 // under chats/ is read for anything but projection and nothing there is written.
-func restoreProjections(writers *events.Writers, paths []string) (map[string]projection.Snapshot, string, int, error) {
+func restoreProjections(writers *events.Writers, paths []string, reportFailure ...func(string, error)) (map[string]projection.Snapshot, string, int, error) {
 	cacheDir := writers.ProjectionCacheDir()
 	sessions := make(map[string]projection.Snapshot, len(paths))
 	cache := projection.NewCache()
 	hits := 0
 	for _, path := range paths {
+		if projection.UnchangedRestoreFailure(cacheDir, path) {
+			continue
+		}
 		id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		if snapshot, ok := projection.LoadCachedSnapshot(cacheDir, path); ok && snapshot.ID != "" {
 			snapshot.ID = id
@@ -230,6 +233,10 @@ func restoreProjections(writers *events.Writers, paths []string) (map[string]pro
 		}
 		snapshot, err := cache.ProjectFile(path, 0)
 		if err != nil {
+			if len(reportFailure) > 0 {
+				reportFailure[0](path, err)
+				continue
+			}
 			return nil, cacheDir, hits, fmt.Errorf("load retained chats: %w", err)
 		}
 		snapshot.ID = id
@@ -256,7 +263,10 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	if err != nil {
 		return nil, floor, err
 	}
-	slimRetainedChats(writers, paths)
+	slimRetainedChats(writers, paths, func(snapshot projection.Snapshot) bool {
+		_, err := time.Parse(time.RFC3339Nano, snapshot.CreatedAt)
+		return err == nil
+	})
 	hadDurable := len(paths) > 0
 	journals := make(map[string]bool, len(paths))
 	for _, path := range paths {
@@ -281,7 +291,15 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	if len(paths) == 0 {
 		return nil, floor, nil
 	}
-	sessions, _, hits, err := restoreProjections(writers, paths)
+	reportFailure := func(path string, err error) {
+		id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		if cacheErr := projection.RecordRestoreFailure(writers.ProjectionCacheDir(), path); cacheErr != nil {
+			log.Printf("could not record restore failure for %s: %v", id, cacheErr)
+		}
+		log.Printf("retained chat %s was not restored and was left on disk: %v", id, err)
+		bus.Publish(events.New(events.SessionRestoreFailed, id, "", map[string]any{"session_id": id, "error": err.Error()}))
+	}
+	sessions, _, hits, err := restoreProjections(writers, paths, reportFailure)
 	if err != nil {
 		return nil, floor, err
 	}
@@ -335,8 +353,7 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 			// down and every other chat with it. The chat is left on disk
 			// untouched — the journal is the record and nothing deletes it —
 			// and its loss is said out loud rather than swallowed.
-			log.Printf("retained chat %s was not restored and was left on disk: %v", id, restoreErr)
-			bus.Publish(events.New(events.SessionRestoreFailed, id, "", map[string]any{"session_id": id, "error": restoreErr.Error()}))
+			reportFailure(replay.Sessions[id].LogPath, restoreErr)
 			continue
 		}
 		if len(reminted) > 0 {
@@ -352,9 +369,12 @@ func restoreRetainedChats(writers *events.Writers, registry *session.Registry, b
 	return result, floor, nil
 }
 
-func slimRetainedChats(writers *events.Writers, paths []string) int {
+func slimRetainedChats(writers *events.Writers, paths []string, eligible ...func(projection.Snapshot) bool) int {
 	processed := 0
 	for _, path := range paths {
+		if projection.UnchangedRestoreFailure(writers.ProjectionCacheDir(), path) {
+			continue
+		}
 		id := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		pending := events.PendingChatPath(writers.ChatDir(), id)
 		marker := projection.CacheEntryPath(writers.ProjectionCacheDir(), path) + ".slim"
@@ -364,7 +384,7 @@ func slimRetainedChats(writers *events.Writers, paths []string) int {
 			}
 		}
 		processed++
-		changed, err := projection.SlimJournal(path, pending)
+		changed, err := projection.SlimJournal(path, pending, eligible...)
 		if err != nil {
 			log.Printf("startup journal kept %s byte for byte: %v", filepath.Base(path), err)
 			continue

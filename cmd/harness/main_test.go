@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,6 +18,60 @@ import (
 )
 
 type recordedHostWindowActions struct{ action func(string, string) bool }
+
+func TestAnUnchangedInvalidChatIsReportedOnce2zf(t *testing.T) {
+	logs := filepath.Join(t.TempDir(), "logs")
+	cfg := config.Defaults(t.TempDir())
+	var journal string
+	seed := func(created string) []byte {
+		event := events.New(events.SessionCreated, "s1", "", map[string]any{"session": map[string]any{"id": "s1", "agent_id": cfg.DefaultAgentID(), "created_at": created, "run": map[string]any{"status": "idle"}}})
+		event.Raw = "old diagnostic data"
+		body, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(body, '\n')
+	}
+	original := seed("")
+	for start := 0; start < 4; start++ {
+		writers, err := events.NewWriters(logs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal = filepath.Join(writers.ChatDir(), "s1.jsonl")
+		if start == 0 || start == 3 {
+			body := original
+			if start == 3 {
+				body = seed("2026-10-02T12:00:00Z")
+			}
+			if err := os.WriteFile(journal, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		bus := events.NewBus()
+		failures := 0
+		bus.SetDurableSink(func(event events.Event) (events.LogCursor, error) {
+			if event.Type == events.SessionRestoreFailed {
+				failures++
+			}
+			return writers.WriteRecord(event)
+		}, nil, nil)
+		registry := session.NewRegistry(bus, writers, func(id string) (*config.Connection, bool) { return cfg.Connection(id) }, 40, func() config.Config { return cfg })
+		chats, _, err := restoreRetainedChats(writers, registry, bus, 0)
+		if err != nil || (failures == 1) != (start == 0) || failures > 1 || (len(chats) == 1) != (start == 3) {
+			t.Fatalf("start %d: chats=%d failures=%d err=%v", start, len(chats), failures, err)
+		}
+		if err := writers.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if start < 3 {
+			got, err := os.ReadFile(journal)
+			if err != nil || !bytes.Equal(got, original) {
+				t.Fatalf("start %d changed the unreadable journal: %v", start, err)
+			}
+		}
+	}
+}
 
 func (r *recordedHostWindowActions) SetHostWindowAction(action func(string, string) bool) {
 	r.action = action

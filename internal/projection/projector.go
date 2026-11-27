@@ -268,7 +268,7 @@ func (r RetainedReducer) Prepare(event events.Event) events.Event {
 	if completed && (event.Type == events.ModelResponse || state.Activity.Stream != nil) {
 		retained.Data = retainedData(event.Data, state)
 		delete(r, event.SessionID)
-	} else if event.Type == events.ModelRequest || event.Type == events.ModelProgress || event.Type == events.ModelDelta {
+	} else if event.Type == events.ModelRequest || event.Type == events.ModelProgress || event.Type == events.ModelDelta || (event.Type == events.ModelRetry && stringValue(eventMap(event.Data)["reason"]) == "model_connection") {
 		r[event.SessionID], _ = NextState(state, Record{Event: event})
 	}
 	if event.Type == events.ModelDelta {
@@ -409,6 +409,10 @@ func nextState(previous Snapshot, record Record, live bool) (Snapshot, error) {
 		next = projectModelProgress(next, record, data)
 	case events.ModelDelta:
 		next = projectModelDelta(next, record, data, live)
+	case events.ModelRetry:
+		if stringValue(data["reason"]) == "model_connection" {
+			next = projectModelConnectionRetry(next, record, data)
+		}
 	case events.ModelResponse:
 		next = projectModelResponse(next, record, data)
 	case events.ToolCallEvent:

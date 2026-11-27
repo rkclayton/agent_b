@@ -62,6 +62,40 @@ func CacheEntryPath(dir, journal string) string {
 	return filepath.Join(dir, base+".json")
 }
 
+func restoreFingerprint(journal string) string {
+	info, err := os.Stat(journal)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d %d\n", info.Size(), info.ModTime().UnixNano())
+}
+
+func UnchangedRestoreFailure(dir, journal string) bool {
+	signature := restoreFingerprint(journal)
+	if signature == "" {
+		return false
+	}
+	recorded, err := os.ReadFile(CacheEntryPath(dir, journal) + ".failed")
+	return err == nil && signature == string(recorded)
+}
+
+func RecordRestoreFailure(dir, journal string) error {
+	signature := restoreFingerprint(journal)
+	if signature == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	cache := CacheEntryPath(dir, journal)
+	// A repaired journal can have the same length as the failed version.
+	// Invalidate its old projection so a modified journal is read from disk.
+	if err := os.Remove(cache); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(cache+".failed", []byte(signature), 0o600)
+}
+
 // LoadCachedSnapshot returns a chat's state without projecting its whole journal,
 // and false when it cannot. False is never an error the caller must handle: it
 // means "project this one", which is what startup did for every journal before.
@@ -220,7 +254,7 @@ func PruneCachedSnapshots(dir string, journals []string) {
 		if entry.IsDir() {
 			continue
 		}
-		name := strings.ToLower(strings.TrimSuffix(entry.Name(), ".slim"))
+		name := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(entry.Name(), ".slim"), ".failed"))
 		if strings.HasSuffix(name, ".json") && !keep[name] {
 			_ = os.Remove(filepath.Join(dir, entry.Name()))
 		}

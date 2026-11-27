@@ -29,6 +29,7 @@ type activeRun struct {
 	done                  chan struct{}
 	userMessageID, source string
 	returned              bool
+	modelRetries          atomic.Int32
 }
 
 // resumeWaiter is an answered run waiting to take back the model slot it
@@ -268,7 +269,7 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 	s.bus.Publish(events.New(events.RunStarted, entry.s.ID, entry.runID, map[string]any{"run_id": entry.runID, "user_message_id": entry.userMessageID, "backstops": map[string]any{"wall_clock_seconds": runCfg.MaxWallClockSeconds}}))
 	entry.s.ResetBoundaryHits()
 	go func() {
-		reason, detail, turns := s.runner.Run(ctx, entry.s, entry.runID)
+		reason, detail, turns := s.runner.runWithRetries(ctx, entry.s, entry.runID, &active.modelRetries)
 		// the stop lists every card refused on this run.
 		if hits := entry.s.BoundaryHits(); len(hits) > 0 {
 			detail = strings.TrimSpace(detail + "\n" + strings.Join(hits, "\n"))
@@ -313,7 +314,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	}
 	state := session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID}
 	entry.s.SetRun(state)
-	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, false, entry.source)
+	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, false, entry.source, active.modelRetries.Load())
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
@@ -668,19 +669,22 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	turn := priorRun.Turn
 	state := session.RunState{Status: "idle", LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID}
 	item.SetRun(state)
-	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, false, active.source)
+	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, false, active.source, active.modelRetries.Load())
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
 }
 
-func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool, source string) bool {
+func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool, source string, retries ...int32) bool {
 	key := sessionID + "\x00" + runID
 	if s.stoppedRuns[key] {
 		return false
 	}
 	s.stoppedRuns[key] = true
 	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld}
+	if len(retries) != 0 {
+		data["retries"] = int(retries[0])
+	}
 	if source == "scheduled" {
 		data["notification_suppressed"] = true
 	}

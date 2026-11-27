@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -113,8 +114,10 @@ func NewCallService(services map[string]config.Service) *CallService {
 func (*CallService) Name() string { return "call_service" }
 
 func (*CallService) Description() string {
-	return "Call a registered service, or when the user asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
+	return "Call a registered service by name with a relative path or its MCP/OpenAPI operation, or pass an absolute HTTP(S) URL as service and omit path. When the user asks, draft a connector add/edit/remove for approval. Never propose a connector unsolicited or ask for a token when an auth helper exists."
 }
+
+const connectorDescription = "Connector proposal: operation add, edit, or remove; entry name (remove needs only name), kind mcp or http, url (or command for local MCP), auth none, stored:<name>, entra:<name>, google:<name>, or exec:<argv> ending in token or headers. Stored credentials require HTTPS. HTTP entries require allowed_methods; optional openapi {document, operations} and published MCP entra {tenant, client_id, scopes}."
 
 // Schema is built from the CONFIGURED CONNECTORS each time it is asked for.
 // a connector that has imported a document lists its enabled operations and their
@@ -126,7 +129,7 @@ func (c *CallService) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"connector": map[string]any{"type": "object", "description": "User-requested connector add/edit/remove. Entry: name, url, kind, auth; HTTP allowed_methods; optional openapi {document, operations}; optional published MCP entra {tenant, client_id, scopes}."},
+			"connector": map[string]any{"type": "object", "description": connectorDescription},
 			"operation": map[string]any{"type": "string", "description": c.operationsDescription()},
 			"accept":    map[string]any{"type": "string", "description": "One response content type declared by the chosen imported operation"},
 			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
@@ -149,6 +152,20 @@ func (c *CallService) Schema() map[string]any {
 
 func (c *CallService) SetConnectorWriter(change func(ConnectorChange) error) { c.change = change }
 
+func rejectUnknownConnectorKey(field string, args map[string]any, accepted ...string) error {
+	unknown := make([]string, 0)
+	for key := range args {
+		if !slices.Contains(accepted, key) {
+			unknown = append(unknown, key)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("%s: unknown key %q; accepted keys: %s", field, unknown[0], strings.Join(accepted, ", "))
+}
+
 func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 	raw, present := args["connector"]
 	if !present {
@@ -158,6 +175,9 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 	if !ok {
 		return ConnectorChange{}, true, fmt.Errorf("connector must be an object")
 	}
+	if err := rejectUnknownConnectorKey("connector", value, "operation", "entry"); err != nil {
+		return ConnectorChange{}, true, err
+	}
 	op, _ := value["operation"].(string)
 	op = strings.ToLower(strings.TrimSpace(op))
 	if op != "add" && op != "edit" && op != "remove" {
@@ -166,6 +186,9 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 	entry, ok := value["entry"].(map[string]any)
 	if !ok {
 		return ConnectorChange{}, true, fmt.Errorf("connector.entry must be an object")
+	}
+	if err := rejectUnknownConnectorKey("connector.entry", entry, "name", "kind", "url", "command", "auth", "allowed_methods", "openapi", "entra"); err != nil {
+		return ConnectorChange{}, true, err
 	}
 	name, _ := entry["name"].(string)
 	name = strings.TrimSpace(name)
@@ -213,6 +236,9 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 		if !ok {
 			return ConnectorChange{}, true, fmt.Errorf("connector.entry.entra must be an object")
 		}
+		if err := rejectUnknownConnectorKey("connector.entry.entra", setup, "tenant", "client_id", "scopes"); err != nil {
+			return ConnectorChange{}, true, err
+		}
 		definition := &credential.EntraDefinition{}
 		definition.Tenant, _ = setup["tenant"].(string)
 		definition.ClientID, _ = setup["client_id"].(string)
@@ -248,6 +274,9 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 		if !ok {
 			return ConnectorChange{}, true, fmt.Errorf("connector.entry.openapi must be an object")
 		}
+		if err := rejectUnknownConnectorKey("connector.entry.openapi", imported, "document", "operations"); err != nil {
+			return ConnectorChange{}, true, err
+		}
 		source, _ := imported["document"].(string)
 		source = strings.TrimSpace(source)
 		if source == "" {
@@ -264,6 +293,15 @@ func ParseConnectorChange(args map[string]any) (ConnectorChange, bool, error) {
 			return ConnectorChange{}, true, fmt.Errorf("connector.entry.openapi.operations must name at least one operation")
 		}
 		change.Service.OpenAPI = &config.ServiceOpenAPI{Source: source, Operations: operations}
+	}
+	if err := config.ValidateService(change.Name, change.Service); err != nil {
+		return ConnectorChange{}, true, err
+	}
+	auth := strings.TrimSpace(change.Service.Auth)
+	if strings.HasPrefix(auth, "stored:") || strings.HasPrefix(auth, "entra:") || strings.HasPrefix(auth, "google:") {
+		if _, err := credential.NormalizeOrigin(change.Service.BaseURL); err != nil {
+			return ConnectorChange{}, true, err
+		}
 	}
 	return change, true, nil
 }

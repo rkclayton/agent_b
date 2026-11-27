@@ -452,6 +452,10 @@ func serviceIdentityUnavailableData(reason string) map[string]any {
 }
 
 func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
+	return r.runWithRetries(ctx, s, runID, nil)
+}
+
+func (r *Runner) runWithRetries(ctx context.Context, s *session.Session, runID string, modelRetries *atomic.Int32) (reason string, detail string, turns int) {
 	if s.Role != "e" {
 		defer func() {
 			r.delegateMu.Lock()
@@ -459,7 +463,7 @@ func (r *Runner) Run(ctx context.Context, s *session.Session, runID string) (rea
 			r.delegateMu.Unlock()
 		}()
 	}
-	return r.runInPhases(ctx, s, runID)
+	return r.runInPhases(ctx, s, runID, modelRetries)
 }
 
 var messageLimitPattern = regexp.MustCompile(`(?i)(conversation too long:\s*\d+ messages\s*\(limit\s*(\d+)\)?|[^\r\n\"]*message[^\r\n\"]*limit[^\r\n\"]*)`)
@@ -833,7 +837,15 @@ func (r *Runner) approveTool(ctx context.Context, s *session.Session, runID, cal
 	decision := "approve"
 	var gateErr error
 	isolatedMutation := s.IsolatedHelper && (name == "write_file" || name == "edit_file" || name == "shell" || name == "run_script")
-	proposedConnector, connectorChange, connectorErr := tools.ParseConnectorChange(args)
+	var proposedConnector tools.ConnectorChange
+	var connectorChange bool
+	if name == "call_service" {
+		var err error
+		proposedConnector, connectorChange, err = tools.ParseConnectorChange(args)
+		if err != nil {
+			return &tools.CallOutcome{Content: "error: " + err.Error()}
+		}
+	}
 	if skillMutation {
 		// Every skill mutation has already received its own decision above. A
 		// chat- or run-scoped answer never turns into a standing skill grant.
@@ -841,7 +853,9 @@ func (r *Runner) approveTool(ctx context.Context, s *session.Session, runID, cal
 		// The helper changes only its disposable copy. The parent's ordinary
 		// write approval is asked once, immediately before a clean return applies.
 	} else if connectorChange {
-		r.connectorCardArgs(ctx, cfg, eventArgs, proposedConnector, connectorErr)
+		if err := r.connectorCardArgs(ctx, cfg, eventArgs, proposedConnector); err != nil {
+			return &tools.CallOutcome{Content: "error: " + err.Error()}
+		}
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
 	} else if name == "run_script" && cfg.Shell.ServiceAccount.Enabled && !r.hasPolicyChatGrant(s.ID, name) {
 		decision, gateErr = r.gate.WaitPolicyDecision(ctx, s, runID, callID, name, eventArgs)
@@ -880,15 +894,12 @@ func (r *Runner) approveTool(ctx context.Context, s *session.Session, runID, cal
 }
 
 // connectorCardArgs puts a connector proposal's credential, origins and OpenAPI operations on its card.
-func (r *Runner) connectorCardArgs(ctx context.Context, cfg config.Config, eventArgs map[string]any, proposedConnector tools.ConnectorChange, connectorErr error) {
-	if connectorErr != nil {
-		eventArgs["validation_error"] = connectorErr.Error()
-	}
+func (r *Runner) connectorCardArgs(ctx context.Context, cfg config.Config, eventArgs map[string]any, proposedConnector tools.ConnectorChange) error {
 	// a proposal that BINDS A CREDENTIAL, or that moves a bound
 	// connector to another address, says so on this card in those words — the
 	// credential's name and the exact origin it would be sent to. Nothing binds or
 	// moves silently, and the card is the existing one.
-	if connectorErr == nil && (strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") || strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "entra:")) {
+	if strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "stored:") || strings.HasPrefix(strings.TrimSpace(proposedConnector.Service.Auth), "entra:") {
 		auth := strings.TrimSpace(proposedConnector.Service.Auth)
 		kind := "stored"
 		if strings.HasPrefix(auth, "entra:") {
@@ -909,18 +920,18 @@ func (r *Runner) connectorCardArgs(ctx context.Context, cfg config.Config, event
 				}
 			}
 		} else {
-			eventArgs["validation_error"] = originErr.Error()
+			return originErr
 		}
 	}
 	// a proposal that names an OpenAPI document is shown on THIS card,
 	// with the operations it would enable and what the document says its own auth
 	// wants. The fetch happens once and is read again when the operator approves.
-	if connectorErr == nil && proposedConnector.Service.OpenAPI != nil {
+	if proposedConnector.Service.OpenAPI != nil {
 		_, document, loadErr := tools.LoadServiceDocument(ctx, proposedConnector.Service.OpenAPI.Source)
 		if loadErr != nil {
-			eventArgs["validation_error"] = loadErr.Error()
+			return loadErr
 		} else if enabled, enabledErr := document.Enabled(proposedConnector.Service.OpenAPI.Operations); enabledErr != nil {
-			eventArgs["validation_error"] = enabledErr.Error()
+			return enabledErr
 		} else {
 			lines := make([]string, 0, len(enabled))
 			for _, operation := range enabled {
@@ -930,6 +941,7 @@ func (r *Runner) connectorCardArgs(ctx context.Context, cfg config.Config, event
 			eventArgs["connector_document_auth"] = document.Auth
 		}
 	}
+	return nil
 }
 
 // operatorOverride offers a call the sandbox refused to the operator's identity, and reruns it

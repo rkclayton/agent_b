@@ -64,6 +64,7 @@ type runState struct {
 	answerBegan                                        bool
 	callCtx                                            context.Context
 	answerStarted                                      time.Time
+	modelRetries                                       *atomic.Int32
 	toolCalls, durableToolCalls                        []events.ToolCall
 	assistant                                          events.Message
 	results                                            []runToolResult
@@ -92,8 +93,8 @@ type runToolResult struct {
 	ms              int64
 }
 
-func (r *Runner) runInPhases(ctx context.Context, s *session.Session, runID string) (reason string, detail string, turns int) {
-	x := &runState{r: r, ctx: ctx, s: s, runID: runID, refusedTurn: -1, publishFinalBudget: true, hooks: append([]config.Hook(nil), r.cfg().Hooks...)}
+func (r *Runner) runInPhases(ctx context.Context, s *session.Session, runID string, modelRetries *atomic.Int32) (reason string, detail string, turns int) {
+	x := &runState{r: r, ctx: ctx, s: s, runID: runID, refusedTurn: -1, publishFinalBudget: true, modelRetries: modelRetries, hooks: append([]config.Hook(nil), r.cfg().Hooks...)}
 	defer func() {
 		r.runHooks(context.Background(), s, runID, x.hooks, hookInput{event: "run_end", stopReason: reason})
 	}()
@@ -557,9 +558,9 @@ func (x *runState) callModelStep() runOutcome {
 		x.callCtx, cancelAnswer = context.WithTimeout(x.ctx, ceiling)
 		defer cancelAnswer()
 	}
-	statusCtx, stopStatus := context.WithCancel(x.callCtx)
 	r.stage(x.s, x.runID, x.turn, "call_model", func() {
 		for attempt := 0; ; attempt++ {
+			statusCtx, stopStatus := context.WithCancel(x.callCtx)
 			x.response, x.callErr = x.client.ChatStreamStatus(x.callCtx, x.request, func(delta llm.Delta) {
 				stopStatus()
 				if delta.Kind != "progress" {
@@ -594,23 +595,42 @@ func (x *runState) callModelStep() runOutcome {
 					r.bus.Publish(events.New(events.ModelBusy, x.s.ID, x.runID, map[string]any{"host": modelHost(x.connection), "detail": detail}))
 				})
 			})
-			if x.callErr == nil || x.answerBegan || attempt >= len(r.modelRetryDelays) || !retryableModelCall(x.callErr) {
+			stopStatus()
+			kind := llm.TransportKindOf(x.callErr)
+			tries := len(r.modelRetryDelays) + 1
+			if kind == llm.TransportStream {
+				tries = min(tries, 3)
+			}
+			// Tools dispatch only after a complete response. Broken streamed calls
+			// have not reached dispatch, so resending cannot run a tool twice.
+			if x.callErr == nil || x.callCtx.Err() != nil || (x.answerBegan && kind != llm.TransportStream) || attempt+1 >= tries || !retryableModelCall(x.callErr) {
 				break
 			}
 			next := attempt + 2
-			r.bus.Publish(events.New(events.ModelBusy, x.s.ID, x.runID, map[string]any{"host": modelHost(x.connection), "detail": fmt.Sprintf("model unreachable · trying again · try %d of %d", next, len(r.modelRetryDelays)+1)}))
+			if x.modelRetries != nil {
+				x.modelRetries.Add(1)
+			}
+			reason := string(kind)
+			if reason == "" {
+				reason = "server_unavailable"
+			}
+			r.bus.Publish(events.New(events.ModelRetry, x.s.ID, x.runID, map[string]any{"turn": x.turn, "reason": "model_connection", "class": reason, "attempt": next, "max_attempts": tries, "partial": x.answerBegan, "delay_ms": r.modelRetryDelays[attempt].Milliseconds()}))
+			r.bus.Publish(events.New(events.ModelBusy, x.s.ID, x.runID, map[string]any{"host": modelHost(x.connection), "detail": fmt.Sprintf("model unreachable · trying again · try %d of %d", next, tries)}))
+			x.partial, x.answerBegan = "", false
+			x.s.UpdatePartial("")
+			clear(toolArgumentBytes)
+			clear(toolArgumentRunes)
+			r.setFlightStage(x.s.ID, x.runID, x.turn, "assemble")
+			r.setFlightStage(x.s.ID, x.runID, x.turn, "call_model")
 			timer := time.NewTimer(r.modelRetryDelays[attempt])
 			select {
 			case <-x.callCtx.Done():
-				if !timer.Stop() {
-					<-timer.C
-				}
+				timer.Stop()
 				x.callErr = x.callCtx.Err()
 				return
 			case <-timer.C:
 			}
 		}
-		stopStatus()
 		x.s.UpdatePartial("")
 	})
 	if streamBusy.Load() && x.callErr == nil {

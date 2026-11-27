@@ -590,7 +590,7 @@ func (w *Writers) writeRecord(event, retained Event) (LogCursor, error) {
 	}
 	line := append(data, '\n')
 	var chat *os.File
-	if event.SessionID != "" && retained.Type != "" {
+	if event.SessionID != "" && retained.Type != "" && event.Type != SessionRestoreFailed {
 		chat, err = w.durableChatLocked(event.SessionID)
 		if err != nil {
 			return LogCursor{}, err
@@ -620,7 +620,7 @@ func (w *Writers) writeRecord(event, retained Event) (LogCursor, error) {
 	if err != nil {
 		return LogCursor{}, err
 	}
-	if event.Type == ModelResponse || event.Type == RunStopped {
+	if data, ok := event.Data.(map[string]any); event.Type == ModelResponse || event.Type == RunStopped || (event.Type == ModelRetry && ok && data["reason"] == "model_connection") {
 		w.closePending(event.SessionID)
 	}
 	if event.SessionID != "" && file == w.sessions[event.SessionID] {

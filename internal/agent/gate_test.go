@@ -282,21 +282,13 @@ func TestConnectorChangeAlwaysUsesApprovalAndHotReloadsForRead(t *testing.T) {
 
 	done := make(chan toolpkg.CallOutcome, 1)
 	bad := map[string]any{"connector": map[string]any{"operation": "add", "entry": map[string]any{"name": "broker", "url": broker.URL, "kind": "http", "auth": "pasted-secret", "allowed_methods": []any{"POST"}}}}
-	go func() { done <- runner.executeTool(context.Background(), s, "run", "bad", "call_service", bad) }()
-	badEvent := <-eventCh
-	badArgs := badEvent.Data.(map[string]any)["args"].(map[string]any)
-	if !strings.Contains(badArgs["validation_error"].(string), "auth") {
-		t.Fatalf("bad card=%#v", badArgs)
-	}
-	if encoded, _ := json.Marshal(badArgs); strings.Contains(string(encoded), "pasted-secret") {
-		t.Fatalf("bad card retained pasted secret: %s", encoded)
-	}
-	if err := runner.Gate().Decide(s.ID, "bad", "once"); err != nil {
-		t.Fatal(err)
-	}
-	<-eventCh
-	if outcome := <-done; outcome.OK || writes != 0 {
+	if outcome := runner.executeTool(context.Background(), s, "run", "bad", "call_service", bad); outcome.OK || writes != 0 || !strings.Contains(outcome.Content, "auth") || strings.Contains(outcome.Content, "pasted-secret") {
 		t.Fatalf("bad outcome=%+v writes=%d", outcome, writes)
+	}
+	select {
+	case event := <-eventCh:
+		t.Fatalf("invalid auth emitted %s", event.Type)
+	default:
 	}
 
 	go func() { done <- runner.executeTool(context.Background(), s, "run", "reject", "call_service", valid) }()
@@ -369,6 +361,45 @@ func TestMCPApprovalCardShowsFullTargetAndPromptBytesStayStable2rm(t *testing.T)
 	mcpPrompt := renderer.Render(connection, s, mcpRegistry.Names(map[string]bool{"call_service": true}), "")
 	if httpPrompt != mcpPrompt {
 		t.Fatalf("system prompt changed: http=%q mcp=%q", httpPrompt, mcpPrompt)
+	}
+}
+
+func TestInvalidConnectorProposalReturnsWithoutApproval2ze(t *testing.T) {
+	for _, tc := range []struct{ operation, key, value, want string }{
+		{"change", "kind", "http", "connector.operation"},
+		{"add", "kind", "unrecognized", "connector.entry.kind"},
+		{"add", "auth", "pasted-secret", "connector.entry.auth"},
+		{"edit", "insecure_tls", "true", "insecure_tls"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			bus := events.NewBus()
+			stream, unsubscribe := bus.Subscribe()
+			defer unsubscribe()
+			cfg := config.Defaults(t.TempDir())
+			tool := toolpkg.NewCallService(nil)
+			runner := NewRunner(bus, toolpkg.New(tool), nil, nil, func() config.Config { return cfg })
+			s := &session.Session{ID: "connector", ToolsEnabled: map[string]bool{"call_service": true}}
+			entry := map[string]any{"name": "fixture", "kind": "http", "auth": "none", "url": "https://service.example.test"}
+			entry[tc.key] = tc.value
+			args := map[string]any{"connector": map[string]any{"operation": tc.operation, "entry": entry}}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			done := make(chan toolpkg.CallOutcome, 1)
+			go func() { done <- runner.executeTool(ctx, s, "run", "call", "call_service", args) }()
+			select {
+			case event := <-stream:
+				t.Errorf("invalid proposal emitted %s: %v", event.Type, event.Data)
+			case out := <-done:
+				if out.OK || !strings.Contains(out.Content, tc.want) || strings.Contains(out.Content, "pasted-secret") {
+					t.Errorf("invalid proposal returned %+v", out)
+				}
+				if tc.key == "insecure_tls" && !strings.Contains(out.Content, "accepted keys") {
+					t.Errorf("unknown field did not list accepted keys: %s", out.Content)
+				}
+			case <-ctx.Done():
+				t.Fatal("validation waited for approval")
+			}
+		})
 	}
 }
 

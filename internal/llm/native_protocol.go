@@ -270,7 +270,7 @@ func scanSSE(reader io.Reader, visit func(map[string]any) error) error {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return streamReadError(err)
 	}
 	if !seen {
 		return fmt.Errorf("chat stream contained no decodable chunks")

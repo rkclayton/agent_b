@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -37,6 +38,9 @@ func prepareProjection(previous Snapshot, record Record) (Snapshot, map[string]a
 
 func finishProjection(next Snapshot, record Record, data map[string]any, live bool) Snapshot {
 	appendNotice := chatNotice(record.Event.Type) || (record.Event.Type == events.CycleDetected && stringValue(data["stage"]) == "steer")
+	if record.Event.Type == events.ModelRetry && stringValue(data["reason"]) == "model_connection" {
+		appendNotice = false
+	}
 	if appendNotice && record.Event.Type == events.Compaction && stringValue(data["trigger"]) == "byte_limit_trim" {
 		appendNotice = intValue(data["trimmed_results"]) > 0
 	}
@@ -215,6 +219,20 @@ func projectModelRequest(next Snapshot, record Record, data map[string]any) Snap
 func projectModelProgress(next Snapshot, record Record, data map[string]any) Snapshot {
 	next.Activity.Progress = cloneMap(data)
 	next.Activity.Stream = touchStream(next.Activity.Stream, record.Event, data, false)
+	return next
+}
+
+func projectModelConnectionRetry(next Snapshot, record Record, data map[string]any) Snapshot {
+	next.Run.Partial = ""
+	next.Activity.Progress = nil
+	next.Activity.Stream = nil
+	if boolValue(data["partial"]) {
+		var entry *ChatEntry
+		next.Chat, entry = chatWithMutableTurn(next.Chat, record.Event.RunID, intValue(data["turn"]))
+		if entry != nil {
+			*entry = ChatEntry{Type: "agent", Key: entry.Key, RunID: entry.RunID, Turn: entry.Turn, AgentRole: entry.AgentRole}
+		}
+	}
 	return next
 }
 
@@ -620,6 +638,11 @@ func projectMessageAppended(next, previous Snapshot, record Record) (Snapshot, e
 	} else {
 		next.Messages = append(next.Messages, wrapper.Message)
 	}
+	if wrapper.Message.Role == "user" && slices.Contains(next.QueuedMessageIDs, wrapper.Message.ID) {
+		// Queued delivery moves the message in model history. The existing
+		// transcript row keeps the position at which the operator typed it.
+		return next, nil
+	}
 	next.Chat = cloneChat(next.Chat)
 	if wrapper.Message.Category == "summary" && !strings.HasPrefix(wrapper.Message.Content, "Fresh-context hand-off:\n") && !strings.HasPrefix(wrapper.Message.Content, contextmgr.PrunedPrefix) {
 		next.Chat = append(next.Chat, ChatEntry{Type: "summary", Key: "message:" + wrapper.Message.ID, Text: summaryTranscript(wrapper.Message.Content)})
@@ -703,6 +726,9 @@ func projectMessageRemoved(next Snapshot, data map[string]any) Snapshot {
 		kept = append(kept, message)
 	}
 	next.Messages = kept
+	if stringValue(data["reason"]) == "queued_delivery" {
+		return next
+	}
 	next.Chat = cloneChat(next.Chat)
 	if removed.Category == "summary" || removed.Role == "user" {
 		next.Chat = removeChatKey(next.Chat, "message:"+removed.ID)

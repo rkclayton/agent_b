@@ -60,6 +60,39 @@ func TestQueuedMessagePositionZeroRemovesOnlyThatQueuedTurn2tl(t *testing.T) {
 	}
 }
 
+func TestQueuedDeliveryPreservesTranscriptPosition2zf(t *testing.T) {
+	queued := events.Message{ID: "m2", Role: "user", Content: "next question"}
+	state := Empty("fixture")
+	tape := []events.Event{
+		events.New(events.MessageAppended, "fixture", "", map[string]any{"message": queued}),
+		events.New(events.MessageQueued, "fixture", "", map[string]any{"message_id": "m2", "position": 1}),
+		events.New(events.ModelRequest, "fixture", "run", map[string]any{"turn": 1}),
+		events.New(events.MessageAppended, "fixture", "run", map[string]any{"message": events.Message{ID: "m3", Role: "assistant", Turn: 1, Content: "current answer"}}),
+		events.New(events.MessageRemoved, "fixture", "", map[string]any{"id": "m2", "reason": "queued_delivery"}),
+		events.New(events.MessageAppended, "fixture", "", map[string]any{"message": queued}),
+		events.New(events.MessageQueued, "fixture", "", map[string]any{"message_id": "m2", "position": 0}),
+	}
+	for i, event := range tape {
+		var err error
+		state, err = NextState(state, Record{Event: event})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var count int
+		for _, row := range state.Chat {
+			if row.Key == "message:m2" {
+				count++
+			}
+		}
+		if count != 1 || state.Chat[0].Key != "message:m2" {
+			t.Fatalf("event %d (%s) moved the queued row: %+v", i, event.Type, state.Chat)
+		}
+	}
+	if len(state.Messages) != 2 || state.Messages[1].ID != "m2" || len(state.QueuedMessageIDs) != 0 {
+		t.Fatalf("model history or queued status did not advance: %+v / %v", state.Messages, state.QueuedMessageIDs)
+	}
+}
+
 func TestQueuedMessageIDsReachLiveProjectionPatches2tl(t *testing.T) {
 	state := Empty("session")
 	queued := events.New(events.MessageQueued, "session", "", map[string]any{"message_id": "m-1", "position": 1})

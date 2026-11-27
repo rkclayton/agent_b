@@ -1,12 +1,17 @@
 package llm
 
-import "errors"
+import (
+	"errors"
+	"io"
+	"net"
+)
 
 type TransportKind string
 
 const (
 	TransportDial      TransportKind = "dial"
 	TransportConnected TransportKind = "connected"
+	TransportStream    TransportKind = "stream"
 )
 
 type TransportError struct {
@@ -23,4 +28,12 @@ func TransportKindOf(err error) TransportKind {
 		return transport.Kind
 	}
 	return ""
+}
+
+func streamReadError(err error) error {
+	var networkError net.Error
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &networkError) {
+		return &TransportError{Kind: TransportStream, Err: err}
+	}
+	return err
 }

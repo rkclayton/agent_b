@@ -233,38 +233,46 @@ func (c Config) validateAgents(seen map[string]bool) error {
 
 func (c Config) validateServices() error {
 	for name, service := range c.Services {
-		prefix := "services." + name
-		if !slug.MatchString(name) {
-			return fmt.Errorf("services: names must be slugs")
+		if err := ValidateService(name, service); err != nil {
+			return err
 		}
-		endpoint, err := url.Parse(strings.TrimSpace(service.BaseURL))
-		command := service.Kind == "mcp" && strings.HasPrefix(strings.TrimSpace(service.BaseURL), "command:") && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(service.BaseURL), "command:")) != ""
-		if !command && (err != nil || endpoint == nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "") {
-			return fmt.Errorf("%s.base_url: must be an absolute HTTP(S) URL without user information, query, or fragment", prefix)
+	}
+	return nil
+}
+
+// ValidateService checks the configuration shape without saving or connecting.
+func ValidateService(name string, service Service) error {
+	prefix := "services." + name
+	if !slug.MatchString(name) {
+		return fmt.Errorf("services: names must be slugs")
+	}
+	endpoint, err := url.Parse(strings.TrimSpace(service.BaseURL))
+	command := service.Kind == "mcp" && strings.HasPrefix(strings.TrimSpace(service.BaseURL), "command:") && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(service.BaseURL), "command:")) != ""
+	if !command && (err != nil || endpoint == nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "") {
+		return fmt.Errorf("%s.base_url: must be an absolute HTTP(S) URL without user information, query, or fragment", prefix)
+	}
+	if service.Kind != "" && service.Kind != "http" && service.Kind != "mcp" {
+		return fmt.Errorf("%s.kind: must be http or mcp", prefix)
+	}
+	if err := ValidateServiceAuth(service.Auth); err != nil {
+		return fmt.Errorf("%s.auth: %w", prefix, err)
+	}
+	if command && strings.TrimSpace(service.Auth) != "none" {
+		return fmt.Errorf("%s.auth: an MCP command must use none", prefix)
+	}
+	if service.Kind != "mcp" && len(service.AllowedMethods) == 0 {
+		return fmt.Errorf("%s.allowed_methods: at least one method is required", prefix)
+	}
+	for _, method := range service.AllowedMethods {
+		if !oneOf(strings.ToUpper(strings.TrimSpace(method)), "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE") {
+			return fmt.Errorf("%s.allowed_methods: method %q is invalid", prefix, method)
 		}
-		if service.Kind != "" && service.Kind != "http" && service.Kind != "mcp" {
-			return fmt.Errorf("%s.kind: must be http or mcp", prefix)
-		}
-		if err := ValidateServiceAuth(service.Auth); err != nil {
-			return fmt.Errorf("%s.auth: %w", prefix, err)
-		}
-		if command && strings.TrimSpace(service.Auth) != "none" {
-			return fmt.Errorf("%s.auth: an MCP command must use none", prefix)
-		}
-		if service.Kind != "mcp" && len(service.AllowedMethods) == 0 {
-			return fmt.Errorf("%s.allowed_methods: at least one method is required", prefix)
-		}
-		for _, method := range service.AllowedMethods {
-			if !oneOf(strings.ToUpper(strings.TrimSpace(method)), "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE") {
-				return fmt.Errorf("%s.allowed_methods: method %q is invalid", prefix, method)
-			}
-		}
-		if service.TimeoutS < 1 || service.TimeoutS > 300 {
-			return fmt.Errorf("%s.timeout_s: must be between 1 and 300", prefix)
-		}
-		if service.MaxBodyKB < 1 || service.MaxBodyKB > 65536 {
-			return fmt.Errorf("%s.max_body_kb: must be between 1 and 65536", prefix)
-		}
+	}
+	if service.TimeoutS < 1 || service.TimeoutS > 300 {
+		return fmt.Errorf("%s.timeout_s: must be between 1 and 300", prefix)
+	}
+	if service.MaxBodyKB < 1 || service.MaxBodyKB > 65536 {
+		return fmt.Errorf("%s.max_body_kb: must be between 1 and 65536", prefix)
 	}
 	return nil
 }

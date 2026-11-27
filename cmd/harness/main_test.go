@@ -40,6 +40,9 @@ func scheduledFixture(t *testing.T, modelURL string) (*scheduledRuns, string) {
 	cfg.Connections[0].Context.NCtx = 32768
 	cfg.Connections[0].Capabilities.ToolCalls = true
 	cfg.Connections[0].Capabilities.Streaming = true
+	if executable, err := exec.LookPath("pwsh"); err == nil {
+		cfg.Shell.Command[0] = executable
+	}
 	connection := func(id string) (*config.Connection, bool) { return cfg.Connection(id) }
 	settings := func() config.Config { return cfg }
 	bus := events.NewBus()

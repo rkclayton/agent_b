@@ -127,8 +127,9 @@ var allowList = map[string]Classification{
 	"navigation.suppressed": dropped, "navigation.document_started": dropped,
 	"navigation.document_completed": dropped,
 	"notification.failed":           dropped, "notification.changed": dropped,
-	"update.changed": dropped,
-	"speech":         dropped, "attachment.ocr_progress": dropped, "agent.connection_change": dropped,
+	"scheduled.finished": dropped,
+	"update.changed":     dropped,
+	"speech":             dropped, "attachment.ocr_progress": dropped, "agent.connection_change": dropped,
 	// projection.patch and snapshot are the same material: the whole conversation
 	// as a client reads it. Dropped, emphatically.
 	"projection.patch": dropped, "snapshot": dropped,
@@ -230,6 +231,9 @@ func Pick(class Classification, data map[string]any) map[string]any {
 			continue
 		}
 		if text, ok := value.(string); ok {
+			if field == "reason" && text == "cron_shutdown" {
+				text = "aborted_mid_run"
+			}
 			out[field] = Redact(text)
 			continue
 		}

@@ -9,6 +9,7 @@ import (
 type probeRun struct{ cancel context.CancelFunc }
 
 type connectionCheckState struct {
+	capacityMu        sync.Mutex
 	probeMu           sync.Mutex
 	probeCancels      map[string]*probeRun
 	probeRetries      map[string]int

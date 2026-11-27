@@ -11,6 +11,7 @@ import (
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/memory"
 	"harness/internal/projection"
 	"harness/internal/session"
 	workspaceinfo "harness/internal/workspace"
@@ -298,6 +299,29 @@ func (s *Server) workspaceAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) agentMemoryShared(w http.ResponseWriter, r *http.Request) {
+	if s.memoryState == nil || (r.Method != http.MethodGet && r.Method != http.MethodPost) {
+		method(w)
+		return
+	}
+	if r.Method == http.MethodPost {
+		var note memory.ShareableNote
+		if !decode(w, r, &note) {
+			return
+		}
+		if err := s.memoryState.MoveToShared(note); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "memory")
+			return
+		}
+	}
+	notes, err := s.memoryState.ShareableNotes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "memory")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"notes": notes})
+}
+
 func (s *Server) agentMemoryRemove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || s.memoryState == nil {
 		method(w)
@@ -339,12 +363,30 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
-	if len(parts) == 2 && parts[1] == "history" && r.Method == http.MethodGet {
-		if s.projector == nil {
-			writeError(w, http.StatusNotFound, "session not found", "session_id")
+	if len(parts) == 2 && parts[1] == "tool-result" && r.Method == http.MethodGet {
+		key := r.URL.Query().Get("key")
+		var entry projection.ChatEntry
+		var ok bool
+		if s.replay != nil {
+			entry, ok = projection.FindToolResult(s.replay.Sessions[id].Chat, key)
+		} else if s.projector != nil {
+			entry, ok = s.projector.ToolResult(id, key)
+		}
+		if !ok {
+			writeError(w, http.StatusNotFound, "tool result not found", "key")
 			return
 		}
-		value, ok := s.projector.CurrentSnapshot()[id]
+		writeJSON(w, http.StatusOK, map[string]any{"content": entry.Content, "delegate": entry.Result["delegate"]})
+		return
+	}
+	if len(parts) == 2 && parts[1] == "history" && r.Method == http.MethodGet {
+		var value projection.Snapshot
+		var ok bool
+		if s.replay != nil {
+			value, ok = s.replay.Sessions[id]
+		} else if s.projector != nil {
+			value, ok = s.projector.CurrentSnapshot()[id]
+		}
 		if !ok {
 			writeError(w, http.StatusNotFound, "session not found", "session_id")
 			return
@@ -359,9 +401,13 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			before = parsed
 		}
 		start := max(0, before-firstScreenEntries)
+		chat := value.Chat[start:before]
+		if !pairedDeviceAuthenticated(r) {
+			chat = toolRowSummaries(chat)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"session_id": id, "start": start, "before": before, "total": len(value.Chat),
-			"chat": value.Chat[start:before],
+			"chat": chat,
 		})
 		return
 	}

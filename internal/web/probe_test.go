@@ -86,6 +86,7 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	cfg.Connections[0].BaseURL = model.URL
 	cfg.Connections[0].Model = "Friendly"
 	cfg.Connections[0].Capabilities.ProbedAt = "2026-09-23T10:00:00Z"
+	cfg.Connections[0].Capabilities.ParallelCapacity = 4
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +105,71 @@ func TestReadyConnectionTestDoesNotRewriteConfig(t *testing.T) {
 	// 2wb: Test re-runs the vision probe and names what it sent and what came back.
 	if !strings.Contains(response.Body.String(), "images: accepts images but does not read them (sent digit ") || !strings.Contains(response.Body.String(), "got \\\"OK\\\"") {
 		t.Fatalf("Test did not name the vision probe: %s", response.Body)
+	}
+}
+
+func TestConnectionTestMeasuresUnreportedParallelCapacity(t *testing.T) {
+	for _, tc := range []struct{ slots, typed int }{{4, 0}, {1, 0}, {4, 2}} {
+		t.Run(fmt.Sprintf("slots=%d/typed=%d", tc.slots, tc.typed), func(t *testing.T) {
+			slots := make(chan struct{}, tc.slots)
+			var streams atomic.Int32
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/models":
+					fmt.Fprint(w, `{"data":[{"id":"fixture"}]}`)
+				case "/v1/chat/completions":
+					var body struct{ Stream bool }
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if !body.Stream {
+						fmt.Fprint(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}`)
+						return
+					}
+					streams.Add(1)
+					slots <- struct{}{}
+					defer func() { <-slots }()
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"O\"}}]}\n\n")
+					w.(http.Flusher).Flush()
+					time.Sleep(100 * time.Millisecond)
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"K\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer model.Close()
+			root := t.TempDir()
+			path := filepath.Join(root, "harness.json")
+			cfg := config.Defaults(root)
+			cfg.Connections[0].BaseURL = model.URL
+			cfg.Connections[0].Model = "fixture"
+			cfg.Connections[0].MaxConcurrent = tc.typed
+			if err := cfg.Save(path); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				server := newTestServer(t, &cfg, path, root, RuntimeRoots{Application: root, Data: root, Workspace: root}, events.NewBus())
+				response := httptest.NewRecorder()
+				server.connection(response, httptest.NewRequest(http.MethodPost, "/api/connections/local/probe", nil))
+				if response.Code != http.StatusOK {
+					t.Fatalf("status=%d body=%s", response.Code, response.Body)
+				}
+				loaded, _, _, err := config.Load(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cfg = *loaded
+				if conn := cfg.Connections[0]; conn.Capabilities.ParallelCapacity != tc.slots || conn.MaxConcurrent != tc.typed {
+					t.Fatalf("capacity=%d typed=%d", conn.Capabilities.ParallelCapacity, conn.MaxConcurrent)
+				}
+			}
+			want := int32(2)
+			if tc.slots == 4 {
+				want += 4
+			}
+			if got := streams.Load(); got != want {
+				t.Fatalf("stream requests=%d want=%d", got, want)
+			}
+		})
 	}
 }
 

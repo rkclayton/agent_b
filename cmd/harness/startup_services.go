@@ -83,7 +83,7 @@ func (a *harnessApp) wireServices() {
 			return 0, fmt.Errorf("tokenizer unavailable")
 		}
 		return llm.New(connection).Tokenize(ctx, text, false)
-	})
+	}, a.roots.Data)
 	a.workspaceManager = workspaceinfo.New(a.memoryManager.Dir(), a.memoryManager.Path)
 	a.registry = session.NewRegistry(a.bus, a.writers, a.web.Connection, 0, a.web.ConfigSnapshot)
 	a.registry.SetMemoryLoader(a.memoryManager.Load)

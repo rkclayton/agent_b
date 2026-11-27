@@ -138,6 +138,24 @@ func (s *Store) CurrentSnapshot() map[string]Snapshot {
 	return result
 }
 
+func (s *Store) ToolResult(sessionID, key string) (ChatEntry, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return FindToolResult(s.states[sessionID].Chat, key)
+}
+
+func FindToolResult(chat []ChatEntry, key string) (ChatEntry, bool) {
+	if key != "" {
+		for i := len(chat) - 1; i >= 0; i-- {
+			entry := chat[i]
+			if entry.Key == key && entry.Type == "tool" && entry.Result != nil {
+				return entry, true
+			}
+		}
+	}
+	return ChatEntry{}, false
+}
+
 func (s *Store) snapshotCurrentLocked(sources map[string]events.LogCursor) bool {
 	for id, source := range sources {
 		state, ok := s.states[id]

@@ -26,6 +26,7 @@ const armed = new Set();
 const drafts = new Map();
 const draftKinds = new Map();
 const errors = new Map();
+let shareableNotes = [];
 const detailTexts = new Map();
 let errorPanel = "";
 // the connections whose model the operator chose to type by hand. Not a
@@ -562,7 +563,7 @@ function adoptPanels() {
 
 function settingsPageContext(active) {
   return {
-    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview,
+    active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview, shareableNotes,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
     credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider, credentialKind, browserDataBytes, browserDataConfirm,
@@ -1109,7 +1110,21 @@ async function runAction(event, button, action, id) {
     return render();
   }
   if (action === "profile-memory-toggle") {
-    if (expanded.has("profile-memory")) expanded.delete("profile-memory"); else expanded.add("profile-memory");
+    if (expanded.has("profile-memory")) {
+      expanded.delete("profile-memory");
+      shareableNotes = [];
+    } else {
+      expanded.add("profile-memory");
+      try { shareableNotes = (await api("/api/agent-memory/shared", undefined, "GET")).notes || []; }
+      catch (error) { errors.set("profiles", error.message); }
+    }
+    return render();
+  }
+  if (action === "move-agent-memory") {
+    const note = shareableNotes[Number(id)];
+    if (!note) return;
+    try { shareableNotes = (await api("/api/agent-memory/shared", note)).notes || []; }
+    catch (error) { errors.set("profiles", error.message); }
     return render();
   }
   if (action === "profile-memory-note-toggle") {

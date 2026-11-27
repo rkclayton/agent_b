@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"harness/internal/config"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"harness/internal/buildinfo"
 	"harness/internal/credential"
@@ -33,6 +35,102 @@ func (s *Server) snapshot() map[string]any {
 }
 
 const firstScreenEntries = 50
+const firstScreenBytes = 512 << 10
+const inlineToolBytes = 2 << 10
+
+func cappedToolText(content string) string {
+	if len(content) <= inlineToolBytes {
+		return content
+	}
+	end := inlineToolBytes
+	for end > 0 && !utf8.RuneStart(content[end]) {
+		end--
+	}
+	return content[:end]
+}
+
+func toolResultSummary(result map[string]any) (map[string]any, bool) {
+	preview, _ := result["preview"].(string)
+	delegate, delegated := result["delegate"].(map[string]any)
+	if len(preview) <= inlineToolBytes && !delegated {
+		return result, false
+	}
+	result = maps.Clone(result)
+	if len(preview) > inlineToolBytes {
+		result["preview"] = cappedToolText(preview)
+	}
+	if delegated {
+		summary := maps.Clone(delegate)
+		delete(summary, "transcript")
+		delete(summary, "summary")
+		result["delegate"] = summary
+	}
+	return result, true
+}
+
+func toolRowSummaries(chat []projection.ChatEntry) []projection.ChatEntry {
+	rows := append([]projection.ChatEntry(nil), chat...)
+	for i := range rows {
+		row := &rows[i]
+		if row.Type != "tool" {
+			continue
+		}
+		row.Result, row.DetailDeferred = toolResultSummary(row.Result)
+		if len(row.Content) > inlineToolBytes {
+			row.ContentBytes = len(row.Content)
+			row.DetailDeferred = true
+			row.Content = ""
+		}
+	}
+	return rows
+}
+
+func summarizeToolBodies(session projection.Snapshot) projection.Snapshot {
+	session.Chat = toolRowSummaries(session.Chat)
+	session.Messages = append([]events.Message(nil), session.Messages...)
+	for i := range session.Messages {
+		if session.Messages[i].Role == "tool" {
+			session.Messages[i].Content = cappedToolText(session.Messages[i].Content)
+		}
+	}
+	session.Timeline = append([]events.Event(nil), session.Timeline...)
+	for i := range session.Timeline {
+		event := &session.Timeline[i]
+		data, _ := event.Data.(map[string]any)
+		switch event.Type {
+		case events.SessionCreated:
+			// Restore seeds carry a second copy of the whole chat and model
+			// history. The timeline row needs only the creation metadata.
+			copy := maps.Clone(data)
+			delete(copy, "chat")
+			delete(copy, "session")
+			event.Data = copy
+		case events.ToolResult:
+			if summary, changed := toolResultSummary(data); changed {
+				event.Data = summary
+			}
+		case events.MessageAppended, events.MessageUpdated:
+			switch message := data["message"].(type) {
+			case events.Message:
+				if message.Role == "tool" && len(message.Content) > inlineToolBytes {
+					message.Content = cappedToolText(message.Content)
+					copy := maps.Clone(data)
+					copy["message"] = message
+					event.Data = copy
+				}
+			case map[string]any:
+				content, _ := message["content"].(string)
+				if message["role"] == "tool" && len(content) > inlineToolBytes {
+					copy, row := maps.Clone(data), maps.Clone(message)
+					row["content"] = cappedToolText(content)
+					copy["message"] = row
+					event.Data = copy
+				}
+			}
+		}
+	}
+	return session
+}
 
 func (s *Server) firstScreenSessions(sessions map[string]projection.Snapshot, selected string) map[string]projection.Snapshot {
 	if selected == "" {
@@ -45,7 +143,6 @@ func (s *Server) firstScreenSessions(sessions map[string]projection.Snapshot, se
 	}
 	result := make(map[string]projection.Snapshot, len(sessions))
 	for id, value := range sessions {
-		value = projection.SnapshotForRead(value)
 		value.HistoryTotal = len(value.Chat)
 		value.HistoryStart = value.HistoryTotal
 		value.HistoryEnd = value.HistoryTotal
@@ -184,9 +281,10 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	s.OfferReflectionProposals()
 	selected := r.URL.Query().Get("session")
+	phone := pairedDeviceAuthenticated(r)
 	// A phone's default state is its list. Only an explicit resync selects
 	// transcript content; choosing the newest chat here can copy a large history.
-	if pairedDeviceAuthenticated(r) && selected == "" {
+	if phone && selected == "" {
 		selected = "-"
 	}
 	var snapshot map[string]any
@@ -195,9 +293,9 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		snapshot = s.snapshotWithSessions(s.firstScreenSessions(s.replay.Sessions, selected), true)
 	} else if s.projector != nil && s.writers != nil {
 		sessions := s.projector.CurrentSnapshot()
-		s.decorateChatList(sessions)
 		total = len(sessions)
-		if pairedDeviceAuthenticated(r) {
+		if phone {
+			s.decorateChatList(sessions)
 			s.omitArchivedChats(sessions)
 			total = len(sessions)
 			sessions, next, _ = deviceChatPage(sessions, selected, "", deviceListPage)
@@ -206,7 +304,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	} else {
 		snapshot = s.snapshotWithSessions(map[string]projection.Snapshot{}, false)
 	}
-	if pairedDeviceAuthenticated(r) {
+	if phone {
 		// a stolen paired phone can choose between connections, but it
 		// never receives credentials, paths, prompts, or the rest of local config.
 		snapshot["connections"] = s.phoneConnections()
@@ -220,12 +318,49 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		}
 		snapshot = device
 	}
-	// the state answer's size and time, counted as it is written.
-	counted := &countingWriter{ResponseWriter: w}
-	writeJSON(counted, 200, snapshot)
-	if s.app != nil {
-		s.app.NoteState(counted.bytes, time.Since(started))
+	if !phone {
+		if sessions, ok := snapshot["sessions"].(map[string]projection.Snapshot); ok {
+			for id, session := range sessions {
+				if len(session.Chat)+len(session.Messages)+len(session.Timeline) > 0 {
+					sessions[id] = summarizeToolBodies(session)
+				}
+			}
+		}
 	}
+	body, err := json.Marshal(snapshot)
+	for err == nil && len(body)+1 > firstScreenBytes && trimStateHistory(snapshot) {
+		body, err = json.Marshal(snapshot)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not encode state", "state")
+		return
+	}
+	if len(body)+1 > firstScreenBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "state metadata exceeds 512 KiB", "state")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	written, _ := w.Write(append(body, '\n'))
+	if s.app != nil {
+		s.app.NoteState(int64(written), time.Since(started))
+	}
+}
+
+func trimStateHistory(snapshot map[string]any) bool {
+	sessions, _ := snapshot["sessions"].(map[string]projection.Snapshot)
+	for id, session := range sessions {
+		if len(session.Chat)+len(session.Messages)+len(session.Timeline) == 0 {
+			continue
+		}
+		removed := (len(session.Chat) + 1) / 2
+		session.HistoryStart += removed
+		session.Chat = session.Chat[removed:]
+		session.Messages = session.Messages[(len(session.Messages)+1)/2:]
+		session.Timeline = session.Timeline[(len(session.Timeline)+1)/2:]
+		sessions[id] = session
+		return true
+	}
+	return false
 }
 
 func (s *Server) phoneAgents() []map[string]any {
@@ -261,17 +396,6 @@ func phoneAgent(cfg config.Config, agent config.Agent) map[string]any {
 		row["read_only"] = true
 	}
 	return row
-}
-
-type countingWriter struct {
-	http.ResponseWriter
-	bytes int64
-}
-
-func (c *countingWriter) Write(data []byte) (int, error) {
-	written, err := c.ResponseWriter.Write(data)
-	c.bytes += int64(written)
-	return written, err
 }
 
 func (s *Server) phoneConnections() []map[string]any {

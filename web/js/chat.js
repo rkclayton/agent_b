@@ -410,7 +410,12 @@ function finishLogRender(nodes) {
   thinkingRenderer.end();
   for (const key of entryViews.keys()) if (!usedEntryViews.has(key)) entryViews.delete(key);
   for (const key of fileViews.keys()) if (!usedFileViews.has(key)) fileViews.delete(key);
-  for (const key of toolViews.keys()) if (!usedToolViews.has(key)) toolViews.delete(key);
+  for (const [key, view] of toolViews) {
+    if (!usedToolViews.has(key)) {
+      view.abort?.abort();
+      toolViews.delete(key);
+    }
+  }
 }
 
 function reconcileChildren(parent, nodes) {
@@ -905,7 +910,7 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false, rec
       setText(itemView.tick.detail, `${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens`);
       stepNodes.push(itemView.tick.root);
     } else if (item.type === "tool") {
-      stepNodes.push(toolTick(item, forceToolOpen, recovered && itemFailed(item), files.length > 0));
+      stepNodes.push(toolTick(session.id, item, forceToolOpen, recovered && itemFailed(item), files.length > 0));
       if (files.length) {
         if (!itemView.chips) { itemView.chips = document.createElement("div"); itemView.chips.className = "file-chips"; }
         reconcileChildren(itemView.chips, files.map((file) => renderFileChip(session, file)));
@@ -1015,11 +1020,12 @@ function thinking(entry, tokens) {
   return thinkingRenderer.render(entry, tokens);
 }
 
-function toolTick(entry, forceOpen = false, recovered = false, fileNamed = false) {
+function toolTick(sessionID, entry, forceOpen = false, recovered = false, fileNamed = false) {
   if (!entry.args || typeof entry.args !== "object" || Array.isArray(entry.args)) throw new Error("tool arguments are missing or are not an object");
   usedToolViews.add(entry.key);
   let view = toolViews.get(entry.key);
-  if (!view) {
+  if (!view || view.sessionID !== sessionID) {
+    view?.abort?.abort();
     const root = document.createElement("div");
     const button = document.createElement("button");
     button.type = "button";
@@ -1033,7 +1039,7 @@ function toolTick(entry, forceOpen = false, recovered = false, fileNamed = false
       render();
     };
     root.append(button);
-    view = { root, button, pre, args: null, result: null, content: null };
+    view = { root, button, pre, sessionID, args: null, result: null, content: null };
     toolViews.set(entry.key, view);
   }
   // a harness note is a line of its own, never part of the result.
@@ -1060,13 +1066,36 @@ function toolTick(entry, forceOpen = false, recovered = false, fileNamed = false
   setText(view.button.children[2], formatDuration(entry.result?.ms));
   toggleClass(view.button, "alarm", failed);
   if (open) {
-    if (!view.pre.textContent || view.args !== entry.args || view.result !== entry.result || view.content !== entry.content) {
+    if (entry.detail_deferred && !view.loaded && !view.loading && !view.loadError) {
+      view.abort = new AbortController();
+      const pending = api(`/api/sessions/${encodeURIComponent(sessionID)}/tool-result?key=${encodeURIComponent(entry.key)}`, undefined, "GET", { signal: view.abort.signal });
+      view.loading = pending;
+      void pending.then((detail) => {
+        if (toolViews.get(entry.key) !== view || view.loading !== pending) return;
+        view.loaded = detail;
+        view.loading = null;
+        render();
+      }, (error) => {
+        if (toolViews.get(entry.key) !== view || view.loading !== pending) return;
+        view.loadError = error.message || "Could not load result";
+        view.loading = null;
+        render();
+      });
+    }
+    if (!view.pre.textContent || view.args !== entry.args || view.result !== entry.result || view.content !== entry.content || view.displayedResult !== view.loaded || view.displayedError !== view.loadError) {
       const result = callServiceStatus(entry.name, entry.result);
-      view.pre.textContent = delegated ? delegateDetail(entry.args, delegated) : `${entry.name}${result ? ` · ${result}` : ""}${shortened}\narguments\n${JSON.stringify(entry.args, null, 2)}\n\nresult\n${capResult(entry.content)}`;
+      const content = entry.detail_deferred ? view.loaded?.content ?? view.loadError ?? "Loading result…" : capResult(entry.content);
+      const child = view.loaded?.delegate || (!entry.detail_deferred && delegated);
+      view.pre.textContent = child ? delegateDetail(entry.args, child) : `${entry.name}${result ? ` · ${result}` : ""}${shortened}\narguments\n${JSON.stringify(entry.args, null, 2)}\n\nresult\n${content}`;
+      view.displayedResult = view.loaded;
+      view.displayedError = view.loadError;
     }
     if (!view.pre.isConnected) view.root.append(view.pre);
   } else if (view.pre.isConnected) {
+    view.abort?.abort();
     view.pre.remove();
+    view.pre.textContent = "";
+    view.loaded = view.loading = view.loadError = view.displayedResult = view.displayedError = null;
   }
   view.args = entry.args;
   view.result = entry.result;

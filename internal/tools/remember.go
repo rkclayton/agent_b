@@ -49,7 +49,7 @@ func (r *Remember) SetPlanner(planner *memory.PlannerNotes) { r.planner = planne
 
 func (*Remember) Name() string { return "remember" }
 func (*Remember) Description() string {
-	return "Save one durable fact a future chat will need. Call recall first. Say its scope: user (about the user), repository (about this project), environment (about this machine), or planner (local product feedback). For more than one project, pass project as its folder or name. If it supersedes a note, pass a distinctive part of that note as replaces; it is removed only when the part names one note in this layer. Never save transient state."
+	return "Save one durable fact for a future chat that will use it. Call recall first. Use scope user for facts, preferences and reply style, shared across profiles unless this agent is private. Other scopes: repository (project), environment (machine), planner (local feedback). For multiple projects, pass the folder or name as project. To supersede one note in this layer, pass a distinctive part of it as replaces. Never save transient state."
 }
 func (*Remember) Schema() map[string]any {
 	return map[string]any{
@@ -102,7 +102,7 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 	}
 	target, fell := layerFor(scope), ""
 	path := ""
-	if target == "agent" && r.memory.TargetPath(s.AgentID) != r.memory.SharedPath() {
+	if r.memory.TargetPath(s.AgentID) != r.memory.SharedPath() {
 		target, path = "agent", r.memory.TargetPath(s.AgentID)
 	}
 	if target == "folder" && path == "" {
@@ -115,8 +115,11 @@ func (r *Remember) Call(ctx context.Context, s *session.Session, args map[string
 		}
 		path = r.memory.Path(folder)
 	}
-	if target == "agent" {
+	if target == "agent" && path == "" {
 		path = r.memory.TargetPath(s.AgentID)
+		if scope == "environment" {
+			path = r.memory.ProfileNotesPath()
+		}
 	}
 	if target == "folder" {
 		if root := memory.RepoRoot(s.MemoryFolder()); root != "" {

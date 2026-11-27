@@ -13,6 +13,7 @@ import (
 
 	"harness/internal/events"
 	"harness/internal/projection"
+	"harness/internal/recorder"
 )
 
 func TestLargeStoreFirstAnswersAreBounded2qc(t *testing.T) {
@@ -25,6 +26,55 @@ func TestLargeStoreFirstAnswersAreBounded2qc(t *testing.T) {
 	opening := jsonSize(t, events.New(events.Snapshot, "", "", server.openingSnapshot(server.projector.CurrentSnapshot(), false)))
 	if opening > 64<<10 {
 		t.Fatalf("opening events frame = %d bytes, want <= %d", opening, 64<<10)
+	}
+}
+
+func TestStateDefersTenLargeToolResults2zs(t *testing.T) {
+	server := measuredServer(t, 1, 0)
+	body := strings.Repeat("z", (1<<20)-len("full result tail")) + "full result tail"
+	for index := range 10 {
+		call := fmt.Sprintf("fixture-%d", index)
+		server.bus.Publish(events.New(events.ToolCallEvent, "chat-0", "run", map[string]any{
+			"call_id": call, "name": "read_file", "args": map[string]any{"path": "fixture.txt"},
+		}))
+		server.bus.Publish(events.New(events.ToolResult, "chat-0", "run", map[string]any{
+			"call_id": call, "name": "read_file", "ok": true, "preview": "result preview", "ms": 10,
+		}))
+		server.bus.Publish(events.New(events.MessageAppended, "chat-0", "run", map[string]any{
+			"message": events.Message{ID: call, Role: "tool", ToolCallID: call, Content: body},
+		}))
+	}
+	state := httptest.NewRecorder()
+	server.app = recorder.NewApp(time.Now())
+	var stateBucket int64
+	server.app.SetSink(func(event string, data map[string]any) {
+		if event == events.PageHealth {
+			stateBucket, _ = data["state_bytes"].(int64)
+		}
+	})
+	start := time.Now()
+	server.state(state, httptest.NewRequest(http.MethodGet, "/api/state?session=chat-0", nil))
+	t.Logf("ten 1 MiB tool results: state %d bytes in %v", state.Body.Len(), time.Since(start))
+	if state.Code != http.StatusOK || state.Body.Len() > 512<<10 || strings.Contains(state.Body.String(), "full result tail") {
+		t.Fatalf("state status=%d bytes=%d, want 200 and at most 512 KiB without full bodies", state.Code, state.Body.Len())
+	}
+	if !strings.Contains(state.Body.String(), `"content_bytes":1048576`) || !strings.Contains(state.Body.String(), "result preview") {
+		t.Fatal("state lost the deferred result size or preview")
+	}
+	server.app.SendNow()
+	if want := recorder.Bucket(int64(state.Body.Len())); stateBucket != want || stateBucket >= 2<<20 {
+		t.Fatalf("page-health state bytes=%d, want %d and under 2 MiB", stateBucket, want)
+	}
+	history := httptest.NewRecorder()
+	server.session(history, httptest.NewRequest(http.MethodGet, "/api/sessions/chat-0/history?before=10", nil))
+	if history.Code != http.StatusOK || strings.Contains(history.Body.String(), "full result tail") {
+		t.Fatalf("history status=%d bytes=%d", history.Code, history.Body.Len())
+	}
+	result := httptest.NewRecorder()
+	server.session(result, httptest.NewRequest(http.MethodGet, "/api/sessions/chat-0/tool-result?key=tool%3Afixture-0", nil))
+	var detail struct{ Content string }
+	if err := json.Unmarshal(result.Body.Bytes(), &detail); err != nil || result.Code != http.StatusOK || detail.Content != body {
+		t.Fatalf("result status=%d bytes=%d", result.Code, result.Body.Len())
 	}
 }
 

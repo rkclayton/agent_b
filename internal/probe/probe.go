@@ -100,6 +100,15 @@ func probe(ctx context.Context, connection *config.Connection, evaluateCeiling b
 	working := *connection
 	working.Capabilities.Server = caps.Server
 	client = llm.New(&working)
+	if caps.ParallelCapacity == 0 {
+		caps.ParallelCapacity = connection.Capabilities.ParallelCapacity
+		for _, finding := range connection.Capabilities.Findings {
+			if strings.HasPrefix(finding, "parallel capacity:") {
+				findings = append(findings, finding)
+				break
+			}
+		}
+	}
 
 	check, cancel = context.WithTimeout(ctx, 20*time.Second)
 	_, err := client.Tokenize(check, "The quick brown fox", false)
@@ -182,6 +191,69 @@ func applyPropsCapabilities(caps *config.Capabilities, props llm.Props) {
 	if props.TotalSlots > 0 {
 		caps.ParallelCapacity = props.TotalSlots
 	}
+}
+
+// TestParallelCapacity checks for simultaneous generation in the stream itself.
+// Simultaneous HTTP requests are insufficient because servers can queue them.
+func TestParallelCapacity(ctx context.Context, connection *config.Connection) (int, string) {
+	client := llm.New(connection)
+	check, cancel := context.WithTimeout(ctx, 2*time.Second)
+	props, err := client.Props(check)
+	cancel()
+	if err == nil && props.TotalSlots > 0 {
+		return props.TotalSlots, "reported"
+	}
+	if !overlappingStreams(ctx, client, 2) {
+		return 1, "default"
+	}
+	for _, count := range []int{4, 3} {
+		if overlappingStreams(ctx, client, count) {
+			return count, "measured"
+		}
+	}
+	return 2, "measured"
+}
+
+func overlappingStreams(ctx context.Context, client *llm.Client, count int) bool {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	type interval struct{ first, last time.Time }
+	done := make(chan interval, count)
+	start := make(chan struct{})
+	request := llm.Request{Messages: []llm.Message{{Role: "user", Content: "List the numbers one through eight, with spaces."}}, MaxTokens: 24}
+	for range count {
+		go func() {
+			<-start
+			var emission interval
+			_, err := client.ChatStream(ctx, request, func(delta llm.Delta) {
+				if delta.Kind == "content" && delta.Text != "" {
+					emission.last = time.Now()
+					if emission.first.IsZero() {
+						emission.first = emission.last
+					}
+				}
+			})
+			if err != nil {
+				emission = interval{}
+			}
+			done <- emission
+		}()
+	}
+	close(start)
+	var latestStart, earliestEnd time.Time
+	for range count {
+		emission := <-done
+		if emission.first.IsZero() {
+			return false
+		}
+		if emission.first.After(latestStart) {
+			latestStart = emission.first
+		}
+		if earliestEnd.IsZero() || emission.last.Before(earliestEnd) {
+			earliestEnd = emission.last
+		}
+	}
+	return latestStart.Before(earliestEnd)
 }
 
 func probeImages(ctx context.Context, client *llm.Client) bool {

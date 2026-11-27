@@ -21,11 +21,12 @@ import (
 
 type Counter func(context.Context, string, string) (int, error)
 type Manager struct {
-	baseDir string
-	cfg     func() config.Config
-	count   Counter
-	mu      sync.Mutex
-	baseMu  sync.RWMutex
+	baseDir  string
+	userRoot string
+	cfg      func() config.Config
+	count    Counter
+	mu       sync.Mutex
+	baseMu   sync.RWMutex
 }
 
 type PlannerNotes struct {
@@ -95,10 +96,12 @@ func (p *PlannerNotes) Add(chat, note string) error {
 	return err
 }
 
-func New(baseDir string, cfg func() config.Config, count Counter) *Manager {
-	manager := &Manager{baseDir: baseDir, cfg: cfg, count: count}
-	_ = manager.migrateBuiltInMemory()
-	return manager
+func New(baseDir string, cfg func() config.Config, count Counter, sharedRoot ...string) *Manager {
+	userRoot := baseDir
+	if len(sharedRoot) != 0 && sharedRoot[0] != "" {
+		userRoot = sharedRoot[0]
+	}
+	return &Manager{baseDir: baseDir, userRoot: userRoot, cfg: cfg, count: count}
 }
 func (m *Manager) SetBaseDir(baseDir string) {
 	m.baseMu.Lock()
@@ -194,7 +197,111 @@ func EnsureRepoNotesIgnored(root string) error {
 func (m *Manager) AgentPath(agentID string) string {
 	return filepath.Join(m.Dir(), "agent-"+config.AgentID(agentID)+".md")
 }
-func (m *Manager) SharedPath() string { return filepath.Join(m.Dir(), "user.md") }
+func (m *Manager) SharedPath() string       { return filepath.Join(m.userRoot, "memory", "user.md") }
+func (m *Manager) ProfileNotesPath() string { return filepath.Join(m.Dir(), "user.md") }
+
+type ShareableNote struct {
+	AgentID string `json:"agent_id"`
+	Line    string `json:"line"`
+}
+
+func shareableNote(line string) bool {
+	scope := parseNote(line).Scope
+	return strings.HasPrefix(line, "- ") && (scope == "" || scope == "user" || scope == "agent")
+}
+
+func (m *Manager) ShareableNotes() ([]ShareableNote, error) {
+	var notes []ShareableNote
+	collect := func(id, path string) error {
+		body, err := m.readPath(path)
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(body, "\n") {
+			if shareableNote(line) {
+				notes = append(notes, ShareableNote{AgentID: id, Line: line})
+			}
+		}
+		return nil
+	}
+	if local := m.ProfileNotesPath(); local != m.SharedPath() {
+		if err := collect("", local); err != nil {
+			return nil, err
+		}
+	}
+	for _, agent := range m.cfg().Agents {
+		id := config.AgentID(agent.Name)
+		if err := collect(id, m.AgentPath(id)); err != nil {
+			return nil, err
+		}
+	}
+	return notes, nil
+}
+
+func (m *Manager) MoveToShared(note ShareableNote) error {
+	cfg := m.cfg()
+	_, agentKnown := cfg.Agent(note.AgentID)
+	if (note.AgentID != "" && !agentKnown) || !shareableNote(note.Line) {
+		return ErrNoteNotFound
+	}
+	source, destination := m.AgentPath(note.AgentID), m.SharedPath()
+	if note.AgentID == "" {
+		source = m.ProfileNotesPath()
+		if source == destination {
+			return ErrNoteNotFound
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	local, err := os.ReadFile(source)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(normalize(string(local)), "\n")
+	for i, line := range lines {
+		if line != note.Line {
+			continue
+		}
+		shared, err := os.ReadFile(destination)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		words := noteTextOf(line)
+		var alreadyShared bool
+		for _, existing := range strings.Split(normalize(string(shared)), "\n") {
+			alreadyShared = alreadyShared || strings.EqualFold(noteTextOf(existing), words)
+		}
+		if !alreadyShared {
+			next := strings.TrimRight(normalize(string(shared)), "\n")
+			if next != "" {
+				next += "\n"
+			}
+			next += line + "\n"
+			if cfg.Memory.MaxTokens > 0 && (len([]rune(next))+3)/4 > cfg.Memory.MaxTokens {
+				return fmt.Errorf("shared memory is full")
+			}
+			if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+				return err
+			}
+			if err := replaceMemoryFile(destination, next); err != nil {
+				return err
+			}
+		}
+		return replaceMemoryFile(source, strings.Join(append(lines[:i], lines[i+1:]...), "\n"))
+	}
+	return nil
+}
+
+func replaceMemoryFile(path, body string) error {
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, []byte(body), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, path)
+}
 func (m *Manager) TargetPath(agentID string) string {
 	if agent, ok := m.cfg().Agent(agentID); ok && agent.Private && config.AgentID(agent.Name) != "agent_b" {
 		return m.AgentPath(agentID)
@@ -209,10 +316,16 @@ func (m *Manager) Load(ctx context.Context, workspace, connectionID string) (str
 	return m.load(ctx, path, connectionID, "Notes from earlier sessions in this folder:")
 }
 func (m *Manager) LoadAgent(ctx context.Context, agentID, connectionID string) (string, string, error) {
-	_ = m.migrateBuiltInMemory()
 	shared, path, err := m.load(ctx, m.SharedPath(), connectionID, "Notes about the user:")
 	if err != nil {
 		return "", path, err
+	}
+	if local := m.ProfileNotesPath(); local != path {
+		profile, _, err := m.load(ctx, local, connectionID, "Notes from this profile:")
+		if err != nil {
+			return shared, path, err
+		}
+		shared = strings.TrimSpace(shared + "\n\n" + profile)
 	}
 	agent, private := m.cfg().Agent(agentID)
 	if !private || !agent.Private || config.AgentID(agent.Name) == "agent_b" {
@@ -225,63 +338,6 @@ func (m *Manager) LoadAgent(ctx context.Context, agentID, connectionID string) (
 	return strings.TrimSpace(shared + "\n\n" + own), path, nil
 }
 
-func (m *Manager) migrateBuiltInMemory() error {
-	shared, marker := m.SharedPath(), filepath.Join(m.Dir(), ".user-memory-v1")
-	if _, err := os.Stat(marker); err == nil {
-		return nil
-	}
-	legacy, err := filepath.Glob(filepath.Join(m.Dir(), "agent-*.md"))
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(shared), 0o700); err != nil {
-		return err
-	}
-	existing, readErr := os.ReadFile(shared)
-	if readErr != nil && !os.IsNotExist(readErr) {
-		return readErr
-	}
-	seen := map[string]bool{}
-	for _, line := range strings.Split(normalize(string(existing)), "\n") {
-		seen[strings.TrimSpace(line)] = true
-	}
-	file, err := os.OpenFile(shared, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	for _, old := range legacy {
-		data, readErr := os.ReadFile(old)
-		if readErr != nil {
-			err = readErr
-			break
-		}
-		for _, line := range strings.Split(normalize(string(data)), "\n") {
-			if line = strings.TrimSpace(line); line != "" && !seen[line] {
-				_, err = file.WriteString(line + "\n")
-				seen[line] = true
-				if err != nil {
-					break
-				}
-			}
-		}
-		if err != nil {
-			break
-		}
-	}
-	closeErr := file.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	for _, old := range legacy {
-		if err := os.Remove(old); err != nil {
-			return err
-		}
-	}
-	return os.WriteFile(marker, []byte("migrated\n"), 0o600)
-}
 func (m *Manager) load(ctx context.Context, path, connectionID, heading string) (string, string, error) {
 	_ = ctx
 	_ = connectionID
@@ -322,6 +378,13 @@ func (m *Manager) ReadForAgent(agentID string) (string, error) {
 	shared, err := m.readPath(m.SharedPath())
 	if err != nil {
 		return "", err
+	}
+	if local := m.ProfileNotesPath(); local != m.SharedPath() {
+		profile, err := m.readPath(local)
+		if err != nil {
+			return "", err
+		}
+		shared = strings.TrimSpace(shared + "\n" + profile)
 	}
 	agent, ok := m.cfg().Agent(agentID)
 	if !ok || !agent.Private || config.AgentID(agent.Name) == "agent_b" {
@@ -369,7 +432,12 @@ func (m *Manager) RenameAgent(from, to string) error {
 	return err
 }
 func (m *Manager) RemoveAgent(agentID, note string) (bool, error) {
-	count, err := m.DropSessionWrites([]events.MemoryWrite{{Path: m.TargetPath(agentID), Note: note, Target: "agent", AgentID: agentID}})
+	target := m.TargetPath(agentID)
+	writes := []events.MemoryWrite{{Path: target, Note: note, Target: "agent", AgentID: agentID}}
+	if local := m.ProfileNotesPath(); target == m.SharedPath() && local != target {
+		writes = append(writes, events.MemoryWrite{Path: local, Note: note, Target: "agent", AgentID: agentID})
+	}
+	count, err := m.DropSessionWrites(writes)
 	return count > 0, err
 }
 
@@ -406,7 +474,7 @@ func (m *Manager) DropSessionWrites(writes []events.MemoryWrite) (int, error) {
 	for _, write := range writes {
 		path := filepath.Clean(write.Path)
 		relative, err := filepath.Rel(root, path)
-		if err != nil || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		if path != m.SharedPath() && (err != nil || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
 			return 0, fmt.Errorf("memory write path is outside the memory root")
 		}
 		if byPath[path] == nil {

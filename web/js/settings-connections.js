@@ -219,6 +219,10 @@ function connectionFields(connection, reason, discovery, modelOnly = false) {
   const modelSettings = (connection.models || []).find((item) => item.model === shownModel) || discovery?.modelDefaults?.[shownModel];
   const shown = modelSettings ? { ...connection, ...modelSettings, model: shownModel } : connection;
   const caps = shown.capabilities || {};
+  const capacityOrigin = connection.max_concurrent > 0 ? "typed"
+    : caps.findings?.includes("parallel capacity: measured") ? "measured"
+    : caps.parallel_capacity > 0 && !caps.findings?.includes("parallel capacity: default") ? "reported" : "default";
+  const capacityInUse = connection.max_concurrent || caps.parallel_capacity || 1;
   const llama = caps.server === "llama.cpp";
   const legacyLearnedLimit = caps.observed_byte_limit > 0 && !(caps.findings || []).some((value) => String(value).startsWith("usable ceiling:"));
   const verdict = { "reads images": "read a digit", "accepts images but does not read them": "accepted, did not read", rejected: "rejected" }[caps.vision];
@@ -324,7 +328,7 @@ function connectionFields(connection, reason, discovery, modelOnly = false) {
 	${text(`${p}.extract_url`, "extract_url", connection.extract_url || "", "text", false)}
 	${modelOnly ? "" : choices(`${p}.protocol`, "protocol", ["chat-completions", "anthropic-messages", "openai-responses"], connection.protocol || "chat-completions", false)}
 	${choices(`${p}.attachment_handling`, "attachment handling", ["auto", "native", "extract"], shown.attachment_handling || "auto", false)}
-	${number(`${p}.max_concurrent`, "runs at once", connection.max_concurrent || "", "1", false, `empty: what the server reports ${"("}${caps.parallel_capacity || 1}), else 1`, false, "number", false)}
+	${number(`${p}.max_concurrent`, "runs at once", connection.max_concurrent || "", "1", false, `${capacityInUse} · ${capacityOrigin}`, false, "number", false)}
 	${modelOnly ? "" : number(`${p}.request_timeout_s`, "timeout", connection.request_timeout_s, "1", false, "", false, "number", false)}
     ${choices(`${p}.probe_mode`, "probe mode", ["full", "minimal", "off"], connection.probe_mode, false)}
 	${fallbackControl}</div>

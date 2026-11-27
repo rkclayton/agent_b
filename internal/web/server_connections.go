@@ -442,6 +442,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	duration := max(int(time.Since(started).Milliseconds()), 1)
 	if ok {
 		s.releaseReachableConnection(id)
+		s.recordTestCapacity(r.Context(), id, updated)
 	}
 	// 2wb: the vision probe runs again and says what it sent and got; it saves nothing.
 	vision, _, seen := probe.Vision(r.Context(), llm.New(&updated))
@@ -497,6 +498,46 @@ func (s *Server) saveDetectedProtocol(id, protocol string) error {
 	s.mu.Unlock()
 	s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
 	return nil
+}
+
+func (s *Server) recordTestCapacity(ctx context.Context, id string, tested config.Connection) {
+	matches := func(saved *config.Connection) bool {
+		return saved.ID == id && strings.TrimRight(saved.BaseURL, "/") == strings.TrimRight(tested.BaseURL, "/") &&
+			saved.Model == tested.Model && saved.APIKey == tested.APIKey && saved.ProbeMode != "off" &&
+			saved.Capabilities.ParallelCapacity == 0
+	}
+	s.connectionChecks.capacityMu.Lock()
+	defer s.connectionChecks.capacityMu.Unlock()
+	saved, ok := s.Connection(id)
+	if !ok || !matches(saved) || ctx.Err() != nil {
+		return
+	}
+	capacity, origin := probe.TestParallelCapacity(ctx, &tested)
+	if ctx.Err() != nil {
+		return
+	}
+	s.mu.Lock()
+	next := *s.cfg
+	next.Connections = append([]config.Connection(nil), s.cfg.Connections...)
+	for i := range next.Connections {
+		connection := &next.Connections[i]
+		if !matches(connection) {
+			continue
+		}
+		connection.Capabilities.ParallelCapacity = capacity
+		connection.Capabilities.Findings = append(append([]string(nil), connection.Capabilities.Findings...), "parallel capacity: "+origin)
+		if err := s.saveMachineConfig(next); err != nil {
+			s.mu.Unlock()
+			log.Print("connection capacity: save failed")
+			return
+		}
+		*s.cfg = next
+		masked := next.Masked()
+		s.mu.Unlock()
+		s.bus.Publish(events.New(events.ConfigChanged, "", "", map[string]any{"config": masked}))
+		return
+	}
+	s.mu.Unlock()
 }
 
 func safeConnectionFailureLog(message, apiKey string) string {

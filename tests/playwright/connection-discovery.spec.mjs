@@ -46,6 +46,140 @@ test.afterAll(async () => {
   if (root) removeTreeWithinAllowedRoots(root, [tmpdir()], "connection-discovery Playwright cleanup");
 });
 
+test("runs at once shows its measured default 2zq", async () => {
+  const fixture = await start({
+    exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(root, "capacity-data"),
+    configure(config) {
+      const caps = config.connections[0].capabilities;
+      caps.parallel_capacity = 4;
+      caps.findings = ["parallel capacity: measured"];
+    },
+  });
+  try {
+  const page = await fixture.context.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.goto(`${fixture.base}/chat#settings/connections`);
+  await page.locator('[data-action="connection-toggle"][data-id="ui"]').click();
+  await page.locator('[data-connection-advanced="ui"] > summary').click();
+  const row = page.locator('[data-path="connections.ui.max_concurrent"]').locator("xpath=ancestor::*[contains(@class,'setting-row')][1]");
+  await expect(row).toContainText("4 · measured");
+  const folder = "logs/evidence/rel-1.62.259/captures";
+  await mkdir(folder, { recursive: true });
+  for (const [width, height] of [[304, 254], [1280, 860], [1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    await row.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${folder}/capacity-${width}.png` });
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+  }
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("profile memory moves one note on click 2zr", async () => {
+  const data = join(root, "profile-memory-data");
+  const fixture = await start({ exe: join(root, "Agent_b.exe"), appRoot: repo, data, agents: ["Private fixture"], memoryEnabled: true });
+  try {
+    const saved = JSON.parse(await readFile(join(data, "harness.json"), "utf8"));
+    const dir = join(data, "profiles", saved.profiles.active, "memory");
+    const source = join(dir, "agent-private-fixture.md"), shared = join(data, "memory", "user.md");
+    const note = "- 2026-10-01 Prefer brief examples [scope: user]";
+    const other = "- 2026-10-01 Keep the original units [scope: user]";
+    await mkdir(dir, { recursive: true });
+    await writeFile(source, `${note}\n${other}\n`);
+    const page = await fixture.context.newPage({ viewport: { width: 1280, height: 860 } });
+    await page.goto(`${fixture.base}/chat#settings/profiles`);
+    await page.locator('[data-action="profile-memory-toggle"]').click();
+    const row = page.getByRole("row").filter({ hasText: "Prefer brief examples" });
+    const action = row.getByRole("button", { name: "Move to shared" });
+    await expect(action).toBeVisible();
+    expect(await readFile(source, "utf8")).toBe(`${note}\n${other}\n`);
+    await expect(readFile(shared, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const folder = "logs/evidence/rel-1.62.259/captures";
+    await mkdir(folder, { recursive: true });
+    for (const [width, height] of [[304, 254], [1280, 860], [1920, 1080]]) {
+      await page.setViewportSize({ width, height });
+      await action.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${folder}/memory-${width}.png` });
+      expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, ".settings-content"))).toEqual([]);
+    }
+    await action.click();
+    await expect(row).toHaveCount(0);
+    expect(await readFile(source, "utf8")).toBe(`${other}\n`);
+    expect(await readFile(shared, "utf8")).toBe(`${note}\n`);
+    await expect(page.getByRole("row").filter({ hasText: "Keep the original units" }).getByRole("button", { name: "Move to shared" })).toBeVisible();
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("large tool results load only when a retained row opens 2zs", async () => {
+  test.setTimeout(process.env.AGENTB_BASELINE_TREE ? 240_000 : 120_000);
+  const id = "s100", text = `Fixture opening line\n${"Result fixture line\n".repeat(55190)}Full result tail.`;
+  const time = "2026-10-01T12:00:00Z";
+  const events = [];
+  const push = (type, data) => events.push({ seq: events.length + 1, ts: time, session_id: id, run_id: "fixture-run", type, data });
+  push("session.created", { session: { id, label: "Large result fixture", created_at: time, agent_id: "ui", agent_name: "UI", connection_id: "ui", workspace: root, run: { status: "idle" }, runnable: true, messages: [], tools: [] } });
+  push("message.appended", { message: { id: "user-1", role: "user", content: "Read the fixture files." } });
+  for (let index = 0; index < 10; index++) {
+    const call_id = `fixture-${index}`, path = `fixture-${index}.txt`;
+    push("tool.call", { call_id, name: "read_file", args: { path } });
+    push("tool.result", { call_id, name: "read_file", ok: true, preview: "Fixture opening line", ms: 10 });
+    push("message.appended", { message: { id: `message-${index}`, role: "tool", tool_call_id: call_id, content: text } });
+  }
+  const tape = events.map((event) => JSON.stringify(event)).join("\n") + "\n";
+  const arms = [["after", repo]];
+  if (process.env.AGENTB_BASELINE_TREE) arms.unshift(["before", process.env.AGENTB_BASELINE_TREE]);
+  const folder = "logs/evidence/rel-1.62.259";
+  const results = {};
+  for (const [arm, appRoot] of arms) {
+    const data = join(root, `tool-results-${arm}`);
+    await mkdir(join(data, "chats"), { recursive: true });
+    await writeFile(join(data, "chats", `${id}.jsonl`), tape);
+    const fixture = await start({ exe: join(arm === "before" ? appRoot : root, "Agent_b.exe"), appRoot, data, readyTimeout: 60000 });
+    try {
+      const page = await fixture.context.newPage({ viewport: { width: 1280, height: 860 } });
+      await page.addInitScript((id) => sessionStorage.setItem("agentb.selection", JSON.stringify({ agent_id: "ui", session_id: id })), id);
+      const requests = [];
+      page.on("request", (request) => { if (request.url().includes("/tool-result?")) requests.push(request.url()); });
+      await page.goto(`${fixture.base}/chat?session=${id}`, { waitUntil: "domcontentloaded" });
+      const work = page.getByRole("button", { name: /^Worked/ });
+      await expect(work).toBeVisible({ timeout: 30000 });
+      const paintMS = await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(performance.now())))));
+      await work.click();
+      const target = page.locator(".tool-tick").filter({ hasText: "fixture-9.txt" }).first();
+      await expect(target).toBeVisible();
+      results[arm] = { paint_ms: Math.round(paintMS), closed: (await target.innerText()).trim() };
+      await writeFile(`${folder}/tool-paint.json`, JSON.stringify(results, null, 2));
+      expect(requests).toHaveLength(0);
+      if (arm !== "after") continue;
+      const state = await fixture.context.request.get(`${fixture.base}/api/state?session=${id}`);
+      expect(state.ok()).toBeTruthy();
+      expect((await state.body()).length).toBeLessThan(512 * 1024);
+      if (results.before) expect(results.after.closed).toEqual(results.before.closed);
+      else await expect(target).toContainText("fixture-9.txt");
+      await expect(page.locator(".tool-tick")).toHaveCount(10);
+      for (const [width, height] of [[304, 254], [1280, 860], [1920, 1080]]) {
+        await page.setViewportSize({ width, height });
+        if (width === 304) await page.evaluate(() => { document.body.classList.add("chat-list-hidden"); document.body.classList.remove("chat-list-visible"); document.querySelector(".chat-list-panel").hidden = true; });
+        await target.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: `${folder}/captures/tool-result-${width}.png` });
+        expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+      }
+      await target.click();
+      const detail = target.locator("xpath=../pre");
+      await expect(detail).toContainText("Full result tail.");
+      expect((await detail.textContent()).endsWith(text)).toBe(true);
+      expect(requests).toHaveLength(1);
+      await target.click();
+      await expect(detail).toHaveCount(0);
+    } finally {
+      await fixture.stop();
+    }
+  }
+  await writeFile(`${folder}/tool-paint.json`, JSON.stringify(results, null, 2));
+  console.log(JSON.stringify(results));
+});
+
 test("stored credential consent switch and idle hours persist 2ye", async () => {
  const page=await harness.context.newPage({viewport:{width:1280,height:860}});
  await page.route('**/api/broker/status',route=>route.fulfill({json:{state:'not paired',log_path:'C:\\Data\\logs\\pairing.log'}}));

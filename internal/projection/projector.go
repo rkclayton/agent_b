@@ -127,6 +127,8 @@ type ChatEntry struct {
 	Args                     *map[string]any     `json:"args,omitempty"`
 	Result                   map[string]any      `json:"result,omitempty"`
 	Content                  string              `json:"content,omitempty"`
+	ContentBytes             int                 `json:"content_bytes,omitempty"`
+	DetailDeferred           bool                `json:"detail_deferred,omitempty"`
 	Event                    *events.Event       `json:"event,omitempty"`
 	Decision                 string              `json:"decision,omitempty"`
 	Attachments              []events.Attachment `json:"attachments,omitempty"`

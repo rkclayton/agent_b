@@ -134,6 +134,51 @@ func TestConnectionLimitUsesReportedCapacityUnlessOverridden2v4(t *testing.T) {
 	}
 }
 
+func TestLearnedCapacityRunsTwoChatsTogether(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		started <- struct{}{}
+		<-release
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer model.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	cfg, connection, first, scheduler := schedulerFixture(t, model.URL)
+	cfg.Connections[0].Capabilities.ParallelCapacity = 4
+	second, err := scheduler.registry.Create("second", connection.ID, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []*session.Session{first, second} {
+		if _, err := scheduler.Submit(context.Background(), item.ID, "Reply OK."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.After(8 * time.Second)
+	for range 2 {
+		select {
+		case <-started:
+		case <-deadline:
+			t.Fatal("both chat requests did not reach the model together")
+		}
+	}
+	close(release)
+	waitSchedulerIdle(t, scheduler, first.ID)
+	waitSchedulerIdle(t, scheduler, second.ID)
+}
+
 func TestQueuedMessagesJoinAfterCompletedToolResultsAtNextBoundary2tl(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer model.Close()

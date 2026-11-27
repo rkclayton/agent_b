@@ -67,7 +67,7 @@ test("Connections offers the saved runs-at-once override and learned default 2v4
   context.expanded.add("local");
   context.number = (path, label, value, _step, _disabled, note) => `${path}|${label}|${value}|${note}`;
   const page = renderConnectionsPage(context);
-  assert.match(page, /connections\.local\.max_concurrent\|runs at once\|2\|empty: what the server reports \(4\), else 1/);
+  assert.match(page, /connections\.local\.max_concurrent\|runs at once\|2\|2 · typed/);
 });
 
 test("button-owned text survives a Settings redraw", () => {

@@ -17,8 +17,14 @@ export function renderProfilesPage(context) {
     const open = expanded.has(`profile-memory-note:${index}`);
     return `<tr class="profile-memory-note ${open ? "open" : ""}"><td>${html(date)}</td><td>${html(kind)}</td><td><button type="button" class="memory-note-text" data-action="profile-memory-note-toggle" data-id="${index}" title="${attr(note)}">${html(note)}</button></td><td><button type="button" data-action="remove-agent-memory" data-id="${attr(raw)}" data-confirm="this memory note">Remove</button></td></tr>`;
   }).join("");
+  const moveRows = (context.shareableNotes || []).map(({ agent_id, line }, index) => {
+    const date = /^- (\d{4}-\d{2}-\d{2})/.exec(line)?.[1] || "—";
+    const note = line.replace(/^- (?:\d{4}-\d{2}-\d{2}\s+)?/, "").replace(/\s*\[[^\]]+\]\s*$/, "");
+    const name = agent_id ? store.config?.agents?.find((item) => profileAgentID(item) === agent_id)?.name || agent_id : store.profiles?.active || "Current profile";
+    return `<tr class="profile-memory-move"><td>${html(date)}</td><td>${html(name)}</td><td>${html(note)}</td><td><button type="button" data-action="move-agent-memory" data-id="${index}">Move to shared</button></td></tr>`;
+  }).join("");
   const memoryOpen = expanded.has("profile-memory");
-  const memory = `<div class="profile-memory-block"><div class="setting-row profile-memory-row" title="Agent memory notes."><label>memory</label><div><span>${notes.length}</span><button type="button" data-action="profile-memory-toggle" aria-expanded="${memoryOpen}">${memoryOpen ? "Close" : "Open"}</button></div></div><table class="profile-memory-table" ${memoryOpen ? "" : "hidden"}><thead><tr><th>Date</th><th>Kind</th><th>Note</th><th>Remove</th></tr></thead><tbody>${memoryRows}</tbody></table></div>`;
+  const memory = `<div class="profile-memory-block"><div class="setting-row profile-memory-row" title="Agent memory notes."><label>memory</label><div><span>${notes.length}</span><button type="button" data-action="profile-memory-toggle" aria-expanded="${memoryOpen}">${memoryOpen ? "Close" : "Open"}</button></div></div><table class="profile-memory-table" ${memoryOpen ? "" : "hidden"}><thead><tr><th>Date</th><th>Kind</th><th>Note</th><th>${moveRows ? "Action" : "Remove"}</th></tr></thead><tbody>${moveRows}${memoryRows}</tbody></table></div>`;
   const agentID = activeSession?.agent_id || profileAgentID(store.config?.agents?.[0]);
   const agent = (store.config?.agents || []).find((item) => profileAgentID(item) === agentID) || {};
   const enabled = agent.skills || {};
@@ -30,5 +36,5 @@ import { actionTable } from "./settings-action-table.js";
 
 export const profileActions = actionTable([
   "profile-memory-toggle", "profile-memory-note-toggle", "create-profile",
-  "switch-profile", "rename-profile", "remove-agent-memory",
+  "switch-profile", "rename-profile", "remove-agent-memory", "move-agent-memory",
 ]);

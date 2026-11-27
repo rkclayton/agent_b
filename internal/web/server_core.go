@@ -518,6 +518,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/workspaces", s.replayGuard(s.workspaces))
 	mux.HandleFunc("/api/workspaces/", s.replayGuard(s.workspaceAction))
 	mux.HandleFunc("/api/agent-memory/remove", s.replayGuard(s.agentMemoryRemove))
+	mux.HandleFunc("/api/agent-memory/shared", s.replayGuard(s.agentMemoryShared))
 	// the rows the Activity page builds from, and the two actions the
 	// delete route did not have. Removal stays exactly where it was.
 	mux.HandleFunc("/api/reflection-notes", s.replayGuard(s.reflectionNotes))

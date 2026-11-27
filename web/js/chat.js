@@ -453,6 +453,11 @@ function changeBound(value) {
 // author of a c-role notice cannot go missing the way it did.
 function entryRole(entry) { return entry?.agent_role || entry?.agentRole || "b"; }
 
+function sizeRefusalNotice(event) {
+  return event?.type === "run.stopped" && event.data?.reason === "model_error" &&
+    String(event.data?.detail || "").includes("\nEstimated prompt ");
+}
+
 function groupResponses(entries) {
   const grouped = [];
   let response = null;
@@ -490,7 +495,7 @@ function groupResponses(entries) {
     // reason — it is the line that CLOSES the run, and folding it into the steps
     // group buries it under a collapsed "Steps · 1 row", which is where my first
     // version of this put it. The screenshot gate is what showed me.
-    if (entry.type === "notice" && ((entry.event?.type === "run.stopped" && entry.event?.data?.reason === "model_unreachable") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "length") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "aborted_mid_tool") || (entry.event?.type === "run.stopped" && entry.event?.data?.reason === "done") || (entry.event?.type === "compaction" && ["fresh", "prune", "prune+fresh"].includes(entry.event?.data?.kind)) || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
+    if (entry.type === "notice" && (sizeRefusalNotice(entry.event) || (entry.event?.type === "run.stopped" && ["model_unreachable", "length", "aborted_mid_tool", "done"].includes(entry.event?.data?.reason)) || (entry.event?.type === "compaction" && ["fresh", "prune", "prune+fresh"].includes(entry.event?.data?.kind)) || entry.event?.type === "service.identity_unavailable" || entry.event?.type === "c.job")) {
       grouped.push(entry);
       response = null;
       continue;
@@ -1150,7 +1155,7 @@ function updateWorkDisclosure(view, phrase, time, failed) {
 
 function noticeDisclosure(content, entry) {
   const type = entry.event?.type;
-  if (type === "credential.needed") return content;
+  if (type === "credential.needed" || sizeRefusalNotice(entry.event)) return content;
   if (!type) {
     content.classList.add("chat-plain-notice");
     content.title = content.textContent;
@@ -1241,6 +1246,9 @@ function noticeContent(session, entry, actionable) {
 		} else if (data.reason === "aborted_mid_tool") {
 			content.textContent = "stopped mid-tool";
 			if (data.detail) content.title = data.detail;
+		} else if (sizeRefusalNotice(event)) {
+			content.classList.add("chat-size-refusal");
+			content.textContent = data.detail;
 		} else if (data.reason === "reply_empty_reasoning_shown" || data.reason === "reply_empty") {
 			content.textContent = data.detail || reason;
 		} else if (data.reason === "done") {

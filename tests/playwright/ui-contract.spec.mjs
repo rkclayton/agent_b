@@ -43,6 +43,29 @@ async function thinkingFixture(browser, width = 1280, apiResponse = null) {
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
 
+test("size refusal shows the server sentence and request sizes once 2zx", async ({ browser }) => {
+  const folder = "logs/evidence/rel-1.62.262";
+  await mkdir(folder, { recursive: true });
+  const sentence = "The fixture context limit is 200000 tokens.";
+  const sizes = "Estimated prompt 199000 tokens · requested reply 1000 tokens";
+  for (const width of [304, 1280, 1920]) {
+    const fixture = await thinkingFixture(browser, width);
+    try {
+      await fixture.emit([{ type: "notice", key: "refusal", event: { type: "run.stopped", data: { reason: "model_error", detail: `${sentence}\n${sizes}` } } }], true);
+      const log = fixture.page.locator("#chat-log");
+      const notice = log.getByText(sentence, { exact: false });
+      await expect(notice).toHaveCount(1);
+      await expect(log).toContainText(sizes);
+      await notice.scrollIntoViewIfNeeded();
+      await expect(notice).toBeInViewport({ ratio: 1 });
+      expect(auditLayoutSnapshot(await fixture.page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+      await fixture.page.screenshot({ path: `${folder}/refusal-${width}.png` });
+    } finally {
+      await fixture.context.close();
+    }
+  }
+});
+
 test("two quick sends survive a delayed chat list refresh 2zn", async ({ browser }, testInfo) => {
   const fixture = await thinkingFixture(browser);
   const { page } = fixture;

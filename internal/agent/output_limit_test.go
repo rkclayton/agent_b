@@ -8,13 +8,15 @@ import (
 	"harness/internal/config"
 	"harness/internal/events"
 	"harness/internal/llm"
+	"harness/internal/session"
+	"harness/internal/tools"
 )
 
 func TestFreeContextReplyCeiling2yf(t *testing.T) {
 	for _, saved := range []int{-1, 8192, 999999} {
 		c := &config.Connection{Context: config.Context{NCtx: 64000, ReserveOutput: saved}}
-		for _, tc := range []struct{ prompt, want int }{{2000, 62000}, {63000, 10240}} {
-			got := requestTokenLimit(c, events.Budget{NCtx: 64000}, tc.prompt)
+		for _, tc := range []struct{ prompt, want int }{{2000, 62000}, {63000, 1000}} {
+			got := requestTokenLimit(events.Budget{NCtx: 64000}, tc.prompt)
 			body := llm.BuildRequest(c, llm.Request{MaxTokens: got}, false)
 			if body["max_tokens"] != tc.want {
 				t.Fatalf("saved=%d prompt=%d body=%v", saved, tc.prompt, body)
@@ -24,9 +26,28 @@ func TestFreeContextReplyCeiling2yf(t *testing.T) {
 }
 func TestUnknownContextReplyCeiling2yf(t *testing.T) {
 	c := &config.Connection{}
-	got := requestTokenLimit(c, events.Budget{}, 2000)
+	got := requestTokenLimit(events.Budget{}, 2000)
 	if got != 0 || llm.BuildRequest(c, llm.Request{MaxTokens: got}, false)["max_tokens"] != 10240 {
 		t.Fatalf("unknown ceiling=%d", got)
+	}
+}
+
+func TestReplyRoomStaysInside200KWindow2zx(t *testing.T) {
+	const window, prompt = 200_000, 199_000
+	c := &config.Connection{Context: config.Context{NCtx: window, ReserveOutput: 10_240}}
+	budget := events.Budget{NCtx: window, UsedEst: prompt, UsedMeasured: 198_950, Mode: "estimated"}
+	got := requestTokenLimit(budget, guardedPromptTokens(budget))
+	cfg := config.Defaults(t.TempDir())
+	budget.Ceiling = window - c.Context.OutputReserve()
+	runner := NewRunner(events.NewBus(), tools.New(), &PromptRenderer{}, nil, func() config.Config { return cfg })
+	state := runState{r: runner, ctx: t.Context(), connection: c, s: &session.Session{ID: "fixture"},
+		budget: budget, request: llm.Request{MaxTokens: got}, recheckSummary: true}
+	if outcome := state.fitWindow(); outcome != runGoOnOutcome {
+		t.Fatalf("near-window request after the existing compaction check stopped: %+v", outcome)
+	}
+	body := llm.BuildRequest(c, state.request, false)
+	if got != window-prompt || body["max_tokens"] != window-prompt {
+		t.Fatalf("prompt=%d reply=%v window=%d", prompt, body["max_tokens"], window)
 	}
 }
 

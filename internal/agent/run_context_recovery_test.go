@@ -26,9 +26,11 @@ func TestEverySizeRefusalStopsWithoutChangingLimits2ys(t *testing.T) {
 		for _, twice := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/twice=%t", refusal, twice), func(t *testing.T) {
 				var streamCalls, summaryCalls atomic.Int32
+				var replyTokens atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 					var body struct {
-						Stream bool `json:"stream"`
+						Stream    bool  `json:"stream"`
+						MaxTokens int32 `json:"max_tokens"`
 					}
 					_ = json.NewDecoder(request.Body).Decode(&body)
 					if !body.Stream {
@@ -37,6 +39,7 @@ func TestEverySizeRefusalStopsWithoutChangingLimits2ys(t *testing.T) {
 						return
 					}
 					call := streamCalls.Add(1)
+					replyTokens.Store(body.MaxTokens)
 					if call == 1 || twice {
 						status := http.StatusBadRequest
 						if twice {
@@ -69,16 +72,20 @@ func TestEverySizeRefusalStopsWithoutChangingLimits2ys(t *testing.T) {
 				item.Append(events.Message{ID: "task", Role: "user", Category: "history", Content: "CURRENT TASK WORD FOR WORD", Tokens: 10})
 
 				reason, detail, _ := runner.Run(t.Context(), item, "run")
-				compactions := 0
+				compactions, estimated := 0, 0
 				for _, event := range bus.Recent(item.ID) {
 					if event.Type == events.Compaction {
 						compactions++
+					}
+					if event.Type == events.ModelRequest {
+						estimated, _ = event.Data.(map[string]any)["est_prompt_tokens"].(int)
 					}
 				}
 				if streamCalls.Load() != 1 || summaryCalls.Load() != 0 || compactions != 0 {
 					t.Fatalf("stream=%d summary=%d compactions=%d reason=%s detail=%q", streamCalls.Load(), summaryCalls.Load(), compactions, reason, detail)
 				}
-				if reason != "model_error" || detail != refusal {
+				want := fmt.Sprintf("%s\nEstimated prompt %d tokens · requested reply %d tokens", refusal, estimated, replyTokens.Load())
+				if reason != "model_error" || estimated <= 0 || replyTokens.Load() <= 0 || detail != want || strings.Count(detail, refusal) != 1 {
 					t.Fatalf("refusal=%s %q", reason, detail)
 				}
 				runner.Run(t.Context(), item, "next")

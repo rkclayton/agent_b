@@ -136,8 +136,8 @@ and in 46 of the 155 that carried timings the first response still reported unde
 the budget measurement in exact mode calls only `/tokenize` and `/apply-template`, neither of which occupies a KV slot. Which slot each request takes,
 and what displaces it, is not recorded anywhere the harness writes; that attribution is open.
 
-Agent-loop `max_tokens` is `max(computed reply reserve, n_ctx - guarded prompt tokens)`,
-where the reserve is one eighth of the context, bounded to 10240–32768 tokens; saved reserve values are ignored and omitted on save. Thinking uses half that reserve, unchanged by the larger reply ceiling. Unknown context retains the existing zero request limit / 10240 wire default; run-local server clamps remain. Estimated accounting applies its 10% prompt guard before this calculation. Immediately before
+Agent-loop `max_tokens` is the space remaining between the guarded prompt and the context window. A request with no reply room uses the existing context-exhausted stop.
+The compaction reserve stays at one eighth of the context, bounded to 10240–32768 tokens. Saved reserve values are ignored and omitted on save. The automatic thinking share uses half the reserve, limited by the actual reply room. Unknown context retains the existing zero request limit and 10240 wire default. Estimated accounting applies its 10% prompt guard before this calculation. Immediately before
 every model request, including a run's first, one context rule compares the server's last prompt count plus the added estimate (or the estimate plus 10%)
 with `summary_pct` of the usable window. At the line, every user message in the pinned running task stays whole, along with whole newest work turns fitting
 25% of the room after the fixed prompt; the newest turn always stays. First, if the older messages' `files`, `results` and `fetched` tool results are at

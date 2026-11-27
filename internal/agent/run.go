@@ -1654,11 +1654,8 @@ func guardedPromptTokens(budget events.Budget) int {
 	return used
 }
 
-func requestTokenLimit(p *config.Connection, budget events.Budget, promptTokens int) int {
-	if budget.NCtx <= 0 {
-		return 0
-	}
-	return max(p.Context.OutputReserve(), budget.NCtx-promptTokens)
+func requestTokenLimit(budget events.Budget, promptTokens int) int {
+	return max(0, budget.NCtx-promptTokens)
 }
 
 func outputFloor(p *config.Connection) int {

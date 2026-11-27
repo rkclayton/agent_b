@@ -1,9 +1,14 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +25,48 @@ import (
 	"harness/internal/session"
 	toolpkg "harness/internal/tools"
 )
+
+func TestEstimatedBudgetMatchesStandInContentShapes2zx(t *testing.T) {
+	var picture bytes.Buffer
+	if err := png.Encode(&picture, image.NewGray(image.Rect(0, 0, 512, 512))); err != nil {
+		t.Fatal(err)
+	}
+	url := "data:image/png;base64," + base64.StdEncoding.EncodeToString(picture.Bytes())
+	shapes := []struct {
+		name, role string
+		content    any
+		tokens     int
+	}{
+		{"structured tool result", "tool", strings.Repeat("{\"x\":1,\"y\":2}\n", 1000), 9000},
+		{"Chinese text", "user", strings.Repeat("文件读取已经完成。", 600), 5400},
+		{"512-square image", "user", []any{map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}}}, 1024},
+	}
+	for _, shape := range shapes {
+		t.Run(shape.name, func(t *testing.T) {
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintf(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":1}}`, shape.tokens)
+			}))
+			defer model.Close()
+			connection := config.Connection{BaseURL: model.URL, Model: "fixture", Context: config.Context{NCtx: 200000}}
+			item := &session.Session{ID: "fixture", SchemaTokens: map[string]int{}}
+			message := llm.Message{Role: shape.role, Content: shape.content}
+			in := budgetInput{Messages: []llm.Message{message}, Records: []events.Message{{ID: "m1", Role: shape.role, Category: "history"}}}
+			budget, err := NewBudgeter().Measure(context.Background(), &connection, item, config.GlobalContext{Accounting: "estimated"}, in, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual, err := llm.New(&connection).Chat(context.Background(), llm.Request{Messages: in.Messages, MaxTokens: 1})
+			if err != nil || actual.Usage.PromptTokens != shape.tokens {
+				t.Fatalf("stand-in usage=%d, err=%v", actual.Usage.PromptTokens, err)
+			}
+			drift := 100 * float64(budget.UsedEst-actual.Usage.PromptTokens) / float64(actual.Usage.PromptTokens)
+			t.Logf("estimated=%d reported=%d drift=%+.2f%%", budget.UsedEst, actual.Usage.PromptTokens, drift)
+			if math.Abs(drift) >= 10 {
+				t.Fatal("estimate drift reached 10%")
+			}
+		})
+	}
+}
 
 func TestTodoAndAskSchemaCostsOn32KConnection2rj(t *testing.T) {
 	registry := toolpkg.New(toolpkg.NewTodo(), toolpkg.NewAsk())

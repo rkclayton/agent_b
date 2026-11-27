@@ -410,7 +410,7 @@ func (x *runState) buildRequest() runOutcome {
 			return
 		}
 		guardUsed := guardedPromptTokens(x.budget)
-		x.request.MaxTokens = requestTokenLimit(x.connection, x.budget, guardUsed)
+		x.request.MaxTokens = requestTokenLimit(x.budget, guardUsed)
 		budgetStatus, _ := llm.ReasoningBudgetFinding(x.connection)
 		if x.request.Thinking && x.connection.Reasoning.MaxTokens > 0 && budgetStatus != "accepted" {
 			x.request.MaxTokens = min(x.request.MaxTokens, x.connection.Reasoning.MaxTokens)
@@ -419,6 +419,8 @@ func (x *runState) buildRequest() runOutcome {
 			allowance := x.connection.Context.OutputReserve()
 			if x.budget.NCtx <= 0 {
 				allowance = x.request.MaxTokens
+			} else {
+				allowance = min(allowance, x.request.MaxTokens)
 			}
 			share := config.ReasoningShareFor(allowance)
 			if budgetStatus == "accepted" {
@@ -514,12 +516,12 @@ func (x *runState) fitWindow() runOutcome {
 			return runAgainOutcome
 		}
 		x.recheckSummary = false
-		if guardedPromptTokens(x.budget) > x.budget.Ceiling {
+		if guardedPromptTokens(x.budget) >= x.budget.NCtx {
 			return x.stop("context_exhausted", "fixed and retained messages exceed the model window after compaction", x.turn-1)
 		}
 	} else {
 		result := x.compactBeforeRequest()
-		if result.Stop != "" && !(result.Changed && x.recheckSummary) {
+		if result.Stop != "" && !(result.Changed && x.recheckSummary) && x.request.MaxTokens <= 0 {
 			return x.stop("context_exhausted", result.Stop, x.turn-1)
 		}
 		if result.Changed {
@@ -527,6 +529,9 @@ func (x *runState) fitWindow() runOutcome {
 			x.turn--
 			return runAgainOutcome
 		}
+	}
+	if x.budget.NCtx > 0 && x.request.MaxTokens <= 0 {
+		return x.stop("context_exhausted", fmt.Sprintf("the estimated prompt needs %d tokens in a %d-token window", guardedPromptTokens(x.budget), x.budget.NCtx), x.turn-1)
 	}
 	if x.reasoningFallbackPending {
 		x.reasoningFallbackPending, x.reasoningFallbackUsed = false, true
@@ -657,7 +662,8 @@ func (x *runState) callModelStep() runOutcome {
 			return x.stop("length", answerCeilingDetail(x.connection, time.Since(x.answerStarted)), x.turn)
 		}
 		if sentence, matched := sizeRefusalSentence(x.callErr); matched {
-			return x.stop("model_error", sentence, x.turn)
+			detail := fmt.Sprintf("%s\nEstimated prompt %d tokens · requested reply %d tokens", sentence, x.budget.UsedEst, x.request.MaxTokens)
+			return x.stop("model_error", detail, x.turn)
 		}
 		if kind := attachedPartKind(x.request); kind != "" && x.attachmentsAsTextTurn != x.turn && attachedPartRefusal(x.callErr) {
 			x.attachmentsAsTextTurn = x.turn

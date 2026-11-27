@@ -704,6 +704,7 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
   overflow: hidden;
 }
 
+.chat-size-refusal { white-space: pre-line; overflow-wrap: anywhere; }
 .thinking-body,
 .tool-detail {
   margin: 4px 0 0;

@@ -3,13 +3,19 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
 	"log"
 	"math"
 	"strings"
 	"sync"
+	"unicode"
 
 	"harness/internal/config"
 	"harness/internal/events"
@@ -629,11 +635,102 @@ func estimateChars(chars, cpt float64) int {
 	return int(math.Ceil(chars / cpt))
 }
 func messageChars(message llm.Message) float64 {
-	chars := len([]rune(messageText(message.Content))) + len([]rune(llm.VisibleReasoning(message.ReasoningContent)))
-	for _, call := range message.ToolCalls {
-		chars += len([]rune(call.Function.Arguments))
+	text := messageText(message.Content)
+	plain := strings.TrimSpace(text)
+	var chars float64
+	if message.Role == llm.RoleTool && len(plain) >= 256 && (strings.HasPrefix(plain, "{\"") || strings.HasPrefix(plain, "[{")) {
+		chars = structuredResultUnits(plain)
+	} else {
+		chars = textUnits(text)
 	}
-	return float64(chars)
+	chars += textUnits(llm.VisibleReasoning(message.ReasoningContent))
+	parts, _ := message.Content.([]any)
+	for _, part := range parts {
+		object, _ := part.(map[string]any)
+		if object["type"] == "image_url" {
+			img, _ := object["image_url"].(map[string]any)
+			url, _ := img["url"].(string)
+			chars += estimateUnit * float64(estimatedImageTokens(url))
+		}
+	}
+	for _, call := range message.ToolCalls {
+		chars += textUnits(call.Function.Arguments)
+	}
+	return chars
+}
+
+const estimateUnit = 3.6
+
+func textUnits(text string) float64 {
+	total := 0.0
+	for _, r := range text {
+		total += runeUnits(r)
+	}
+	return total
+}
+
+func runeUnits(r rune) float64 {
+	switch {
+	case r < 128:
+		return 1
+	case unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul), r >= 0x3000 && r <= 0x303f:
+		return estimateUnit
+	case r >= 0x10000:
+		return 2 * estimateUnit
+	default:
+		return 2
+	}
+}
+
+// Structured results have short keys, numbers and punctuation runs that cost
+// more than an equal-length prose paragraph.
+func structuredResultUnits(text string) float64 {
+	var total float64
+	var kind byte
+	var length int
+	flush := func() {
+		if length == 0 {
+			return
+		}
+		if kind == 'w' {
+			total += max(estimateUnit, float64(length))
+		} else {
+			total += estimateUnit * float64((length+2)/3)
+		}
+		length = 0
+	}
+	for _, r := range text {
+		next := byte('p')
+		switch {
+		case r >= 128:
+			flush()
+			total += runeUnits(r)
+			continue
+		case r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
+			next = 'w'
+		case r >= '0' && r <= '9':
+			next = 'n'
+		}
+		if next != kind {
+			flush()
+			kind = next
+		}
+		length++
+	}
+	flush()
+	return total
+}
+
+func estimatedImageTokens(url string) int {
+	width, height := 512, 512
+	header, payload, found := strings.Cut(url, ",")
+	if found && strings.HasPrefix(header, "data:image/") && strings.HasSuffix(header, ";base64") {
+		reader := base64.NewDecoder(base64.StdEncoding, strings.NewReader(payload))
+		if info, _, err := image.DecodeConfig(io.LimitReader(reader, 32<<10)); err == nil {
+			width, height = min(info.Width, 4096), min(info.Height, 4096)
+		}
+	}
+	return ((width + 15) / 16) * ((height + 15) / 16)
 }
 func messageText(value any) string {
 	if text, ok := value.(string); ok {

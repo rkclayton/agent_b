@@ -480,9 +480,8 @@ func TestMalformedHistoryRepairPreservesFailureNoteWithoutRestoringFailedAction(
 }
 
 func TestRequestTokenLimitUsesRemainingContextAfterReserve(t *testing.T) {
-	connection := &config.Connection{Context: config.Context{NCtx: 32768, ReserveOutput: 10240}}
 	budget := events.Budget{NCtx: 32768, Reserve: 10240, UsedEst: 8451, Mode: "exact"}
-	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 24317 {
+	if got := requestTokenLimit(budget, guardedPromptTokens(budget)); got != 24317 {
 		t.Fatalf("max_tokens=%d, want 24317", got)
 	}
 	budget.Mode = "estimated"
@@ -490,12 +489,11 @@ func TestRequestTokenLimitUsesRemainingContextAfterReserve(t *testing.T) {
 		t.Fatalf("guarded prompt=%d, want 9297", got)
 	}
 	budget.UsedEst = 30000
-	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 10240 {
-		t.Fatalf("estimated exhausted max_tokens=%d, want computed floor 10240 before compaction", got)
+	if got := requestTokenLimit(budget, guardedPromptTokens(budget)); got != 0 {
+		t.Fatalf("estimated exhausted max_tokens=%d, want zero room before compaction", got)
 	}
-	connection.Context.ReserveOutput = 1024
 	budget.Mode, budget.UsedEst = "exact", 20000
-	if got := requestTokenLimit(connection, budget, guardedPromptTokens(budget)); got != 12768 {
+	if got := requestTokenLimit(budget, guardedPromptTokens(budget)); got != 12768 {
 		t.Fatalf("configured-low max_tokens=%d, want free context %d", got, 12768)
 	}
 }

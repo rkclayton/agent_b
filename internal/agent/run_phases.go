@@ -361,6 +361,7 @@ func (x *runState) buildRequest() runOutcome {
 		current := runningTurnIDs(records, x.s.RunPin())
 		for _, message := range records {
 			if isHarnessAbortRecord(message) {
+				message = abortRequestSummary(message)
 				messages = append(messages, requestMessageAt(x.connection, x.s, message, current[message.ID]))
 				requestRecords = append(requestRecords, message)
 			}

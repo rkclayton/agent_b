@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/session"
 )
 
@@ -127,6 +128,9 @@ func (g *Glob) CallDetailed(ctx context.Context, s *session.Session, args map[st
 			if filePath != root && configuredSkipRoot(filePath, cfg.SkipRoots) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if credential.IsStoragePath(filePath) {
 			return nil
 		}
 		matchPath, err := filepath.Rel(root, filePath)

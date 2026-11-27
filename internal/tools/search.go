@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"harness/internal/session"
 )
@@ -21,19 +23,20 @@ import (
 type Search struct {
 	content Tool
 	names   Tool
+	walks   chan struct{}
 }
 
 // The two it dispatches to are taken as they are already built and wrapped, so
 // the file-identity wrapper and everything else around them still applies.
 func NewSearch(content, names Tool) *Search {
-	return &Search{content: content, names: names}
+	return &Search{content: content, names: names, walks: make(chan struct{}, 16)}
 }
 
 func (*Search) Name() string { return "search" }
 
 // Under 60 tokens, and it no longer has to distinguish itself from a sibling.
 func (*Search) Description() string {
-	return "Search local files under path: target=content returns matching text lines; target=name returns matching file names and stops after 30 seconds with partial results."
+	return "Search local files under path: target=content returns matching text lines; target=name returns matching file names. Both stop after 30 seconds with partial results."
 }
 
 func (*Search) Schema() map[string]any {
@@ -55,18 +58,21 @@ func searchTarget(args map[string]any) string {
 }
 
 func (s *Search) Call(ctx context.Context, item *session.Session, args map[string]any) (string, error) {
-	return s.pick(args).Call(ctx, item, args)
+	detail := s.CallDetailed(ctx, item, args)
+	return detail.Content, detail.Err
 }
 
 // CallDetailed passes through when the tool behind the target has one, so a
 // narrowly scoped operator retry is still offered exactly as it was.
 func (s *Search) CallDetailed(ctx context.Context, item *session.Session, args map[string]any) CallDetail {
-	tool := s.pick(args)
-	if detailed, ok := tool.(DetailedTool); ok {
-		return detailed.CallDetailed(ctx, item, args)
-	}
-	content, err := tool.Call(ctx, item, args)
-	return CallDetail{Content: content, Err: err}
+	return s.run(ctx, func(ctx context.Context) CallDetail {
+		tool := s.pick(args)
+		if detailed, ok := tool.(DetailedTool); ok {
+			return detailed.CallDetailed(ctx, item, args)
+		}
+		content, err := tool.Call(ctx, item, args)
+		return CallDetail{Content: content, Err: err}
+	})
 }
 
 func (s *Search) CallAsOperator(ctx context.Context, item *session.Session, args map[string]any) (string, error) {
@@ -75,7 +81,52 @@ func (s *Search) CallAsOperator(ctx context.Context, item *session.Session, args
 	if !ok {
 		return "", fmt.Errorf("search target has no user-identity override")
 	}
-	return override.CallAsOperator(ctx, item, args)
+	detail := s.run(ctx, func(ctx context.Context) CallDetail {
+		content, err := override.CallAsOperator(ctx, item, args)
+		return CallDetail{Content: content, Err: err}
+	})
+	return detail.Content, detail.Err
+}
+
+// The walk stops cooperatively. Keep a second deadline around the OS calls,
+// and limit the number of walks that can still be waiting for an OS response.
+func (s *Search) run(parent context.Context, walk func(context.Context) CallDetail) CallDetail {
+	if err := parent.Err(); err != nil {
+		return CallDetail{Err: err}
+	}
+	select {
+	case s.walks <- struct{}{}:
+	default:
+		return CallDetail{Err: fmt.Errorf("search unavailable: previous filesystem requests are still pending")}
+	}
+	ctx, cancel := context.WithTimeout(parent, contentSearchTimeout+time.Second)
+	defer cancel()
+	var progress atomic.Pointer[string]
+	publish := outputObserver(ctx)
+	observed := WithOutputObserver(ctx, func(line string) {
+		progress.Store(&line)
+		if publish != nil && ctx.Err() == nil {
+			publish(line)
+		}
+	})
+	done := make(chan CallDetail, 1)
+	go func() {
+		defer func() { <-s.walks }()
+		done <- walk(observed)
+	}()
+	select {
+	case detail := <-done:
+		return detail
+	case <-ctx.Done():
+		if err := parent.Err(); err != nil {
+			return CallDetail{Err: err}
+		}
+		last := "no completed files counted"
+		if line := progress.Load(); line != nil {
+			last = *line
+		}
+		return CallDetail{Content: fmt.Sprintf("Search stopped waiting for the filesystem [covered: %s; skipped: remaining entries]", last)}
+	}
 }
 
 func (s *Search) pick(args map[string]any) Tool {

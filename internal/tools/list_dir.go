@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/session"
 )
 
@@ -79,7 +80,7 @@ func (t *ListDir) Call(ctx context.Context, s *session.Session, args map[string]
 			return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
 		})
 		for _, entry := range entries {
-			if entry.IsDir() && ignored[entry.Name()] {
+			if credential.IsStoragePath(entry.Name()) || (entry.IsDir() && ignored[entry.Name()]) {
 				continue
 			}
 			prefix := strings.Repeat("  ", level-1)

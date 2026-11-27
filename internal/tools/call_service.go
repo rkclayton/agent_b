@@ -4,22 +4,27 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -127,6 +132,12 @@ const connectorDescription = "Connector proposal: operation add, edit, or remove
 // approved mid-chat is callable on the next turn; tool order is the registry's and is
 // untouched.
 func (c *CallService) Schema() map[string]any {
+	service := "Registered service name or absolute HTTP(S) URL"
+	if vault := c.currentVault(); vault != nil {
+		if bindings := vault.ModelBindings(); bindings != "" {
+			service += ". For a stored key, send the HTTPS destination and request path in service, with method; the matching key is attached automatically. Stored bindings:" + bindings
+		}
+	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -134,7 +145,7 @@ func (c *CallService) Schema() map[string]any {
 			"operation": map[string]any{"type": "string", "description": c.operationsDescription()},
 			"accept":    map[string]any{"type": "string", "description": "One response content type declared by the chosen imported operation"},
 			"params":    map[string]any{"type": "object", "description": "Parameters for operation, by the document's own names", "additionalProperties": true},
-			"service":   map[string]any{"type": "string", "description": "Registered service name or absolute HTTP(S) URL"},
+			"service":   map[string]any{"type": "string", "description": service},
 			"list":      map[string]any{"type": "boolean", "description": "List an MCP service's tools"},
 			"tool":      map[string]any{"type": "string", "description": "MCP tool name to call or inspect"},
 			"arguments": map[string]any{"type": "object", "description": "Arguments for an MCP tool", "additionalProperties": true},
@@ -353,6 +364,29 @@ func (c *CallService) PolicyApprovalRequired(mode string, args map[string]any) b
 	return method != "" && method != http.MethodGet && method != http.MethodHead
 }
 
+func serviceNetworkFailure(err error) (label, class string) {
+	var dns *net.DNSError
+	var timeout net.Error
+	var host x509.HostnameError
+	var authority x509.UnknownAuthorityError
+	var certificate x509.CertificateInvalidError
+	var verification *tls.CertificateVerificationError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &timeout) && timeout.Timeout():
+		return "connection timed out", "timeout"
+	case errors.Is(err, syscall.ECONNREFUSED), runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10061)):
+		return "connection refused", "not_found"
+	case errors.As(err, &dns):
+		return "name not resolved", "not_found"
+	case errors.As(err, &host):
+		return "certificate not valid for this name", "denied"
+	case errors.As(err, &authority), errors.As(err, &certificate), errors.As(err, &verification):
+		return "certificate not trusted", "denied"
+	default:
+		return "service request failed", "internal"
+	}
+}
+
 func (c *CallService) Call(ctx context.Context, item *session.Session, args map[string]any) (string, error) {
 	detail := c.CallDetailed(ctx, item, args)
 	return detail.Content, detail.Err
@@ -418,7 +452,7 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	}
 	method, ok := requiredString(args, "method")
 	if !ok {
-		detail.Err = fmt.Errorf("method is required")
+		detail.Err = fmt.Errorf("method is required; send method (for example GET) and the HTTPS URL in service, or send service name, method and relative path")
 		return detail
 	}
 	method = strings.ToUpper(method)
@@ -430,7 +464,8 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	credentialHost := ""
 	if registered {
 		if !methodAllowed(method, service.AllowedMethods) {
-			detail.Err = fmt.Errorf("method %s is not allowed for service %q", method, serviceName)
+			detail.Err = fmt.Errorf("refused by the allowed methods rule: method %s is not allowed for service %q", method, serviceName)
+			detail.Metadata = map[string]any{"service_error": "refused by the allowed methods rule", "class": "denied"}
 			return detail
 		}
 		if requestedPath == "" && service.Kind != "mcp" {
@@ -578,8 +613,9 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	response, err := client.Do(request)
 	duration := c.now().Sub(started).Milliseconds()
 	if err != nil {
-		detail.Err = fmt.Errorf("service request failed: %w", err)
-		log.Printf("call_service: service=%q method=%s path=%q duration_ms=%d error=%q", serviceName, method, requestedPath, duration, detail.Err)
+		reason, class := serviceNetworkFailure(err)
+		detail.Err = fmt.Errorf("%s: %w", reason, err)
+		detail.Metadata = map[string]any{"class": class, "service_error": reason, "duration_ms": duration}
 		return detail
 	}
 	defer response.Body.Close()
@@ -598,6 +634,14 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 				return detail
 			}
 		}
+	}
+	if response.StatusCode >= 400 {
+		defer func() {
+			if detail.Metadata == nil {
+				detail.Metadata = map[string]any{}
+			}
+			detail.Metadata["service_error"] = "HTTP status"
+		}()
 	}
 	contentType, rendered := renderedServiceType(response.Header.Get("Content-Type"))
 	if !rendered {
@@ -643,6 +687,9 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	result := map[string]any{
 		"status": response.StatusCode, "headers": selectedServiceHeaders(response.Header),
 		"body": outputBody, "cursor": cursor, "duration_ms": duration,
+	}
+	if response.StatusCode >= 400 {
+		result["error"] = "HTTP status"
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/events"
 	"harness/internal/llm"
 	"harness/internal/session"
@@ -379,7 +381,7 @@ func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem, r
 			break
 		}
 	}
-	if rejected.Load() != 0 || len(messages) == 0 || messages[0].Role != "system" || sentAbort.Role != llm.RoleAssistant || messageText(sentAbort.Content) != "[harness note]\n"+abortRecord.Content || abortRecord.Role != llm.RoleHarness || !strings.Contains(joined, "partial model output") || !strings.Contains(joined, "user:resume") {
+	if rejected.Load() != 0 || len(messages) == 0 || messages[0].Role != "system" || sentAbort.Role != llm.RoleAssistant || !strings.Contains(messageText(sentAbort.Content), "Stopped at call_model (aborted_mid_model)") || abortRecord.Role != llm.RoleHarness || !strings.Contains(abortRecord.Content, "partial model output") || strings.Contains(joined, "partial model output") || !strings.Contains(joined, "user:resume") {
 		t.Fatalf("resuming messages:\n%s", joined)
 	}
 	if reasoningOnly {
@@ -418,5 +420,78 @@ func TestAbortRecordKeepsWriteEvidenceAndRedactsPartialServiceHeaders(t *testing
 	last := item.MessagesCopy()[1].Content
 	if strings.Contains(last, "secret") || !strings.Contains(last, "redacted: call_service arguments") {
 		t.Fatalf("service abort record=%s", last)
+	}
+}
+
+func TestStoredKeyCallStartsWithBoundURL306(t *testing.T) {
+	const name = "Fixture reading key"
+	const secret = "fixture-key-not-visible-in-model-traffic"
+	var calls atomic.Int32
+	endpoint := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Method != http.MethodGet || r.URL.Path != "/alerts" || r.Header.Get("Authorization") != "Bearer "+secret {
+			t.Error("stand-in service received an unexpected request")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"active":1,"echo":%q}`, secret)
+	}))
+	defer endpoint.Close()
+	vault := credential.NewVault(t.TempDir())
+	if err := vault.Put(name, endpoint.URL, "", secret); err != nil {
+		t.Fatal(err)
+	}
+	service := tools.NewCallService(nil)
+	defer service.Close()
+	service.SetVault(vault)
+	service.SetHTTPClientForTest(endpoint.Client())
+
+	var turns atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if strings.Contains(string(raw), secret) {
+			t.Error("model request contained stored credential value")
+		}
+		var request struct {
+			Stream bool
+			Tools  json.RawMessage
+		}
+		if err := json.Unmarshal(raw, &request); err != nil {
+			t.Error(err)
+			return
+		}
+		if !request.Stream {
+			_, _ = fmt.Fprint(w, `{"choices":[{"message":{"content":"fixture"},"finish_reason":"stop"}]}`)
+			return
+		}
+		if turns.Add(1) == 1 {
+			if !strings.Contains(string(request.Tools), name) || !strings.Contains(string(request.Tools), endpoint.URL) {
+				t.Error("first model request did not contain the stored binding")
+				writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "No binding offered"}, "finish_reason": "stop"}}})
+				return
+			}
+			args, _ := json.Marshal(map[string]any{"service": endpoint.URL + "/alerts", "method": "GET"})
+			function := map[string]any{"name": "call_service", "arguments": string(args)}
+			call := map[string]any{"index": 0, "id": "fixture-call", "type": "function", "function": function}
+			writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{call}}, "finish_reason": "tool_calls"}}})
+			return
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "One active alert."}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	_, _, item, scheduler := schedulerFixture(t, model.URL)
+	scheduler.runner.tools = tools.New(service)
+	if _, err := scheduler.Submit(context.Background(), item.ID, "Use the "+name+" and read active alerts."); err != nil {
+		t.Fatal(err)
+	}
+	waitSchedulerIdle(t, scheduler, item.ID)
+	stored, err := json.Marshal(item.MessagesCopy())
+	if err != nil || calls.Load() != 1 || turns.Load() != 2 || strings.Contains(string(stored), secret) || !strings.Contains(string(stored), "One active alert.") {
+		t.Fatalf("calls=%d turns=%d stored=%d bytes err=%v", calls.Load(), turns.Load(), len(stored), err)
 	}
 }

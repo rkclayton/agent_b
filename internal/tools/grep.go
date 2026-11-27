@@ -1,18 +1,41 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/session"
 )
+
+const (
+	contentSearchTimeout    = 30 * time.Second
+	contentSearchFileLimit  = 8 << 20
+	contentSearchByteLimit  = 64 << 20
+	contentSearchEntryLimit = 20_000
+)
+
+var errContentSearchLimit = errors.New("content search limit reached")
+
+func readSearchFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(io.LimitReader(file, contentSearchFileLimit+1))
+}
 
 type Grep struct {
 	mu      sync.RWMutex
@@ -27,7 +50,7 @@ func NewGrep(cfg config.GrepTool, list config.ListDirTool) *Grep {
 	for _, name := range list.Ignore {
 		ignore[name] = true
 	}
-	return &Grep{cfg: cfg, ignore: ignore, read: os.ReadFile, walkDir: filepath.WalkDir}
+	return &Grep{cfg: cfg, ignore: ignore, read: readSearchFile, walkDir: filepath.WalkDir}
 }
 func (*Grep) Name() string { return "search_text" }
 func (*Grep) Description() string {
@@ -65,9 +88,16 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 	if err != nil {
 		return "", err
 	}
+	search, cancel := context.WithTimeout(ctx, contentSearchTimeout)
+	defer cancel()
+	progress := outputObserver(ctx)
+	if progress != nil {
+		progress("Searching file contents")
+	}
 	matches := make([]string, 0, cfg.MaxMatches)
 	total := 0
 	skipped := 0
+	covered, scanned, visited, limited, omitted := 0, 0, 0, 0, 0
 	err = g.walkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if filePath != root && isInaccessible(walkErr) {
@@ -76,13 +106,21 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 			}
 			return walkErr
 		}
-		if err := ctx.Err(); err != nil {
+		if err := search.Err(); err != nil {
 			return err
+		}
+		visited++
+		if visited > contentSearchEntryLimit || scanned >= contentSearchByteLimit {
+			return errContentSearchLimit
 		}
 		if entry.IsDir() {
 			if filePath != root && ignore[entry.Name()] {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if !entry.Type().IsRegular() || credential.IsStoragePath(filePath) {
+			omitted++
 			return nil
 		}
 		if glob != "" {
@@ -99,6 +137,23 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 			}
 			return readErr
 		}
+		if err := search.Err(); err != nil {
+			skipped++
+			return err
+		}
+		covered++
+		limit := min(contentSearchFileLimit, contentSearchByteLimit-scanned)
+		if len(data) > limit {
+			limited++
+			data = data[:limit]
+			data = data[:bytes.LastIndexByte(data, '\n')+1]
+			scanned += limit
+		} else {
+			scanned += len(data)
+		}
+		if progress != nil && covered%16 == 0 {
+			progress(fmt.Sprintf("Searched %d files", covered))
+		}
 		sample := data
 		if len(sample) > 8192 {
 			sample = sample[:8192]
@@ -107,7 +162,12 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 			return nil
 		}
 		rel := workspaceRel(readRoot, filePath)
-		for index, line := range strings.Split(normalizeLF(string(data)), "\n") {
+		index := 0
+		for line := range strings.SplitSeq(normalizeLF(string(data)), "\n") {
+			index++
+			if index%256 == 0 && search.Err() != nil {
+				return search.Err()
+			}
 			if !re.MatchString(line) {
 				continue
 			}
@@ -119,18 +179,26 @@ func (g *Grep) Call(ctx context.Context, s *session.Session, args map[string]any
 			if len(runes) > cfg.MaxLineChars {
 				line = string(runes[:cfg.MaxLineChars]) + "…"
 			}
-			matches = append(matches, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), index+1, line))
+			matches = append(matches, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), index, line))
 		}
 		return nil
 	})
-	if err != nil {
+	bounded := errors.Is(err, errContentSearchLimit) || (errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil)
+	if err != nil && !bounded {
 		return "", err
 	}
 	s.TouchProject(path)
-	if total == 0 {
-		return withSkippedInaccessible("no matches", skipped), nil
+	result := "no matches"
+	if total > 0 {
+		result = strings.Join(matches, "\n")
 	}
-	result := strings.Join(matches, "\n")
+	if bounded || limited > 0 {
+		remaining := ""
+		if bounded {
+			remaining = "; remaining entries were not scanned"
+		}
+		result += fmt.Sprintf("\n[covered %d files and %d bytes; skipped %d files and limited %d files%s]", covered, scanned, skipped+omitted, limited, remaining)
+	}
 	if total > len(matches) {
 		result += fmt.Sprintf("\n[%d of %d matches shown]", len(matches), total)
 	}

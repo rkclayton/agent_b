@@ -226,6 +226,34 @@ func isHarnessAbortRecord(message events.Message) bool {
 	return message.Category == "history" && strings.HasPrefix(message.Content, harnessAbortRecordPrefix+"\n")
 }
 
+func abortRequestSummary(message events.Message) events.Message {
+	var record struct {
+		Reason   string   `json:"reason"`
+		Stage    string   `json:"stage"`
+		Paths    []string `json:"possibly_written_paths"`
+		Complete bool     `json:"paths_complete"`
+		Tool     struct {
+			Name string `json:"name"`
+		} `json:"tool_in_flight"`
+	}
+	messageText := strings.TrimPrefix(message.Content, harnessAbortRecordPrefix+"\n")
+	message.Content = harnessAbortRecordPrefix + "\nThe prior run was stopped. The full abort record remains in the chat."
+	if json.Unmarshal([]byte(messageText), &record) == nil {
+		message.Content += fmt.Sprintf("\nStopped at %s (%s).", record.Stage, record.Reason)
+		if record.Stage == "execute" {
+			message.Content += fmt.Sprintf("\nTool in flight: %s.", record.Tool.Name)
+			if len(record.Paths) != 0 {
+				message.Content += fmt.Sprintf("\nPossibly written paths: %q.", record.Paths)
+			}
+			if !record.Complete {
+				message.Content += "\nThe full set of possible writes is unknown."
+			}
+		}
+	}
+	message.Tokens = int(math.Ceil(float64(len([]rune(message.Content))) / 3.6))
+	return message
+}
+
 func (r *Runner) stopped(s *session.Session, runID string, turn int, detail string) (string, string, int) {
 	reason := r.abortReason(s.ID, runID)
 	if strings.TrimSpace(detail) == "" {

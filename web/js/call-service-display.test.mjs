@@ -12,3 +12,4 @@ const session = {
 };
 assert.equal(callServiceFlowReadout(session, (ms) => `${ms} ms`), "broker POST deploy/jobs · HTTP 202 · 37 ms");
 assert.equal(callServiceFlowReadout({ ...session, activity: { stage: "append" } }, String), "");
+assert.equal(callServiceStatus("call_service", { service_error: "certificate not trusted" }), "certificate not trusted");

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"harness/internal/credential"
 	"harness/internal/session"
 )
 
@@ -53,7 +54,22 @@ func resolveForSessionTool(ctx context.Context, s *session.Session, root, path s
 	// filesystem allow-list. Absolute paths are therefore decided by the OS
 	// identity running the tool. Relative paths still start at root. The
 	// plan-tree ownership check remains separately enforced for writes below.
-	return resolvePath(root, s.ResolveOperatorPath(path), false)
+	resolved, err := resolvePath(root, s.ResolveOperatorPath(path), false)
+	if err != nil {
+		return "", err
+	}
+	if protectedCredentialPath(resolved) {
+		return "", fmt.Errorf("credential store rule: file tools cannot access stored credential files")
+	}
+	return resolved, nil
+}
+
+func protectedCredentialPath(path string) bool {
+	if credential.IsStoragePath(path) {
+		return true
+	}
+	real, err := session.RealPath(path)
+	return err == nil && credential.IsStoragePath(real)
 }
 
 // resolveForWorkerWrite is the write resolution for every file tool. Plan text

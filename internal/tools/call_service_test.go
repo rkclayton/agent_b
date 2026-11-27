@@ -3,16 +3,20 @@ package tools
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -809,5 +813,107 @@ func TestAutomaticKeyMatchesOnlyItsListedOrigins2zi(t *testing.T) {
 	}
 	if requests != 3 || approved != 2 {
 		t.Fatalf("requests=%d approvals=%d", requests, approved)
+	}
+}
+
+func TestStoredCredentialBindingIsVisibleWithoutItsValue306(t *testing.T) {
+	vault := credential.NewVault(t.TempDir())
+	const secret = "fixture-secret-that-must-stay-private"
+	if err := vault.Put("Fixture key", "https://fixture.example.test", "", secret); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewCallService(nil)
+	t.Cleanup(tool.Close)
+	tool.SetVault(vault)
+	before := vault.SecretReads()
+	schema, err := json.Marshal(tool.Schema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := string(schema)
+	if !strings.Contains(binding, "Fixture key") || !strings.Contains(binding, "https://fixture.example.test") ||
+		strings.Contains(binding, secret) || vault.SecretReads() != before {
+		t.Fatalf("credential metadata absent or secret was read, schema bytes=%d", len(schema))
+	}
+	result := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "fixture", "list": true})
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "send method") {
+		t.Fatalf("missing argument correction: %v", result.Err)
+	}
+}
+
+func TestContentSearchReportsBoundAndProgress306(t *testing.T) {
+	root := t.TempDir()
+	journals := filepath.Join(root, "sessions")
+	if err := os.Mkdir(journals, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	block := strings.Repeat("fixture line without the search term\n", 30_000)
+	for i := 0; i < 100; i++ {
+		path := filepath.Join(journals, fmt.Sprintf("%03d.jsonl", i))
+		if err := os.WriteFile(path, []byte(block), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Defaults(root)
+	grep := NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir)
+	progress := false
+	ctx := WithOutputObserver(context.Background(), func(string) { progress = true })
+	start := time.Now()
+	output, err := grep.Call(ctx, &session.Session{Workspace: root}, map[string]any{"pattern": "no-fixture-matches", "path": "."})
+	elapsed := time.Since(start)
+	t.Logf("search over %d bytes took %s; progress=%t; %s", len(block)*100, elapsed, progress, output)
+	if elapsed >= 30*time.Second || err != nil || !progress || !strings.Contains(output, "covered") || !strings.Contains(output, "skipped") {
+		t.Fatalf("bounded search result=%q, error=%v, progress=%t, elapsed=%s", output, err, progress, elapsed)
+	}
+}
+
+func TestCallServiceNetworkFailureLabels306(t *testing.T) {
+	cases := []struct {
+		err   error
+		label string
+		class string
+	}{
+		{&net.DNSError{Err: "fixture", Name: "fixture.example.test"}, "name not resolved", "not_found"},
+		{syscall.ECONNREFUSED, "connection refused", "not_found"},
+		{context.DeadlineExceeded, "connection timed out", "timeout"},
+		{x509.HostnameError{}, "certificate not valid for this name", "denied"},
+		{x509.UnknownAuthorityError{}, "certificate not trusted", "denied"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			wrapped := &url.Error{Op: "Get", URL: "https://fixture.example.test/alerts", Err: tc.err}
+			label, class := serviceNetworkFailure(wrapped)
+			if label != tc.label || class != tc.class {
+				t.Fatalf("label=%q class=%q", label, class)
+			}
+		})
+	}
+}
+
+func TestFileToolsKeepVaultRecordsOutOfResults306(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".agentb-credentials.json")
+	if err := os.WriteFile(path, []byte("fixture metadata not for file tools"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(root)
+	item := &session.Session{Workspace: root, LastSeen: map[string]time.Time{}}
+	ctx := context.Background()
+	match := map[string]any{"pattern": "fixture metadata"}
+	grep, err := NewGrep(cfg.Tools.Grep, cfg.Tools.ListDir).Call(ctx, item, match)
+	if err != nil || strings.Contains(grep, "fixture metadata") {
+		t.Fatalf("grep=%q err=%v", grep, err)
+	}
+	names, err := NewGlob(cfg.Tools.FindFiles).Call(ctx, item, map[string]any{"pattern": "*"})
+	if err != nil || strings.Contains(names, filepath.Base(path)) {
+		t.Fatalf("names=%q err=%v", names, err)
+	}
+	list, err := NewListDir(cfg.Tools.ListDir).Call(ctx, item, map[string]any{})
+	if err != nil || strings.Contains(list, filepath.Base(path)) {
+		t.Fatalf("list=%q err=%v", list, err)
+	}
+	_, err = NewReadFile(cfg.Tools.ReadFile).Call(ctx, item, map[string]any{"path": path})
+	if err == nil || !strings.Contains(err.Error(), "credential store rule") {
+		t.Fatalf("direct read error=%v", err)
 	}
 }

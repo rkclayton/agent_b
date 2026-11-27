@@ -4,8 +4,9 @@ export function callServiceKey(args) {
 }
 
 export function callServiceStatus(name, result) {
-  if (name !== "call_service" || result?.status === undefined || result?.status === null) return "";
-  return `HTTP ${result.status}`;
+  if (name !== "call_service") return "";
+  if (result?.status !== undefined && result?.status !== null) return `HTTP ${result.status}`;
+  return result?.service_error || "";
 }
 
 export function callServiceFlowReadout(session, formatDuration) {

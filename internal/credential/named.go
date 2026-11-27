@@ -86,6 +86,7 @@ type Vault struct {
 	waiting          map[chan struct{}]credentialDestination
 	byOrigin         map[string]Entry
 	defaultMicrosoft Entry
+	modelBindings    *string
 }
 
 func NewVault(dataRoot string) *Vault {
@@ -273,6 +274,7 @@ func (v *Vault) writeRecords(records map[string]Entry) error {
 	v.entries = nil
 	v.byOrigin = nil
 	v.defaultMicrosoft = Entry{}
+	v.modelBindings = nil
 	stored := make(map[string]Entry, len(records))
 	for name, entry := range records {
 		if entry.Kind == "entra" || entry.Kind == "google" {
@@ -484,6 +486,38 @@ func (v *Vault) List() ([]Entry, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil
+}
+
+const modelBindingLimit = 4096
+
+// ModelBindings returns only the names, kinds and destinations of saved entries.
+func (v *Vault) ModelBindings() string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.modelBindings != nil {
+		return *v.modelBindings
+	}
+	records, err := v.readRecords()
+	if err != nil {
+		return ""
+	}
+	bindings := make([]string, 0, len(records))
+	for _, entry := range records {
+		bindings = append(bindings, fmt.Sprintf("%q (%s): %q", entry.Name, entry.Kind, entry.Destinations()))
+	}
+	sort.Strings(bindings)
+	var text strings.Builder
+	for _, binding := range bindings {
+		if text.Len()+len(binding)+1 > modelBindingLimit {
+			text.WriteString("\n[Additional stored bindings omitted]")
+			break
+		}
+		text.WriteByte('\n')
+		text.WriteString(binding)
+	}
+	result := text.String()
+	v.modelBindings = &result
+	return result
 }
 
 // Put stores a secret and its binding. The secret is written first and read back before

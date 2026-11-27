@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,14 @@ const MachineFileName = ".agentb-shell-credential-machine.dpapi"
 const ServiceAccount = "agentb-svc"
 
 const connectionFilePrefix = ".agentb-connection-credential-"
+
+func IsStoragePath(path string) bool {
+	name := strings.TrimRight(strings.ToLower(filepath.Base(path)), ". ")
+	name, _, _ = strings.Cut(name, ":")
+	return name == recordFile || name == recordFile+".tmp" || name == FileName ||
+		strings.HasPrefix(name, vaultFilePrefix) || strings.HasPrefix(name, connectionFilePrefix) ||
+		strings.HasPrefix(name, ".agentb-profile-credential-") || strings.HasPrefix(name, ".agentb-shell-credential-")
+}
 
 var credentialName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 

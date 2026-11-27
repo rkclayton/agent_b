@@ -685,7 +685,7 @@ func toolResultEventData(turn int, callID, name, content string, ok, operatorCon
 func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, callID, name string, args map[string]any) tools.CallOutcome {
 	processStart := name == "process" && args["action"] == "start"
 	shellStart := name == "shell" || processStart
-	if name == "shell" || name == "run_script" {
+	if name == "shell" || name == "run_script" || name == "search" || name == "search_text" {
 		ctx = r.withToolProgress(ctx, s, runID, name, func() map[string]any { return args })
 	}
 	if path, ok := args["path"].(string); ok {
@@ -1423,7 +1423,7 @@ func (r *Runner) measureSession(ctx context.Context, p *config.Connection, s *se
 	records := make([]events.Message, 0, len(all))
 	for _, message := range all {
 		if isHarnessAbortRecord(message) {
-			records = append(records, message)
+			records = append(records, abortRequestSummary(message))
 		}
 	}
 	for _, message := range all {

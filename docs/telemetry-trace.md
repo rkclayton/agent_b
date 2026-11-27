@@ -138,6 +138,19 @@ and 2 KiB. `connection.state` and `update` are built once per change.
 {"type":"run.summary","at":"2026-10-04T21:00:05Z","inference_calls":2,"tool_calls":3,"max_fill_pct":41,"loop":true,"stop_reason":"done","ttft_ms":410,"reasoning_tokens":1193,"compactions":1,"approval_wait_seconds":0,"wall_seconds":45}
 ```
 
+### `scheduled.outcome`
+
+One outcome per scheduled occurrence after its final attempt. It includes the
+closed `outcome` (`completed`, `failed`, `interrupted`) and `reason` (`done`,
+`model_unavailable`, `work_limit`, `application_closed`, `other`). `tries` is
+1–4. `waited_seconds` and `worked_seconds` are nonnegative whole seconds
+saturated at 2147483647. Job names, paths, and reply content are excluded.
+The client begins sending after the intake admits this event.
+
+```json vector:scheduled.outcome
+{"type":"scheduled.outcome","at":"2026-10-04T21:00:05Z","outcome":"failed","reason":"model_unavailable","tries":4,"waited_seconds":3030,"worked_seconds":0}
+```
+
 ### `model.perf`
 
 One per run. Each of `ttft_ms`, `prompt_ms`, `tokens_per_second`,
@@ -611,6 +624,7 @@ dropped by the allow-list in `internal/telemetry` before it can.
 |---|---|
 | `trace` | `report_id`, `runs` |
 | `run.summary` | `inference_calls`, `tool_calls`, `max_fill_pct`, `loop`, `stop_reason`, `ttft_ms`, `reasoning_tokens`, `compactions`, `approval_wait_seconds`, `wall_seconds` |
+| `scheduled.outcome` | `outcome`, `reason`, `tries`, `waited_seconds`, `worked_seconds` |
 | `model.perf` | `connection_kind`, `calls`, `ttft_ms`, `prompt_ms`, `tokens_per_second`, `prompt_tokens`, `cached_tokens`, `completion_tokens`, `reasoning_tokens`, `cache_hit_pct`, `cache_hit_pct_after_compaction`, `reasoning_share_pct` |
 | `tool.perf` | `tools` |
 | `model.behaviour` | `empty_replies`, `unparseable_tool_calls`, `unoffered_tool_calls`, `cut_by_length`, `thinking_only_answers` |

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/events"
 	workspaceinfo "harness/internal/workspace"
@@ -552,4 +553,37 @@ func TestSkillStateLimitAtFullBound(t *testing.T) {
 		t.Fatalf("same-size replacement: %v", err)
 	}
 	commit(true)
+}
+
+func TestScheduledChatStartsInItsCollisionResolvedFolder2za(t *testing.T) {
+	root := t.TempDir()
+	chats := filepath.Join(root, "chats")
+	stamp := time.Now()
+	for _, folder := range []string{chats, filepath.Join(chats, "Scheduled")} {
+		if _, err := chatstore.New(folder).Create("main", "fixture job", stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writers, err := events.NewWriters(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writers.Close()
+	cfg := config.Defaults(root)
+	registry := NewRegistry(events.NewBus(), writers, func(id string) (*config.Connection, bool) { return cfg.Connection(id) }, 40, func() config.Config { return cfg })
+	registry.SetPlansRoot(filepath.Join(root, "plans"))
+	item, err := registry.CreateScheduled("fixture job", cfg.DefaultAgentID(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ID == "main" || item.Origin != "scheduled" || filepath.Dir(item.Workspace) != filepath.Join(chats, "Scheduled") {
+		t.Fatalf("scheduled state: %s %s", item.ID, item.Workspace)
+	}
+	meta, err := chatstore.ReadMetadata(item.Workspace)
+	if err != nil || meta.ID != item.ID || meta.Label != "fixture job" {
+		t.Fatalf("metadata=%+v err=%v", meta, err)
+	}
+	if err := os.WriteFile(filepath.Join(item.Workspace, "fixture-output"), []byte("ok"), 0600); err != nil {
+		t.Fatal(err)
+	}
 }

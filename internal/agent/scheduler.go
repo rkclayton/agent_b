@@ -256,6 +256,11 @@ func (s *Scheduler) startLocked(entry queuedRun) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = tools.WithLoginSource(ctx, entry.source)
+	if entry.source == "scheduled" {
+		ctx = session.WithScheduledRun(ctx)
+	} else if entry.s.Origin == "scheduled" {
+		entry.s.Unattended = false
+	}
 	active := &activeRun{cancel: cancel, runID: entry.runID, done: make(chan struct{}), userMessageID: entry.userMessageID, source: entry.source}
 	s.active[entry.s.ID] = active
 	entry.s.SetRun(session.RunState{Status: "running", RunID: entry.runID})
@@ -308,7 +313,7 @@ func (s *Scheduler) finish(entry queuedRun, reason, detail string, turns int) {
 	}
 	state := session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: detail, LastRunID: entry.runID}
 	entry.s.SetRun(state)
-	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, false)
+	s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, detail, turns, false, entry.source)
 	s.notifyAgentIdleLocked(entry.s.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
@@ -471,7 +476,7 @@ func (s *Scheduler) returnActiveMessage(item *session.Session, runID string) boo
 	defer s.mu.Unlock()
 	active := s.active[item.ID]
 	snapshot := item.Snapshot()
-	if active == nil || active.runID != runID || active.returned || active.source == "phone" || snapshot.Origin == "scheduled" || (snapshot.Role != "" && snapshot.Role != "b") {
+	if active == nil || active.runID != runID || active.returned || active.source == "phone" || active.source == "scheduled" || snapshot.Origin == "scheduled" || (snapshot.Role != "" && snapshot.Role != "b") {
 		return false
 	}
 	state := snapshot.Run
@@ -614,7 +619,7 @@ func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason strin
 				}
 			}
 			entry.s.SetRun(session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
-			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, false)
+			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, false, entry.source)
 			stopped = append(stopped, entry.s.ID)
 		} else {
 			kept = append(kept, entry)
@@ -663,41 +668,21 @@ func (s *Scheduler) forceFinish(sessionID string, expected *activeRun, detail st
 	turn := priorRun.Turn
 	state := session.RunState{Status: "idle", LastStopReason: active.stopReason, LastStopDetail: detail, LastRunID: active.runID}
 	item.SetRun(state)
-	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, false)
+	s.publishRunStoppedLocked(sessionID, active.runID, active.stopReason, detail, turn, false, active.source)
 	s.notifyAgentIdleLocked(item.Snapshot().AgentID)
 	s.drainLocked()
 	s.repositionLocked()
 }
 
-func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool) bool {
+func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail string, turns int, queueHeld bool, source string) bool {
 	key := sessionID + "\x00" + runID
 	if s.stoppedRuns[key] {
 		return false
 	}
 	s.stoppedRuns[key] = true
 	data := map[string]any{"run_id": runID, "reason": reason, "terminal_reason": canonicalTerminalReason(reason), "detail": detail, "turns": turns, "queue_held": queueHeld}
-	if item, ok := s.registry.Get(sessionID); ok && item.Snapshot().Origin == "scheduled" {
-		snapshot := item.Snapshot()
-		data["scheduled_job"] = snapshot.Label
-		failure := reason
-		if detail != "" {
-			failure += " - " + detail
-		}
-		if reason != "done" && item.ScheduledFailure != "" && item.ScheduledFailure == failure {
-			data["notification_suppressed"] = true
-		}
-		if reason == "done" {
-			for index := len(snapshot.Messages) - 1; index >= 0; index-- {
-				if snapshot.Messages[index].Role == "assistant" {
-					content := snapshot.Messages[index].Content
-					data["notification_suppressed"] = strings.Contains(content, "[SILENT]")
-					if answer := scheduledNoticeAnswer(content); answer != "" && !strings.Contains(content, "[SILENT]") {
-						data["scheduled_answer"] = answer
-					}
-					break
-				}
-			}
-		}
+	if source == "scheduled" {
+		data["notification_suppressed"] = true
 	}
 	// the model CLASS, never the model name, endpoint or connection id.
 	// "was this a local model or somebody's API" is the only distinction a
@@ -723,22 +708,6 @@ func (s *Scheduler) publishRunStoppedLocked(sessionID, runID, reason, detail str
 	return true
 }
 
-func scheduledNoticeAnswer(content string) string {
-	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-	if len(lines) > 2 {
-		lines = lines[:2]
-	}
-	answer := strings.TrimSpace(strings.Join(lines, "\n"))
-	runes := []rune(answer)
-	if len(runes) > 300 {
-		answer = string(runes[:300])
-	}
-	return answer
-}
-
-// modelClassLocked answers local or remote for the session's connection. It is
-// deliberately coarse: the contract forbids the endpoint, the model name
-// and the connection id from leaving, and this is what is left that is useful.
 func (s *Scheduler) modelClassLocked(sessionID string) string {
 	item, ok := s.registry.Get(sessionID)
 	if !ok {
@@ -805,6 +774,8 @@ func canonicalTerminalReason(reason string) string {
 	// accounting looking for a bug that is not there.
 	case "mailbox_stop":
 		return "stopped-by-mailbox"
+	case "cron_shutdown":
+		return "application-closed"
 	case "cycle":
 		return "cycle"
 	case "reply_empty":

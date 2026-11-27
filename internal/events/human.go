@@ -56,7 +56,7 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 			Question:      "Allow this action?",
 			Actions:       []string{"Yes, for this chat", "Just once", "No"},
 		}
-	case RunStopped:
+	case RunStopped, ScheduledFinished:
 		if name := textValue(data["scheduled_job"], ""); name != "" {
 			if textValue(data["reason"], "") != "done" {
 				return HumanNotice{Happened: fmt.Sprintf("Scheduled job %s failed.", name), HarnessAction: "The harness kept the failed run in the Scheduled chat folder."}

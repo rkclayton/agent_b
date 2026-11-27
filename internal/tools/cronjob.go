@@ -28,7 +28,7 @@ func (*Cronjob) Schema() map[string]any {
 	}, "required": []string{"action"}}
 }
 func (c *Cronjob) Call(ctx context.Context, item *session.Session, raw map[string]any) (string, error) {
-	if item != nil && item.Origin == "scheduled" {
+	if session.IsScheduledRun(ctx) {
 		return "", errors.New("a scheduled run cannot schedule another job")
 	}
 	if c.manager == nil {

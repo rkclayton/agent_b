@@ -3,14 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"harness/internal/agent"
-	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/cron"
 	"harness/internal/events"
@@ -27,7 +25,6 @@ type scheduledRuns struct {
 	bus       *events.Bus
 	web       *webserver.Server
 	mu        sync.Mutex
-	sessions  map[string]string
 }
 
 func (r *scheduledRuns) setProfile(root string) { r.mu.Lock(); r.profile = root; r.mu.Unlock() }
@@ -36,29 +33,9 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 	r.mu.Lock()
 	profile := r.profile
 	r.mu.Unlock()
-	item, err := r.registry.Create(job.Name, r.cfg().DefaultAgentID(), "")
+	item, err := r.registry.CreateScheduled(job.Name, r.cfg().DefaultAgentID(), job.Unattended)
 	if err != nil {
 		return cron.Result{Failed: true, Failure: err.Error()}
-	}
-	r.mu.Lock()
-	if r.sessions == nil {
-		r.sessions = map[string]string{}
-	}
-	r.sessions[job.ID] = item.ID
-	r.mu.Unlock()
-	item.Origin = "scheduled"
-	item.Unattended = job.Unattended
-	item.ScheduledFailure = job.LastFailure
-	item.ToggleTool("cronjob", false)
-	store := chatstore.New(filepath.Join(profile, "chats"))
-	if err = os.MkdirAll(filepath.Join(profile, "chats", "Scheduled"), 0700); err != nil {
-		return cron.Result{Failed: true, Failure: err.Error()}
-	}
-	if _, err = store.Move(item.ID, "Scheduled"); err != nil {
-		return cron.Result{Failed: true, Failure: err.Error()}
-	}
-	if entries, scanErr := store.Scan(); scanErr == nil {
-		r.registry.ReconcileChatHomes(entries)
 	}
 	prompt := strings.Builder{}
 	for _, name := range job.Skills {
@@ -77,25 +54,44 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 	}
 	prompt.WriteString(job.Prompt)
 	stream := r.bus.Listen(ctx, "scheduled runs")
-	result, err := r.scheduler.Submit(ctx, item.ID, prompt.String())
+	result, err := r.scheduler.SubmitAttachmentsFrom(ctx, item.ID, prompt.String(), nil, "scheduled")
 	if err != nil {
 		return cron.Result{Failed: true, Failure: err.Error()}
 	}
 	max := time.Duration(r.cfg().Cron.MaxRunMinutes) * time.Minute
-	timer := time.NewTimer(max)
+	const modelAvailabilityLimit = 30 * time.Minute
+	timer := time.NewTimer(modelAvailabilityLimit)
 	defer timer.Stop()
+	working := false
+	shutdown := func() cron.Result {
+		r.scheduler.StopReason(item.ID, "cron_shutdown")
+		return cron.Result{Failed: true, Interrupted: true, Failure: "application closed", ChatID: item.ID}
+	}
 	for {
 		select {
 		case <-ctx.Done():
-			r.scheduler.StopReason(item.ID, "cron_timeout")
-			return cron.Result{Failed: true, Failure: ctx.Err().Error()}
+			return shutdown()
 		case <-timer.C:
-			r.scheduler.StopReason(item.ID, "cron_timeout")
+			reason := "model_unreachable"
+			if working {
+				reason = "cron_timeout"
+			}
+			r.scheduler.StopReason(item.ID, reason)
 		case event, ok := <-stream:
 			if !ok {
-				return cron.Result{Failed: true, Failure: "event stream closed"}
+				if ctx.Err() != nil {
+					return shutdown()
+				}
+				return cron.Result{Failed: true, Failure: "event stream closed", ChatID: item.ID}
 			}
-			if event.Type != events.RunStopped || event.SessionID != item.ID || (result.RunID != "" && event.RunID != result.RunID) {
+			if event.SessionID != item.ID || (result.RunID != "" && event.RunID != result.RunID) {
+				continue
+			}
+			if !working && (event.Type == events.ModelDelta || event.Type == events.ModelResponse) {
+				working = true
+				timer.Reset(max)
+			}
+			if event.Type != events.RunStopped {
 				continue
 			}
 			data, _ := event.Data.(map[string]any)
@@ -116,17 +112,40 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 					failure += " - " + detail
 				}
 			}
-			return cron.Result{Answer: answer, Failed: failed, Failure: failure}
+			return cron.Result{Answer: answer, Failed: failed, Failure: failure, Retryable: !working && reason == "model_unreachable", Interrupted: reason == "cron_shutdown", ChatID: item.ID}
 		}
 	}
 }
 
-func (r *scheduledRuns) finish(job cron.Job, _ cron.Result, keep bool) {
-	r.mu.Lock()
-	id := r.sessions[job.ID]
-	delete(r.sessions, job.ID)
-	r.mu.Unlock()
+func (r *scheduledRuns) finish(job cron.Job, result cron.Result, keep bool) {
+	id := result.ChatID
+	if result.Notify {
+		reason := "done"
+		if result.Failed {
+			reason = "failed"
+		}
+		data := events.WithHuman(events.ScheduledFinished, map[string]any{"scheduled_job": job.Name, "reason": reason, "scheduled_answer": scheduledNoticeAnswer(result.Answer)})
+		delete(data, "scheduled_answer")
+		r.bus.PublishTransient(events.New(events.ScheduledFinished, id, "", data))
+	}
 	if !keep && id != "" {
 		_ = r.web.DeleteChatHeadless(id)
 	}
 }
+
+func scheduledNoticeAnswer(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if len(lines) > 2 {
+		lines = lines[:2]
+	}
+	answer := strings.TrimSpace(strings.Join(lines, "\n"))
+	runes := []rune(answer)
+	if len(runes) > 300 {
+		answer = string(runes[:300])
+	}
+	return answer
+}
+
+// modelClassLocked answers local or remote for the session's connection. It is
+// deliberately coarse: the contract forbids the endpoint, the model name
+// and the connection id from leaving, and this is what is left that is useful.

@@ -231,3 +231,14 @@ func TestFitReadFileWithNoRoomLeftIsNotReturnedWhole(t *testing.T) {
 		t.Fatal("an unknown window must pass the result through")
 	}
 }
+
+func TestSmallWindowResultLeavesRoomForAnotherTurn2zb(t *testing.T) {
+	for _, test := range []struct{ window, want int }{
+		{32768, 9252}, {230000, 14020},
+	} {
+		budget := events.Budget{NCtx: test.window, Ceiling: test.window - 10240, Categories: map[string]int{"tools": 4023}}
+		if got := resultAllowance(budget, 14020); got != test.want {
+			t.Fatalf("window %d gives %d tokens, want %d", test.window, got, test.want)
+		}
+	}
+}

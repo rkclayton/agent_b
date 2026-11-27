@@ -222,6 +222,8 @@ type Job struct {
 	Unattended  bool      `json:"unattended"`
 	Repeating   bool      `json:"repeating"`
 	LastFailure string    `json:"last_failure,omitempty"`
+	RetryCount  int       `json:"retry_count,omitempty"`
+	RetryUntil  time.Time `json:"retry_until,omitzero"`
 }
 type Args struct {
 	Action, Schedule, Prompt, Name, Skill, JobID, Deliver string
@@ -235,20 +237,26 @@ type Reply struct {
 	Message string `json:"message,omitempty"`
 }
 type Result struct {
-	Answer  string
-	Failed  bool
-	Failure string
+	Answer      string
+	Failed      bool
+	Failure     string
+	Retryable   bool
+	Interrupted bool
+	ChatID      string
+	Notify      bool
 }
 type Runner func(context.Context, Job) Result
 type Manager struct {
-	mu     sync.Mutex
-	runMu  sync.Mutex
-	root   string
-	now    func() time.Time
-	run    Runner
-	jobs   []Job
-	notice func(string)
-	finish func(Job, Result, bool)
+	mu         sync.Mutex
+	runMu      sync.Mutex
+	root       string
+	now        func() time.Time
+	run        Runner
+	jobs       []Job
+	storeInfo  os.FileInfo
+	runContext context.Context
+	notice     func(string)
+	finish     func(Job, Result, bool)
 }
 
 func New(profileRoot string, now func() time.Time, run Runner) *Manager {
@@ -266,6 +274,7 @@ func (m *Manager) SetProfileRoot(root string) error {
 	defer m.mu.Unlock()
 	m.root = filepath.Join(root, "cron")
 	m.jobs = nil
+	m.storeInfo = nil
 	return m.load()
 }
 func (m *Manager) SetHooks(notice func(string), finish func(Job, Result, bool)) {
@@ -276,6 +285,7 @@ func (m *Manager) SetHooks(notice func(string), finish func(Job, Result, bool)) 
 func (m *Manager) Jobs() []Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	_ = m.load()
 	return append([]Job(nil), m.jobs...)
 }
 func (m *Manager) StartNow(ref string) (Job, error) {
@@ -286,19 +296,48 @@ func (m *Manager) StartNow(ref string) (Job, error) {
 		return Job{}, err
 	}
 	j := m.jobs[i]
+	ctx := m.runContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Unlock()
-	go func() { _ = m.runOne(context.Background(), j, true) }()
+	go func() { _ = m.runOne(ctx, j, true) }()
 	return j, nil
 }
 func (m *Manager) load() error {
-	data, err := os.ReadFile(filepath.Join(m.root, "jobs.json"))
+	path := filepath.Join(m.root, "jobs.json")
+	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
+		m.jobs, m.storeInfo = nil, nil
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, &m.jobs)
+	if m.storeInfo != nil && os.SameFile(info, m.storeInfo) && info.ModTime().Equal(m.storeInfo.ModTime()) && info.Size() == m.storeInfo.Size() {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var jobs []Job
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return err
+	}
+	if len(jobs) > maxJobs {
+		return fmt.Errorf("job limit reached (%d)", maxJobs)
+	}
+	for _, job := range jobs {
+		if len(job.ID) != 16 {
+			return errors.New("invalid job id in store")
+		}
+		if _, err := hex.DecodeString(job.ID); err != nil {
+			return errors.New("invalid job id in store")
+		}
+	}
+	m.jobs, m.storeInfo = jobs, info
+	return nil
 }
 func (m *Manager) saveLocked() error {
 	if err := os.MkdirAll(m.root, 0700); err != nil {
@@ -313,7 +352,12 @@ func (m *Manager) saveLocked() error {
 	if err = os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(m.root, "jobs.json"))
+	path := filepath.Join(m.root, "jobs.json")
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	m.storeInfo, _ = os.Stat(path)
+	return nil
 }
 func id() string { b := make([]byte, 8); _, _ = rand.Read(b); return hex.EncodeToString(b) }
 func (m *Manager) findLocked(ref string) (int, error) {
@@ -343,6 +387,10 @@ func (m *Manager) findLocked(ref string) (int, error) {
 
 func (m *Manager) Apply(ctx context.Context, a Args) (Reply, error) {
 	m.mu.Lock()
+	if err := m.load(); err != nil {
+		m.mu.Unlock()
+		return Reply{}, err
+	}
 	if a.Skill != "" {
 		a.Skills = append(a.Skills, a.Skill)
 	}
@@ -390,6 +438,7 @@ func (m *Manager) Apply(ctx context.Context, a Args) (Reply, error) {
 				return Reply{}, e
 			}
 			j.Schedule, j.Next, j.Repeating = a.Schedule, spec.Next, spec.Repeating
+			j.RetryCount, j.RetryUntil = 0, time.Time{}
 		}
 		if a.Prompt != "" {
 			j.Prompt = a.Prompt
@@ -454,6 +503,10 @@ func (m *Manager) Apply(ctx context.Context, a Args) (Reply, error) {
 func (m *Manager) Tick(ctx context.Context) error {
 	now := m.now()
 	m.mu.Lock()
+	if err := m.load(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	due := []Job{}
 	for _, j := range m.jobs {
 		if !j.Paused && !j.Next.After(now) {
@@ -472,12 +525,68 @@ func (m *Manager) Tick(ctx context.Context) error {
 func (m *Manager) runOne(ctx context.Context, j Job, manual bool) error {
 	m.runMu.Lock()
 	defer m.runMu.Unlock()
-	if m.run == nil {
+	m.mu.Lock()
+	if err := m.load(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	i, err := m.findLocked(j.ID)
+	if err != nil || (!manual && (m.jobs[i].Paused || !m.jobs[i].Next.Equal(j.Next))) {
+		m.mu.Unlock()
+		return nil
+	}
+	j = m.jobs[i]
+	runner, root := m.run, m.root
+	m.mu.Unlock()
+	if runner == nil {
 		return errors.New("scheduled runner is unavailable")
 	}
-	result := m.run(ctx, j)
+	if ctx.Err() != nil {
+		return nil
+	}
+	result := runner(ctx, j)
+	m.mu.Lock()
+	if m.root != root {
+		m.mu.Unlock()
+		return nil
+	}
+	if err := m.load(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	i, err = m.findLocked(j.ID)
+	if err != nil {
+		m.mu.Unlock()
+		return nil
+	}
+	current := m.jobs[i]
+	if result.Interrupted {
+		current.Next = m.now()
+		m.jobs[i] = current
+		err := m.saveLocked()
+		m.mu.Unlock()
+		return err
+	}
+	delays := [...]time.Duration{5 * time.Minute, 15 * time.Minute, 30 * time.Minute}
+	if result.Retryable && current.Schedule == j.Schedule && current.RetryCount >= 0 && current.RetryCount < len(delays) {
+		retryAt := m.now().Add(delays[current.RetryCount])
+		until := current.RetryUntil
+		if until.IsZero() && current.Repeating {
+			spec, _ := Parse(current.Schedule, j.Next)
+			until = spec.Next
+		}
+		if until.IsZero() || retryAt.Before(until) {
+			current.Next, current.RetryUntil = retryAt, until
+			current.RetryCount++
+			m.jobs[i] = current
+			err := m.saveLocked()
+			m.mu.Unlock()
+			return err
+		}
+	}
+	m.mu.Unlock()
 	stamp := m.now().UTC().Format("20060102T150405.000000000Z")
-	dir := filepath.Join(m.root, "output", j.ID)
+	dir := filepath.Join(root, "output", j.ID)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -497,11 +606,20 @@ func (m *Manager) runOne(ctx context.Context, j Job, manual bool) error {
 	silent := strings.Contains(result.Answer, "[SILENT]") && !result.Failed
 	keep := !silent
 	m.mu.Lock()
+	if m.root != root {
+		m.mu.Unlock()
+		return nil
+	}
+	if err := m.load(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	i, e := m.findLocked(j.ID)
 	if e == nil {
 		current := m.jobs[i]
 		current.Runs++
-		notify := !silent
+		current.RetryCount, current.RetryUntil = 0, time.Time{}
+		notify := !silent && (result.Failed || strings.TrimSpace(result.Answer) != "")
 		if result.Failed {
 			if current.LastFailure == result.Failure {
 				notify = false
@@ -516,6 +634,9 @@ func (m *Manager) runOne(ctx context.Context, j Job, manual bool) error {
 		} else {
 			spec, _ := Parse(current.Schedule, m.now())
 			current.Next = spec.Next
+			if j.RetryUntil.After(m.now()) {
+				current.Next = j.RetryUntil
+			}
 			m.jobs[i] = current
 		}
 		_ = m.saveLocked()
@@ -525,16 +646,23 @@ func (m *Manager) runOne(ctx context.Context, j Job, manual bool) error {
 			notice(j.Name)
 		}
 		if finish != nil {
+			result.Notify = notify
 			finish(j, result, keep)
 		}
 	} else {
 		m.mu.Unlock()
 	}
-	_ = manual
 	return nil
 }
 
 func (m *Manager) Run(ctx context.Context) {
+	m.mu.Lock()
+	m.runContext = ctx
+	m.mu.Unlock()
+	defer func() {
+		m.runMu.Lock()
+		m.runMu.Unlock()
+	}()
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	_ = m.Tick(ctx)

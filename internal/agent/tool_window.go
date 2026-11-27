@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"harness/internal/config"
+	"harness/internal/events"
 	"harness/internal/session"
 )
 
@@ -20,6 +21,17 @@ const (
 // not part of the pre-turn budget. An oversized byte window is retried rather
 // than appended and allowed to make the next model turn impossible.
 const toolResultContextMargin = 1024
+
+func resultAllowance(budget events.Budget, remaining int) int {
+	if budget.NCtx <= 0 || budget.NCtx > 32768 || budget.Ceiling <= 0 {
+		return remaining
+	}
+	limit := max(0, budget.Ceiling-fixedContextTokens(budget)) / 2
+	if remaining < 0 {
+		return limit
+	}
+	return min(remaining, limit)
+}
 
 func (r *Runner) fitWindowResult(
 	ctx context.Context,

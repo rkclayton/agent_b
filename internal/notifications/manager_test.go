@@ -278,11 +278,13 @@ func (d *desktopStandIn) Show(notice DesktopNotice) error {
 
 type phoneStandIn struct {
 	sent int
+	last string
 }
 
 func (p *phoneStandIn) NotificationState() string { return "not paired" }
-func (p *phoneStandIn) Notify(context.Context, string, string, string) (string, error) {
+func (p *phoneStandIn) Notify(_ context.Context, _, _, message string) (string, error) {
 	p.sent++
+	p.last = message
 	return "not paired", nil
 }
 
@@ -371,5 +373,21 @@ func TestOnlyLatestChatNotifiesAndModesOverrideIt2re(t *testing.T) {
 	manager.deliverEvent(context.Background(), events.New(events.RunStopped, "second", "run", map[string]any{"reason": "done", "scheduled_job": "watch"}))
 	if len(desktop.notices) != 3 || phone.sent != 3 || posts != 3 {
 		t.Fatalf("overrides desktop=%+v phone=%d posts=%d", desktop.notices, phone.sent, posts)
+	}
+}
+
+func TestScheduledFinishNamesJobWithoutReplyInPhonePush2zc(t *testing.T) {
+	for _, reason := range []string{"done", "failed"} {
+		desktop, phone := &desktopStandIn{}, &phoneStandIn{}
+		manager := New(events.NewBus(), nil, "http://127.0.0.1:8790")
+		manager.SetChannels(desktop, phone, func(group string) bool { return group == "scheduled" })
+		data := events.WithHuman(events.ScheduledFinished, map[string]any{"reason": reason, "scheduled_job": "fixture job", "scheduled_answer": "fixture reply body"})
+		manager.deliverEvent(context.Background(), events.New(events.ScheduledFinished, "fixture-chat", "", data))
+		if len(desktop.notices) != 1 || desktop.notices[0].Title != "fixture job" || !strings.HasSuffix(desktop.notices[0].Link, "/chat?session=fixture-chat") {
+			t.Fatalf("desktop=%+v", desktop.notices)
+		}
+		if phone.sent != 1 || !strings.Contains(phone.last, "fixture job") || strings.Contains(phone.last, "fixture reply body") {
+			t.Fatalf("phone=%+v", phone)
+		}
 	}
 }

@@ -102,6 +102,10 @@ func (r *Registry) SetPlanGrant(grant func(string) error) { r.planGrant = grant 
 func (r *Registry) Create(label, agentID, workspace string) (*Session, error) {
 	return r.create(label, agentID, workspace, nil, "b", "", "")
 }
+func (r *Registry) CreateScheduled(label, agentID string, unattended bool) (*Session, error) {
+	return r.create(label, agentID, "", nil, "b", "", "scheduled", unattended)
+}
+
 func (r *Registry) CreateRole(label, agentID, workspace, role, planID string) (*Session, error) {
 	return r.create(label, agentID, workspace, nil, role, planID, "")
 }
@@ -310,7 +314,7 @@ func normalizePlanID(value string) (string, error) {
 	}
 	return value, nil
 }
-func (r *Registry) create(label, agentID, workspace string, enabled map[string]bool, role, planID, createdBy string) (*Session, error) {
+func (r *Registry) create(label, agentID, workspace string, enabled map[string]bool, role, planID, createdBy string, unattended ...bool) (*Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	agent, ok := r.resolveAgent(agentID)
@@ -339,7 +343,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	connectionID = connection.ID
 	id := "main"
-	if len(r.sessions) > 0 || r.reserved[id] {
+	if createdBy == "scheduled" || len(r.sessions) > 0 || r.reserved[id] {
 		for {
 			id = fmt.Sprintf("s%d", r.next)
 			r.next++
@@ -379,7 +383,11 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 			return nil, fmt.Errorf("chat storage is unavailable")
 		}
 		var createErr error
-		workspace, createErr = chatstore.New(r.chatRoot).Create(id, label, createdAt)
+		root := r.chatRoot
+		if createdBy == "scheduled" {
+			root = filepath.Join(root, "Scheduled")
+		}
+		workspace, createErr = chatstore.New(root).Create(id, label, createdAt)
 		if createErr != nil {
 			return nil, createErr
 		}
@@ -471,6 +479,10 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	session := &Session{LoadFolderMemory: r.folderLoader(agent.B), ID: id, Label: label, AgentID: agentID, ConnectionID: connectionID, AgentName: agent.Name, BConnection: connection.Label, Role: role, PlanID: planID, PlanName: planName, PlanDir: planDir, PlanRepo: selectedRepo, PlansRoot: r.plansRoot, SkillsRoot: r.skillsRoot, SkillStateRoot: r.skillStateRoot, OperatorRoot: r.operatorRoot, PlanRepos: r.planRepos, PromptAddendum: agent.Prompt, NetworkBoundary: NetworkBoundary(settings), NetworkBoundarySet: true, MediaCapabilities: MediaCapabilities(settings, connection, tools), MediaCapabilitiesSet: true, Workspace: abs, WorkspaceMissing: setup.Missing, Scratch: scratch, ProjectBlock: setup.Instructions.Block, ProjectFiles: setup.Instructions.Files, ProjectNotes: setup.Instructions.Notes, PendingRepoPolicy: pendingPolicy, RepoPolicy: activePolicy, Run: RunState{Status: "idle"}, ToolsEnabled: tools, ToolCalls: map[string]int{}, LastSeen: map[string]time.Time{}, CreatedAt: createdAt, LogPath: logPath, Runnable: runnable, NotRunnableReason: reason, DegradedNotes: degradedFeatures(connection, settings.Context.Accounting), MemoryBlock: memoryBlock, MemoryPath: memoryPath, AgentMemoryBlock: agentMemoryBlock, AgentMemoryPath: agentMemoryPath, MachineMemoryBlock: machineMemoryBlock, MachineMemoryPath: machineMemoryPath, MemoryMaxTokens: settings.Memory.MaxTokens, SchemaTokens: map[string]int{}, MarginalTokens: map[string]int{}}
 	if r.workspaces != nil && !setup.Missing {
 		r.configureProjects(session)
+	}
+	if createdBy == "scheduled" {
+		session.Origin = "scheduled"
+		session.Unattended = len(unattended) > 0 && unattended[0]
 	}
 	session.Messages = []events.Message{}
 	session.Budget = initialBudget(connection)

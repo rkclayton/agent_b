@@ -44,7 +44,7 @@ type runState struct {
 	fallbackID                                         string
 	primaryLabel                                       string
 	primaryWindow                                      int
-	compacted                                          bool
+	compacted, recheckSummary                          bool
 	guards                                             *runGuards
 	currentReasoning                                   map[string]bool
 	connection                                         *config.Connection
@@ -507,14 +507,25 @@ func (x *runState) fitWindow() runOutcome {
 		detail := fmt.Sprintf("%s (%d tokens) did not answer; %s (%d tokens) cannot fit the %d-token request", x.primaryLabel, x.primaryWindow, x.connection.Label, x.connection.Context.NCtx, guardedPromptTokens(x.budget))
 		return x.stop("context_exhausted", detail, x.turn-1)
 	}
-	result := x.compactBeforeRequest()
-	if result.Stop != "" {
-		return x.stop("context_exhausted", result.Stop, x.turn-1)
-	}
-	if result.Changed {
-		x.compacted = true
-		x.turn--
-		return runAgainOutcome
+	if x.recheckSummary {
+		if x.trimAfterSummary() {
+			x.turn--
+			return runAgainOutcome
+		}
+		x.recheckSummary = false
+		if guardedPromptTokens(x.budget) > x.budget.Ceiling {
+			return x.stop("context_exhausted", "fixed and retained messages exceed the model window after compaction", x.turn-1)
+		}
+	} else {
+		result := x.compactBeforeRequest()
+		if result.Stop != "" && !(result.Changed && x.recheckSummary) {
+			return x.stop("context_exhausted", result.Stop, x.turn-1)
+		}
+		if result.Changed {
+			x.compacted = true
+			x.turn--
+			return runAgainOutcome
+		}
 	}
 	if x.reasoningFallbackPending {
 		x.reasoningFallbackPending, x.reasoningFallbackUsed = false, true
@@ -933,6 +944,7 @@ func (x *runState) finishOrRunToolsStep() runOutcome {
 			if allowance >= 0 {
 				allowance /= len(x.results) - index
 			}
+			allowance = resultAllowance(x.budget, allowance)
 			item.content, item.ok, item.metadata, resultTokens = r.fitWindowResult(
 				x.ctx, x.s, x.connection, item.call.Name, item.args, item.content, item.ok, item.metadata, resultTokens, allowance, item.operatorContext,
 			)

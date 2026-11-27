@@ -171,3 +171,85 @@ func has(v []Job, s string) bool {
 	}
 	return false
 }
+
+func TestJobExternallyRemovedBeforeDueDoesNotRun2za(t *testing.T) {
+	now := base
+	calls := 0
+	manager := New(t.TempDir(), func() time.Time { return now }, func(context.Context, Job) Result {
+		calls++
+		return Result{}
+	})
+	if _, err := manager.Apply(context.Background(), Args{Action: "create", Schedule: "every 2h", Prompt: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manager.Root(), "jobs.json"), []byte("[]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Hour)
+	if err := manager.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 || len(manager.Jobs()) != 0 {
+		t.Fatalf("removed job executed %d times and %d jobs remain", calls, len(manager.Jobs()))
+	}
+}
+
+func TestScheduledRetriesRecordOneOutcome2za(t *testing.T) {
+	for _, succeed := range []bool{true, false} {
+		t.Run(fmt.Sprint(succeed), func(t *testing.T) {
+			now, calls, notices := base, 0, 0
+			manager := New(t.TempDir(), func() time.Time { return now }, func(context.Context, Job) Result {
+				calls++
+				if succeed && calls == 2 {
+					return Result{Answer: "ready"}
+				}
+				return Result{Failed: true, Failure: "model unavailable", Retryable: true}
+			})
+			manager.SetHooks(func(string) { notices++ }, nil)
+			created, err := manager.Apply(context.Background(), Args{Action: "create", Schedule: "every 2h", Prompt: "fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			now = created.Job.Next
+			for _, delay := range []time.Duration{0, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute} {
+				now = now.Add(delay)
+				if err := manager.Tick(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want := 4
+			if succeed {
+				want = 2
+			}
+			outputs, _ := filepath.Glob(filepath.Join(manager.Root(), "output", "*", "*.md"))
+			jobs := New(filepath.Dir(manager.Root()), func() time.Time { return now }, nil).Jobs()
+			if len(jobs) != 1 || jobs[0].Runs != 1 || calls != want || notices != 1 || len(outputs) != 1 {
+				t.Fatalf("calls=%d notices=%d outputs=%d jobs=%+v", calls, notices, len(outputs), jobs)
+			}
+		})
+	}
+}
+
+func TestInterruptedScheduleRunsOnceOnRestart2za(t *testing.T) {
+	now := base
+	root := t.TempDir()
+	manager := New(root, func() time.Time { return now }, func(context.Context, Job) Result { return Result{Failed: true, Interrupted: true} })
+	created, err := manager.Apply(context.Background(), Args{Action: "create", Schedule: "in 1h", Prompt: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = created.Job.Next
+	if err = manager.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	manager = New(root, func() time.Time { return now }, func(context.Context, Job) Result { calls++; return Result{Answer: "ready"} })
+	for i := 0; i < 2; i++ {
+		if err = manager.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 || len(manager.Jobs()) != 0 {
+		t.Fatalf("restart calls=%d remaining=%d", calls, len(manager.Jobs()))
+	}
+}

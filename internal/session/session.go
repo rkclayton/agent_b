@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1190,4 +1191,14 @@ func (s *Session) SetMessageCounts(values map[string]MessageCount) {
 			s.Messages[index].Estimated = value.Estimated
 		}
 	}
+}
+
+type scheduledRunKey struct{}
+
+func WithScheduledRun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, scheduledRunKey{}, true)
+}
+func IsScheduledRun(ctx context.Context) bool {
+	scheduled, _ := ctx.Value(scheduledRunKey{}).(bool)
+	return scheduled
 }

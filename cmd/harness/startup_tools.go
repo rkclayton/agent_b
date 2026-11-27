@@ -178,12 +178,13 @@ func (a *harnessApp) wireTools() {
 		return deliveryManager.Deliver(item, runID, files)
 	})
 	a.scheduler = agent.NewScheduler(a.runner, a.registry, a.bus, a.web.ConfigSnapshot)
-	a.scheduled = &scheduledRuns{profile: a.profileRoot, cfg: a.web.ConfigSnapshot, registry: a.registry, scheduler: a.scheduler, bus: a.bus, web: a.web, sessions: map[string]string{}}
+	a.scheduled = &scheduledRuns{profile: a.profileRoot, cfg: a.web.ConfigSnapshot, registry: a.registry, scheduler: a.scheduler, bus: a.bus, web: a.web}
 	a.cronManager.SetRunner(a.scheduled.run)
 	a.cronManager.SetHooks(nil, a.scheduled.finish)
 	cronContext, cancelCron := context.WithCancel(context.Background())
-	a.cleanup(cancelCron)
-	go a.cronManager.Run(cronContext)
+	cronDone := make(chan struct{})
+	a.cleanup(func() { cancelCron(); <-cronDone })
+	go func() { defer close(cronDone); a.cronManager.Run(cronContext) }()
 	a.runner.SetMailboxBoundary(func(_ context.Context, sessionID string, approvalPending bool) agent.BoundaryAction {
 		action, err := a.operatorFiles.CheckInbox(sessionID, approvalPending)
 		return agent.BoundaryAction{Stop: action.Stop, Revision: action.Revision, Delay: action.Delay, Err: err}

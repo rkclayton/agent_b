@@ -327,7 +327,11 @@ func (m *Manager) deliverEvent(ctx context.Context, event events.Event) {
 		_ = m.deliver(ctx, event.Type, m.message(event))
 	}
 	if phone != nil {
-		_, _ = phone.Notify(ctx, pushKind(event.Type), event.SessionID, strings.ReplaceAll(body, "\n", " "))
+		message := strings.ReplaceAll(body, "\n", " ")
+		if job, _ := data["scheduled_job"].(string); strings.TrimSpace(job) != "" {
+			message = events.HumanNoticeFor(events.ScheduledFinished, map[string]any{"scheduled_job": job, "reason": data["reason"]}).Happened
+		}
+		_, _ = phone.Notify(ctx, pushKind(event.Type), event.SessionID, message)
 	}
 }
 
@@ -510,7 +514,7 @@ func humanNotice(data map[string]any, eventType string) events.HumanNotice {
 
 func notifiable(eventType string) bool {
 	switch eventType {
-	case events.ApprovalRequired, events.RunStopped, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob:
+	case events.ApprovalRequired, events.RunStopped, events.ScheduledFinished, events.ItemDone, events.ItemStuck, events.PlanDone, events.WorkerJob:
 		return true
 	default:
 		return false

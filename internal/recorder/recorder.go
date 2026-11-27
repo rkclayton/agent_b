@@ -233,6 +233,9 @@ func (r *Recorder) observe(event events.Event, data map[string]any) {
 		r.add(current, map[string]any{"span": "cancelled"})
 	case events.RunStopped:
 		reason := word(data["reason"])
+		if reason == "cron_shutdown" {
+			reason = "aborted_mid_run"
+		}
 		switch {
 		case strings.HasPrefix(reason, "context_"):
 			r.add(current, map[string]any{"span": "context_exceeded", "reason": reason})

@@ -36,6 +36,7 @@ This page describes the build of 2026-10-16.
 | Connection unavailable | A scheduled or queued run has no runnable connection. | `connection_not_runnable` | connection | built-in |
 | Mailbox stop | The local mailbox asks the active run to stop. | `mailbox_stop` | operator files | built-in |
 | Schedule timeout | A scheduled run reaches its configured duration. | `cron_timeout` | Settings → schedules → run time | built-in |
+| Application closed | The application closes during a scheduled run. | `cron_shutdown` | Application shutdown | 2za |
 | Wall-clock limit | A run reaches its configured wall-clock duration. | `wall_clock` | run time limit | built-in |
 
 ## 2 A CALL IS REFUSED

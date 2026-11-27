@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // STORAGE, and only storage. A vault credential is kept exactly the way
@@ -174,7 +177,7 @@ func checkDestinationBindings(records map[string]Entry, name string, origins []s
 	for _, origin := range origins {
 		for other, entry := range records {
 			if other != name && slices.Contains(entry.Destinations(), origin) {
-				return fmt.Errorf("the address %s is already stored for %q", origin, other)
+				return &FieldError{"origin", fmt.Errorf("the address %s is already stored for %q", origin, other)}
 			}
 		}
 	}
@@ -203,9 +206,32 @@ func normalizeCredentialOrigins(values []string, normalize func(string) (string,
 // SecretReads counts vault acquisitions without retaining names or values.
 func (v *Vault) SecretReads() uint64 { return v.secretReads.Load() }
 
+type FieldError struct {
+	Field string
+	Err   error
+}
+
+func (e *FieldError) Error() string { return e.Err.Error() }
+func (e *FieldError) Unwrap() error { return e.Err }
+
+func ValidateVaultName(name string) error {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 128 || strings.ContainsFunc(name, unicode.IsControl) {
+		return &FieldError{"name", errors.New("Enter a name of up to 128 characters on one line.")}
+	}
+	return nil
+}
+
+func digestStore(root, prefix, name string) *Store {
+	stem := fmt.Sprintf("%s%x", prefix, sha256.Sum256([]byte(name)))
+	return &Store{path: filepath.Join(root, stem+".dpapi"), tempPrefix: stem + "-*"}
+}
+
 func (v *Vault) store(name string) (*Store, error) {
+	if err := ValidateVaultName(name); err != nil {
+		return nil, err
+	}
 	if !credentialName.MatchString(name) {
-		return nil, fmt.Errorf("a credential name is lower-case letters, digits and hyphens: %q is not", name)
+		return digestStore(v.root, ".agentb-credential.name-", name), nil
 	}
 	return &Store{
 		path:       filepath.Join(v.root, vaultFilePrefix+name+".dpapi"),
@@ -355,10 +381,10 @@ func (v *Vault) PutLoginOrigins(name string, values []string, password string) e
 		return loginOrigin(parsed.User.Username(), host, parsed.Port())
 	})
 	if err != nil {
-		return err
+		return &FieldError{"origin", err}
 	}
 	if password == "" || len(password) > 16384 || strings.ContainsAny(password, "\x00\r\n") {
-		return errors.New("a login needs a single-line password")
+		return &FieldError{"secret", errors.New("a login needs a single-line password")}
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -374,7 +400,7 @@ func (v *Vault) PutLoginOrigins(name string, values []string, password string) e
 		return err
 	}
 	if old, ok := records[name]; ok && old.Kind != "login" {
-		return errors.New("that name belongs to another credential kind")
+		return &FieldError{"name", errors.New("that name belongs to another credential kind")}
 	}
 	if err := checkDestinationBindings(records, name, origins); err != nil {
 		return err
@@ -469,13 +495,13 @@ func (v *Vault) Put(name, origin, header, secret string) error {
 func (v *Vault) PutKeyOrigins(name string, values []string, header, secret string) error {
 	origins, err := normalizeCredentialOrigins(values, NormalizeOrigin)
 	if err != nil {
-		return err
+		return &FieldError{"origin", err}
 	}
 	if strings.TrimSpace(secret) == "" {
-		return errors.New("the credential is empty")
+		return &FieldError{"secret", errors.New("the credential is empty")}
 	}
 	if err := validHeader(header); err != nil {
-		return err
+		return &FieldError{"header", err}
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -484,7 +510,7 @@ func (v *Vault) PutKeyOrigins(name string, values []string, header, secret strin
 		return err
 	}
 	if old, ok := records[name]; ok && old.Kind != "key" {
-		return errors.New("that name belongs to another credential kind")
+		return &FieldError{"name", errors.New("that name belongs to another credential kind")}
 	}
 	if err := checkDestinationBindings(records, name, origins); err != nil {
 		return err
@@ -523,7 +549,7 @@ func (v *Vault) PutEntraIfAbsent(name, origin, tenant, clientID string, scopes [
 func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string, requireAbsent bool) error {
 	origin, err := NormalizeOrigin(origin)
 	if err != nil {
-		return err
+		return &FieldError{"origin", err}
 	}
 	definition := EntraDefinition{Tenant: strings.TrimSpace(tenant), ClientID: strings.TrimSpace(clientID)}
 	for _, scope := range scopes {
@@ -543,8 +569,14 @@ func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string,
 			definition.Scopes = []string{MicrosoftScope(origin)}
 		}
 	}
-	if definition.Tenant == "" || definition.ClientID == "" || len(definition.Scopes) == 0 {
-		return errors.New("tenant, client id and at least one scope are required")
+	if definition.Tenant == "" {
+		return &FieldError{"tenant", errors.New("Enter a tenant.")}
+	}
+	if definition.ClientID == "" {
+		return &FieldError{"client_id", errors.New("Enter a client ID.")}
+	}
+	if len(definition.Scopes) == 0 {
+		return &FieldError{"scopes", errors.New("Enter at least one scope.")}
 	}
 	encoded, err := json.Marshal(definition)
 	if err != nil {
@@ -557,10 +589,10 @@ func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string,
 		return err
 	}
 	if _, exists := records[name]; requireAbsent && exists {
-		return fmt.Errorf("credential %q already exists", name)
+		return &FieldError{"name", fmt.Errorf("credential %q already exists", name)}
 	}
 	if old, ok := records[name]; ok && old.Kind != "entra" {
-		return errors.New("that name belongs to another credential kind")
+		return &FieldError{"name", errors.New("that name belongs to another credential kind")}
 	}
 	if err := checkDestinationBindings(records, name, []string{origin}); err != nil {
 		return err
@@ -610,18 +642,18 @@ func (v *Vault) Entra(name string) (EntraDefinition, Entry, error) {
 }
 
 func (v *Vault) EntraCache(name string) (*Store, error) {
-	return NewNamed(v.root, "entra-"+name+"-cache")
+	return v.signInCache("entra", name)
 }
 
 func (v *Vault) PutGoogle(name, origin, clientID, clientSecret string, scopes []string) error {
 	origin, err := NormalizeOrigin(origin)
 	if err != nil {
-		return err
+		return &FieldError{"origin", err}
 	}
 	parsedOrigin, _ := url.Parse(origin)
 	host := strings.ToLower(parsedOrigin.Hostname())
 	if host != "www.googleapis.com" && !strings.HasSuffix(host, ".googleapis.com") {
-		return errors.New("a Google credential origin must be www.googleapis.com or a narrower googleapis.com API host")
+		return &FieldError{"origin", errors.New("a Google credential origin must be www.googleapis.com or a narrower googleapis.com API host")}
 	}
 	definition := GoogleDefinition{ClientID: strings.TrimSpace(clientID), ClientSecret: strings.TrimSpace(clientSecret)}
 	for _, scope := range scopes {
@@ -629,8 +661,14 @@ func (v *Vault) PutGoogle(name, origin, clientID, clientSecret string, scopes []
 			definition.Scopes = append(definition.Scopes, scope)
 		}
 	}
-	if definition.ClientID == "" || definition.ClientSecret == "" || len(definition.Scopes) == 0 {
-		return errors.New("client id, client secret and at least one scope are required")
+	if definition.ClientID == "" {
+		return &FieldError{"client_id", errors.New("Enter a client ID.")}
+	}
+	if definition.ClientSecret == "" {
+		return &FieldError{"secret", errors.New("Enter a client secret.")}
+	}
+	if len(definition.Scopes) == 0 {
+		return &FieldError{"scopes", errors.New("Enter at least one scope.")}
 	}
 	encoded, err := json.Marshal(definition)
 	if err != nil {
@@ -643,7 +681,7 @@ func (v *Vault) PutGoogle(name, origin, clientID, clientSecret string, scopes []
 		return err
 	}
 	if old, ok := records[name]; ok && old.Kind != "google" {
-		return errors.New("that name belongs to another credential kind")
+		return &FieldError{"name", errors.New("that name belongs to another credential kind")}
 	}
 	if err := checkDestinationBindings(records, name, []string{origin}); err != nil {
 		return err
@@ -693,7 +731,17 @@ func (v *Vault) Google(name string) (GoogleDefinition, Entry, error) {
 }
 
 func (v *Vault) GoogleCache(name string) (*Store, error) {
-	return NewNamed(v.root, "google-"+name+"-cache")
+	return v.signInCache("google", name)
+}
+
+func (v *Vault) signInCache(provider, name string) (*Store, error) {
+	if err := ValidateVaultName(name); err != nil {
+		return nil, err
+	}
+	if key := provider + "-" + name + "-cache"; credentialName.MatchString(key) {
+		return NewNamed(v.root, key)
+	}
+	return digestStore(v.root, connectionFilePrefix+provider+".cache-", name), nil
 }
 
 // Rebind changes where a credential may go, without touching the secret. (e) means the

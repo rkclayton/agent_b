@@ -6,6 +6,8 @@ let credentialList = [];
 let browserDataBytes = null, browserDataConfirm = false;
 let credentialMessage = "";
 let credentialAlarm = false;
+let credentialErrorField = "";
+let credentialAdvanced = false;
 let credentialDevice = {};
 let credentialProvider = "entra";
 let credentialKind = "";
@@ -20,6 +22,8 @@ function useSettingsContext(context) {
   browserDataConfirm = !!context.browserDataConfirm;
   credentialMessage = context.credentialMessage || "";
   credentialAlarm = !!context.credentialAlarm;
+  credentialErrorField = context.credentialErrorField || "";
+  credentialAdvanced = context.advancedConnections?.has("credential") || false;
   credentialDevice = context.credentialDevice || {};
   credentialProvider = context.credentialProvider === "google" ? "google" : "entra";
   credentialKind = context.credentialKind || "";
@@ -181,29 +185,31 @@ function credentialRows() {
   ${store.config.credentials?.ask_before_use ? row("ask again after idle", `<input class="setting-input number" type="number" min="0" step="1" data-path="credentials.idle_hours" data-kind="number" value="${attr(store.config.credentials?.idle_hours ?? 4)}"><span class="control-note">hours · 0 = never</span>`) : ""}
   ${listed}
   ${credentialKind ? credentialForm() : '<button type="button" data-action="credential-open-add">Add</button>'}
-  ${feedback(credentialMessage, credentialAlarm)}
+  ${credentialErrorField ? "" : feedback(credentialMessage, credentialAlarm)}
   ${browserDataBytes == null ? "" : row("browser data", `<span class="settings-actions browser-data-actions">${browserDataConfirm ? '<span>Clear browser data?</span><button type="button" class="alarm" data-action="browser-data-clear">Clear</button><button type="button" data-action="browser-data-cancel">Cancel</button>' : browserDataBytes === 0 ? '<span class="account-status">empty</span>' : `<span class="mono account-status">${Math.ceil(browserDataBytes / 1048576)} MB</span><button type="button" data-action="browser-data-ask">Clear</button>`}</span>`, "", "Sign-ins, cookies and history the built-in browser keeps. Clear removes them.")}
   </section>`;
 }
 
 function credentialForm() {
-  const input = (id, label, type = "text", value = "") => `<label>${label}<input id="${id}" type="${type}" autocomplete="${type === "password" ? "new-password" : "off"}" spellcheck="false" value="${attr(value)}"></label>`;
-  const addresses = (id, placeholder) => `<label>Addresses<textarea rows="2" id="${id}" placeholder="${placeholder}" spellcheck="false"></textarea></label>`;
+  const invalid = (field) => credentialErrorField === field ? ' aria-invalid="true" aria-describedby="credential-input-error"' : "";
+  const error = (field) => credentialErrorField === field ? `<span class="alarm credential-field-note" role="alert" id="credential-input-error">${html(credentialMessage)}</span>` : "";
+  const input = (id, label, field, type = "text", value = "", last = false) => `<label>${label}<input id="${id}" type="${type}" autocomplete="${type === "password" ? "new-password" : "off"}" spellcheck="false" value="${attr(value)}"${invalid(field)}${last ? " data-credential-last" : ""}>${error(field)}</label>`;
+  const addresses = (id, placeholder) => `<label>Addresses<textarea rows="2" id="${id}" placeholder="${placeholder}" spellcheck="false"${invalid("origin")}></textarea>${error("origin")}</label>`;
   const save = (action, words = "Save") => `<div class="settings-actions"><button type="button" data-action="${action}">${words}</button><button type="button" data-action="credential-cancel-add">Cancel</button></div>`;
-  const advance = (content) => `<details class="settings-advanced" data-settings-advanced="credential" ${credentialAlarm ? "open" : ""}><summary>Advanced</summary>${content}</details>`;
+  const advance = (content) => `<details class="settings-advanced" data-settings-advanced="credential" ${["header", "tenant", "client_id", "scopes"].includes(credentialErrorField) || credentialAdvanced ? "open" : ""}><summary>Advanced</summary>${content}</details>`;
   const option = (value, label) => `<option value="${value}"${credentialKind === value ? " selected" : ""}>${label}</option>`;
   let fields = "";
   if (credentialKind === "key") {
-    fields = input("credential-name", "Name") + addresses("credential-origin", "https://api.example.test") + input("credential-secret", "Key", "password") + advance(input("credential-header", "Header (blank = bearer)")) + save("credential-add");
+    fields = input("credential-name", "Name", "name") + addresses("credential-origin", "https://api.example.test") + input("credential-secret", "Key", "secret", "password", "", true) + save("credential-add") + advance(input("credential-header", "Header", "header") + '<small class="control-note">Request header for the key. Blank sends Authorization: Bearer &lt;key&gt;.</small>');
   } else if (credentialKind === "login") {
-    fields = input("credential-login-name", "Name") + addresses("credential-login-origins", "user@host:22") + input("credential-login-password", "Password", "password") + save("credential-login-add");
+    fields = input("credential-login-name", "Name", "name") + addresses("credential-login-origins", "user@host:22") + input("credential-login-password", "Password", "secret", "password", "", true) + save("credential-login-add");
   } else if (credentialKind === "sign-in") {
     const provider = `<label>Provider<select id="credential-provider"><option value="entra"${credentialProvider === "entra" ? " selected" : ""}>Microsoft</option><option value="google"${credentialProvider === "google" ? " selected" : ""}>Google</option></select></label>`;
     fields = credentialProvider === "entra" ? provider +
-      input("credential-entra-name", "Name", "text", "microsoft") + input("credential-entra-origin", "Address", "text", "https://graph.microsoft.com") +
-      advance(input("credential-tenant", "Tenant") + input("credential-client-id", "Client ID") + input("credential-scopes", "Scopes")) + save("credential-entra-add", "Sign in with browser")
-      : provider + input("credential-google-name", "Name") + input("credential-google-origin", "Address") +
-      input("credential-google-client-id", "Client ID") + input("credential-google-client-secret", "Client secret", "password") + input("credential-google-scopes", "Scopes") + save("credential-google-add");
+      input("credential-entra-name", "Name", "name", "text", "microsoft") + input("credential-entra-origin", "Address", "origin", "text", "https://graph.microsoft.com", true) +
+      save("credential-entra-add", "Sign in with browser") + advance(input("credential-tenant", "Tenant", "tenant") + input("credential-client-id", "Client ID", "client_id") + input("credential-scopes", "Scopes", "scopes"))
+      : provider + input("credential-google-name", "Name", "name") + input("credential-google-origin", "Address", "origin") +
+      input("credential-google-client-id", "Client ID", "client_id") + input("credential-google-client-secret", "Client secret", "secret", "password") + input("credential-google-scopes", "Scopes", "scopes", "text", "", true) + save("credential-google-add");
   }
   return `<div class="credential-form"><label>Kind<select id="credential-kind">${option("choose", "Choose…")}${option("sign-in", "Sign-in")}${option("key", "Key")}${option("login", "Login")}</select></label>${fields || '<button type="button" data-action="credential-cancel-add">Cancel</button>'}</div>`;
 }
@@ -253,7 +259,7 @@ function brokerRows() {
 		"", "Point the phone's camera at this and tap Pair. It works once.")}
 	${offer.fingerprint ? row("fingerprint", `<span class="account-status mono">${html(offer.fingerprint)}</span><button type="button" data-action="broker-confirm">They match</button>`, "", "Compare all ten groups with the phone before confirming.") : ""}
 	${row("device", `<span class="account-status">${paired}</span>`)}
-	${status.log_path ? `<p class="account-status"><a href="${attr(pairingLogHref)}">open pairing log</a> · ${html(status.log_path)}</p>` : ""}
+	${status.log_path ? `<p class="account-status pairing-log"><a href="${attr(pairingLogHref)}">open pairing log</a> · ${html(status.log_path)}</p>` : ""}
 	${feedback(brokerMessage, brokerAlarm)}`;
 }
 

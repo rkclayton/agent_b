@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -109,6 +110,15 @@ func credentialEntry(entries []credential.Entry, name string) (credential.Entry,
 	return credential.Entry{}, false
 }
 
+func writeCredentialInputError(w http.ResponseWriter, err error) {
+	field := "credentials"
+	var input *credential.FieldError
+	if errors.As(err, &input) {
+		field = input.Field
+	}
+	writeError(w, http.StatusBadRequest, err.Error(), field)
+}
+
 func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-AgentB-Mutation-Token")), []byte(s.mutationToken)) != 1 {
 		writeError(w, http.StatusUnauthorized, "the page token is required", "credentials")
@@ -168,7 +178,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				err = vault.PutLogin(name, body.User, body.Host, body.Port, body.Secret)
 			}
 			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+				writeCredentialInputError(w, err)
 				return
 			}
 			vault.NotifyChanged(name)
@@ -178,13 +188,13 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				origins = []string{body.Origin}
 			}
 			if err := vault.PutKeyOrigins(name, origins, body.Header, body.Secret); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+				writeCredentialInputError(w, err)
 				return
 			}
 			vault.NotifyChanged(name)
 		case "add_entra":
 			if err := vault.PutEntra(name, body.Origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+				writeCredentialInputError(w, err)
 				return
 			}
 			if provider := identityProvider("entra"); provider != nil {
@@ -193,7 +203,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 		case "add_google":
 			if err := vault.PutGoogle(name, body.Origin, body.ClientID, body.ClientSecret, strings.Fields(body.Scopes)); err != nil {
 				body.ClientSecret = ""
-				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+				writeCredentialInputError(w, err)
 				return
 			}
 			body.ClientSecret = ""
@@ -222,11 +232,11 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 			if !present && body.Action == "sign_in" && body.Origin != "" {
 				origin, err := credential.NormalizeOrigin(body.Origin)
 				if err != nil || credential.MicrosoftScope(origin) == "" {
-					writeError(w, http.StatusBadRequest, "Choose a Microsoft service address.", "credentials")
+					writeError(w, http.StatusBadRequest, "Choose a Microsoft service address.", "origin")
 					return
 				}
 				if err := vault.PutEntraIfAbsent(name, origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+					writeCredentialInputError(w, err)
 					return
 				}
 				entry, err = vault.Lookup(name)
@@ -234,7 +244,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 			}
 			if present && entry.Microsoft && body.Action == "sign_in" && body.Origin != "" && (body.Tenant != "" || body.ClientID != "" || body.Scopes != "") {
 				if err := vault.PutEntra(name, entry.Origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+					writeCredentialInputError(w, err)
 					return
 				}
 			}

@@ -319,15 +319,16 @@ func TestTheVaultStoresTheSecretAndListsOnlyItsRecord2nv(t *testing.T) {
 	}
 }
 
-// A name is a slug, an origin is required, and a credential cannot be stored empty.
+// A display name must fit on one line, an origin is required, and a key cannot be empty.
 func TestTheVaultRefusesWhatItCannotKeepSafely2nv(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("SKIPPED: credential storage is DPAPI, so this case is Windows-only.")
 	}
 	vault := NewVault(t.TempDir())
 	for _, test := range []struct{ name, origin, secret, why string }{
-		{"Depot", "https://api.example.test", "x", "an upper-case name"},
-		{"depot key", "https://api.example.test", "x", "a name with a space"},
+		{"  ", "https://api.example.test", "x", "a blank name"},
+		{"Depot\nKey", "https://api.example.test", "x", "a multiline name"},
+		{strings.Repeat("a", 129), "https://api.example.test", "x", "an overlong name"},
 		{"depot", "http://api.example.test", "x", "a plain-http origin"},
 		{"depot", "", "x", "no origin"},
 		{"depot", "https://api.example.test", "", "an empty secret"},

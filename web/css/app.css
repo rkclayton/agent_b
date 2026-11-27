@@ -1637,6 +1637,8 @@
 .credential-form label { display: grid; grid-template-columns: minmax(8ch, max-content) minmax(0, 1fr); align-items: center; gap: var(--s2); color: var(--mute); min-width: 0; }
 .credential-form :is(input, textarea, select) { width: 100%; min-width: 0; padding: var(--s1); color: var(--ink); background: var(--well); border: 1px solid var(--raised-edge); color-scheme: dark; }
 .credential-form textarea { resize: vertical; }
+.credential-form [data-credential-last] { scroll-margin-bottom: calc(2rem + var(--s2)); }
+.credential-field-note { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .credential-form details > label { margin-top: var(--s2); }
 @media (max-width: 620px) {
   .credential-table, .credential-table tbody { display: block; }
@@ -1668,6 +1670,7 @@
 .account-status.alarm {
   color: var(--alarm);
 }
+.account-status.pairing-log { display: block; overflow-wrap: anywhere; }
 .text-action {
   margin-top: 8px;
 }
@@ -1768,7 +1771,7 @@
     grid-template-rows: 44px minmax(0, 1fr);
   }
   .settings-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
   .settings-nav {
@@ -1877,6 +1880,21 @@
     border-bottom: 0;
     border-left: 0;
   }
+}
+
+@media (max-width: 360px) {
+  .settings-page:has(#credential-settings) .setting-row { grid-template-columns: minmax(0, 1fr); }
+  .allowed-directories input { max-width: 100%; }
+}
+@media (max-width: 360px) and (max-height: 210px) {
+  .settings-page:has(#credential-settings) { z-index: 31; inset-block-start: 0; grid-template-rows: 28px minmax(0, 1fr); }
+  .settings-page:has(#credential-settings) .settings-head { padding: 0 var(--s2); }
+  .settings-page:has(#credential-settings) .settings-nav { padding: 0 var(--s1); scrollbar-width: none; }
+  .settings-page:has(#credential-settings) .settings-nav button { min-height: 24px; padding-block: 2px; }
+  .settings-page:has(#credential-settings) .settings-content { padding: var(--s1) var(--s2) var(--s3); }
+  .credential-form .settings-actions { gap: var(--s1); flex-wrap: nowrap; }
+  .credential-form .settings-actions button { min-width: 0; }
+  .credential-form .settings-actions button:last-child { flex: none; white-space: nowrap; }
 }
 
 /* Compact console surface. These final rules replace the earlier instrument layout. */
@@ -2122,7 +2140,7 @@
   .profile-memory-move td { border: 0; }
   .profile-memory-move td:nth-child(n+3) { grid-column: 1 / -1; }
 }
-.allowed-directories input { min-width: 32ch; }.allowed-directory-path{display:block;width:min(42ch,50vw);overflow:hidden;color:var(--ink);text-overflow:ellipsis;white-space:nowrap}.allowed-directory-invalid{display:block;color:var(--alarm)}
+.allowed-directories input { min-width: min(32ch, 100%); }.allowed-directory-path{display:block;width:min(42ch,50vw);overflow:hidden;color:var(--ink);text-overflow:ellipsis;white-space:nowrap}.allowed-directory-invalid{display:block;color:var(--alarm)}
 .profile-skills-row button { white-space: nowrap; }
 .skills-table, .skill-add-preview { width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
 .skills-table th, .skills-table td, .skill-add-preview td { padding: 4px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }

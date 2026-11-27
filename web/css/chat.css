@@ -930,6 +930,8 @@ details[open] > summary.chat-work-row::before { content: "▾"; }
 .tool-tick.chat-work-row { min-height: var(--work-leading); }
 .chat-work-time { margin-left: auto; font: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chat-work-time:empty { display: none; }
+.chat-work-fold.finished .chat-work-time { flex: none; margin-left: 0; }
+.chat-response:not(.thought-only-response) .chat-work-fold.finished > .chat-work-rows, .chat-work-group > .chat-work-detail { padding-inline-start: calc(var(--ct) * .7); }
 @media (max-width: 360px) {
   .chat-log:has(> .chat-jump:not([hidden])) .chat-work-row { max-width: calc(100% - 36px); }
 }

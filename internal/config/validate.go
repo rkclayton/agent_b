@@ -458,26 +458,10 @@ func ValidateServiceAuth(value string) error {
 	}
 	// a connector's auth is a REFERENCE to a stored credential. The value
 	// itself is never in the configuration.
-	if strings.HasPrefix(value, "stored:") {
-		name := strings.TrimSpace(strings.TrimPrefix(value, "stored:"))
-		if !storedCredentialName.MatchString(name) {
-			return fmt.Errorf("stored requires a credential name of lower-case letters, digits and hyphens")
+	for _, prefix := range []string{"stored:", "entra:", "google:"} {
+		if name, ok := strings.CutPrefix(value, prefix); ok {
+			return credential.ValidateVaultName(strings.TrimSpace(name))
 		}
-		return nil
-	}
-	if strings.HasPrefix(value, "entra:") {
-		name := strings.TrimSpace(strings.TrimPrefix(value, "entra:"))
-		if !storedCredentialName.MatchString(name) {
-			return fmt.Errorf("entra requires a credential name of lower-case letters, digits and hyphens")
-		}
-		return nil
-	}
-	if strings.HasPrefix(value, "google:") {
-		name := strings.TrimSpace(strings.TrimPrefix(value, "google:"))
-		if !storedCredentialName.MatchString(name) {
-			return fmt.Errorf("google requires a credential name of lower-case letters, digits and hyphens")
-		}
-		return nil
 	}
 	// static_bearer is RETIRED, but a configuration that still carries one must LOAD
 	// — that is what the migration reads. So it is accepted here and refused in the two

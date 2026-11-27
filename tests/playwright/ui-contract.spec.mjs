@@ -43,6 +43,143 @@ async function thinkingFixture(browser, width = 1280, apiResponse = null) {
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
 
+test("jump to latest only changes when the reader leaves or reaches the bottom 302", async ({ browser }) => {
+  const fixture = await thinkingFixture(browser);
+  const { page } = fixture;
+  const log = page.locator("#chat-log"), arrow = log.locator(".chat-jump");
+  const history = Array.from({ length: 36 }, (_, index) => ({ type: "user", key: `previous-${index}`, text: `Fixture message ${index}` }));
+  const tool = { type: "tool", key: "read", run_id: "run", name: "read_file", args: { path: "fixture.txt" }, result: { ok: true, ms: 20 } };
+  const chunk = (index) => fixture.emit([...history, tool, { type: "agent", key: "reply", run_id: "run", text: `Fixture reply fragment ${index}.` }]);
+  try {
+    await chunk(0);
+    await expect(arrow).toBeHidden();
+    await arrow.evaluate((node) => {
+      globalThis.jumpChanges = [];
+      new MutationObserver((changes) => jumpChanges.push(...changes.map((item, index) => index + 1 < changes.length ? changes[index + 1].oldValue !== null : node.hidden)))
+        .observe(node, { attributes: true, attributeOldValue: true, attributeFilter: ["hidden"] });
+    });
+    await log.evaluate((node) => { node.scrollTop = 0; });
+    for (let index = 1; index <= 5; index++) await chunk(index);
+    await expect(arrow).toBeVisible();
+    expect(await page.evaluate(() => jumpChanges)).toEqual([false]);
+    await arrow.click();
+    await expect(arrow).toBeHidden();
+    await log.locator(".chat-work-summary-toggle").dispatchEvent("click");
+    await log.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await page.evaluate(() => { jumpChanges.length = 0; });
+    for (let index = 6; index <= 9; index++) await chunk(index);
+    expect(await page.evaluate(() => jumpChanges)).toEqual([]);
+    await expect(arrow).toBeHidden();
+  } finally {
+    await fixture.context.close();
+  }
+});
+
+test("answered questions are one work row 302", async ({ browser }, testInfo) => {
+  const fixture = await thinkingFixture(browser);
+  const { page } = fixture;
+  try {
+    await fixture.emit([
+      { type: "notice", key: "question", run_id: "run", decision: "answered", event: { type: "approval.required", data: { kind: "question", call_id: "ask", question: "Which fixture?", choices: ["Alpha", "Beta"] } } },
+      { type: "tool", key: "ask", callID: "ask", run_id: "run", name: "ask", args: { question: "Which fixture?", choices: ["Alpha", "Beta"] }, content: "Beta", result: { ok: true, ms: 20 } },
+      { type: "agent", key: "reply", run_id: "run", text: "Done.", done: true },
+    ], true);
+    await page.locator(".chat-work-summary-toggle").click();
+    const work = page.locator(".chat-work-rows");
+    await expect(work.locator(".approval-decided")).toHaveCount(0);
+    await expect(work.locator(".chat-work-row")).toHaveCount(1);
+    await expect(work.locator(".chat-work-phrase")).toHaveText("Asked you · Beta");
+    await page.screenshot({ path: testInfo.outputPath("answered-question.png") });
+  } finally {
+    await fixture.context.close();
+  }
+});
+
+test("finished work groups the same target and puts thoughts last 303", async ({ browser }, testInfo) => {
+  test.setTimeout(90000);
+  const fetch = (index) => ({ type: "tool", key: `fetch-${index}`, run_id: "run", name: "fetch_url", args: { url: `https://example.test/page-${index}` }, content: `Result ${index}`, result: { ok: true, ms: 1750 } });
+  const thought = (index) => ({ ...fixtureThought, key: `thought-${index}`, reasoning: `Thought ${index}`, thinkingMS: index === 5 ? 2400 : 2500, done: true });
+  const ask = { type: "tool", key: "ask", run_id: "run", name: "ask", args: { question: "Which city?", choices: ["North", "South"] }, content: "Fixture City", result: { ok: true, ms: 4900 } };
+  const final = { type: "agent", key: "reply", run_id: "run", text: "The fixture is complete.", done: true };
+  for (const width of [304, 1280, 1920]) {
+    const fixture = await thinkingFixture(browser, width);
+    const { page } = fixture;
+    try {
+      await fixture.emit([thought(0), ask, fetch(0), thought(1), fetch(1), thought(2), fetch(2), thought(3), fetch(3), thought(4), thought(5), final], true);
+      const head = page.locator(".chat-work-summary-toggle");
+      const actions = width === 304 ? "1 question, 4 pages" : "asked you 1 question, fetched 4 pages";
+      await expect(head).toHaveText(`Worked 26.8 s · ${actions}`);
+      await expect(head).toHaveAttribute("aria-expanded", "false");
+      await head.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`collapsed-${width}.png`) });
+      await head.click();
+      const rows = page.locator(".chat-work-rows .chat-work-row:visible");
+      await expect(rows.locator(".chat-work-phrase")).toHaveText(["Asked you · Fixture City", "Fetched 4 pages · example.test", "Thought ×6"]);
+      await expect(rows.locator(".chat-work-time")).toHaveText(["4.9 s", "7.0 s", "14.9 s"]);
+      for (const [label, count] of [["Fetched 4 pages", 4], ["Thought ×6", 6]]) {
+        const group = page.locator(".chat-work-group").filter({ has: page.locator("summary").getByText(label, { exact: false }) });
+        await group.locator(":scope > summary").click();
+        const members = group.locator(".chat-work-detail .chat-work-row:visible");
+        await expect(members).toHaveCount(count);
+        if (count === 4) {
+          for (const [index, member] of (await members.all()).entries()) {
+            await member.click();
+            await expect(group.locator(".tool-detail").nth(index)).toContainText(`page-${index}`);
+          }
+        }
+        await group.locator(":scope > summary").click();
+      }
+      await head.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`expanded-${width}.png`) });
+      expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+      await fixture.emit([final], true);
+      await expect(head).toHaveCount(0);
+    } finally {
+      await fixture.context.close();
+    }
+  }
+});
+
+test("credential fields survive a Settings refresh and a refused save 300", async ({ browser }) => {
+  const fixture = await thinkingFixture(browser);
+  const { page } = fixture;
+  try {
+    const requests = [];
+    await page.route("**/api/credentials", (route) => {
+      if (route.request().method() === "GET") return route.fulfill({ json: { credentials: [] } });
+      const request = route.request().postDataJSON();
+      requests.push(request);
+      return request.name
+        ? route.fulfill({ json: { credentials: [{ kind: "key", name: request.name, origins: request.origins }] } })
+        : route.fulfill({ status: 400, json: { field: "name", error: "Enter a name." } });
+    });
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent("settings.open", { detail: { section: "shell" } })));
+    const section = page.locator("#credential-settings");
+    await section.getByRole("button", { name: "Add", exact: true }).click();
+    const kind = section.locator("#credential-kind"), key = section.locator("#credential-secret");
+    await kind.selectOption("key");
+    await section.locator("#credential-origin").fill("https://api.example.test");
+    await key.fill("fixture value");
+    await kind.focus();
+    const initial = await kind.elementHandle();
+    await fixture.emit([]);
+    expect(await initial.evaluate((node) => node === document.activeElement && node.isConnected)).toBe(true);
+    await expect(kind.locator("option").nth(1)).toHaveCSS("color", "rgb(232, 238, 244)");
+    await expect(kind.locator("option").nth(1)).toHaveCSS("background-color", "rgb(8, 10, 13)");
+    await expect(key).toHaveValue("fixture value");
+    const save = section.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    await expect(section.locator('label:has(#credential-name) [role="alert"]')).toHaveText("Enter a name.");
+    await section.locator("#credential-name").fill("Fixture Example API");
+    await save.click();
+    await expect(section.locator('[data-credential-name="Fixture Example API"]')).toBeVisible();
+    expect(requests.map(({ name, secret }) => [name, secret])).toEqual([["", "fixture value"], ["Fixture Example API", "fixture value"]]);
+  } finally {
+    await fixture.context.close();
+  }
+});
+
 test("repeat advice is a single row 2zz", async ({ browser }, testInfo) => {
   const line = "list_dir on . has given the same result 3 times; say what you need from the user, or finish.";
   for (const width of [304, 1280, 1920]) {
@@ -430,7 +567,7 @@ test("live header counts only completed steps and finished tools retain their he
   for (const width of [304, 1280, 1920]) {
     const f = await thinkingFixture(browser, width), tool = { type: "tool", key: "read", run_id: "run", name: "read_file", args: { path: "fixture.txt" }, result: { ok: true, ms: 5 }, content: "fixture" };
     await f.emit([tool, fixtureThought]); await f.capture("tools-live"); await expect(f.page.locator(".chat-work-summary")).toContainText("Read a file"); await expect(f.page.locator(".chat-work-summary")).not.toContainText(/thought/i);
-    await f.emit([tool, { ...fixtureThought, done: true, text: "The answer." }], true); await f.capture("tools-finished"); await expect(f.page.locator(".chat-work-summary")).toContainText(/Worked .* · 2 steps/);
+    await f.emit([tool, { ...fixtureThought, done: true, text: "The answer." }], true); await f.capture("tools-finished"); await expect(f.page.locator(".chat-work-summary")).toContainText(/Worked .* · read a file, thought for a moment/);
     await f.page.locator(".chat-work-summary-toggle").click(); const row = f.page.locator(".thinking-line"); await expect(row.locator(".chat-work-phrase")).toHaveText("Thought"); await expect(row.locator(".chat-work-time")).toHaveText("18.0 s"); await row.click(); await expect(f.page.locator(".thinking-body")).toContainText("616 tokens"); await f.capture("tools-finished-open"); await f.context.close();
   }
 });
@@ -1183,14 +1320,14 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   const finished = await open("idle", "finished-2ql.test");
   const worked = finished.page.locator(".chat-work-summary");
   await expect(worked).toHaveCount(1);
-  await expect(worked).toContainText(/▸Worked .* · 2 steps/);
+  await expect(worked).toContainText(/▸Worked .* · ran 2 commands, continued once, read a file/);
   await expect(finished.page.getByText("The synthetic release proof is complete.")).toBeVisible();
   await expect(finished.page.getByText("Checked the build inputs.")).toHaveCount(0);
   await expect(finished.page.locator("#chat-status-line")).toHaveCount(0);
   await expect(finished.page.locator(".chat-work-summary")).toContainText("3 files · file tools only");
   await expect(finished.page.getByRole("button", { name: "Undo file changes" })).toHaveCount(1);
   const restingSummary = await finished.page.locator(".chat-work-summary").textContent();
-  expect(restingSummary).toMatch(/▸Worked .* · 2 steps · 3 files · file tools only/);
+  expect(restingSummary).toMatch(/▸Worked .* · ran 2 commands, continued once, read a file.* · 3 files · file tools only/);
   await mkdir("logs/evidence/rel-1.62.36/captures", { recursive:true }); await mkdir("logs/evidence/rel-1.62.58/captures", { recursive:true });
   await finished.page.setViewportSize({ width:1280, height:860 });
   await finished.page.screenshot({ path:"logs/evidence/rel-1.62.36/captures/undo-file-changes-1280x860.png", fullPage:true });

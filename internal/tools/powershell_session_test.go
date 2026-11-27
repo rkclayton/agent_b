@@ -182,12 +182,12 @@ func TestPersistentPowerShellCredentialHandoffExpiryLimitsAndClose(t *testing.T)
 	if err := os.MkdirAll(filepath.Join(root, "powershell"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	bootstrap := "# credentials: graph\n$bootstrapSaw = $AgentB.graph\n"
+	bootstrap := "# credentials: \"Fixture's Graph, API\"\n$bootstrapSaw = $AgentB.\"Fixture's Graph, API\"\n"
 	if err := os.WriteFile(filepath.Join(root, "powershell", "graph.ps1"), []byte(bootstrap), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	vault := credential.NewVault(root)
-	if err := vault.PutEntra("graph", "https://example.test", "tenant-placeholder", "client-placeholder", []string{"scope-placeholder"}); err != nil {
+	if err := vault.PutEntra("Fixture's Graph, API", "https://example.test", "tenant-placeholder", "client-placeholder", []string{"scope-placeholder"}); err != nil {
 		t.Fatal(err)
 	}
 	tokens := &powerShellTokenFixture{values: []string{"token-one", "token-two"}}
@@ -206,7 +206,7 @@ func TestPersistentPowerShellCredentialHandoffExpiryLimitsAndClose(t *testing.T)
 		t.Fatalf("handoff result=%q err=%v", got, err)
 	}
 	firstPID := tool.sessions[tool.key(item.ID, item.AgentID, "graph")].process.(interface{ PID() int }).PID()
-	got, err = tool.Call(context.Background(), item, map[string]any{"session": "graph", "command": "if ($AgentB.graph -eq 'token-one') { 'expired token' } else { 'refreshed' }"})
+	got, err = tool.Call(context.Background(), item, map[string]any{"session": "graph", "command": "if ($AgentB.\"Fixture's Graph, API\" -eq 'token-one') { 'expired token' } else { 'refreshed' }"})
 	if err != nil || strings.TrimSpace(got) != "refreshed" || tokens.calls != 2 {
 		t.Fatalf("refresh result=%q calls=%d err=%v", got, tokens.calls, err)
 	}

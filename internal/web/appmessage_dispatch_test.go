@@ -662,7 +662,17 @@ func TestAChangeLandingDuringChatOpenIsSentOnce2rf(t *testing.T) {
 	go func() { result <- live.accept(patch) }()
 	live.prepare(epoch, patch.PreviousCursor)
 	live.activate()
-	if !<-result || live.accept(patch) {
+	deliveries := 0
+	if <-result {
+		deliveries++
+	}
+	for _, ready := range live.release() {
+		if ready.Cursor != patch.Cursor || ready.SessionID != patch.SessionID {
+			t.Fatalf("released a different patch: %+v", ready)
+		}
+		deliveries++
+	}
+	if deliveries != 1 || live.accept(patch) {
 		t.Fatal("the patch concurrent with chat.open was missed or accepted twice")
 	}
 	if !newPhoneStreamState().accept(patch) {

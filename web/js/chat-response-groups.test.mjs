@@ -1,10 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyResponseBlocks, groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
+import { classifyResponseBlocks, finishedWorkKey, finishedWorkSentence, groupResponseRows, hasVisibleChatContent, isIdenticalSingleStepFold, isThinThought, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget, thinThoughtTokenLimit } from "./chat-response-groups.js";
 
 const tool = (key, name, ok = true, ms = 1) => ({ type: "tool", key, name, args: {}, result: { ok, ms } });
 const thought = (key, tokens, text = "") => ({ type: "agent", key, reasoning: "x", reasoningTokens: tokens, text, done: true, thinkingMS: 2 });
+
+test("finished work names every tool kind and groups by its own target 303", () => {
+  const kinds = {
+    read_file: "read 2 files", list_dir: "looked around 2 times", search: "looked around 2 times",
+    write_file: "created 2 files", edit_file: "changed 2 files", shell: "ran 2 commands", process: "ran 2 commands",
+    remember: "remembered 2 things", recall: "recalled 2 things", fetch_url: "fetched 2 pages",
+    web_search: "searched the web 2 times", run_script: "ran 2 scripts", call_service: "called 2 services",
+    delegate: "delegated 2 tasks", code: "navigated code 2 times", image: "read 2 pictures", cronjob: "scheduled 2 jobs",
+    chat_history: "looked back 2 times", todo: "listed tasks 2 times", ask: "asked you 2 questions", extra: "used extra 2 times",
+  };
+  for (const [name, phrase] of Object.entries(kinds)) {
+    const a = tool("a", name), b = tool("b", name);
+    assert.equal(finishedWorkKey(a), finishedWorkKey(b), name);
+    assert.equal(finishedWorkSentence(responseSummary([thought("t", 12), a, b])), `${phrase}, thought for a moment`, name);
+  }
+  const keyFor = (name, args) => finishedWorkKey({ ...tool("fixture", name), args });
+  assert.equal(keyFor("fetch_url", { url: "https://example.test/one" }), keyFor("fetch_url", { url: "https://example.test/two" }));
+  assert.notEqual(keyFor("fetch_url", { url: "https://example.test" }), keyFor("fetch_url", { url: "https://other.example.test" }));
+  assert.notEqual(keyFor("read_file", { path: "one/result.txt" }), keyFor("read_file", { path: "two/result.txt" }));
+  assert.notEqual(keyFor("shell", { command: "git log -1" }), keyFor("shell", { command: "git log -2" }));
+});
 
 test("a live thought is never named as a finished step 2y9", () => {
   const live = { ...thought("live", 300), done: false };

@@ -188,6 +188,27 @@ export function responseSummarySentence(summary, explicitKinds = 4, includeRemai
   return sentence;
 }
 
+export function finishedWorkSentence(summary, { compact = false, narrow = false } = {}) {
+  const actions = summary.actions.filter((action) => action.kind !== "thought");
+  const thought = summary.actions.find((action) => action.kind === "thought");
+  if (thought && (!compact || actions.length < 2)) actions.push(thought);
+  return actions.map((action) => {
+    if (action.kind === "ask") return `${narrow ? "" : "asked you "}${action.count} ${action.count === 1 ? "question" : "questions"}`;
+    if (narrow && action.kind === "fetch_url") return `${action.count} ${action.count === 1 ? "page" : "pages"}`;
+    return actionClause(action);
+  }).join(", ");
+}
+
+export function finishedWorkKey(item) {
+  if (item?.type === "agent" && item.done && thoughtTokens(item)) return "thought";
+  if (item?.type !== "tool") return "";
+  const args = item.args || {};
+  const target = item.name === "fetch_url" ? shortToolTarget(item.name, args)
+    : args.service ? `${args.service}\n${args.method || ""}\n${args.path || ""}`
+      : (args.command ?? args.path ?? args.file ?? args.filename ?? args.script ?? args.query ?? args.question ?? args.task ?? args.name ?? args.scope ?? "");
+  return `${item.name}\n${toolActionKind(item)}\n${target}`;
+}
+
 export function isIdenticalSingleStepFold(items = [], blocks = []) {
   if (blocks.length !== 1 || blocks[0].prose || blocks[0].steps.length !== items.length) return false;
   return blocks[0].steps.every((item, index) => item === items[index] || item?.key === items[index]?.key);

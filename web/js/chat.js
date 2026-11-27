@@ -13,7 +13,7 @@ import { attachmentReadability } from "./attachment-readability.js";
 import { agentAuthor, isRunning, openSessions, sameWorkerPlan, workerApproval } from "./chat-lifecycle.js";
 import { renderSendStop } from "./stop-state.js";
 import { runTimeSentence } from "./run-summary.js";
-import { classifyResponseBlocks, hasVisibleChatContent, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget } from "./chat-response-groups.js";
+import { classifyResponseBlocks, finishedWorkKey, finishedWorkSentence, hasVisibleChatContent, itemFailed, responseBlocks, responseHasOnlyThoughts, responseStepOutcome, responseSummary, responseSummarySentence, shortToolTarget } from "./chat-response-groups.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { registerMenu, requestConfirmation } from "./menu-behavior.js";
 import { liveActivityLook, liveActivityText, showsStreamCaret } from "./chat-activity.js";
@@ -36,6 +36,8 @@ const send = document.getElementById("chat-send");
 const notice = document.getElementById("chat-notice");
 const pendingApproval = document.getElementById("chat-pending-approval");
 const chatProposals = document.getElementById("chat-proposals");
+const narrowWorkHead = matchMedia("(max-width: 360px)");
+narrowWorkHead.addEventListener("change", schedule);
 const composer = document.querySelector(".chat-composer");
 const attachButton = document.getElementById("chat-attach");
 const attachMenu = document.getElementById("chat-attach-menu");
@@ -61,6 +63,7 @@ const expanded = new Set();
 const touched = new Set();
 let follow = true;
 let readingDetail = false;
+let jumpFrame = 0;
 let readingSession = "";
 let localNotice = "";
 let localAlarm = false;
@@ -122,11 +125,12 @@ jumpButton.className = "chat-jump";
 jumpButton.textContent = "↓";
 jumpButton.ariaLabel = "Jump to latest";
 jumpButton.title = "Jump to latest";
+jumpButton.hidden = true;
 jumpButton.onclick = () => {
   readingDetail = false;
   follow = true;
 	const session = store.sessions[selectedID()];
-	if (session && Number(session.history_end || session.history_total || 0) < Number(session.history_total || 0)) void loadSessionHistory(session.id, false);
+	if (session && !showsLatest(session)) void loadSessionHistory(session.id, false);
 	else renderLog(session);
 };
 // Reading settings are custom properties on the document root. Chat CSS keeps
@@ -316,8 +320,23 @@ function renderBudget(session) {
   setText(budget.querySelector(".chat-budget-tip"), `${value.estimated ? "estimated · " : ""}${format(used)} / ${format(ceiling)}`);
 }
 
+function showsLatest(session) {
+  return !session || Number(session.history_end || session.history_total || 0) >= Number(session.history_total || 0);
+}
+
+function syncJumpAfterLayout() {
+  if (jumpFrame) return;
+  jumpFrame = requestAnimationFrame(() => {
+    jumpFrame = 0;
+    if (!jumpButton.isConnected) return;
+    const latest = showsLatest(store.sessions[selectedID()]);
+    if (latest && follow && !readingDetail) log.scrollTop = log.scrollHeight;
+    const roomBelow = log.scrollHeight - log.clientHeight - log.scrollTop > 24;
+    setProperty(jumpButton, "hidden", latest && !roomBelow);
+  });
+}
+
 function renderLog(session) {
-  const wasBottom = follow && !readingDetail;
   liveThought = null;
   thinkingRenderer.begin();
   usedEntryViews = new Set();
@@ -392,15 +411,9 @@ function renderLog(session) {
     nodes.push(earlierButton);
   }
   for (const [index, entry] of entries.slice(start, end).entries()) nodes.push(renderEntrySafely(session, entry, start + index));
-	const atLatest = Number(session.history_end || session.history_total || 0) >= Number(session.history_total || 0);
-	setProperty(jumpButton, "hidden", follow && atLatest);
   nodes.push(jumpButton);
   finishLogRender(nodes);
-  requestAnimationFrame(() => {
-    if (wasBottom && atLatest && !readingDetail) log.scrollTop = log.scrollHeight;
-		const roomBelow = log.scrollHeight - log.clientHeight - log.scrollTop > 24;
-		setProperty(jumpButton, "hidden", atLatest && !roomBelow);
-  });
+  syncJumpAfterLayout();
 }
 
 function finishLogRender(nodes) {
@@ -621,7 +634,8 @@ function renderResponse(session, entry) {
 		setText(view.label, author); reconcileChildren(view.content, [view.label, view.rows]);
 	} else reconcileChildren(view.content, [view.rows]);
   const active = isRunning(session) && entry.items.some((item) => item?.run_id && item.run_id === session.run?.run_id);
-  const blocks = responseBlocks(entry.items);
+  const answered = new Set(entry.items.filter((item) => item?.type === "tool" && item.name === "ask" && item.callID && item.result?.ok).map((item) => item.callID));
+  const blocks = responseBlocks(entry.items.filter((item) => !answeredQuestion(item) || !answered.has(item.event.data.call_id)));
   const stream = session?.activity?.stream;
   if (active && !stream?.done && Array.isArray(stream?.tool_calls) && stream.tool_calls.length) {
     blocks.push({
@@ -678,18 +692,21 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
     const controls = document.createElement("div"); controls.className = "chat-work-controls"; controls.append(head);
     root.append(controls, status, rows);
     summaryToggle.onclick = () => { const open = summaryToggle.getAttribute("aria-expanded") === "true"; touched.add(key); open ? expanded.delete(key) : expanded.add(key); render(); };
-    view.work = { root, head, summaryToggle, caret, fileLabel, rows, controls, status, lines: new Map() };
+    view.work = { root, head, summaryToggle, caret, fileLabel, rows, controls, status, lines: new Map(), groups: new Map() };
   }
   view.work.runID = runID || "";
+  toggleClass(view.work.root, "finished", !active);
   if (active && defaultOpen) view.work.carryOpen = true;
   const open = touched.has(key) ? expanded.has(key) : defaultOpen || view.work.carryOpen === true || expanded.has(key);
   const items = blocks.flatMap((block) => block.steps);
-  const duration = responseSummary(items).duration;
-  const steps = blocks.filter((block) => block.prose).length || blocks.length;
+  const summary = responseSummary(items);
   setAttribute(view.work.summaryToggle, "aria-expanded", String(open));
   const changed = new Set(items.flatMap((item) => item?.type === "tool" && ["write_file", "edit_file"].includes(item.name) && item.result?.ok === true ? [item.args?.path] : item?.name === "delegate" ? (item.result?.delegate?.applied || []) : []).filter(Boolean));
   const remaining = Number.isInteger(view.work.remaining) ? view.work.remaining : changed.size;
-  const prefix = active ? responseSummarySentence(responseSummary(items)) : `Worked ${formatDuration(duration) || "0 s"} · ${steps} ${steps === 1 ? "step" : "steps"}`;
+  const actions = active ? responseSummarySentence(summary) : finishedWorkSentence(summary, { compact: true, narrow: narrowWorkHead.matches });
+  const prefix = active || !actions ? actions : `Worked ${formatDuration(summary.duration) || "0 s"} · ${actions}`;
+  const title = prefix && !active ? `Worked ${formatDuration(summary.duration) || "0 s"} · ${finishedWorkSentence(summary)}` : prefix;
+  setAttribute(view.work.summaryToggle, "title", title);
   setProperty(view.work.head, "hidden", directThoughts || !prefix);
   if (changed.size) {
     if (view.work.runID && !view.work.fileToggle) {
@@ -734,15 +751,17 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
   if (view.work.result) { if (!view.work.outcome) { view.work.outcome = document.createElement("span"); view.work.outcome.className = "chat-work-undo-result"; view.work.controls.append(view.work.outcome); } setText(view.work.outcome, view.work.result); }
   const latest = [...blocks].reverse().find((block) => block.interstitial && block.prose)?.prose?.text || "";
   setText(view.work.status, active ? latest : "");
-  reconcileChildren(view.work.root, [view.work.controls, ...(active && latest ? [view.work.status] : []), view.work.rows]);
-  reconcileChildren(view.work.rows, open || directThoughts ? renderFlatWorkRows(session, view, blocks, active) : []);
-  view.work.root.querySelector(":scope > .chat-file-list")?.remove();
-  if (view.work.filesOpen && view.work.runID) view.work.root.append(renderFileUndoList(session, view.work));
+  const children = [view.work.controls, ...(active && latest ? [view.work.status] : []), view.work.rows];
+  if (view.work.filesOpen && view.work.runID) children.push(renderFileUndoList(session, view.work));
+  else if (view.work.fileRows) { view.work.fileRows.clear(); view.work.fileList = null; }
+  reconcileChildren(view.work.root, children);
+  reconcileChildren(view.work.rows, open || directThoughts || !prefix ? renderFlatWorkRows(session, view, blocks, active) : []);
   return view.work.root;
 }
 
 function renderFlatWorkRows(session, view, blocks, active) {
   const nodes = [];
+  const rows = [];
   for (const block of blocks) {
     const blockView = ensureResponseBlockView(view, block.key);
     const filesByCall = new Map();
@@ -755,24 +774,75 @@ function renderFlatWorkRows(session, view, blocks, active) {
         view.work.lines.set(block.key, line);
       }
       setText(line, block.prose.text || "");
-      nodes.push(line);
+      rows.push({ node: line });
     }
     const usedItems = new Set();
     for (const [index, item] of block.steps.entries()) {
       if (item.liveStatus) continue;
       const itemKey = item?.key || `invalid:${index}`;
       usedItems.add(itemKey);
-      try { nodes.push(renderResponseItem(session, blockView, item, itemKey, false, false, filesByCall.get(item?.callID) || [])); }
-      catch (error) { nodes.push(renderFailure(item, error, index, true)); }
+      try {
+        const node = renderResponseItem(session, blockView, item, itemKey, false, false, filesByCall.get(item?.callID) || []);
+        if (active) nodes.push(node);
+        else rows.push({ item, node });
+      } catch (error) {
+        const node = renderFailure(item, error, index, true);
+        if (active) nodes.push(node);
+        else rows.push({ node });
+      }
     }
     for (const itemKey of blockView.items.keys()) if (!usedItems.has(itemKey)) blockView.items.delete(itemKey);
   }
+  return active ? nodes : groupFinishedRows(view.work, rows);
+}
+
+function groupFinishedRows(work, rows) {
+  const ordered = [], grouped = new Map(), used = new Set();
+  for (const row of rows) {
+    const key = finishedWorkKey(row.item);
+    if (!key) { ordered.push({ rows: [row] }); continue; }
+    let group = grouped.get(key);
+    if (!group) {
+      group = { key, rows: [] };
+      grouped.set(key, group);
+      if (key !== "thought") ordered.push(group);
+    }
+    group.rows.push(row);
+  }
+  if (grouped.has("thought")) ordered.push(grouped.get("thought"));
+  const nodes = ordered.map(({ key, rows }) => {
+    if (rows.length === 1) return rows[0].node;
+    const items = rows.map((row) => row.item);
+    const first = items[0];
+    const id = `${key}\n${first.key}`;
+    used.add(id);
+    let group = work.groups.get(id);
+    if (!group) {
+      group = createWorkDisclosure();
+      group.root.classList.add("chat-work-group");
+      group.root.open = rows.some(({ node }) => node.matches("[open]") || !!node.querySelector('[aria-expanded="true"], details[open]'));
+      work.groups.set(id, group);
+    }
+    const summary = responseSummary(items);
+    const action = finishedWorkSentence(summary);
+    const target = first.name === "ask" ? "" : shortToolTarget(first.name, first.args);
+    const phrase = key === "thought" ? `Thought ×${rows.length}` : `${action.charAt(0).toUpperCase()}${action.slice(1)}${target ? ` · ${target}` : ""}`;
+    updateWorkDisclosure(group, phrase, formatDuration(summary.duration), responseStepOutcome(items).alarm);
+    reconcileChildren(group.detail, rows.map((row) => row.node));
+    return group.root;
+  });
+  for (const key of work.groups.keys()) if (!used.has(key)) work.groups.delete(key);
   return nodes;
 }
 
 function renderFileUndoList(session, work) {
-  const list = document.createElement("div"); list.className = "chat-file-list";
+  const list = work.fileList ||= document.createElement("div");
+  list.className = "chat-file-list";
+  const views = work.fileRows ||= new Map(), nodes = [], used = new Set();
   for (const file of work.files || []) {
+    const diff = work.diffs?.[file.id], prior = views.get(file.id);
+    used.add(file.id);
+    if (prior?.file === file && prior.diff === diff) { nodes.push(prior.item); continue; }
     const item = document.createElement("div"); item.className = "chat-file-item";
     const row = document.createElement("div"); row.className = "chat-file-row";
     const chips = document.createElement("div"); chips.className = "file-chips";
@@ -793,10 +863,10 @@ function renderFileUndoList(session, work) {
         work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore";
         if ((result.restored || []).length) { work.files = work.files.filter((entry) => entry.id !== file.id); work.remaining = work.files.length; delete work.diffs[file.id]; }
       } catch (error) { work.result = error.message; }
+      undo.disabled = false;
       render();
     };
     row.append(chips, open, undo); item.append(row);
-    const diff = work.diffs?.[file.id];
     if (diff) {
       if (diff.file?.changed_since) { const warning = document.createElement("div"); warning.className = "chat-file-changed"; warning.textContent = "Changed again since this run; Undo this file will leave it unchanged."; item.append(warning); }
       if (diff.message) { const message = document.createElement("div"); message.className = "chat-file-diff-message"; message.textContent = diff.message; item.append(message); }
@@ -807,8 +877,11 @@ function renderFileUndoList(session, work) {
         item.append(body);
       }
     }
-    list.append(item);
+    views.set(file.id, { file, diff, item });
+    nodes.push(item);
   }
+  for (const id of views.keys()) if (!used.has(id)) views.delete(id);
+  reconcileChildren(list, nodes);
   return list;
 }
 
@@ -1062,7 +1135,7 @@ function toolTick(sessionID, entry, forceOpen = false, recovered = false, fileNa
   const failed = entry.result?.ok === false && !recovered;
   const delegated = entry.name === "delegate" ? entry.result?.delegate : null;
   const shortened = entry.result?.model_shortened ? ` · model kept ${formatBytes(entry.result.model_kept_bytes || 0)}` : "";
-  const target = fileNamed ? "" : delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args);
+  const target = fileNamed ? "" : delegated ? delegateKey(entry.args) : entry.name === "ask" && entry.result?.ok ? entry.content || "answered" : shortToolTarget(entry.name, entry.args);
   const action = entry.result ? responseSummarySentence(responseSummary([entry])) || entry.name : `Running ${entry.name}`;
   const phrase = `${failed ? "Failed · " : ""}${action}${target ? ` · ${target}` : ""}${recovered ? " · retried" : ""}`;
   setText(view.button.children[0], open ? "▾" : "▸");
@@ -1184,6 +1257,10 @@ function noticeDisclosure(content, entry) {
   updateWorkDisclosure(view, `${phrase}${failed && !/\bfailed\b/i.test(phrase) ? " · failed" : ""}`, formatDuration(data.ms || data.duration_ms || data.time?.total_ms), alarm);
   view.detail.append(content);
   return view.root;
+}
+
+function answeredQuestion(entry) {
+  return entry?.decision === "answered" && entry.event?.type === "approval.required" && entry.event.data?.kind === "question";
 }
 
 function renderNotice(session, entry) {
@@ -1392,6 +1469,12 @@ function noticeContent(session, entry, actionable) {
 		}
 	}
 	else if (event.type === "approval.required") {
+		if (answeredQuestion(entry)) {
+			const row = createWorkDisclosure();
+			updateWorkDisclosure(row, "Asked you · answered", "", false);
+			setText(row.detail, data.question || "");
+			return row.root;
+		}
 		return createApprovalCard(document, entry, {
 			replay: store.replay,
 			decide: actionable ? (callID, decision, answer) => api("/api/approve", { session_id: session.id, call_id: callID, decision, answer }) : null,
@@ -1933,6 +2016,7 @@ log.addEventListener("keydown", (event) => {
 });
 log.addEventListener("scroll", () => {
   follow = !readingDetail && log.scrollHeight - log.clientHeight - log.scrollTop <= 24;
+  syncJumpAfterLayout();
 	const session = store.sessions[selectedID()];
 	if (log.scrollTop <= 24 && Number(session?.history_start || 0) > 0 && !loadingEarlier) {
 		loadingEarlier = true;

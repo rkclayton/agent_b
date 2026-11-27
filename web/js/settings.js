@@ -57,6 +57,8 @@ let credentialList = [];
 let browserDataBytes = null, browserDataConfirm = false;
 let credentialMessage = "";
 let credentialAlarm = false;
+let credentialErrorField = "";
+let revealCredentialError = false;
 let credentialDevice = {};
 let credentialProvider = "entra";
 let credentialKind = "";
@@ -76,6 +78,9 @@ let settingsSaveDone = Promise.resolve();
 let settingsSaveMessage = "All changes saved";
 let settingsSaveAlarm = false;
 let activeSection = "connections";
+let protectedSelect = null;
+let deferredSelectRender = false;
+let restoringSettingsFocus = false;
 let fontFamilies = ["IBM Plex Sans", "Atkinson Hyperlegible", "OpenDyslexic"];
 let fontsLoaded = false;
 const settingMenus = new WeakMap();
@@ -163,9 +168,18 @@ export function initSettings(entry = {}) {
     }
   });
   sheet.addEventListener("click", click);
+  sheet.addEventListener("focusin", (event) => {
+    if (event.target.matches("select")) protectedSelect = event.target;
+    if (!restoringSettingsFocus && event.target.matches("[data-credential-last]")) {
+      const row = event.target.closest("label");
+      const actions = row.nextElementSibling;
+      if (actions?.matches(".settings-actions")) actions.scrollIntoView({ block: "nearest" });
+    }
+  });
   sheet.addEventListener("focusout", blur);
   sheet.addEventListener("change", change);
   sheet.addEventListener("pointerdown", (event) => {
+		if (event.target.matches("select")) protectedSelect = event.target;
 		if (!event.target.matches('.setting-input[data-path$=".model"]')) return;
 		void listConnectionModels(event.target.dataset.path.split(".")[1]);
 	});
@@ -289,7 +303,7 @@ export function openSettings(section = "") {
   sheet.hidden = false;
   sheet.setAttribute("aria-hidden", "false");
   history.replaceState(null, "", `#settings/${activeSection}`);
-  render();
+  render(true);
   setChatInert(true);
   refreshServiceAccountStatus();
 	refreshHardeningStatus();
@@ -362,7 +376,12 @@ async function leaveSettingsForChat() {
 	closeSettings("chat");
 }
 
-function render() {
+function render(force = false) {
+  if (!force && protectedSelect === document.activeElement && sheet.contains(protectedSelect)) {
+    deferredSelectRender = true;
+    return;
+  }
+  deferredSelectRender = false;
   const active = store.sessions[store.active];
   const scrollTop = sheet.querySelector(".settings-content")?.scrollTop || 0;
   const focusedInput = document.activeElement?.matches("input.setting-input, textarea.setting-input") ? document.activeElement : null;
@@ -436,7 +455,13 @@ function render() {
     focusNode.replaceWith(focusedInput);
     focusNode = focusedInput;
   }
+  restoringSettingsFocus = true;
   focusNode?.focus({ preventScroll: true });
+  restoringSettingsFocus = false;
+  if (revealCredentialError) {
+    revealCredentialError = false;
+    contentNode.querySelector('.credential-form [aria-invalid="true"]')?.focus();
+  }
   for (const menu of sheet.querySelectorAll(".setting-menu")) {
     const anchor = menu.previousElementSibling;
     settingMenus.set(anchor, registerMenu(menu, { anchor, onClose: () => anchor.setAttribute("aria-expanded", "false") }));
@@ -566,7 +591,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview, shareableNotes,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
-    credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider, credentialKind, browserDataBytes, browserDataConfirm,
+    credentialList, credentialMessage, credentialAlarm, credentialErrorField, credentialDevice, credentialProvider, credentialKind, browserDataBytes, browserDataConfirm,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList, agentProfiles: () => store.config.agents || [],
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
@@ -1483,13 +1508,16 @@ async function runAction(event, button, action, id) {
 		if (verb === "pair" || verb === "confirm") watchBrokerPairing();
 		return render();
 	}
-	// adding a credential is a masked field that never echoes, and removing
-	// one is immediate. The value goes straight to the endpoint and is never held in the
-	// page's state, so a re-render cannot put it back on the screen.
+	// The masked value stays in the field until Save succeeds or Cancel closes the form.
 	if (action === "credential-open-add" || action === "credential-cancel-add") {
 		credentialKind = action === "credential-open-add" ? "choose" : "";
 		credentialMessage = "";
 		credentialAlarm = false;
+		credentialErrorField = "";
+		if (!credentialKind) {
+			for (const id of actionDrafts.keys()) if (id.startsWith("credential-")) actionDrafts.delete(id);
+			advancedConnections.delete("credential");
+		}
 		return render();
 	}
 	if (action === "credential-add") {
@@ -1509,9 +1537,9 @@ async function runAction(event, button, action, id) {
 			}
 			credentialMessage = "stored";
 			credentialKind = "";
+			credentialErrorField = "";
 		} catch (error) {
-			credentialMessage = error.message;
-			credentialAlarm = true;
+			showCredentialInputError(error);
 		}
 		return render();
 	}
@@ -1523,7 +1551,8 @@ async function runAction(event, button, action, id) {
 			for (const id of ["name","origins","password"]) {const input=sheet.querySelector(`#credential-login-${id}`);if(input) input.value="";actionDrafts.delete(`credential-login-${id}`);}
 			credentialMessage="stored";
 			credentialKind="";
-		} catch(error) {credentialMessage=error.message;credentialAlarm=true;}
+			credentialErrorField = "";
+		} catch(error) {showCredentialInputError(error);}
 		return render();
 	}
 	if (action === "credential-entra-add") {
@@ -1544,9 +1573,9 @@ async function runAction(event, button, action, id) {
 			}
 			credentialMessage = microsoft ? "Signed in" : "Entra credential added — sign in when ready";
 			credentialKind = "";
+			credentialErrorField = "";
 		} catch (error) {
-			credentialMessage = error.message;
-			credentialAlarm = true;
+			showCredentialInputError(error);
 		}
 		return render();
 	}
@@ -1563,7 +1592,8 @@ async function runAction(event, button, action, id) {
 			}
 			credentialMessage = "Google credential added — sign in when ready";
 			credentialKind = "";
-		} catch (error) { credentialMessage = error.message; credentialAlarm = true; }
+			credentialErrorField = "";
+		} catch (error) { showCredentialInputError(error); }
 		return render();
 	}
 	if (action === "credential-sign-in" || action === "credential-device-code" || action === "credential-sign-out") {
@@ -1679,6 +1709,13 @@ function watchBrokerPairing() {
 		await refreshBrokerStatus();
 		if (open && activeSection === "shell") render();
 	}, 1500);
+}
+
+function showCredentialInputError(error) {
+  credentialMessage = error.message;
+  credentialAlarm = true;
+  credentialErrorField = ["name", "origin", "secret", "header", "tenant", "client_id", "scopes"].includes(error.field) ? error.field : "";
+  revealCredentialError = !!credentialErrorField;
 }
 
 async function refreshCredentials() {
@@ -1948,6 +1985,10 @@ async function shellCredentialAction(action) {
 
 async function blur(event) {
   const input = event.target;
+  if (protectedSelect === input) {
+    protectedSelect = null;
+    if (deferredSelectRender) requestAnimationFrame(() => { if (open && deferredSelectRender) render(); });
+  }
   if (input.matches(".setting-input[data-server-field]")) {
     if (input.dataset.kind === "secret" && !input.value) return;
     const ids = String(input.dataset.serverIds || "").split(",").filter(Boolean);
@@ -1998,11 +2039,18 @@ async function blur(event) {
 }
 
 async function change(event) {
+  if (protectedSelect === event.target) protectedSelect = null;
   if (event.target.matches("#credential-kind")) {
+    credentialErrorField = "";
+    credentialAlarm = false;
+    credentialMessage = "";
     credentialKind = event.target.value;
     return render();
   }
   if (event.target.matches("#credential-provider")) {
+    credentialErrorField = "";
+    credentialAlarm = false;
+    credentialMessage = "";
     credentialProvider = event.target.value === "google" ? "google" : "entra";
     render();
     return;

@@ -73,7 +73,8 @@ test("Jump to latest is one accessible down-arrow at the transcript edge", () =>
   assert.match(chat, /jumpButton\.textContent = "↓";\s*jumpButton\.ariaLabel = "Jump to latest";\s*jumpButton\.title = "Jump to latest";/);
   assert.match(css, /\.chat-jump\s*\{[^}]*float:\s*right[^}]*bottom:\s*8px[^}]*width:\s*32px[^}]*min-height:\s*32px[^}]*padding:\s*0/s);
   assert.match(chat, /follow = !readingDetail && log\.scrollHeight - log\.clientHeight - log\.scrollTop <= 24/);
-  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*readingDetail = false;\s*follow = true;[\s\S]*history_end[\s\S]*loadSessionHistory\(session\.id, false\);[\s\S]*else renderLog\(session\)/);
+  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*readingDetail = false;\s*follow = true;[\s\S]*!showsLatest\(session\)\) void loadSessionHistory\(session\.id, false\);[\s\S]*else renderLog\(session\)/);
+  assert.match(chat, /function showsLatest\(session\)[\s\S]{0,180}history_end[\s\S]{0,100}>= Number\(session\.history_total/);
   assert.doesNotMatch(chat, /pointerover[\s\S]{0,180}follow = false/);
 });
 
@@ -265,7 +266,7 @@ test("No-agent and empty Plan invitations are explicit and Console links to acti
 test("file-configured and profile-owned tools have no duplicate Settings controls", () => {
 	assert.match(app, /\["web_search", "delegate", "powershell_session"\]\.includes\(tool\.name\)/);
 	assert.match(app, /root\.replaceChildren\(\.\.\.configurable\.map/);
-	assert.match(app, /counts\.replaceChildren\(\.\.\.toolUseRows\(store\.tools \|\| \[\], counters\)\.map/);
+	assert.match(app, /getElementById\(`activity-\$\{kind\}`\)\.replaceChildren\(\.\.\.\(current\?\.\[kind\] \|\| \[\]\)\.map/);
 });
 
 test("new chats expose no folder selection surface", () => {
@@ -310,7 +311,7 @@ test("Chat rows use the full width and preserve spoken authors", () => {
 
 test("Model-unreachable transcript notices are flat and stay outside response counts", () => {
 	assert.match(chat, /filter\(hasVisibleChatContent\)/);
-	assert.match(chat, /entry\.event\?\.type === "run\.stopped" && entry\.event\?\.data\?\.reason === "model_unreachable"[\s\S]*grouped\.push\(entry\);[\s\S]*response = null/);
+	assert.match(chat, /entry\.event\?\.type === "run\.stopped" && \[[^\]]*"model_unreachable"[^\]]*\]\.includes\(entry\.event\?\.data\?\.reason\)[^\n]*\) \{\s*grouped\.push\(entry\);\s*response = null/);
 	assert.match(chat, /entry\.text \|\| session\.model_unreachable\?\.host/);
 	assert.doesNotMatch(chat, /data\.reason === "model_unreachable"[\s\S]{0,500}createElement\("details"\)/);
 	assert.match(chat, /retryModel\.onclick/);
@@ -335,7 +336,7 @@ test("Reduced motion remains zero-duration", () => {
 });
 
 test("A run stopped mid-tool is a flat transcript line, never folded into Steps (item 2fg)", () => {
-	assert.match(chat, /entry\.event\?\.type === "run\.stopped" && entry\.event\?\.data\?\.reason === "aborted_mid_tool"\)[\s\S]*grouped\.push\(entry\);/);
+	assert.match(chat, /entry\.event\?\.type === "run\.stopped" && \[[^\]]*"aborted_mid_tool"[^\]]*\]\.includes\(entry\.event\?\.data\?\.reason\)[^\n]*\) \{\s*grouped\.push\(entry\);/);
 	assert.match(chat, /data\.reason === "aborted_mid_tool"[\s\S]{0,200}stopped mid-tool/);
 });
 

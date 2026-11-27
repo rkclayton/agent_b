@@ -184,6 +184,40 @@ func TestAStoredCredentialReachesItsOriginAsItsHeader2nv(t *testing.T) {
 	}
 }
 
+func TestDisplayNameWorksForNamedAndAddressMatchedCredentials300(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("credential storage uses Windows DPAPI")
+	}
+	const name = "Fixture Example API"
+	stub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+plantedSecret {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer stub.Close()
+	root := t.TempDir()
+	if err := credential.NewVault(root).Put(name, stub.URL, "", plantedSecret); err != nil {
+		t.Fatal(err)
+	}
+	vault := credential.NewVault(root)
+	entries, err := vault.List()
+	if err != nil || len(entries) != 1 || entries[0].Name != name {
+		t.Fatalf("listing %+v, err %v", entries, err)
+	}
+	for _, auth := range []string{"stored:" + name, "none"} {
+		if err := config.ValidateNewServiceAuth(auth); err != nil {
+			t.Fatal(err)
+		}
+		service := config.Service{BaseURL: stub.URL, Auth: auth, AllowedMethods: []string{"GET"}, TimeoutS: 5, MaxBodyKB: 16}
+		tool := NewCallService(map[string]config.Service{"fixture": service})
+		tool.SetVault(vault)
+		tool.SetHTTPClientForTest(stub.Client())
+		if _, err := tool.Call(context.Background(), &session.Session{}, map[string]any{"service": "fixture", "method": "GET", "path": "status"}); err != nil {
+			t.Fatalf("auth %q: %v", auth, err)
+		}
+	}
+}
+
 // (f)'s refusals, each one BEFORE the credential is attached. The connector's base_url is
 // the approved origin here; every case changes exactly one part of it.
 func TestTheCredentialIsRefusedOffItsOrigin2nv(t *testing.T) {
@@ -366,11 +400,11 @@ func TestStoredIsValidAuthAndStaticBearerIsRefusedForNewConnectors2nv(t *testing
 	if err := config.ValidateServiceAuth("entra:work-api"); err != nil {
 		t.Errorf("entra: was refused: %v", err)
 	}
-	if err := config.ValidateServiceAuth("entra:Work API"); err == nil {
-		t.Error("entra: accepted a name that is not a slug")
+	if err := config.ValidateServiceAuth("entra:Work API"); err != nil {
+		t.Errorf("entra: rejected a display name: %v", err)
 	}
-	if err := config.ValidateServiceAuth("stored:Depot Key"); err == nil {
-		t.Error("stored: accepted a name that is not a slug")
+	if err := config.ValidateServiceAuth("stored:Depot Key"); err != nil {
+		t.Errorf("stored: rejected a display name: %v", err)
 	}
 	// A configuration carrying one must still LOAD — the migration reads it — but nothing
 	// may create or save one.

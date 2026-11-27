@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/base64"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"os"
@@ -251,7 +252,8 @@ func (p *PowerShellSession) open(ctx context.Context, item *session.Session, nam
 			return nil, errors.New("auth_error: sign in in Settings → Security → Credentials")
 		}
 		encoded := base64.StdEncoding.EncodeToString([]byte(value))
-		initial += fmt.Sprintf("\n$AgentB | Add-Member -NotePropertyName '%s' -NotePropertyValue ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) -Force", credentialName, encoded)
+		name := base64.StdEncoding.EncodeToString([]byte(credentialName))
+		initial += fmt.Sprintf("\n$AgentB | Add-Member -NotePropertyName ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) -NotePropertyValue ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'))) -Force", name, encoded)
 	}
 	if strings.TrimSpace(bootstrap) != "" {
 		initial += "\n" + bootstrap
@@ -290,9 +292,15 @@ func (p *PowerShellSession) bootstrap(name string) (string, []string, error) {
 	first, _, _ := strings.Cut(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
 	credentials := []string{}
 	if value, found := strings.CutPrefix(strings.TrimSpace(first), "# credentials:"); found {
-		for _, name := range strings.Split(value, ",") {
+		reader := csv.NewReader(strings.NewReader(value))
+		reader.TrimLeadingSpace = true
+		names, err := reader.Read()
+		if err != nil {
+			return "", nil, errors.New("enter a comma-separated list of credential names in the bootstrap")
+		}
+		for _, name := range names {
 			name = strings.TrimSpace(name)
-			if !powerShellSessionName.MatchString(name) {
+			if credential.ValidateVaultName(name) != nil {
 				return "", nil, fmt.Errorf("invalid credential name %q in bootstrap", name)
 			}
 			credentials = append(credentials, name)

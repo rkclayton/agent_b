@@ -72,8 +72,8 @@ test("compaction states what was stubbed and marks file-write calls 2tv", () => 
 test("Jump to latest is one accessible down-arrow at the transcript edge", () => {
   assert.match(chat, /jumpButton\.textContent = "↓";\s*jumpButton\.ariaLabel = "Jump to latest";\s*jumpButton\.title = "Jump to latest";/);
   assert.match(css, /\.chat-jump\s*\{[^}]*float:\s*right[^}]*bottom:\s*8px[^}]*width:\s*32px[^}]*min-height:\s*32px[^}]*padding:\s*0/s);
-  assert.match(chat, /follow = log\.scrollHeight - log\.clientHeight - log\.scrollTop <= 24/);
-  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*follow = true;[\s\S]*history_end[\s\S]*loadSessionHistory\(session\.id, false\);[\s\S]*else renderLog\(session\)/);
+  assert.match(chat, /follow = !readingDetail && log\.scrollHeight - log\.clientHeight - log\.scrollTop <= 24/);
+  assert.match(chat, /jumpButton\.onclick = \(\) => \{\s*readingDetail = false;\s*follow = true;[\s\S]*history_end[\s\S]*loadSessionHistory\(session\.id, false\);[\s\S]*else renderLog\(session\)/);
   assert.doesNotMatch(chat, /pointerover[\s\S]{0,180}follow = false/);
 });
 
@@ -133,8 +133,9 @@ test("one named bubble rule dresses messages and every attachment 2u1", () => {
 
 test("one raised definition dresses every raised surface 2u4", () => {
   assert.match(tokens, /--raised-edge:#000;--raised-radius:calc\(var\(--chat-size,12px\) \* 5 \/ 6\);--raised-radius-tight:calc\(var\(--chat-size,12px\) \/ 4\);--raised-fill:#15181C;--raised-fill-deep:#0D1014;--raised-shadow:inset 0 1px 0 rgba\(232,238,244,\.10\),0 3px 8px rgba\(0,0,0,\.38\)/);
-  for (const selector of [".chat-bubble", ".chat-work-summary", ".chat-step-summary", ".thinking-line", ".file-chip", ".shell-menu", ".chat-attach-menu", ".setting-menu", ".approval-card", ".plan-proposal", ".settings-page", ".confirm-popover", ".settings-error-panel", ".chat-jump", ".chat-input-wrap", ".chat-live-status"])
+  for (const selector of [".chat-bubble", ".file-chip", ".shell-menu", ".chat-attach-menu", ".setting-menu", ".approval-card", ".plan-proposal", ".settings-page", ".confirm-popover", ".settings-error-panel", ".chat-jump", ".chat-input-wrap"])
     assert.match(tokens, new RegExp(selector.replaceAll(".", "\\.")));
+  assert.doesNotMatch(tokens, /\.(chat-work-summary|thinking-line|chat-live-status)[,{]/);
   assert.match(tokens, /background:var\(--raised-fill\)!important;border:1px solid var\(--raised-edge\)!important;border-radius:var\(--raised-radius\)!important;box-shadow:var\(--raised-shadow\)!important/);
 });
 
@@ -143,7 +144,8 @@ test("the message box folds its buttons and status remains the newest visible en
   assert.match(css, /\.chat-input-wrap\s*\{[^}]*display:grid[^}]*height:112px/s);
   assert.match(css, /data-composer-layout="row"[^}]*\.chat-input-actions\s*\{[^}]*flex-direction:row/s);
   assert.match(css, /data-composer-layout="shut"[^}]*\.chat-input-actions\s*\{[^}]*display:none/s);
-  assert.match(css, /\.chat-live-status\s*\{[^}]*position:sticky[^}]*bottom:calc\(var\(--ct\) \* 2 \/ 3\)[^}]*width:max-content/s);
+  assert.match(css, /\.chat-live-status\s*\{[^}]*display:flex[^}]*width:max-content/s);
+  assert.doesNotMatch(css, /\.chat-live-status\s*\{[^}]*position:/s);
   assert.match(chat, /if \(showStatus && \(statusLine\.parentElement !== log \|\| log\.lastElementChild !== statusLine\)\) log\.append\(statusLine\)/);
 });
 
@@ -224,7 +226,7 @@ test("the transcript-tail status owns queue operator pending and unreachable sta
   assert.match(chat, /Run as you · until/);
   assert.match(chat, /filter\(\(entry\) => !\["operator\.context", "message\.queued", "run\.queued"\]/);
   assert.match(chat, /log\.lastElementChild !== statusLine/);
-  assert.match(css, /\.chat-live-status \{[^}]*padding:calc\(var\(--ct\) \/ 3\) calc\(var\(--ct\) \* 2 \/ 3\)/);
+  assert.match(css, /\.chat-live-status \{[^}]*max-width:calc\(100% - 8px\)[^}]*min-width:0/);
   assert.match(css, /\.chat-resize-handle \{ height:4px; min-height:4px; cursor:row-resize/);
 });
 
@@ -500,7 +502,7 @@ test("the 2qe palette has a signal green and accessible ink and mute contrast", 
 });
 
 test("the live status is transcript text and the composer edge is a four-pixel handle 2qm", () => {
-  assert.match(css, /\.chat-live-status\s*\{[^}]*padding:calc\(var\(--ct\) \/ 3\) calc\(var\(--ct\) \* 2 \/ 3\)[^}]*font:500 calc\(var\(--ct\) \* 11 \/ 12\)\/var\(--ct\) var\(--mono\)/s);
+  assert.match(css, /\.chat-live-status \.chat-notice \{[^}]*font: var\(--ct\)\/var\(--work-leading\) var\(--chat-face, var\(--sans\)\)/s);
   assert.match(css, /\.chat-composer\s*\{[^}]*gap:\s*0/s);
   assert.match(css, /\.chat-resize-handle\s*\{[^}]*height:4px[^}]*cursor:row-resize/s);
   assert.doesNotMatch(html + css, /chat-status-strip/);

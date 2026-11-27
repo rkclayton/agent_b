@@ -54,32 +54,32 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   renderer.begin();
   const first = renderer.render(active, 0);
   renderer.end();
-  // children: [caret, thought-glyph, "Thinking", <em> summary]. The glyph is one
-  // node reused across renders, which is what "preserves its DOM" means here.
-  const firstGlyph = first.children[0].children[1];
+  const caret = first.children[0].children[0];
   const body = first.children.find((child) => child.className === "thinking-body");
-  const collapse = first.children.find((child) => child.className === "collapse-arrow");
   assert.equal(body.textContent, "Waiting for reasoning text…");
-  assert.equal(collapse.hidden, false);
+  assert.equal(caret.textContent, "▾");
 
   renderer.begin();
   const second = renderer.render({ ...active, reasoning: "streamed thought" }, 4);
   renderer.end();
   assert.equal(second, first);
-  assert.equal(second.children[0].children[1], firstGlyph);
-  assert.equal(firstGlyph.className, "thought-glyph");
+  assert.equal(second.children[0].children[0], caret);
+  assert.equal(caret.className, "disclosure-caret");
   assert.equal(body.textContent, "streamed thought");
 
   renderer.begin();
   const completed = renderer.render({ ...active, reasoning: "streamed thought", done: true, thinkingMS: 1200 }, 4);
   renderer.end();
   assert.equal(completed, first);
-  assert.equal(completed.children[0].children[3].textContent, "thought · 4 tokens · 1.2 s");
+  assert.equal(completed.children[0].children[1].textContent, "Thought");
+  assert.equal(completed.children[0].children[2].textContent, "1.2 s");
+  assert.equal(body.textContent, "4 tokens\nstreamed thought");
 
   renderer.begin();
   const noDuration = renderer.render({ ...active, reasoning: "streamed thought", done: true, thinkingMS: null }, 4);
   renderer.end();
-  assert.equal(noDuration.children[0].children[3].textContent, "thought · 4 tokens");
+  assert.equal(noDuration.children[0].children[2].textContent, "");
+  assert.equal(body.textContent, "4 tokens\nstreamed thought");
 
   const inlineRenderer = createThinkingRenderer({
     document: fakeDocument,
@@ -92,20 +92,21 @@ test("thinking renderer preserves its DOM and never opens to an empty body", () 
   inlineRenderer.begin();
   const inline = inlineRenderer.render({ ...active, reasoning: "fragment", done: true, thinkingMS: 1200 }, 4);
   inlineRenderer.end();
-  assert.equal(inline.children[0].children[3].textContent, "thought · thoughts uncounted · 1.2 s");
+  assert.equal(inline.children[0].children[2].textContent, "1.2 s");
+  assert.equal(inline.children[1].textContent, "thoughts uncounted\nfragment");
 
   renderer.begin();
   const unavailable = renderer.render({ ...active, done: true, thinkingMS: 1200 }, 4);
   renderer.end();
-  assert.equal(body.textContent, "Reasoning text is unavailable in this recording.");
-  collapse.onclick();
+  assert.equal(body.textContent, "4 tokens\nReasoning text is unavailable in this recording.");
+  first.children[0].onclick();
   renderer.begin();
   renderer.render({ ...active, done: true, thinkingMS: 1200 }, 4);
   renderer.end();
   // Item 2gg: a collapsed thought is hidden "until-found", so the browser's
   // own find still reaches the model output inside it.
   assert.equal(body.getAttribute("hidden"), "until-found");
-  assert.equal(collapse.hidden, true);
+  assert.equal(caret.textContent, "▸");
 });
 
 // Item 2mu (c) and (d): NO RENDER PASS MAY CLOSE A FOLD THE OPERATOR OPENED.
@@ -136,17 +137,15 @@ test("a fold opened while the model is thinking stays open through every delta a
     renderer.end();
     return root;
   };
-  // children[0] is the thinking line; its children[1] is the glyph that carries
-  // data-open, and the line itself carries aria-expanded. Both are checked,
-  // because the operator sees the glyph and a screen reader sees the attribute.
+  // The caret and aria-expanded carry the same open state.
   const openState = (root) => ({
-    glyph: root.children[0].children[1].getAttribute("data-open"),
+    caret: root.children[0].children[0].textContent,
     aria: root.children[0].getAttribute("aria-expanded"),
   });
 
   // One pass before the operator touches it, so the view exists.
   const first = pass({ key, reasoning: "weigh", done: false, thinkingMS: null }, 2);
-  assert.deepEqual(openState(first), { glyph: "false", aria: "false" });
+  assert.deepEqual(openState(first), { caret: "▸", aria: "false" });
 
   // He clicks the caret. That is what the renderer's own click handler does.
   expanded.add(key);
@@ -160,18 +159,18 @@ test("a fold opened while the model is thinking stays open through every delta a
   ];
   for (const [index, delta] of deltas.entries()) {
     const root = pass({ key, ...delta, thinkingMS: null }, 4 + index);
-    assert.deepEqual(openState(root), { glyph: "true", aria: "true" }, `the fold closed on delta ${index + 1}, which is the flash`);
+    assert.deepEqual(openState(root), { caret: "▾", aria: "true" }, `the fold closed on delta ${index + 1}, which is the flash`);
     // And the same DOM, not a re-mount: a discarded view loses the operator's place.
     assert.equal(root, first, `the view was re-mounted on delta ${index + 1}`);
   }
 
   // (d): the done transition keeps it open.
   const done = pass({ key, reasoning: "weighing it up carefully now", text: "Here is the answer.", done: true, thinkingMS: 2300 }, 74);
-  assert.deepEqual(openState(done), { glyph: "true", aria: "true" }, "the fold closed when the thought completed");
+  assert.deepEqual(openState(done), { caret: "▾", aria: "true" }, "the fold closed when the thought completed");
   assert.equal(done, first);
 
   // And a fold the operator closes stays closed through the same traffic.
   expanded.delete(key);
   const closed = pass({ key, reasoning: "more", text: "Here is the answer.", done: true, thinkingMS: 2300 }, 80);
-  assert.deepEqual(openState(closed), { glyph: "false", aria: "false" }, "a fold the operator closed reopened itself");
+  assert.deepEqual(openState(closed), { caret: "▸", aria: "false" }, "a fold the operator closed reopened itself");
 });

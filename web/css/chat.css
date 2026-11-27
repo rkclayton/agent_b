@@ -105,6 +105,7 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
 
 .chat-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 40px 4px minmax(0, 1fr) auto;
   height: 100dvh;
   overflow: hidden;
@@ -463,7 +464,8 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
   margin-left: clamp(4px, 1.5vw, 12px);
 }
 .chat-work-fold,
-.chat-work-rows { display: grid; gap: 2px; min-width: 0; }
+.chat-work-rows { display: grid; gap: 0; min-width: 0; }
+.chat-response-content, .chat-response-rows, .chat-work-fold, .chat-work-rows { grid-template-columns: minmax(0, 1fr); }
 .chat-work-controls { display:flex; align-items:flex-start; gap:var(--s2); min-width:0; }
 .chat-work-undo { color:var(--trace); background:transparent; }
 .chat-work-undo-result { color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -613,7 +615,7 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
   text-decoration: none;
 }
 .chat-response-tool {
-  padding: 1px 0;
+  padding: 0;
 }
 .chat-response-notice {
   min-height: 20px;
@@ -882,7 +884,73 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
 .chat-input-wrap > textarea { grid-row:2; }
 .chat-input-actions { position:absolute; right:6px; bottom:6px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
 .chat-submit-actions { display:flex; align-items:center; gap:3px; }
-.chat-live-status { position:sticky; z-index:2; bottom:calc(var(--ct) * 2 / 3); display:flex; align-items:center; width:max-content; max-width:calc(100% - var(--ct) * 2 / 3); gap:calc(var(--ct) / 2); margin:var(--ct) calc(var(--ct) / 3) calc(var(--ct) * 2 / 3); padding:calc(var(--ct) / 3) calc(var(--ct) * 2 / 3); color:var(--mute); font:500 calc(var(--ct) * 11 / 12)/var(--ct) var(--mono); text-transform:uppercase; }
+.chat-page { --work-ink: color-mix(in srgb, var(--signal) 78%, transparent); --work-leading: calc(var(--ct) * 1.5); }
+.chat-work-row,
+.chat-work-summary,
+.chat-work-status,
+.chat-work-narration,
+.chat-plain-notice,
+.chat-live-status .chat-notice { color: var(--work-ink); font: var(--ct)/var(--work-leading) var(--chat-face, var(--sans)); }
+.chat-work-row {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--ct) / 2);
+  width: 100%;
+  max-width: 72ch;
+  min-width: 0;
+  min-height: var(--work-leading);
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-work-row:hover, .chat-work-summary-toggle:hover { color: var(--signal); background: transparent; }
+.chat-page > :where(:not(.app-shell)) :is(button.chat-work-row, button.chat-work-summary-toggle) { min-height: var(--work-leading); padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--work-ink); font: var(--ct)/var(--work-leading) var(--chat-face, var(--sans)); }
+.chat-page > :where(:not(.app-shell)) button.chat-work-row.alarm { color: var(--alarm); }
+.chat-work-row.alarm, .chat-work-row.alarm:hover, .chat-live-status .chat-notice.alarm { color: var(--alarm); }
+.chat-work-row > .disclosure-caret, .chat-work-summary > .disclosure-caret { flex: none; width: auto; font: inherit; }
+summary.chat-work-row { list-style: none; }
+summary.chat-work-row::-webkit-details-marker { display: none; }
+summary.chat-work-row::before { content: "▸"; flex: none; }
+details[open] > summary.chat-work-row::before { content: "▾"; }
+.chat-work-row[hidden] { display: none; }
+.chat-work-phrase, .chat-notice-text, .chat-work-status, .chat-work-narration, .chat-plain-notice { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tool-tick.chat-work-row > span { white-space: nowrap; overflow-wrap: normal; }
+.tool-tick.chat-work-row { min-height: var(--work-leading); }
+.chat-work-time { margin-left: auto; font: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chat-work-time:empty { display: none; }
+@media (max-width: 360px) {
+  .chat-log:has(> .chat-jump:not([hidden])) .chat-work-row { max-width: calc(100% - 36px); }
+}
+.chat-work-summary { gap: calc(var(--ct) / 2); min-height: var(--work-leading); padding: 0; }
+.chat-work-status, .chat-work-narration { padding: 0; }
+.chat-work-detail, .chat-response .thinking-body, .chat-response .tool-detail, .chat-live-status .thinking-body {
+  min-width: 0;
+  margin: 0 0 0 calc(var(--ct) * 1.25);
+  padding: 0;
+  background: transparent;
+  color: var(--mute);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--ct)/var(--work-leading) var(--chat-face, var(--sans));
+}
+.chat-work-detail > .chat-content.operator-mode-enabled { padding: 0; color: var(--alarm); background: transparent; }
+.chat-notice-row:has(> details), .chat-response-notice, .tool-harness-note:has(> summary.chat-work-row) { min-height: 0; padding-top: 0; padding-bottom: 0; }
+.chat-response .thinking-body[hidden="until-found"], .chat-live-status .thinking-body[hidden="until-found"] { margin: 0; }
+.chat-live-status { display:flex; align-items:center; width:max-content; max-width:calc(100% - 8px); min-width:0; gap:calc(var(--ct) / 2); margin:calc(var(--ct) / 6) 4px; color:var(--work-ink); }
+.chat-live-status .chat-notice { min-width: 0; min-height: var(--work-leading); max-width: 100%; }
+.chat-live-status .chat-retry { flex: none; }
+.chat-live-status.active .chat-notice-text {
+  color: transparent;
+  background: linear-gradient(90deg, var(--work-ink) 0 38%, var(--ink) 50%, var(--work-ink) 62% 100%) 100% 0 / 300% 100%;
+  background-clip: text;
+  animation: chat-line-sweep 2.4s linear infinite;
+}
+@keyframes chat-line-sweep { to { background-position: 0 0; } }
 .chat-live-status .chat-live-robot { width:calc(var(--ct) * 4 / 3); height:calc(var(--ct) * 4 / 3); }
 .chat-live-status[hidden] { display:none; }
 .chat-live-status:has(.thinking-body) { flex-direction:column; align-items:flex-start; }
@@ -907,6 +975,7 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
     animation-duration: 0ms !important;
   }
   .chat-list-row .chat-list-name.working { color:var(--signal); background-image:none; }
+  .chat-live-status.active .chat-notice-text { color:var(--work-ink); background:none; animation:none; }
   /* The thought bubble is static line art, so reduced motion needs nothing
      from it; the rule that held the animated dots open is gone with them. */
 }
@@ -1140,7 +1209,4 @@ body.chats-window-open #chat-log,body.chats-window-open #chat-composer,body.chat
 /* the fence's language, quietly. gives it a real
  header row beside the copy control so it never overlaps the code. */
 .code-language { grid-area: language; padding: 4px 8px; font: var(--ct)/1.2 var(--mono); color: var(--mute); pointer-events: none; }
-.chat-todo { display:grid; gap:var(--s1); padding:var(--s2) var(--s3); }
-.chat-todo-row { color:var(--mute); }
-.chat-todo-row.doing { color:var(--trace); }
-.chat-todo-row.done { color:var(--signal); }
+.chat-todo { min-width: 0; }

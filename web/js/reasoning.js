@@ -24,25 +24,18 @@ export function createThinkingRenderer(options) {
   return { begin, render, end };
 }
 
-const THOUGHT_BUBBLE =
-  '<svg class="thought-bubble" viewBox="0 0 16 12" width="11" height="9" aria-hidden="true" focusable="false"><path d="M4.2 7.4a2.4 2.4 0 0 1 .5-4.3 3 3 0 0 1 5.6-.6 2.6 2.6 0 0 1 1.5 4.9z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/><circle cx="4" cy="9.4" r="1.15" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="1.6" cy="11" r="0.7" fill="none" stroke="currentColor" stroke-width="0.9"/></svg>';
-
 function createView(document, key, expanded, rerender) {
   const root = document.createElement("div");
   const button = document.createElement("button");
   button.type = "button";
   const caret = document.createElement("span");
   caret.className = "disclosure-caret";
-  // One reasoning mark, used at rest and while live: a thought bubble in line
-  // art, palette colours only. It replaces the animated "..." that nobody could
-  // read as "the model is thinking".
-  const glyph = document.createElement("span");
-  glyph.className = "thought-glyph";
-  glyph.innerHTML = THOUGHT_BUBBLE;
-  const active = document.createElement("span");
-  active.textContent = "Thinking";
-  const summary = document.createElement("em");
-  button.append(caret, glyph, active, summary);
+  caret.setAttribute("aria-hidden", "true");
+  const summary = document.createElement("span");
+  summary.className = "chat-work-phrase";
+  const time = document.createElement("span");
+  time.className = "chat-work-time";
+  button.append(caret, summary, time);
   button.onclick = () => {
     expanded.has(key) ? expanded.delete(key) : expanded.add(key);
     rerender();
@@ -55,37 +48,23 @@ function createView(document, key, expanded, rerender) {
     expanded.add(key);
     rerender();
   });
-  const collapse = document.createElement("button");
-  collapse.type = "button";
-  collapse.className = "collapse-arrow";
-  collapse.textContent = "↑";
-  collapse.setAttribute("aria-label", "Collapse thought");
-  collapse.onclick = () => { expanded.delete(key); rerender(); };
-  root.append(button, collapse, body);
-  return { root, button, caret, glyph, active, summary, body, collapse };
+  root.append(button, body);
+  return { root, button, caret, summary, time, body };
 }
 
 function updateView(view, entry, tokens, options) {
   const open = options.expanded.has(entry.key);
-  setAttribute(view.button, "class", `thinking-line ${entry.done ? "thought-line" : "thinking-active"}`);
+  setAttribute(view.button, "class", `thinking-line chat-work-row ${entry.done ? "thought-line" : "thinking-active"}`);
   setAttribute(view.button, "aria-expanded", String(open));
-  // "use the thought icon as the caret". The glyph is the disclosure
-  // mark (Mute closed, Ink open, Trace while live); the caret node stays, hidden,
-  // so the row keeps its structure and hit target.
   setText(view.caret, open ? "▾" : "▸");
-  setProperty(view.caret, "hidden", !entry.onlyThought);
-  setProperty(view.glyph, "hidden", !!entry.onlyThought);
-  setAttribute(view.glyph, "data-open", String(open));
-  setProperty(view.active, "hidden", entry.done);
-  setProperty(view.summary, "hidden", !entry.done);
+  setText(view.summary, entry.done ? "Thought" : "Thinking");
+  setText(view.time, entry.done ? options.formatDuration?.(entry.thinkingMS) || "" : "");
   setProperty(view.button, "hidden", !!entry.liveStatus);
   let count = "";
   if (entry.done) {
     count = options.uncounted?.(entry)
       ? "thoughts uncounted"
       : `${entry.reasoningTokensEstimated || entry.thinkingEstimated ? "~" : ""}${options.format(tokens)} tokens`;
-    const duration = options.formatDuration?.(entry.thinkingMS);
-    setText(view.summary, entry.onlyThought ? `Thought · ${Math.round(Number(entry.thinkingMS || 0) / 1000)} s` : `thought · ${count}${duration ? ` · ${duration}` : ""}`);
   }
   // a collapsed thought is real model output, and the
   // audit found the browser's own find could not reach it — `hidden` removes
@@ -95,11 +74,10 @@ function updateView(view, entry, tokens, options) {
   if (open) {
     if (view.body.hasAttribute("hidden")) view.body.removeAttribute("hidden");
   } else setAttribute(view.body, "hidden", "until-found");
-  setProperty(view.collapse, "hidden", !open || !!entry.liveStatus || !!entry.onlyThought);
   const body = entry.reasoning || (entry.done
     ? "Reasoning text is unavailable in this recording."
     : "Waiting for reasoning text…");
-  const text = entry.onlyThought && entry.done ? `${count}\n${body}` : body;
+  const text = entry.done ? `${count}\n${body}` : body;
   if (view.body.textContent !== text) view.body.textContent = text;
 }
 

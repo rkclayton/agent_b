@@ -54,6 +54,8 @@ installTranscriptCopy(log);
 const expanded = new Set();
 const touched = new Set();
 let follow = true;
+let readingDetail = false;
+let readingSession = "";
 let localNotice = "";
 let localAlarm = false;
 let frame = 0;
@@ -115,6 +117,7 @@ jumpButton.textContent = "↓";
 jumpButton.ariaLabel = "Jump to latest";
 jumpButton.title = "Jump to latest";
 jumpButton.onclick = () => {
+  readingDetail = false;
   follow = true;
 	const session = store.sessions[selectedID()];
 	if (session && Number(session.history_end || session.history_total || 0) < Number(session.history_total || 0)) void loadSessionHistory(session.id, false);
@@ -211,6 +214,11 @@ function schedule() {
 function render() {
   if (!mounted) return;
   const session = store.sessions[selectedID()];
+  if ((session?.id || "") !== readingSession) {
+    readingSession = session?.id || "";
+    readingDetail = false;
+    follow = true;
+  }
 	reconcileQueuedDraft(session);
   renderBudget(session);
   renderLog(session);
@@ -303,7 +311,7 @@ function renderBudget(session) {
 }
 
 function renderLog(session) {
-  const wasBottom = follow;
+  const wasBottom = follow && !readingDetail;
   liveThought = null;
   thinkingRenderer.begin();
   usedEntryViews = new Set();
@@ -383,8 +391,9 @@ function renderLog(session) {
   nodes.push(jumpButton);
   finishLogRender(nodes);
   requestAnimationFrame(() => {
-		if (wasBottom && atLatest) log.scrollTop = log.scrollHeight;
-		setProperty(jumpButton, "hidden", follow && atLatest);
+    if (wasBottom && atLatest && !readingDetail) log.scrollTop = log.scrollHeight;
+		const roomBelow = log.scrollHeight - log.clientHeight - log.scrollTop > 24;
+		setProperty(jumpButton, "hidden", atLatest && !roomBelow);
   });
 }
 
@@ -636,7 +645,9 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
     head.type = "button";
     head.className = "chat-work-summary";
     const summaryToggle = document.createElement("button"); summaryToggle.type = "button"; summaryToggle.className = "chat-work-summary-toggle";
-    const caret = document.createTextNode("");
+    const caret = document.createElement("span");
+    caret.className = "disclosure-caret";
+    caret.setAttribute("aria-hidden", "true");
     const fileLabel = document.createTextNode("");
     const rows = document.createElement("div");
     rows.className = "chat-work-rows";
@@ -683,12 +694,13 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
     view.work.fileLabel.nodeValue = fileText;
     const countNode = view.work.runID && view.work.available !== false ? view.work.fileToggle : view.work.fileLabel;
     setText(view.work.summaryToggle, prefix);
-    view.work.caret.nodeValue = ` ${open ? "▾" : "▸"}`;
-    const nodes = [view.work.summaryToggle, countNode, view.work.caret];
+    setText(view.work.caret, open ? "▾" : "▸");
+    const nodes = [view.work.caret, view.work.summaryToggle, countNode];
     if (nodes.length !== view.work.head.childNodes.length || nodes.some((node, index) => view.work.head.childNodes[index] !== node)) view.work.head.replaceChildren(...nodes);
   } else {
-    setText(view.work.summaryToggle, prefix); view.work.caret.nodeValue = ` ${open ? "▾" : "▸"}`;
-    const nodes = [view.work.summaryToggle, view.work.caret];
+    setText(view.work.summaryToggle, prefix);
+    setText(view.work.caret, open ? "▾" : "▸");
+    const nodes = [view.work.caret, view.work.summaryToggle];
     if (nodes.length !== view.work.head.childNodes.length || nodes.some((node, index) => view.work.head.childNodes[index] !== node)) view.work.head.replaceChildren(...nodes);
   }
   if (!active && changed.size && view.work.runID && !view.work.undo) {
@@ -824,18 +836,22 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false, rec
   if (!item.key) throw new Error("entry key is missing");
 	if (item.type === "tool" && item.name === "todo") {
 		let todo = view.items.get(key);
-		if (!todo) { const root = document.createElement("div"); root.className = "chat-todo"; todo = { root }; view.items.set(key, todo); }
-		const rows = (item.args?.items || []).map((task) => { const row = document.createElement("div"); row.className = `chat-todo-row ${task.status || "pending"}`; row.textContent = `${task.status === "done" ? "✓" : task.status === "doing" ? "→" : "·"} ${task.text || ""}`; return row; });
-		reconcileChildren(todo.root, rows); return todo.root;
+		if (!todo) { todo = createWorkDisclosure(); todo.root.classList.add("chat-todo"); view.items.set(key, todo); }
+		const tasks = item.args?.items || [];
+		updateWorkDisclosure(todo, `Listed ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`, formatDuration(item.result?.ms), false);
+		setText(todo.detail, tasks.map((task) => `${task.status || "pending"} · ${task.text || ""}`).join("\n"));
+		return todo.root;
 	}
   let itemView = view.items.get(key);
   if (item.type === "notice") {
     const fingerprint = JSON.stringify(item);
     if (!itemView || itemView.fingerprint !== fingerprint) {
       const notice = noticeContent(session, item, false);
-      notice.classList.add("chat-response-notice");
-      notice.dataset.entryKey = item.key;
-      itemView = { step: notice, fingerprint };
+      const step = noticeDisclosure(notice, item);
+      if (step.tagName === "DETAILS" && itemView?.step.open) step.open = true;
+      step.classList.add("chat-response-notice");
+      step.dataset.entryKey = item.key;
+      itemView = { step, fingerprint };
       view.items.set(key, itemView);
     }
     return itemView.step;
@@ -869,12 +885,13 @@ function renderResponseItem(session, view, item, key, forceToolOpen = false, rec
       }
     } else if (item.type === "streaming-tool") {
       if (!itemView.tick) {
-        itemView.tick = document.createElement("div");
-        itemView.tick.className = "tool-tick chat-streaming-tool";
+        itemView.tick = createWorkDisclosure();
+        itemView.tick.root.classList.add("chat-streaming-tool");
       }
       const elapsed = Math.max(0, Number(item.last_chunk_at || 0) - Number(item.started_at || 0));
-      setText(itemView.tick, `${item.name || "tool call"} · ${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens · ${formatDuration(elapsed) || "0s"}`);
-      stepNodes.push(itemView.tick);
+      updateWorkDisclosure(itemView.tick, `Preparing ${item.name || "tool call"}`, formatDuration(elapsed), false);
+      setText(itemView.tick.detail, `${formatArgumentBytes(item.argument_bytes)} · ~${format(item.argument_tokens)} tokens`);
+      stepNodes.push(itemView.tick.root);
     } else if (item.type === "tool") {
       stepNodes.push(toolTick(item, forceToolOpen, recovered && itemFailed(item), files.length > 0));
       if (files.length) {
@@ -994,54 +1011,50 @@ function toolTick(entry, forceOpen = false, recovered = false, fileNamed = false
     const root = document.createElement("div");
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "tool-tick";
-    button.innerHTML = '<span class="tool-name"></span><span class="tool-key"></span><span class="tool-state"></span><span class="tool-ms"></span>';
+    button.className = "tool-tick chat-work-row";
+    button.innerHTML = '<span class="disclosure-caret" aria-hidden="true"></span><span class="chat-work-phrase"></span><span class="chat-work-time tool-ms"></span>';
     const pre = document.createElement("pre");
     pre.className = "tool-detail";
-    const collapse = document.createElement("button");
-    collapse.type = "button";
-    collapse.className = "collapse-arrow";
-    collapse.textContent = "↑";
-    collapse.setAttribute("aria-label", `Collapse ${entry.name} tool`);
-    collapse.onclick = () => { touched.add(entry.key); expanded.delete(entry.key); render(); };
     button.onclick = () => {
       touched.add(entry.key);
-      expanded.has(entry.key) ? expanded.delete(entry.key) : expanded.add(entry.key);
+      button.getAttribute("aria-expanded") === "true" ? expanded.delete(entry.key) : expanded.add(entry.key);
       render();
     };
     root.append(button);
-    view = { root, button, pre, collapse, args: null, result: null, content: null };
+    view = { root, button, pre, args: null, result: null, content: null };
     toolViews.set(entry.key, view);
   }
   // a harness note is a line of its own, never part of the result.
   const note = typeof entry.result?.harness_note === "string" ? entry.result.harness_note : "";
   if (note) {
-    if (!view.note) { view.note = document.createElement("div"); view.note.className = "tool-harness-note"; }
-    setText(view.note, `harness · ${note}`);
-    if (view.root.firstChild !== view.note) view.root.prepend(view.note);
-  } else if (view.note?.isConnected) {
-    view.note.remove();
+    if (!view.note) { view.note = createWorkDisclosure(); view.note.root.classList.add("tool-harness-note"); }
+    updateWorkDisclosure(view.note, "Harness note", "", false);
+    setText(view.note.detail, note);
+    if (view.root.firstChild !== view.note.root) view.root.prepend(view.note.root);
+  } else if (view.note?.root.isConnected) {
+    view.note.root.remove();
   }
   const open = touched.has(entry.key) ? expanded.has(entry.key) : forceOpen || expanded.has(entry.key);
   setAttribute(view.button, "aria-expanded", String(open));
-  const state = entry.result && typeof entry.result.ok === "boolean" ? (entry.result.ok ? "ok" : "error") : "";
+  const failed = entry.result?.ok === false && !recovered;
   const delegated = entry.name === "delegate" ? entry.result?.delegate : null;
   const shortened = entry.result?.model_shortened ? ` · model kept ${formatBytes(entry.result.model_kept_bytes || 0)}` : "";
-  const stateText = (recovered ? "retried" : delegated ? `${entry.result?.delegate_status || state} · ${Number(delegated.tool_calls || 0)} tool calls` : callServiceStatus(entry.name, entry.result) || state) + shortened;
-  setText(view.button.children[0], `${open ? "▾" : "▸"} ${entry.name} ·`);
-  setText(view.button.children[1], fileNamed ? "" : delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args));
-  setText(view.button.children[2], stateText);
-  setAttribute(view.button.children[2], "class", `tool-state ${state === "error" && !recovered ? "error" : ""}`);
-  setText(view.button.children[3], formatDuration(entry.result?.ms));
+  const target = fileNamed ? "" : delegated ? delegateKey(entry.args) : shortToolTarget(entry.name, entry.args);
+  const action = entry.result ? responseSummarySentence(responseSummary([entry])) || entry.name : `Running ${entry.name}`;
+  const phrase = `${failed ? "Failed · " : ""}${action}${target ? ` · ${target}` : ""}${recovered ? " · retried" : ""}`;
+  setText(view.button.children[0], open ? "▾" : "▸");
+  setText(view.button.children[1], phrase);
+  setAttribute(view.button, "title", phrase);
+  setText(view.button.children[2], formatDuration(entry.result?.ms));
+  toggleClass(view.button, "alarm", failed);
   if (open) {
     if (!view.pre.textContent || view.args !== entry.args || view.result !== entry.result || view.content !== entry.content) {
-      view.pre.textContent = delegated ? delegateDetail(entry.args, delegated) : `arguments\n${JSON.stringify(entry.args, null, 2)}\n\nresult\n${capResult(entry.content)}`;
+      const result = callServiceStatus(entry.name, entry.result);
+      view.pre.textContent = delegated ? delegateDetail(entry.args, delegated) : `${entry.name}${result ? ` · ${result}` : ""}${shortened}\narguments\n${JSON.stringify(entry.args, null, 2)}\n\nresult\n${capResult(entry.content)}`;
     }
-    if (!view.collapse.isConnected) view.root.append(view.collapse);
     if (!view.pre.isConnected) view.root.append(view.pre);
   } else if (view.pre.isConnected) {
     view.pre.remove();
-    view.collapse.remove();
   }
   view.args = entry.args;
   view.result = entry.result;
@@ -1072,6 +1085,60 @@ function formatBytes(value) {
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
+function createWorkDisclosure() {
+  const root = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.className = "chat-work-row";
+  const phrase = document.createElement("span");
+  phrase.className = "chat-work-phrase";
+  const time = document.createElement("span");
+  time.className = "chat-work-time";
+  const detail = document.createElement("div");
+  detail.className = "chat-work-detail";
+  summary.append(phrase, time);
+  root.append(summary, detail);
+  return { root, summary, phrase, time, detail };
+}
+
+function updateWorkDisclosure(view, phrase, time, failed) {
+  setText(view.phrase, phrase);
+  setAttribute(view.summary, "title", phrase);
+  setText(view.time, time);
+  toggleClass(view.summary, "alarm", failed);
+}
+
+function noticeDisclosure(content, entry) {
+  const type = entry.event?.type;
+  if (!type) {
+    content.classList.add("chat-plain-notice");
+    content.title = content.textContent;
+    return content;
+  }
+  if (content.hidden || !content.textContent || type === "approval.required" || type === "files.delivered") return content;
+  const data = entry.event?.data || {};
+  const alarm = content.classList.contains("alarm") || content.classList.contains("operator-mode-enabled");
+  const failed = alarm && type !== "operator.context" && type !== "memory.noted" && !String(data.reason || "").startsWith("aborted_");
+  const short = {
+    "compaction": "Compacted context",
+    "memory.noted": "Noted for next session",
+    "memory.cleared": "Cleared memory",
+    "project.instructions_loaded": "Read project instructions",
+    "run.aborted": "Run aborted",
+    "run.stopped": data.reason === "done" && data.time?.total_ms ? "Run time" : "",
+    "model.retry": data.reason === "announced_action" ? "Continued once" : "Retried model response",
+    "operator.context": "Run as you",
+    "shell.grant": "Granted shell access",
+    "shell.grant_lapsed": "Shell access ended",
+    "file.grant": "Granted file access",
+    "file.grant_lapsed": "File access ended",
+  }[type];
+  const phrase = short || content.firstChild?.textContent?.trim() || content.textContent.trim();
+  const view = createWorkDisclosure();
+  updateWorkDisclosure(view, `${phrase}${failed && !/\bfailed\b/i.test(phrase) ? " · failed" : ""}`, formatDuration(data.ms || data.duration_ms || data.time?.total_ms), alarm);
+  view.detail.append(content);
+  return view.root;
+}
+
 function renderNotice(session, entry) {
   const viewKey = viewKeyFor(entry);
   const fingerprint = JSON.stringify(entry);
@@ -1081,7 +1148,9 @@ function renderNotice(session, entry) {
     row.className = "chat-entry chat-notice-row";
 	  const content = noticeContent(session, entry, false);
     if (content.classList.contains("alarm")) row.classList.add("alarm");
-    row.append(content);
+    const disclosure = noticeDisclosure(content, entry);
+    if (disclosure.tagName === "DETAILS" && view?.row.firstElementChild?.open) disclosure.open = true;
+    row.append(disclosure);
     view = { row, content, fingerprint };
     entryViews.set(viewKey, view);
   }
@@ -1216,6 +1285,9 @@ function noticeContent(session, entry, actionable) {
 	}
 	else if (event.type === "file.grant") content.textContent = `file-tool grant: Run as you · for this ${data.scope === "session" ? "chat" : "run"}`;
 	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat ended" : "run ended"}`;
+	else if (event.type === "memory.cleared") content.textContent = `Cleared ${data.scope || "chat"} memory`;
+	else if (event.type === "project.instructions_loaded") content.textContent = data.path ? `Read instructions · ${data.path}` : "Read project instructions";
+	else if (event.type.startsWith("policy.")) content.textContent = `Policy ${event.type.slice(7)}${data.path ? ` · ${data.path}` : ""}`;
 	else if (event.type === "service.identity_unavailable") {
 		content.textContent = data.message || "Agent_b sets up its service identity now; Windows will ask once";
 		content.classList.add("alarm");
@@ -1400,6 +1472,7 @@ function renderComposer(session) {
   else { notice.removeAttribute("tabindex"); notice.removeAttribute("role"); notice.removeAttribute("aria-expanded"); }
   reconcileChildren(statusLine, [notice, retryModel, ...(thought ? [thought.root] : [])]);
   setAttribute(notice, "class", `chat-notice ${localAlarm || micNotice || unreachable || (session && !session.runnable) ? "alarm" : ""}`);
+  toggleClass(statusLine, "active", running && !unreachable && !localAlarm && !micNotice);
   const showStatus = !!session && (isRunning(session) || message !== "idle");
   setProperty(statusLine, "hidden", !showStatus);
   if (showStatus && (statusLine.parentElement !== log || log.lastElementChild !== statusLine)) log.append(statusLine);
@@ -1779,8 +1852,17 @@ input.addEventListener("keydown", (event) => {
   }
 });
 let loadingEarlier = false;
+log.addEventListener("click", (event) => {
+  if (!event.target.closest(".chat-work-row, .chat-work-summary, .thinking-line, #chat-notice[aria-expanded]")) return;
+  readingDetail = true;
+  follow = false;
+}, true);
+for (const type of ["wheel", "touchmove"]) log.addEventListener(type, () => { readingDetail = false; }, { passive: true });
+log.addEventListener("keydown", (event) => {
+  if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(event.key)) readingDetail = false;
+});
 log.addEventListener("scroll", () => {
-  follow = log.scrollHeight - log.clientHeight - log.scrollTop <= 24;
+  follow = !readingDetail && log.scrollHeight - log.clientHeight - log.scrollTop <= 24;
 	const session = store.sessions[selectedID()];
 	if (log.scrollTop <= 24 && Number(session?.history_start || 0) > 0 && !loadingEarlier) {
 		loadingEarlier = true;

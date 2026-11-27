@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { decodePNG } from "../png.mjs";
@@ -30,10 +30,11 @@ async function thinkingFixture(browser, width = 1280) {
   const page = await context.newPage();
   await page.route("**/*", route => { const path = new URL(route.request().url()).pathname; return path === "/chat" ? route.fulfill({ contentType: "text/html", body: indexHTML }) : path.startsWith("/api/") ? route.fulfill({ json: {} }) : route.fulfill({ path: webRoot + path.replace(/^\/static\//, "") }); });
   await page.goto("http://thinking.test/chat?setup=skip&session=thought");
-  const emit = async (items, done = false) => {
+  const emit = async (items, done = false, overrides = {}) => {
     const session = state.sessions.thought; session.chat = [{ type: "user", key: "request", text: "Inspect the fixture." }, ...items]; session.cursor.offset++;
     session.run.status = done ? "idle" : "running";
     session.activity = done ? { completed_stages: [] } : { stage: "call_model", stage_state: "enter", started_at: Date.now() - 18000, stream: { reasoning_chars: 2218, total_chars: 2218 } };
+    Object.assign(session, overrides);
     await page.evaluate(next => globalThis.thoughtEvents.emit(next), state); await page.waitForTimeout(180);
     if (width === 304) await page.evaluate(() => { document.body.classList.add("chat-list-hidden"); document.body.classList.remove("chat-list-visible"); document.querySelector(".chat-list-panel").hidden = true; document.querySelector(".chat-list-handle").hidden = false; });
   };
@@ -41,6 +42,105 @@ async function thinkingFixture(browser, width = 1280) {
   return { context, page, emit, capture };
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
+
+test("an opened work row stays in place while the live line scrolls with chat 2zg", async ({ browser }, testInfo) => {
+  const fixture = await thinkingFixture(browser);
+  const { page } = fixture;
+  const tool = (index) => ({ type: "tool", key: `step-${index}`, run_id: "run", name: "read_file", args: { path: `fixture-${index}.txt` }, content: "Fixture result", result: { ok: true, ms: 20 } });
+  const history = Array.from({ length: 20 }, (_, index) => ({ type: "user", key: `previous-${index}`, text: `Earlier fixture question ${index}` }));
+  await fixture.emit([...history, tool(0), fixtureThought]);
+  const head = page.locator(".chat-work-summary-toggle");
+  await head.click();
+  await page.locator(".tool-tick").first().click();
+  const row = page.locator(".tool-tick").first();
+  const offset = () => row.evaluate((node) => node.getBoundingClientRect().y);
+  const before = await offset();
+  const items = [tool(0)];
+  for (let i = 1; i <= 10; i++) {
+    items.push(tool(i));
+    await fixture.emit([...history, ...items, fixtureThought]);
+  }
+  await expect(row).toHaveAttribute("aria-expanded", "true");
+  const movement = Math.abs(await offset() - before);
+  const status = page.locator("#chat-status-line");
+  const position = await status.evaluate((node) => getComputedStyle(node).position);
+  await page.screenshot({ path: testInfo.outputPath("open-while-running.png") });
+  await page.locator("#chat-log").evaluate(node => { node.scrollTop = 0; });
+  expect.soft(movement).toBeLessThanOrEqual(1);
+  expect.soft(position).toBe("static");
+  expect(await status.evaluate(node => node.getBoundingClientRect().top >= node.parentElement.getBoundingClientRect().bottom)).toBe(true);
+  await fixture.context.close();
+});
+
+test("work rows stay flat and readable at the required scales 2zg", async ({ browser }, testInfo) => {
+  test.setTimeout(45000);
+  const makeTool = (name, args, ok = true) => ({ type: "tool", key: name, run_id: "run", name, args, content: "Fixture result", result: { ok, ms: 20, ...(name === "shell" ? { harness_note: "Fixture path was checked." } : {}) } });
+  const notice = (type, data) => ({ type: "notice", key: type, run_id: "run", event: { type, data } });
+  const rows = [
+    { ...fixtureThought, done: true },
+    makeTool("shell", { command: `Get-Content ${"long-fixture-name-".repeat(8)}.txt` }),
+    makeTool("call_service", { service: "fixture", method: "GET", path: "status" }, false),
+    makeTool("delegate", { task: "Inspect the fixture" }),
+    makeTool("run_script", { script: "fixture" }),
+    makeTool("todo", { items: [{ status: "done", text: "Read the fixture" }] }),
+    notice("compaction", { kind: "summary", before: 10000, after: 7000 }),
+    notice("memory.noted", { scope: "chat" }),
+    notice("model.retry", { reason: "announced_action" }),
+    notice("run.queued", { behind: "Fixture model" }),
+    notice("run.aborted", { reason: "aborted_mid_tool", turn: 2 }),
+    notice("project.instructions_loaded", { path: "instructions.md" }),
+    notice("shell.grant", { scope: "run" }),
+    notice("file.grant_lapsed", { scope: "run" }),
+    { type: "agent", key: "complete", run_id: "run", text: "The fixture is complete.", done: true },
+    notice("run.stopped", { reason: "done", time: { total_ms: 14000 } }),
+  ];
+  const geometry = [];
+  for (const width of [304, 1280, 1920]) {
+    const fixture = await thinkingFixture(browser, width);
+    const { page } = fixture;
+    await fixture.emit(rows, true);
+    await page.locator(".chat-work-summary-toggle").first().click();
+    const work = page.locator(".chat-work-row:visible");
+    await expect(work.filter({ hasText: /failed/i })).toHaveCount(1);
+    await expect(work.first()).toBeVisible();
+    for (const [zoom, size] of [[0.8, 12], [1, 12], [1.5, 12], [2, 32]]) {
+      await page.evaluate(({ zoom, size }) => { document.body.style.zoom = zoom; document.documentElement.style.setProperty("--chat-size", `${size}px`); }, { zoom, size });
+      const measured = await work.evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect(), css = getComputedStyle(node), phrase = node.querySelector(".chat-work-phrase"), words = getComputedStyle(phrase);
+        return { text: phrase.textContent, height: rect.height, top: rect.top, bottom: rect.bottom, right: rect.right, line: parseFloat(css.lineHeight), background: css.backgroundColor, border: css.borderTopWidth, dots: words.textOverflow, wrap: words.whiteSpace };
+      }));
+      expect(measured.length).toBeGreaterThanOrEqual(12);
+      const outside = measured.filter((row, i) => row.background !== "rgba(0, 0, 0, 0)" || row.border !== "0px" || row.dots !== "ellipsis" || row.wrap !== "nowrap" || row.right > width + 1 || (i && row.top < measured[i - 1].bottom - 1));
+      expect(outside, `${width}px at ${zoom * 100}%`).toEqual([]);
+      geometry.push({ width, zoom, size, rows: measured });
+      if (width === 304) await work.first().scrollIntoViewIfNeeded();
+      else await page.locator("#chat-log").evaluate(log => { log.scrollTop = 0; });
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: testInfo.outputPath(`rows-${width}-${zoom}.png`) });
+    }
+    await fixture.context.close();
+  }
+  await writeFile(testInfo.outputPath("row-geometry.json"), JSON.stringify(geometry, null, 2));
+  const fixture = await thinkingFixture(browser);
+  await fixture.emit([fixtureThought]);
+  const status = fixture.page.locator("#chat-status-line");
+  await expect(status.locator(".chat-live-robot")).toHaveAttribute("data-doing", "thinking");
+  await expect(status.locator(".chat-notice-text")).toHaveCSS("animation-name", "chat-line-sweep");
+  await fixture.page.screenshot({ path: testInfo.outputPath("thinking.png") });
+  for (const [pose, activity] of [["tool", { active_tool: "read_file", tool_target: "fixture.txt" }], ["compacting", { stage: "compact", stage_state: "enter" }]]) {
+    await fixture.emit([fixtureThought], false, { activity: { started_at: Date.now() - 5000, ...activity } });
+    await expect(status.locator(".chat-live-robot")).toHaveAttribute("data-doing", pose);
+    await fixture.page.screenshot({ path: testInfo.outputPath(`${pose}.png`) });
+  }
+  await fixture.emit([fixtureThought], false, { run: { status: "queued", run_id: "run" } });
+  await expect(status).toContainText("waiting for a model slot");
+  await fixture.page.screenshot({ path: testInfo.outputPath("queued.png") });
+  await fixture.page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(status.locator(".chat-notice-text")).toHaveCSS("animation-name", "none");
+  await fixture.page.screenshot({ path: testInfo.outputPath("reduced-motion.png") });
+  await fixture.context.close();
+});
+
 test("cutoff keeps the partial answer above its context line 2yf",async({browser})=>{
  const baseline=!!process.env.AGENTB_CUTOFF_BASELINE,folder=`logs/evidence/rel-1.62.217/${baseline?'before':'captures'}`;
  const record=baseline?JSON.parse(await readFile('logs/evidence/rel-1.62.217/baseline-cutoff.json','utf8')):{answer:'The first part of the story.\n\n[truncated]',detail:"the reply ran out of room in this model's context (32768 tokens) and was cut off; what it wrote is kept above, marked truncated. Reasoning path: reasoning was off, so neither a server reasoning budget nor the two-pass fallback applied"};await mkdir(folder,{recursive:true});
@@ -67,7 +167,7 @@ test("one live thinking row opens the arriving reasoning and stays open at finis
 test("finished thinking-only reply is one Thought row with tokens inside 2y9", async ({ browser }) => {
   for (const width of [304, 1280, 1920]) {
     const f = await thinkingFixture(browser, width); await f.emit([{ ...fixtureThought, done: true, text: "The answer." }], true); await f.capture("finished");
-    await expect(f.page.locator(".chat-work-summary:visible")).toHaveCount(0); const row = f.page.locator(".thinking-line"); await expect(row).toHaveText(/Thought · 18 s/); await row.click();
+    await expect(f.page.locator(".chat-work-summary:visible")).toHaveCount(0); const row = f.page.locator(".thinking-line"); await expect(row.locator(".chat-work-phrase")).toHaveText("Thought"); await expect(row.locator(".chat-work-time")).toHaveText("18.0 s"); await row.click();
     await expect(f.page.locator(".thinking-body")).toHaveText(/^616 tokens\nChecking the fixture\.$/); await f.capture("finished-open"); await row.click(); await f.page.locator(".thinking-body").dispatchEvent("beforematch"); await expect(f.page.locator(".thinking-body")).toBeVisible(); await f.context.close();
   }
 });
@@ -76,7 +176,7 @@ test("live header counts only completed steps and finished tools retain their he
     const f = await thinkingFixture(browser, width), tool = { type: "tool", key: "read", run_id: "run", name: "read_file", args: { path: "fixture.txt" }, result: { ok: true, ms: 5 }, content: "fixture" };
     await f.emit([tool, fixtureThought]); await f.capture("tools-live"); await expect(f.page.locator(".chat-work-summary")).toContainText("Read a file"); await expect(f.page.locator(".chat-work-summary")).not.toContainText(/thought/i);
     await f.emit([tool, { ...fixtureThought, done: true, text: "The answer." }], true); await f.capture("tools-finished"); await expect(f.page.locator(".chat-work-summary")).toContainText(/Worked .* · 2 steps/);
-    await f.page.locator(".chat-work-summary-toggle").click(); await expect(f.page.locator(".thinking-line")).toContainText("thought · 616 tokens · 18.0 s"); await f.capture("tools-finished-open"); await f.context.close();
+    await f.page.locator(".chat-work-summary-toggle").click(); const row = f.page.locator(".thinking-line"); await expect(row.locator(".chat-work-phrase")).toHaveText("Thought"); await expect(row.locator(".chat-work-time")).toHaveText("18.0 s"); await row.click(); await expect(f.page.locator(".thinking-body")).toContainText("616 tokens"); await f.capture("tools-finished-open"); await f.context.close();
   }
 });
 
@@ -403,7 +503,7 @@ test("dragging the strip resizes the composer, keeps what is typed, and persists
   expect(shorter).toBeGreaterThanOrEqual(Number(remembered));
 });
 
-test("composer controls stay inside at every four pixels and live status stays visible", async ({ page }) => {
+test("composer controls stay inside at every four pixels and live status stays in the transcript", async ({ page }) => {
   const [tokensCSS, chatCSS] = await Promise.all([
     readFile(new URL("../../web/css/tokens.css", import.meta.url), "utf8"),
     readFile(new URL("../../web/css/chat.css", import.meta.url), "utf8"),
@@ -457,8 +557,9 @@ test("composer controls stay inside at every four pixels and live status stays v
     return { outer, status, last:log.lastElementChild.id };
   });
   expect(sticky.last).toBe("chat-status-line");
-  expect(sticky.status.top).toBeGreaterThanOrEqual(sticky.outer.top);
-  expect(sticky.status.bottom).toBeLessThanOrEqual(sticky.outer.bottom);
+  expect(sticky.status.top).toBeGreaterThanOrEqual(sticky.outer.bottom);
+  await page.locator("#chat-log").evaluate((log) => { log.scrollTop = log.scrollHeight; });
+  expect(await page.locator("#chat-status-line").evaluate((node) => node.getBoundingClientRect().bottom <= node.parentElement.getBoundingClientRect().bottom)).toBe(true);
 });
 
 test("every chat chip holds its text across the layout scale matrix", async ({ page }) => {
@@ -531,8 +632,8 @@ test("shared raised look and composer states match the approved page", async ({ 
     const style = (selector) => { const value=getComputedStyle(document.querySelector(selector)); return [value.backgroundColor,value.borderTopColor,value.borderTopWidth,value.borderRadius,value.boxShadow]; };
     return { bubble:style(".chat-bubble"), chip:style(".file-chip"), menu:style(".shell-menu"), card:style(".approval-card"), settings:style(".settings-page"), composer:style(".chat-input-wrap"), status:style(".chat-live-status"), tool:style(".tool-tick"), table:style("table"), button:style("#plain-control") };
   });
-  for (const name of ["chip","menu","card","settings","composer","status"]) expect(measured[name], name).toEqual(measured.bubble);
-  for (const name of ["tool","table","button"]) expect(measured[name], `${name} acquired the raised look`).not.toEqual(measured.bubble);
+  for (const name of ["chip","menu","card","settings","composer"]) expect(measured[name], name).toEqual(measured.bubble);
+  for (const name of ["tool","table","button","status"]) expect(measured[name], `${name} acquired the raised look`).not.toEqual(measured.bubble);
   for (const viewport of [{width:1280,height:860},{width:1920,height:1080}]) { await page.setViewportSize(viewport); await page.screenshot({ path:`logs/evidence/rel-1.62.91/captures/raised-composer-${viewport.width}.png`, animations:"disabled" }); }
 });
 
@@ -724,6 +825,7 @@ test("fresh context leaves every transcript entry visible and says how much and 
     }
     await expect(log).toContainText(stopped);
     await expect(log).not.toContainText("Fresh-context hand-off:");
+    await log.locator("details").filter({ hasText: line }).locator(":scope > summary").click();
     const notice = log.getByText(line, { exact: true });
     await expect(notice).toBeVisible();
     expect(await notice.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
@@ -826,14 +928,14 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   const finished = await open("idle", "finished-2ql.test");
   const worked = finished.page.locator(".chat-work-summary");
   await expect(worked).toHaveCount(1);
-  await expect(worked).toContainText(/Worked .* · 2 steps .*▸/);
+  await expect(worked).toContainText(/▸Worked .* · 2 steps/);
   await expect(finished.page.getByText("The synthetic release proof is complete.")).toBeVisible();
   await expect(finished.page.getByText("Checked the build inputs.")).toHaveCount(0);
   await expect(finished.page.locator("#chat-status-line")).toHaveCount(0);
   await expect(finished.page.locator(".chat-work-summary")).toContainText("3 files · file tools only");
   await expect(finished.page.getByRole("button", { name: "Undo file changes" })).toHaveCount(1);
   const restingSummary = await finished.page.locator(".chat-work-summary").textContent();
-  expect(restingSummary).toMatch(/Worked .* · 2 steps · 3 files · file tools only ▸/);
+  expect(restingSummary).toMatch(/▸Worked .* · 2 steps · 3 files · file tools only/);
   await mkdir("logs/evidence/rel-1.62.36/captures", { recursive:true }); await mkdir("logs/evidence/rel-1.62.58/captures", { recursive:true });
   await finished.page.setViewportSize({ width:1280, height:860 });
   await finished.page.screenshot({ path:"logs/evidence/rel-1.62.36/captures/undo-file-changes-1280x860.png", fullPage:true });
@@ -870,7 +972,10 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await finished.page.setViewportSize({ width:1000, height:760 });
   await finished.page.locator(".chat-work-summary-toggle").click();
   await expect(finished.page.locator(".chat-todo")).toHaveCount(1);
-  await expect(finished.page.locator(".chat-todo-row")).toHaveText(["✓ Inspect inputs", "→ Run checks", "· Write report"]);
+  const todo = finished.page.locator(".chat-todo");
+  await expect(todo.locator("summary .chat-work-phrase")).toHaveText("Listed 3 tasks");
+  await todo.locator("summary").click();
+  await expect(todo.locator(".chat-work-detail")).toHaveText("done · Inspect inputs doing · Run checks pending · Write report");
   await mkdir("logs/evidence/rel-1.62.35/captures", { recursive: true });
   await finished.page.screenshot({ path: "logs/evidence/rel-1.62.35/captures/todo-1280x860.png", fullPage: true });
   await finished.page.screenshot({ path: "test-results/2ql-s56-finished.png", fullPage: true });
@@ -879,8 +984,9 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   await expect(finished.page.locator(".chat-work-narration")).toHaveText(["Checked the build inputs.", "Verified the rebuilt output."]);
   await expect(finished.page.locator(".chat-work-rows .chat-step-summary")).toHaveCount(0);
   await expect(finished.page.locator(".chat-step-fold.alarm")).toHaveCount(0);
-  await expect(finished.page.getByText("thought · 7 tokens")).toBeVisible();
-  await expect(finished.page.locator(".tool-tick").first()).toContainText(/shell\s*·\s*git stash pop/);
+  await expect(finished.page.locator(".thinking-line .chat-work-phrase")).toHaveText(["Thought", "Thought"]);
+  await expect(finished.page.locator(".thinking-body").filter({ hasText: "7 tokens" })).toHaveCount(1);
+  await expect(finished.page.locator(".tool-tick").first()).toContainText(/ran a command\s*·\s*git stash pop/i);
   expect(await auditDisclosures(finished.page)).toEqual([]);
   await finished.page.evaluate(() => document.querySelector(".chat-response").insertAdjacentHTML("beforeend", '<button aria-expanded="false">ignored disclosure</button>'));
   expect(await auditDisclosures(finished.page)).toEqual(["ignored disclosure"]);
@@ -1051,7 +1157,7 @@ test("2ql finished and live s56-shaped replays stay compact and keep every entry
   const thoughtProof = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line'), narration = block.querySelector('.chat-work-narration'), plain = [...document.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')); const box = (node) => node.getBoundingClientRect(), font = (node) => { const seen = getComputedStyle(node); return [seen.fontFamily, seen.fontSize]; }; return { lineVisible: line.getClientRects().length > 0, lineAbove: box(line).bottom <= box(plain).top, aligned: Math.abs(box(line).left - box(plain).left) <= 6, chipVisible: block.querySelector('.chat-work-summary')?.getClientRects().length > 0, afterTop: box(line).top, fonts: [font(line), font(narration), font(plain)] }; });
   console.log("2tr thought closed", JSON.stringify({ beforeTop, ...thoughtProof }));
   expect.soft(thoughtProof.lineVisible && thoughtProof.lineAbove && thoughtProof.aligned && !thoughtProof.chipVisible, "one thought line above the answer without a redundant finished-work chip").toBe(true); expect.soft(new Set(thoughtProof.fonts.map((value) => value.join("|"))).size, "work text uses the reply font").toBe(1);
-  await expect(thoughtLine).toContainText("Thought · 108 s"); await expect(thoughtBlock.locator(".thinking-body")).toContainText("~2,484 tokens"); await mkdir("logs/evidence/rel-1.62.84/captures", { recursive: true }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-closed.png", fullPage: true });
+  await expect(thoughtLine.locator(".chat-work-phrase")).toHaveText("Thought"); await expect(thoughtLine.locator(".chat-work-time")).toHaveText("108.3 s"); await expect(thoughtBlock.locator(".thinking-body")).toContainText("~2,484 tokens"); await mkdir("logs/evidence/rel-1.62.84/captures", { recursive: true }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-closed.png", fullPage: true });
   await thoughtLine.click(); const thoughtBody = thoughtBlock.locator('.thinking-body'), opened = await thoughtBody.isVisible(), bodyBetween = await thoughtBlock.evaluate((block) => { const line = block.querySelector('.thinking-line').getBoundingClientRect(), body = block.querySelector('.thinking-body').getBoundingClientRect(), answer = [...block.querySelectorAll('.chat-response-answer')].find((node) => node.textContent.includes('Answer without')).getBoundingClientRect(); return line.bottom <= body.top && body.bottom <= answer.top; }); await thoughtPage.page.screenshot({ path: "logs/evidence/rel-1.62.84/captures/2tr-thought-open.png", fullPage: true }); await thoughtLine.click(); expect.soft(opened && bodyBetween && !await thoughtBody.isVisible(), "one press opens in place and a second closes").toBe(true);
   console.log("2tr thought proof", JSON.stringify({ beforeTop, ...thoughtProof, bodyBetween }));
   await thoughtPage.context.close();

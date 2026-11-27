@@ -1155,14 +1155,14 @@ function updateWorkDisclosure(view, phrase, time, failed) {
 
 function noticeDisclosure(content, entry) {
   const type = entry.event?.type;
-  if (type === "credential.needed" || sizeRefusalNotice(entry.event)) return content;
+  const data = entry.event?.data || {};
+  if (type === "credential.needed" || sizeRefusalNotice(entry.event) || (type === "cycle.detected" && data.stage === "steer")) return content;
   if (!type) {
     content.classList.add("chat-plain-notice");
     content.title = content.textContent;
     return content;
   }
   if (content.hidden || !content.textContent || type === "approval.required" || type === "files.delivered") return content;
-  const data = entry.event?.data || {};
   const alarm = content.classList.contains("alarm") || content.classList.contains("operator-mode-enabled");
   const failed = alarm && type !== "operator.context" && type !== "memory.noted" && !String(data.reason || "").startsWith("aborted_");
   const short = {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,11 +46,11 @@ func TestStateDefersTenLargeToolResults2zs(t *testing.T) {
 		}))
 	}
 	state := httptest.NewRecorder()
-	server.app = recorder.NewApp(time.Now())
-	var stateBucket int64
+	var stateBucket atomic.Int64
 	server.app.SetSink(func(event string, data map[string]any) {
 		if event == events.PageHealth {
-			stateBucket, _ = data["state_bytes"].(int64)
+			bucket, _ := data["state_bytes"].(int64)
+			stateBucket.Store(bucket)
 		}
 	})
 	start := time.Now()
@@ -62,8 +63,8 @@ func TestStateDefersTenLargeToolResults2zs(t *testing.T) {
 		t.Fatal("state lost the deferred result size or preview")
 	}
 	server.app.SendNow()
-	if want := recorder.Bucket(int64(state.Body.Len())); stateBucket != want || stateBucket >= 2<<20 {
-		t.Fatalf("page-health state bytes=%d, want %d and under 2 MiB", stateBucket, want)
+	if got, want := stateBucket.Load(), recorder.Bucket(int64(state.Body.Len())); got != want || got >= 2<<20 {
+		t.Fatalf("page-health state bytes=%d, want %d and under 2 MiB", got, want)
 	}
 	history := httptest.NewRecorder()
 	server.session(history, httptest.NewRequest(http.MethodGet, "/api/sessions/chat-0/history?before=10", nil))

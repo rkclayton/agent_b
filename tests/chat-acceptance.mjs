@@ -989,6 +989,16 @@ if (cronOnly) {
 		}
 		throw new Error(`${name} did not run`);
 	};
+	const scheduledReply = async (name) => {
+		const events = await sessionEvents();
+		const scheduled = events.filter((event) => event.type === "session.created" && event.data?.created_by === "scheduled" && event.data?.session?.label === name)
+			.sort((a, b) => a.seq - b.seq).at(-1);
+		assert.ok(scheduled, `${name} must retain a scheduled chat`);
+		await waitEvent(scheduled.session_id, (event) => event.type === "run.stopped", `${name} stopped`);
+		// The paired chat.history route uses the same handler. Push carries only job and outcome.
+		const { chat } = await json(`http://127.0.0.1:${appPort}/api/sessions/${scheduled.session_id}/history`);
+		return chat.filter((entry) => entry.type === "agent" && entry.done).map((entry) => entry.text).join("\n");
+	};
 	await send("acceptance: ledger grocery");
 	const ledgerState = join(profileData, "skill-state", "ledger"), ledgerPath = join(ledgerState, "ledger.jsonl"), ledgerCSV = join(ledgerState, "ledger.csv");
 	await waitFileContains(ledgerPath, '"Fixture tofu"');
@@ -1023,8 +1033,7 @@ if (cronOnly) {
 	for (const deadline = Date.now() + 5000; Date.now() < deadline && notificationPosts.length < noticesBefore + 2;) await sleep(50);
 	assert.equal(notificationPosts.length, noticesBefore + 2);
 	assert.match(JSON.stringify(notificationPosts.at(-2)), /ledger: 1 expiring.*Fixture chicken/s);
-	const ledgerPhone = (await sessionEvents()).findLast((event) => event.type === "run.stopped" && JSON.stringify(event.data?.human || {}).includes("ledger: 1 expiring"));
-	assert.match(JSON.stringify(ledgerPhone?.data?.human || {}), /Fixture chicken/);
+	assert.match(await scheduledReply("ledger daily"), /ledger: 1 expiring.*Fixture chicken.*Fixture rent due/s);
 	ledgerDailyCase = "silent";
 	assert.equal((await runJob("ledger daily")).trim(), "[SILENT]");
 	assert.equal(notificationPosts.length, noticesBefore + 2);
@@ -1078,10 +1087,9 @@ if (cronOnly) {
 	assert.equal(priceNotices.length, 1);
 	assert.match(JSON.stringify(priceNotices[0]), /900 USD/);
 	assert.match(JSON.stringify(priceNotices[0]), /watch-price/);
+	assert.match(await scheduledReply("price-watch chair"), /900 USD/);
 	assert.match(await runJob("price-watch chair"), /\[SILENT\]/);
 	assert.equal(notificationPosts.filter((post) => JSON.stringify(post).includes("price-watch chair")).length, 1);
-	const phoneEvent = (await sessionEvents()).find((event) => event.type === "run.stopped" && JSON.stringify(event.data?.human || {}).includes("watch-price"));
-	assert.match(JSON.stringify(phoneEvent?.data?.human || {}), /900 USD/);
 	const beforeMissingJobs = JSON.parse(await readFile(join(profileData, "cron", "jobs.json"), "utf8")).length;
 	await send("acceptance: price-watch missing");
 	assert.equal((await readdir(join(profileData, "skill-state", "price-watch"))).length, 1);

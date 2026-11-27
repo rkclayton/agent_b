@@ -587,3 +587,61 @@ func TestScheduledChatStartsInItsCollisionResolvedFolder2za(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProjectTouchOnlyAnnouncesLoadedInstructions307(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "workspace")
+	empty := filepath.Join(root, "empty")
+	withFile := filepath.Join(root, "repo")
+	appData := filepath.Join(base, "app-data")
+	profile := filepath.Join(base, "profile")
+	for _, dir := range []string{empty, withFile, appData, profile} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	instructions := filepath.Join(withFile, "AGENT_B.md")
+	if err := os.WriteFile(instructions, []byte("Follow the fixture convention."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	stream, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+	registry := &Registry{bus: bus}
+	registry.SetDataRoot(appData)
+	registry.SetPlansRoot(filepath.Join(profile, "plans"))
+	item := &Session{ID: "fixture", Workspace: root}
+	touch := registry.projectTouch(item)
+	for _, dir := range []string{appData, profile} {
+		privateFile := filepath.Join(dir, "AGENT_B.md")
+		if err := os.WriteFile(privateFile, []byte("Private fixture instruction."), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		touch(privateFile)
+	}
+	touch(empty)
+	touch(withFile)
+	touch(withFile)
+	hasFile := false
+	for {
+		select {
+		case event := <-stream:
+			if event.Type != events.ProjectInstructions {
+				continue
+			}
+			files, _ := event.Data.(map[string]any)["files"].([]string)
+			if len(files) != 1 || files[0] != instructions || hasFile {
+				t.Fatalf("project instruction event files=%v, previously loaded=%t", files, hasFile)
+			}
+			hasFile = true
+		default:
+			if !hasFile {
+				t.Fatal("missing project instruction event")
+			}
+			if strings.Contains(item.Snapshot().ProjectContent, "Private fixture instruction") {
+				t.Fatal("app data or profile instructions entered the chat")
+			}
+			return
+		}
+	}
+}

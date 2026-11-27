@@ -40,6 +40,7 @@ type Registry struct {
 	operatorRoot   string
 	scratchRoot    string
 	chatRoot       string
+	dataRoot       string
 	planGrant      func(string) error
 }
 
@@ -90,6 +91,8 @@ func (r *Registry) ReserveChatIDs(ids []string) {
 		}
 	}
 }
+func (r *Registry) SetDataRoot(root string) { r.dataRoot = root }
+
 func (r *Registry) SetPlansRoot(root string) {
 	r.plansRoot = filepath.Clean(root)
 	r.scratchRoot = filepath.Join(filepath.Dir(r.plansRoot), "scratch")
@@ -398,7 +401,7 @@ func (r *Registry) create(label, agentID, workspace string, enabled map[string]b
 	}
 	setup := workspaceinfo.Setup{Dir: abs}
 	if r.workspaces != nil {
-		setup, err = r.workspaces.Inspect(abs)
+		setup, err = r.workspaces.Inspect(abs, r.excludeProjectPath(abs, scratch))
 		if err != nil {
 			return nil, err
 		}
@@ -554,13 +557,31 @@ func (r *Registry) ApplyRepoPolicySession(sessionID string, state workspaceinfo.
 	return nil
 }
 
+func (r *Registry) excludeProjectPath(workspace string, scratch bool) func(string) bool {
+	profile := ""
+	if r.plansRoot != "" && r.plansRoot != "." {
+		profile = filepath.Dir(r.plansRoot)
+	}
+	return func(path string) bool {
+		if scratch && PathWithin(workspace, path) {
+			return false
+		}
+		return (r.dataRoot != "" && PathWithin(r.dataRoot, path)) || (profile != "" && PathWithin(profile, path))
+	}
+}
+
 func (r *Registry) projectTouch(item *Session) func(string) {
+	initial := item.Snapshot()
+	exclude := r.excludeProjectPath(initial.WorkspaceDir, initial.Scratch)
 	return func(relative string) {
 		snapshot := item.Snapshot()
 		root := snapshot.WorkspaceDir
 		target := filepath.FromSlash(relative)
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(root, target)
+		}
+		if exclude(target) {
+			return
 		}
 		info, statErr := os.Stat(target)
 		if statErr == nil && !info.IsDir() {
@@ -570,7 +591,10 @@ func (r *Registry) projectTouch(item *Session) func(string) {
 		if project == "" {
 			project = target
 		}
-		addition, loadErr := workspaceinfo.LoadInstructions(project, "")
+		if exclude(project) {
+			return
+		}
+		addition, loadErr := workspaceinfo.LoadInstructions(project, "", exclude)
 		if loadErr != nil {
 			r.bus.Publish(events.New(events.Error, item.ID, "", map[string]any{"where": "project_instructions", "message": loadErr.Error()}))
 			return
@@ -580,8 +604,10 @@ func (r *Registry) projectTouch(item *Session) func(string) {
 			memoryBlock, _, _ = item.LoadFolderMemory(project)
 		}
 		newRoot := item.appendProjectRoot(project, memoryBlock)
-		if item.AppendProject(addition.Block, addition.Files, addition.Notes) || newRoot {
+		if item.AppendProject(addition.Block, addition.Files, addition.Notes) {
 			r.bus.Publish(events.New(events.ProjectInstructions, item.ID, "", map[string]any{"block": addition.Block, "files": addition.Files, "tokens": addition.Tokens, "notes": addition.Notes, "roots": item.Snapshot().ProjectRoots, "lazy": true}))
+		} else if newRoot {
+			r.bus.Publish(events.New(events.SessionUpdated, item.ID, "", map[string]any{"project_roots": item.Snapshot().ProjectRoots}))
 		}
 	}
 }

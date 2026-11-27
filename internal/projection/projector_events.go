@@ -38,6 +38,9 @@ func prepareProjection(previous Snapshot, record Record) (Snapshot, map[string]a
 
 func finishProjection(next Snapshot, record Record, data map[string]any, live bool) Snapshot {
 	appendNotice := chatNotice(record.Event.Type) || (record.Event.Type == events.CycleDetected && stringValue(data["stage"]) == "steer")
+	if record.Event.Type == events.ProjectInstructions && len(stringSlice(data["files"])) == 0 {
+		appendNotice = false
+	}
 	if record.Event.Type == events.ModelRetry && stringValue(data["reason"]) == "model_connection" {
 		appendNotice = false
 	}
@@ -359,6 +362,9 @@ func projectSessionUpdated(next Snapshot, record Record, data map[string]any) Sn
 	}
 	if !next.Runnable && strings.TrimSpace(next.NotRunnableReason) == "" {
 		next.NotRunnableReason = "chat is not runnable"
+	}
+	if roots := stringSlice(data["project_roots"]); roots != nil {
+		next.ProjectRoots = roots
 	}
 	if _, ok := data["memory_path"]; ok {
 		next.MemoryPath = stringValue(data["memory_path"])

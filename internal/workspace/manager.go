@@ -109,7 +109,7 @@ func Canonical(dir string) (string, string, error) {
 	return abs, key, nil
 }
 
-func (m *Manager) Inspect(dir string) (Setup, error) {
+func (m *Manager) Inspect(dir string, exclude ...func(string) bool) (Setup, error) {
 	abs, key, err := Canonical(dir)
 	if err != nil {
 		return Setup{}, err
@@ -121,7 +121,7 @@ func (m *Manager) Inspect(dir string) (Setup, error) {
 	}
 	result := Setup{Dir: abs, Missing: missing}
 	if !missing {
-		result.Instructions, err = LoadInstructions(abs, "")
+		result.Instructions, err = LoadInstructions(abs, "", exclude...)
 		if err != nil {
 			return Setup{}, err
 		}
@@ -137,7 +137,7 @@ func (m *Manager) Inspect(dir string) (Setup, error) {
 	return result, err
 }
 
-func LoadInstructions(boundDir, touchedDir string) (Instructions, error) {
+func LoadInstructions(boundDir, touchedDir string, exclude ...func(string) bool) (Instructions, error) {
 	bound, _, err := Canonical(boundDir)
 	if err != nil {
 		return Instructions{}, err
@@ -168,6 +168,9 @@ func LoadInstructions(boundDir, touchedDir string) (Instructions, error) {
 	}
 	files, notes := []string{}, []string{}
 	for _, dir := range dirs {
+		if len(exclude) != 0 && exclude[0](dir) {
+			continue
+		}
 		agentB, agents, claude := filepath.Join(dir, "AGENT_B.md"), filepath.Join(dir, "AGENTS.md"), filepath.Join(dir, "CLAUDE.md")
 		selected := ""
 		if regular(agentB) {

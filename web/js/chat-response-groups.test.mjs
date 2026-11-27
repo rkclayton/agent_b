@@ -181,6 +181,8 @@ test("only completed agent entries with no content are omitted from Chat", () =>
   assert.equal(hasVisibleChatContent({ type: "notice", key: "delivery", event: { type: "files.delivered", data: { items: [{}] } } }), true);
   assert.equal(hasVisibleChatContent({ type: "notice", key: "malformed-delivery", event: { type: "files.delivered", data: {} } }), true);
   assert.equal(hasVisibleChatContent({ type: "notice", key: "routine-done", event: { type: "run.stopped", data: { reason: "done" } } }), false);
+  assert.equal(hasVisibleChatContent({ type: "notice", event: { type: "project.instructions_loaded", data: { files: [] } } }), false);
+  assert.equal(hasVisibleChatContent({ type: "notice", event: { type: "project.instructions_loaded", data: { files: ["AGENT_B.md"] } } }), true);
   assert.equal(hasVisibleChatContent(null), true);
 });
 

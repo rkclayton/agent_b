@@ -15,6 +15,9 @@ export function hasVisibleChatContent(item) {
     const items = item.event.data?.items;
     return !Array.isArray(items) || items.length > 0;
   }
+  if (item.type === "notice" && item.event?.type === "project.instructions_loaded") {
+    return Array.isArray(item.event.data?.files) && item.event.data.files.length > 0;
+  }
   if (item.type !== "agent") return true;
   return !!item.text || !!item.reasoning || item.done !== true;
 }

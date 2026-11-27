@@ -86,6 +86,7 @@ func (a *harnessApp) wireServices() {
 	}, a.roots.Data)
 	a.workspaceManager = workspaceinfo.New(a.memoryManager.Dir(), a.memoryManager.Path)
 	a.registry = session.NewRegistry(a.bus, a.writers, a.web.Connection, 0, a.web.ConfigSnapshot)
+	a.registry.SetDataRoot(a.paths.Data)
 	a.registry.SetMemoryLoader(a.memoryManager.Load)
 	a.registry.SetAgentMemoryLoader(a.memoryManager.LoadAgent)
 	a.registry.SetMachineMemoryLoader(a.memoryManager.LoadMachine)

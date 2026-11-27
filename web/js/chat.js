@@ -235,6 +235,7 @@ function render() {
   renderBudget(session);
   renderLog(session);
   renderComposer(session);
+  syncJumpAfterLayout();
   navigationSurfaceReady("chat", store);
 }
 
@@ -327,12 +328,12 @@ function showsLatest(session) {
 }
 
 function syncJumpAfterLayout() {
+  if (showsLatest(store.sessions[selectedID()]) && follow && !readingDetail) log.scrollTop = log.scrollHeight;
   if (jumpFrame) return;
   jumpFrame = requestAnimationFrame(() => {
     jumpFrame = 0;
     if (!jumpButton.isConnected) return;
     const latest = showsLatest(store.sessions[selectedID()]);
-    if (latest && follow && !readingDetail) log.scrollTop = log.scrollHeight;
     const roomBelow = log.scrollHeight - log.clientHeight - log.scrollTop > 24;
     setProperty(jumpButton, "hidden", latest && !roomBelow);
   });
@@ -415,7 +416,6 @@ function renderLog(session) {
   for (const [index, entry] of entries.slice(start, end).entries()) nodes.push(renderEntrySafely(session, entry, start + index));
   nodes.push(jumpButton);
   finishLogRender(nodes);
-  syncJumpAfterLayout();
 }
 
 function finishLogRender(nodes) {
@@ -496,7 +496,7 @@ function groupResponses(entries) {
       grouped.push(entry);
       continue;
     }
-		if (entry.type === "notice" && entry.event?.type === "credential.needed") {
+		if (entry.type === "notice" && ["credential.needed", "project.instructions_loaded"].includes(entry.event?.type)) {
 			grouped.push(entry);
 			response = null;
 			boundary = entry.key;
@@ -1239,7 +1239,7 @@ function updateWorkDisclosure(view, phrase, time, failed) {
 function noticeDisclosure(content, entry) {
   const type = entry.event?.type;
   const data = entry.event?.data || {};
-  if (type === "credential.needed" || sizeRefusalNotice(entry.event) || (type === "cycle.detected" && data.stage === "steer")) return content;
+  if (type === "credential.needed" || type === "project.instructions_loaded" || sizeRefusalNotice(entry.event) || (type === "cycle.detected" && data.stage === "steer")) return content;
   if (!type) {
     content.classList.add("chat-plain-notice");
     content.title = content.textContent;
@@ -1252,7 +1252,6 @@ function noticeDisclosure(content, entry) {
     "compaction": "Compacted context",
     "memory.noted": "Noted for next session",
     "memory.cleared": "Cleared memory",
-    "project.instructions_loaded": "Read project instructions",
     "run.aborted": "Run aborted",
     "run.stopped": data.reason === "done" && data.time?.total_ms ? "Run time" : "",
     "model.retry": data.reason === "announced_action" ? "Continued once" : "Retried model response",
@@ -1434,7 +1433,11 @@ function noticeContent(session, entry, actionable) {
 	else if (event.type === "file.grant") content.textContent = `file-tool grant: Run as you · for this ${data.scope === "session" ? "chat" : "run"}`;
 	else if (event.type === "file.grant_lapsed") content.textContent = `file-tool grant lapsed: ${data.scope === "session" ? "chat ended" : "run ended"}`;
 	else if (event.type === "memory.cleared") content.textContent = `Cleared ${data.scope || "chat"} memory`;
-	else if (event.type === "project.instructions_loaded") content.textContent = data.path ? `Read instructions · ${data.path}` : "Read project instructions";
+	else if (event.type === "project.instructions_loaded") {
+		const files = Array.isArray(data.files) ? data.files : [];
+		content.textContent = "Read instructions · " + files.map((file) => String(file).split(/[\\/]/).at(-1)).join(", ");
+		setAttribute(content, "title", files.join("\n"));
+	}
 	else if (event.type.startsWith("policy.")) content.textContent = `Policy ${event.type.slice(7)}${data.path ? ` · ${data.path}` : ""}`;
 	else if (event.type === "service.identity_unavailable") {
 		content.textContent = data.message || "Agent_b sets up its service identity now; Windows will ask once";

@@ -538,7 +538,97 @@ func TestMicrosoftServiceWithoutCredentialNeedsSignIn2zh(t *testing.T) {
 	}
 }
 
-type fixtureMicrosoftProvider struct{ origins []string }
+func TestCredentialSetupWakesOnlyTheMatchingCall2zl(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	vault := credential.NewVault(t.TempDir())
+	services := map[string]config.Service{
+		"first":  {BaseURL: "https://one.example.test", Auth: "stored:first-key", AllowedMethods: []string{"GET"}, MaxBodyKB: 64, TimeoutS: 5},
+		"second": {BaseURL: "https://two.example.test", Auth: "stored:second-key", AllowedMethods: []string{"GET"}, MaxBodyKB: 64, TimeoutS: 5},
+	}
+	tool := NewCallService(services)
+	tool.SetVault(vault)
+	tool.SetHTTPClientForTest(&http.Client{Transport: serviceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "Bearer fixture-key-value" {
+			return nil, fmt.Errorf("expected the protected fixture value")
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/plain"}}, Body: io.NopCloser(strings.NewReader("fixture response"))}, nil
+	})})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	type pause struct {
+		needed  *CredentialNeeded
+		changed <-chan struct{}
+	}
+	paused := make(chan pause, 2)
+	results := make(map[string]chan CallDetail)
+	for name := range services {
+		result := make(chan CallDetail, 1)
+		results[name] = result
+		go func(name string) {
+			waiting := WithCredentialSetup(ctx, func(ctx context.Context, needed *CredentialNeeded, changed <-chan struct{}) error {
+				paused <- pause{needed: needed, changed: changed}
+				select {
+				case <-changed:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+			result <- tool.CallDetailed(waiting, &session.Session{}, map[string]any{"service": name, "path": "fixture", "method": "GET"})
+		}(name)
+	}
+	waits := make(map[string]<-chan struct{})
+	for range services {
+		select {
+		case waiting := <-paused:
+			need := waiting.needed
+			service, known := services[strings.TrimSuffix(need.Name, "-key")]
+			if !known || need.Kind != "key" || need.Origin != service.BaseURL+":443" || waiting.changed == nil {
+				t.Fatalf("unexpected pending key: %+v", need)
+			}
+			waits[need.Name] = waiting.changed
+		case <-ctx.Done():
+			t.Fatal("both calls did not reach setup")
+		}
+	}
+	if err := vault.Put("first-key", "https://third.example.test", "", "fixture-key-value"); err != nil {
+		t.Fatal(err)
+	}
+	vault.NotifyChanged("first-key")
+	select {
+	case <-waits["first-key"]:
+		t.Fatal("the right name with the wrong address woke the call")
+	default:
+	}
+	for _, name := range []string{"first", "second"} {
+		if err := vault.Put(name+"-key", services[name].BaseURL, "", "fixture-key-value"); err != nil {
+			t.Fatal(err)
+		}
+		vault.NotifyChanged(name + "-key")
+		if name == "first" {
+			select {
+			case <-waits["second-key"]:
+				t.Fatal("saving the first key woke the call waiting for the second")
+			default:
+			}
+		}
+		select {
+		case got := <-results[name]:
+			if got.Err != nil || !strings.Contains(got.Content, "fixture response") {
+				t.Fatalf("%s call did not complete: %+v", name, got)
+			}
+		case <-ctx.Done():
+			t.Fatalf("%s call did not resume", name)
+		}
+	}
+}
+
+type fixtureMicrosoftProvider struct {
+	origins []string
+	err     error
+}
 
 func (*fixtureMicrosoftProvider) Origin(string) (string, error) {
 	return "https://graph.microsoft.com:443", nil
@@ -548,7 +638,55 @@ func (p *fixtureMicrosoftProvider) Token(ctx context.Context, name string) (stri
 }
 func (p *fixtureMicrosoftProvider) TokenForOrigin(_ context.Context, _ string, origin string) (string, error) {
 	p.origins = append(p.origins, origin)
+	if p.err != nil {
+		return "", p.err
+	}
 	return "fixture-audience-token", nil
+}
+
+func TestMicrosoftSetupRecoversExpiredAndRevokedStandIn2zl(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	for _, failure := range []string{"expired", "revoked"} {
+		t.Run(failure, func(t *testing.T) {
+			const origin = "https://graph.microsoft.com:443"
+			vault := credential.NewVault(t.TempDir())
+			if err := vault.PutEntra(credential.MicrosoftName, origin, "", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			provider := &fixtureMicrosoftProvider{err: fmt.Errorf("fixture sign-in %s", failure)}
+			tool := NewCallService(nil)
+			tool.SetVault(vault)
+			tool.SetTokenProvider("entra", provider)
+			requests, waits := 0, 0
+			tool.SetHTTPClientForTest(&http.Client{Transport: serviceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				requests++
+				if request.Header.Get("Authorization") != "Bearer fixture-audience-token" {
+					return nil, fmt.Errorf("a usable credential was not attached")
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/plain"}}, Body: io.NopCloser(strings.NewReader("fixture response"))}, nil
+			})})
+			ctx := WithCredentialSetup(context.Background(), func(_ context.Context, need *CredentialNeeded, changed <-chan struct{}) error {
+				waits++
+				if requests != 0 || need.Kind != "microsoft" || need.Origin != origin || need.ServiceSignIn {
+					t.Fatalf("requests=%d need=%+v", requests, need)
+				}
+				provider.err = nil
+				vault.NotifyChanged(need.Name)
+				select {
+				case <-changed:
+					return nil
+				default:
+					return fmt.Errorf("completed sign-in did not signal its call")
+				}
+			})
+			result := tool.CallDetailed(ctx, &session.Session{}, map[string]any{"service": origin + "/fixture", "method": "GET"})
+			if waits != 1 || requests != 1 || result.Err != nil || !strings.Contains(result.Content, "fixture response") {
+				t.Fatalf("waits=%d requests=%d result=%+v", waits, requests, result)
+			}
+		})
+	}
 }
 
 func TestMicrosoftSetupResumesOnlyAfterOperatorAction2zh(t *testing.T) {
@@ -576,7 +714,7 @@ func TestMicrosoftSetupResumesOnlyAfterOperatorAction2zh(t *testing.T) {
 		if err := vault.PutEntra(need.Name, need.Origin, "", "", nil); err != nil {
 			t.Fatal(err)
 		}
-		vault.NotifyChanged()
+		vault.NotifyChanged(need.Name)
 		<-changed
 		resumed++
 		return nil
@@ -620,10 +758,10 @@ func TestMicrosoftScopeChallengeWaitsAndReplaysOnce2zh(t *testing.T) {
 	waits := 0
 	ctx := WithCredentialSetup(context.Background(), func(_ context.Context, need *CredentialNeeded, changed <-chan struct{}) error {
 		waits++
-		if requests != 1 || need.Kind != "microsoft" || need.Origin != "https://graph.microsoft.com:443" {
+		if requests != 1 || need.Kind != "microsoft" || need.Origin != "https://graph.microsoft.com:443" || !need.ServiceSignIn {
 			t.Fatalf("requests=%d need=%+v", requests, need)
 		}
-		vault.NotifyChanged()
+		vault.NotifyChanged(need.Name)
 		<-changed
 		return nil
 	})

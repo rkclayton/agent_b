@@ -34,6 +34,33 @@ func TestLoginBound2yd(t *testing.T) {
 		}
 	}
 	t.Logf("full bound=256; 10000 indexed binding lookups=%s", time.Since(start))
+	const wakeIndex = 42
+	type subscription struct {
+		changed <-chan struct{}
+		cancel  func()
+	}
+	var waits [256]subscription
+	for i := range waits {
+		waits[i].changed, waits[i].cancel = v.Changes("login", "", fmt.Sprintf("someone@example.org:%d", i+1))
+	}
+	start = time.Now()
+	v.NotifyChanged("login-42")
+	t.Logf("one credential completion with 256 waiting addresses=%s", time.Since(start))
+	for i, wait := range waits {
+		woke := false
+		select {
+		case <-wait.changed:
+			woke = true
+		default:
+		}
+		if woke != (i == wakeIndex) {
+			t.Errorf("waiter %d woke=%t", i, woke)
+		}
+		wait.cancel()
+	}
+	if len(v.waiting) != 0 {
+		t.Fatal("credential subscriptions were retained after cancellation")
+	}
 }
 
 func TestOldCredentialRecordsAndSignInCachesArePreserved2zi(t *testing.T) {

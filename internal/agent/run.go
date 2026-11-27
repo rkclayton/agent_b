@@ -763,7 +763,11 @@ func directSSHCommand(args map[string]any) bool {
 }
 
 func (r *Runner) awaitCredentialSetup(ctx context.Context, s *session.Session, runID string, needed *tools.CredentialNeeded, changed <-chan struct{}) error {
-	r.bus.Publish(events.New(events.CredentialNeeded, s.ID, runID, map[string]any{"kind": needed.Kind, "origin": needed.Origin, "name": needed.Name}))
+	data := map[string]any{"kind": needed.Kind, "origin": needed.Origin, "name": needed.Name}
+	if needed.ServiceSignIn {
+		data["service_sign_in"] = true
+	}
+	r.bus.Publish(events.New(events.CredentialNeeded, s.ID, runID, data))
 	if session.IsScheduledRun(ctx) {
 		return fmt.Errorf("credential setup needs a response in Settings")
 	}

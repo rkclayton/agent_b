@@ -47,7 +47,7 @@ func init() {
 }
 
 func TestShellStoredLogin2yd(t *testing.T) {
-	for _, scenario := range []string{"match", "user", "host", "port", "refused", "host-key", "key-passphrase", "key", "forged", "phone", "resolved-host", "alias", "jump", "reflected", "scp", "sftp", "consent-once", "consent-deny", "consent-hangup"} {
+	for _, scenario := range []string{"match", "missing-2zl", "user", "host", "port", "refused", "host-key", "key-passphrase", "key", "forged", "phone", "resolved-host", "alias", "jump", "reflected", "scp", "sftp", "consent-once", "consent-deny", "consent-hangup"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			password := "planted-login-secret-2yd"
@@ -161,8 +161,10 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			if scenario == "port" {
 				storedPort++
 			}
-			if e := vault.PutLogin("example-login", user, host, fmt.Sprint(storedPort), password); e != nil {
-				t.Fatal(e)
+			if scenario != "missing-2zl" {
+				if e := vault.PutLogin("example-login", user, host, fmt.Sprint(storedPort), password); e != nil {
+					t.Fatal(e)
+				}
 			}
 			shell := tools.NewShell(config.Defaults(root).Shell)
 			shell.SetLoginVault(vault)
@@ -267,6 +269,23 @@ func TestShellStoredLogin2yd(t *testing.T) {
 			defer cancel()
 			if scenario == "phone" {
 				ctx = tools.WithLoginSource(ctx, "phone")
+			}
+			if scenario == "missing-2zl" {
+				ctx = tools.WithCredentialSetup(ctx, func(wait context.Context, need *tools.CredentialNeeded, changed <-chan struct{}) error {
+					if need.Kind != "login" || need.Origin != fmt.Sprintf("%s@%s:%d", user, host, storedPort) || attempts.Load() != 0 {
+						return fmt.Errorf("unexpected setup request: %v", need)
+					}
+					if err := vault.PutLogin("example-login", user, host, fmt.Sprint(storedPort), password); err != nil {
+						return err
+					}
+					vault.NotifyChanged("example-login")
+					select {
+					case <-changed:
+						return nil
+					case <-wait.Done():
+						return wait.Err()
+					}
+				})
 			}
 			var observed strings.Builder
 			ctx = tools.WithOutputObserver(ctx, func(line string) { observed.WriteString(line) })
@@ -394,13 +413,13 @@ func TestShellStoredLogin2yd(t *testing.T) {
 				t.Fatal("secret escaped")
 			}
 			want := int32(0)
-			if scenario == "phone" || scenario == "alias" || scenario == "jump" || scenario == "match" || scenario == "refused" || scenario == "reflected" || scenario == "scp" || scenario == "sftp" || scenario == "consent-once" || scenario == "consent-hangup" {
+			if scenario == "phone" || scenario == "alias" || scenario == "jump" || scenario == "match" || scenario == "missing-2zl" || scenario == "refused" || scenario == "reflected" || scenario == "scp" || scenario == "sftp" || scenario == "consent-once" || scenario == "consent-hangup" {
 				want = 1
 			}
 			if attempts.Load() != want {
 				t.Fatalf("attempts=%d want=%d result=%s", attempts.Load(), want, text)
 			}
-			if (scenario == "phone" || scenario == "alias" || scenario == "jump" || scenario == "match") && (result.Err != nil || !strings.Contains(text, "ok") || !strings.Contains(text, "login: example-login")) {
+			if (scenario == "phone" || scenario == "alias" || scenario == "jump" || scenario == "match" || scenario == "missing-2zl") && (result.Err != nil || !strings.Contains(text, "ok") || !strings.Contains(text, "login: example-login")) {
 				t.Fatal(text)
 			}
 			if scenario == "resolved-host" && !strings.Contains(text, "no stored login for someone@127.0.0.2") {

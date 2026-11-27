@@ -305,14 +305,16 @@ func (c *sshLoginCall) answer(pipe windows.Handle, readComplete func()) {
 	}
 	attempt = &sshLoginAttempt{created: created, user: user, host: host}
 	c.attempts[parent] = attempt
-	changed := c.vault.Changes()
+	origin := target + ":" + strconv.Itoa(request.Port)
+	changed, release := c.vault.Changes("login", "", origin)
+	defer release()
 	name, err := c.vault.LoginName(user, host, request.Port)
 	if err != nil {
 		return
 	}
 	if name == "" {
 		if wait, ok := c.ctx.Value(credentialSetupKey{}).(func(context.Context, *CredentialNeeded, <-chan struct{}) error); ok {
-			need := &CredentialNeeded{Kind: "login", Origin: target + ":" + strconv.Itoa(request.Port)}
+			need := &CredentialNeeded{Kind: "login", Origin: origin}
 			if err := wait(c.ctx, need, changed); err == nil {
 				name, _ = c.vault.LoginName(user, host, request.Port)
 			}

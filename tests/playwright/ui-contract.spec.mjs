@@ -132,6 +132,25 @@ test("credential needed opens the prefilled operator form and the table shows th
   await fixture.context.close();
 });
 
+test("a refused built-in token shows the service sign-in row 2zl", async ({ browser }, testInfo) => {
+  const origin = "https://graph.microsoft.com:443";
+  for (const width of [304, 1280, 1920]) {
+    const fixture = await thinkingFixture(browser, width);
+    const { page } = fixture;
+    const event = { type: "credential.needed", data: { kind: "microsoft", origin, name: "microsoft", service_sign_in: true } };
+    await fixture.emit([{ type: "notice", key: "service-sign-in", run_id: "run", event }], false, { run: { status: "paused", run_id: "run" }, activity: { stage: "wait_user", stage_state: "enter" } });
+    const row = page.getByRole("button", { name: "Microsoft Graph needs its own sign-in" });
+    await expect(row).toBeVisible();
+    await expect(row).toHaveCount(1);
+    expect(await row.locator(".chat-work-phrase").evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`service-sign-in-${width}.png`) });
+    await row.click();
+    await expect(page.locator("#credential-entra-origin")).toHaveValue(origin);
+    await fixture.context.close();
+  }
+});
+
 test("an opened work row stays in place while the live line scrolls with chat 2zg", async ({ browser }, testInfo) => {
   const fixture = await thinkingFixture(browser);
   const { page } = fixture;

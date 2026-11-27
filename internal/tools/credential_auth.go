@@ -15,12 +15,17 @@ type loginSourceKey struct{}
 type credentialApprovalKey struct{}
 type credentialSetupKey struct{}
 type credentialSetupRetriedKey struct{}
+type credentialWatchKey struct{}
 
 type CredentialNeeded struct {
 	Kind, Origin, Name string
+	ServiceSignIn      bool
 }
 
 func (e *CredentialNeeded) Error() string {
+	if e.ServiceSignIn {
+		return e.Origin + " needs its own sign-in"
+	}
 	message := "credential needed · " + e.Kind + " · " + e.Origin
 	if e.Kind == "entra" || e.Kind == "google" {
 		message += " · sign in in Settings"
@@ -37,12 +42,19 @@ func awaitCredential(ctx context.Context, needed *CredentialNeeded, changes <-ch
 	return ok && changes != nil && ctx.Value(credentialSetupRetriedKey{}) == nil && wait(ctx, needed, changes) == nil
 }
 
+func watchCredential(ctx context.Context, kind, name, origin string) {
+	if watch, ok := ctx.Value(credentialWatchKey{}).(func(string, string, string)); ok && ctx.Value(credentialSetupRetriedKey{}) == nil {
+		watch(kind, name, origin)
+	}
+}
+
 func (c *CallService) microsoftAuthorization(ctx context.Context, origin string, binding credential.Entry) (string, string, error) {
 	needed := &CredentialNeeded{Kind: "microsoft", Origin: origin, Name: credential.MicrosoftName}
 	if binding.Name == "" {
 		return "", "", needed
 	}
 	needed.Name = binding.Name
+	watchCredential(ctx, "entra", binding.Name, origin)
 	c.mu.Lock()
 	provider, _ := c.providers["entra"].(interface {
 		TokenForOrigin(context.Context, string, string) (string, error)
@@ -149,6 +161,7 @@ func (c *CallService) storedCredential(ctx context.Context, name string, target 
 		return credentialHeader{}, fmt.Errorf("auth_error: no credential store is available")
 	}
 	credentialName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(name), "stored:"))
+	watchCredential(ctx, "key", credentialName, credential.OriginOf(target))
 	binding, err := vault.Lookup(credentialName)
 	if err != nil {
 		if origin := credential.OriginOf(target); origin != "" {

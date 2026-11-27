@@ -80,7 +80,7 @@ type Vault struct {
 	logins           map[string]Entry
 	secretReads      atomic.Uint64
 	entries          map[string]Entry
-	changed          chan struct{}
+	waiting          map[chan struct{}]credentialDestination
 	byOrigin         map[string]Entry
 	defaultMicrosoft Entry
 }
@@ -89,24 +89,48 @@ func NewVault(dataRoot string) *Vault {
 	if dataRoot == "" {
 		dataRoot = "."
 	}
-	return &Vault{root: dataRoot, changed: make(chan struct{})}
+	return &Vault{root: dataRoot, waiting: make(map[chan struct{}]credentialDestination)}
 }
 
-// Changes reports a completed operator credential action. The next caller
-// observes a fresh channel, so it can subscribe before checking readiness.
-func (v *Vault) Changes() <-chan struct{} {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.changed
-}
+type credentialDestination struct{ kind, name, origin string }
 
-func (v *Vault) NotifyChanged() {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if v.changed != nil {
-		close(v.changed)
+// Changes subscribes before the call checks readiness. Releasing the
+// subscription removes it even when the tool finishes without waiting.
+func (v *Vault) Changes(kind, name, origin string) (<-chan struct{}, func()) {
+	if kind == "login" {
+		origin = normalizeStoredLoginAddress(origin)
 	}
-	v.changed = make(chan struct{})
+	changed := make(chan struct{})
+	v.mu.Lock()
+	v.waiting[changed] = credentialDestination{kind, name, origin}
+	v.mu.Unlock()
+	return changed, func() {
+		v.mu.Lock()
+		delete(v.waiting, changed)
+		v.mu.Unlock()
+	}
+}
+
+// NotifyChanged is called only after a credential is saved or sign-in succeeds.
+func (v *Vault) NotifyChanged(name string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if len(v.waiting) == 0 {
+		return
+	}
+	entry, err := v.lookup(name)
+	if err != nil {
+		return
+	}
+	for changed, wait := range v.waiting {
+		if wait.kind != entry.Kind || (wait.name != "" && wait.name != entry.Name) {
+			continue
+		}
+		if slices.Contains(entry.Destinations(), wait.origin) || (entry.Microsoft && MicrosoftScope(wait.origin) != "") {
+			close(changed)
+			delete(v.waiting, changed)
+		}
+	}
 }
 
 func (v *Vault) MatchHTTPS(origin string) (Entry, bool) {

@@ -1,6 +1,6 @@
 # Microsoft Entra credentials
 
-Sign in from **Settings → Security → Credentials → Add → Sign-in → Microsoft**. Graph, Azure management, and Exchange Online use their own HTTPS token destinations. The form supplies the Microsoft Azure CLI public client and the resource scope for known addresses. Open **Advanced** to override the tenant, public client ID, or scopes. Microsoft and the tenant still determine which delegated permissions the client can obtain. In particular, Microsoft does not document Exchange Online preauthorization for the Azure CLI client.
+Sign in from **Settings → Security → Credentials → Add → Sign-in → Microsoft**. The built-in sign-in is confirmed for Microsoft Graph and Azure management, while Exchange Online remains unconfirmed and may require its own sign-in. The form supplies the Microsoft Azure CLI public client and the resource scope for known addresses. Open **Advanced** to override the tenant, public client ID, or scopes. Microsoft and the tenant determine which delegated permissions the client can obtain.
 
 A chat that shows **Credential needed** opens the relevant Settings form. The same service call continues after the operator signs in. The chat and the tool cannot start or complete sign-in.
 

@@ -523,11 +523,22 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	// credential is acquired. A connector with no credential is untouched by this.
 	credentialOrigin := ""
 	setupWaited := false
+	var changed <-chan struct{}
 	if registered || target.Scheme == "https" {
 		var err error
-		var changed <-chan struct{}
-		if vault := c.currentVault(); vault != nil {
-			changed = vault.Changes()
+		if vault := c.currentVault(); vault != nil && ctx.Value(credentialSetupKey{}) != nil && ctx.Value(credentialSetupRetriedKey{}) == nil {
+			var release func()
+			ctx = context.WithValue(ctx, credentialWatchKey{}, func(kind, name, origin string) {
+				if release != nil {
+					release()
+				}
+				changed, release = vault.Changes(kind, name, origin)
+			})
+			defer func() {
+				if release != nil {
+					release()
+				}
+			}()
 		}
 		authorize := func() {
 			authorization, token, credentialHeaders, operatorContext, err = c.authorization(ctx, serviceName, service, target)
@@ -577,9 +588,10 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 		if vault := c.currentVault(); vault != nil {
 			binding, _ := vault.MatchHTTPS(credentialOrigin)
 			if binding.Microsoft && (service.Auth == "none" || service.Auth == "entra:"+binding.Name) {
-				needed := &CredentialNeeded{Kind: "microsoft", Origin: credentialOrigin, Name: binding.Name}
+				definition, _, _ := vault.Entra(binding.Name)
+				needed := &CredentialNeeded{Kind: "microsoft", Origin: credentialOrigin, Name: binding.Name, ServiceSignIn: definition.ClientID == credential.MicrosoftClient}
 				_ = response.Body.Close()
-				if !setupWaited && awaitCredential(ctx, needed, vault.Changes()) {
+				if !setupWaited && awaitCredential(ctx, needed, changed) {
 					return c.CallDetailed(context.WithValue(ctx, credentialSetupRetriedKey{}, true), item, originalArgs)
 				}
 				detail.Err = needed
@@ -938,6 +950,10 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 		var binding credential.Entry
 		if vault := c.currentVault(); vault != nil && origin != "" {
 			binding, _ = vault.MatchHTTPS(origin)
+			if binding.Name == "" && credential.MicrosoftScope(origin) != "" {
+				watchCredential(ctx, "entra", credential.MicrosoftName, origin)
+				binding, _ = vault.MatchHTTPS(origin)
+			}
 		}
 		switch binding.Kind {
 		case "key":
@@ -981,6 +997,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 			if err := enforceDestination(origin, target); err != nil {
 				return "", "", nil, false, err
 			}
+			watchCredential(ctx, strings.ToLower(scheme), strings.TrimSpace(reference), credential.OriginOf(target))
 			if err := approveStoredCredential(ctx, c.currentVault(), strings.TrimSpace(reference), target.String()); err != nil {
 				return "", "", nil, false, err
 			}

@@ -56,16 +56,22 @@ type recordedIdentityProvider struct {
 	mu                         sync.Mutex
 	origin, account            string
 	signIns, devices, signOuts int
+	checkSignIn                func(string) error
 }
 
 func (p *recordedIdentityProvider) Origin(string) (string, error) { return p.origin, nil }
 func (p *recordedIdentityProvider) Token(context.Context, string) (string, error) {
 	return "planted-token", nil
 }
-func (p *recordedIdentityProvider) SignIn(context.Context, string) (string, error) {
+func (p *recordedIdentityProvider) SignIn(_ context.Context, name string) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.signIns++
+	if p.checkSignIn != nil {
+		if err := p.checkSignIn(name); err != nil {
+			return "", err
+		}
+	}
 	p.account = "someone@example.org"
 	return p.account, nil
 }
@@ -625,7 +631,8 @@ func TestMicrosoftSignInCreatesDefaultsOnlyFromTheSettingsPost2zh(t *testing.T) 
 	if refused := post(false); refused.Code < 400 || provider.signIns != 0 || vault.Has(credential.MicrosoftName) {
 		t.Fatalf("unauthorized post code=%d calls=%d", refused.Code, provider.signIns)
 	}
-	changed := vault.Changes()
+	changed, cancel := vault.Changes("entra", credential.MicrosoftName, "https://graph.microsoft.com:443")
+	defer cancel()
 	if signed := post(true); signed.Code != http.StatusOK || provider.signIns != 1 || !strings.Contains(signed.Body.String(), `"microsoft":true`) || strings.Contains(signed.Body.String(), credential.MicrosoftClient) {
 		t.Fatalf("authorized post code=%d calls=%d body=%s", signed.Code, provider.signIns, signed.Body)
 	}
@@ -637,6 +644,57 @@ func TestMicrosoftSignInCreatesDefaultsOnlyFromTheSettingsPost2zh(t *testing.T) 
 	definition, _, err := vault.Entra(credential.MicrosoftName)
 	if err != nil || definition.Tenant != "organizations" || definition.ClientID != credential.MicrosoftClient || len(definition.Scopes) != 1 || definition.Scopes[0] != "https://graph.microsoft.com/.default" {
 		t.Fatalf("built-in definition=%+v err=%v", definition, err)
+	}
+}
+
+func TestMicrosoftRefusalLeavesTheCallWaitingForAdvancedSignIn2zl(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	const origin = "https://graph.microsoft.com:443"
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	vault := credential.NewVault(root)
+	provider := &recordedIdentityProvider{origin: origin, checkSignIn: func(name string) error {
+		definition, _, err := vault.Entra(name)
+		if err != nil {
+			return err
+		}
+		if definition.ClientID != "client-fixture" {
+			return fmt.Errorf("AADSTS65002: fixture tenant refused the built-in client")
+		}
+		return nil
+	}}
+	SetCredentialVault(vault)
+	SetIdentityProvider("entra", provider)
+	t.Cleanup(func() { SetCredentialVault(nil); SetIdentityProvider("entra", nil) })
+	post := func(body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(body))
+		authorizeMutation(request, server)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response
+	}
+	changed, cancel := vault.Changes("entra", credential.MicrosoftName, origin)
+	defer cancel()
+	refused := post(`{"action":"sign_in","name":"microsoft","origin":"https://graph.microsoft.com:443"}`)
+	if refused.Code != http.StatusBadRequest || !strings.Contains(refused.Body.String(), "This tenant refused the Microsoft client. Enter a client ID under Advanced.") {
+		t.Fatalf("built-in sign-in: %d %s", refused.Code, refused.Body)
+	}
+	select {
+	case <-changed:
+		t.Fatal("refused sign-in woke the waiting call")
+	default:
+	}
+	signed := post(`{"action":"sign_in","name":"microsoft","origin":"https://graph.microsoft.com:443","client_id":"client-fixture","tenant":"tenant-fixture","scopes":"api.read"}`)
+	if signed.Code != http.StatusOK || provider.signIns != 2 || !strings.Contains(signed.Body.String(), "someone@example.org") {
+		t.Fatalf("override sign-in: %d %s, attempts=%d", signed.Code, signed.Body, provider.signIns)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("successful override did not wake the matching call")
 	}
 }
 

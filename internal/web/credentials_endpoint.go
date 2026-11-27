@@ -171,7 +171,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
 				return
 			}
-			vault.NotifyChanged()
+			vault.NotifyChanged(name)
 		case "add":
 			origins := body.Origins
 			if len(origins) == 0 {
@@ -181,7 +181,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
 				return
 			}
-			vault.NotifyChanged()
+			vault.NotifyChanged(name)
 		case "add_entra":
 			if err := vault.PutEntra(name, body.Origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
@@ -253,7 +253,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusBadRequest, message, "credentials")
 					return
 				}
-				vault.NotifyChanged()
+				vault.NotifyChanged(name)
 			case "device_code":
 				device, err := provider.DeviceCode(r.Context(), name)
 				if err != nil {
@@ -262,7 +262,7 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				}
 				go func() {
 					if _, err := device.Wait(context.Background()); err == nil {
-						vault.NotifyChanged()
+						vault.NotifyChanged(name)
 					}
 				}()
 				writeJSON(w, http.StatusOK, map[string]any{"user_code": device.UserCode, "verification_url": device.VerificationURL, "message": device.Message})

@@ -21,6 +21,12 @@ import { createAgentRobot, updateAgentRobot } from "./agent-robot.js";
 import { renderChatProposals } from "./chat-proposals.js";
 import { installTranscriptCopy, responseTranscriptRecord, setTranscriptCopyRecord } from "./transcript-copy.js";
 
+const microsoftServiceNames = new Map([
+  ["https://graph.microsoft.com:443", "Microsoft Graph"],
+  ["https://management.azure.com:443", "Azure management"],
+  ["https://outlook.office365.com:443", "Exchange Online"],
+]);
+
 const budget = document.getElementById("chat-budget");
 const log = document.getElementById("chat-log");
 const input = document.getElementById("chat-task");
@@ -1185,9 +1191,10 @@ function noticeContent(session, entry, actionable) {
     button.type = "button";
     button.className = "chat-work-row";
     button.innerHTML = '<span class="disclosure-caret" aria-hidden="true">▸</span><span class="chat-work-phrase"></span>';
-    const label = `Credential needed · ${data.origin || "service"}`;
+    const service = microsoftServiceNames.get(data.origin) || "This service";
+    const label = data.service_sign_in ? `${service} needs its own sign-in` : `Credential needed · ${data.origin || "service"}`;
     button.lastElementChild.textContent = label;
-    button.title = label;
+    button.title = data.service_sign_in && data.origin ? `${label} · ${data.origin}` : label;
     button.onclick = () => document.dispatchEvent(new CustomEvent("settings.open", { detail: { section: "security", credential: { kind: data.kind, origin: data.origin, name: data.name } } }));
     content.append(button);
   } else if (event.type === "run.stopped") {

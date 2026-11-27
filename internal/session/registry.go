@@ -993,6 +993,9 @@ func (r *Registry) Reset(id string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("session not found")
 	}
+	if s.ReadOnlyHistory {
+		return "", fmt.Errorf("read-only history")
+	}
 	if s.IsRunning() {
 		return "", fmt.Errorf("session is running")
 	}
@@ -1044,6 +1047,9 @@ func (r *Registry) DropLastMessage(id string) (events.Message, error) {
 	s, ok := r.Get(id)
 	if !ok {
 		return events.Message{}, fmt.Errorf("session not found")
+	}
+	if s.ReadOnlyHistory {
+		return events.Message{}, fmt.Errorf("read-only history")
 	}
 	if s.IsRunning() {
 		return events.Message{}, fmt.Errorf("session is running")

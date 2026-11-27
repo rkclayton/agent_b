@@ -46,7 +46,7 @@ const panelRunStop = document.getElementById("panel-run-stop");
 const panelRunLabel = document.getElementById("panel-run-label");
 
 const dropControl = createMessageDropController(dropLastMessage, {
-  session: () => store.sessions[store.active], interactive: () => !store.replay,
+  session: () => store.sessions[store.active], interactive: () => !store.replay && !store.sessions[store.active]?.read_only_history,
   confirmDrop: (message) => requestConfirmation(message, { confirmLabel: "Drop", danger: true }),
   drop: (id) => api(`/api/sessions/${encodeURIComponent(id)}/messages/drop-last`, {}), reportError: showError,
 });
@@ -231,6 +231,7 @@ function renderRunResult(session) {
   panelRunResult.hidden = !ended;
   if (!ended) { panelRunStop.textContent = ""; panelRunLabel.replaceChildren(); return; }
   panelRunStop.textContent = `Ended: ${run.last_stop_reason}${run.last_stop_detail ? ` — ${run.last_stop_detail}` : ""}`;
+  if (session.read_only_history) { panelRunLabel.replaceChildren(); return; }
   panelRunLabel.replaceChildren(...["productive", "stuck", "mixed"].map((label) => {
     const button = node("button", run.result_label === label ? "selected" : "");
     button.type = "button"; button.dataset.label = label; button.textContent = label; button.disabled = store.replay;

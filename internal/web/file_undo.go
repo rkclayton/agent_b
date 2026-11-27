@@ -36,6 +36,10 @@ func (s *Server) undoFileChanges(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "session not found", "session_id")
 		return
 	}
+	if item.ReadOnlyHistory {
+		writeError(w, http.StatusConflict, "read-only history", "session_id")
+		return
+	}
 	if body.RunID == "" {
 		writeError(w, http.StatusBadRequest, "run_id is required", "run_id")
 		return

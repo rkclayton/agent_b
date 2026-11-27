@@ -723,12 +723,12 @@ function renderFinishedWork(session, view, responseKey, runID, blocks, { active 
     const nodes = [view.work.caret, view.work.summaryToggle];
     if (nodes.length !== view.work.head.childNodes.length || nodes.some((node, index) => view.work.head.childNodes[index] !== node)) view.work.head.replaceChildren(...nodes);
   }
-  if (!active && changed.size && view.work.runID && !view.work.undo) {
+  if (!session.read_only_history && !active && changed.size && view.work.runID && !view.work.undo) {
     const undo = document.createElement("button"); undo.type = "button"; undo.className = "chat-work-undo"; undo.textContent = "Undo file changes";
     undo.onclick = async () => { if (!await requestConfirmation("Undo file changes from this run? File tools only.", { confirmLabel: "Undo" })) return; undo.disabled = true; try { const result = await api("/api/file-undo", { session_id:session.id, run_id:view.work.runID, confirm:true }); view.work.result = [...(result.restored || []).map((name) => `restored ${name}`), ...(result.skipped || []).map((name) => `left changed ${name}`)].join(" · ") || "nothing to restore"; } catch (error) { view.work.result = error.message; undo.disabled = false; } render(); };
     view.work.undo = undo; view.work.controls.append(undo);
   }
-  if (view.work.undo) view.work.undo.hidden = active || !changed.size || !view.work.runID;
+  if (view.work.undo) view.work.undo.hidden = session.read_only_history || active || !changed.size || !view.work.runID;
   if (view.work.result) { if (!view.work.outcome) { view.work.outcome = document.createElement("span"); view.work.outcome.className = "chat-work-undo-result"; view.work.controls.append(view.work.outcome); } setText(view.work.outcome, view.work.result); }
   const latest = [...blocks].reverse().find((block) => block.interstitial && block.prose)?.prose?.text || "";
   setText(view.work.status, active ? latest : "");
@@ -847,7 +847,9 @@ function renderFileUndoList(session, work) {
       undo.disabled = false;
       render();
     };
-    row.append(chips, open, undo); item.append(row);
+    row.append(chips, open);
+    if (!session.read_only_history) row.append(undo);
+    item.append(row);
     if (diff) {
       if (diff.file?.changed_since) { const warning = document.createElement("div"); warning.className = "chat-file-changed"; warning.textContent = "Changed again since this run; Undo this file will leave it unchanged."; item.append(warning); }
       if (diff.message) { const message = document.createElement("div"); message.className = "chat-file-diff-message"; message.textContent = diff.message; item.append(message); }

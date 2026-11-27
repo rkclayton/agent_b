@@ -92,6 +92,26 @@ func TestNewSessionsUseScratchOrARegisteredRepository308(t *testing.T) {
 	if repositoryResponse.Session.Scratch || !session.SamePath(repositoryResponse.Session.WorkspaceDir, bound) || len(repositoryResponse.Session.ProjectFiles) != 1 {
 		t.Fatalf("repository session: %+v", repositoryResponse.Session)
 	}
+	history := repositoryResponse.Session
+	history.ID, history.Role = "old-history", "c"
+	if _, err := registry.Restore(history); err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []struct {
+		path string
+		body any
+	}{
+		{"/api/sessions/old-history/reset", nil},
+		{"/api/sessions/old-history/messages/drop-last", nil},
+		{"/api/sessions/old-history/result-label", nil},
+		{"/api/sessions/old-history/rebind", nil},
+		{"/api/file-undo", map[string]any{"session_id": "old-history", "run_id": "r1", "confirm": true}},
+	} {
+		result := call(http.MethodPost, request.path, request.body)
+		if result.Code != http.StatusConflict || !bytes.Contains(result.Body.Bytes(), []byte("read-only history")) {
+			t.Errorf("%s: %d %s", request.path, result.Code, result.Body.String())
+		}
+	}
 	listed := call(http.MethodGet, "/api/workspaces", nil)
 	var known []workspaceinfo.Entry
 	if err := json.Unmarshal(listed.Body.Bytes(), &known); err != nil {

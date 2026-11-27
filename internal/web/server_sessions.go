@@ -419,6 +419,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "session not found", "session_id")
 			return
 		}
+		if item.ReadOnlyHistory {
+			writeError(w, http.StatusConflict, "read-only history", "session_id")
+			return
+		}
 		var body struct {
 			Label string `json:"label"`
 			RunID string `json:"run_id"`
@@ -522,6 +526,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		snapshot := item.Snapshot()
+		if snapshot.ReadOnlyHistory {
+			writeError(w, http.StatusConflict, "read-only history", "session_id")
+			return
+		}
 		if _, exists := s.Connection(snapshot.ConnectionID); exists {
 			writeError(w, http.StatusConflict, "session connection is not missing", "connection_id")
 			return

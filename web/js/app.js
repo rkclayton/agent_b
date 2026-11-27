@@ -416,7 +416,7 @@ function renderLifetime() {
   const root = document.getElementById("panel-stats");
   const current = ledgerAgent === selectedAgent ? activity : null;
   root.hidden = !current;
-  document.getElementById("activity-empty").hidden = !!current || !ledgerAsked || !!activityError;
+  document.getElementById("activity-empty").hidden = !store.loaded || !!current || !ledgerAsked || !!activityError;
   activityFeedback.textContent = activityError;
   if (drawnActivity !== current) {
     for (const kind of ["average", "overall"]) {

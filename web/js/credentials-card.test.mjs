@@ -52,7 +52,8 @@ test("a discovered Entra connector card shows every public identity value before
 test("Settings carries a Credentials section whose key field is masked", () => {
 	const security = readFileSync(new URL("./settings-security.js", import.meta.url), "utf8");
 	assert.match(security, /subhead\("Credentials"/);
-	assert.match(security, /input\("credential-secret", "Key", "password"\)/);
+	assert.match(security, /input\("credential-secret", "Key", "secret", "password", "", true\)/);
+	assert.match(security, /<input id="\$\{id\}" type="\$\{type\}"/);
 	assert.match(security, /save\("credential-add"\)/);
 	assert.match(security, /action\("remove", "Remove"\)/);
 	// The listing prints name, origin, header and date — and no field called secret.
@@ -67,7 +68,7 @@ test("Settings exposes explicit Microsoft sign-in, account and device-code contr
 		assert.match(security + controller, new RegExp(`data-action=["']${action}|action === ["']${action}`));
 	}
 	assert.match(security, /advance\(input\("credential-tenant"[^\n]+input\("credential-client-id"[^\n]+input\("credential-scopes"/);
-	assert.match(security, /input\("credential-entra-origin", "Address", "text", "https:\/\/graph\.microsoft\.com"\)/);
+	assert.match(security, /input\("credential-entra-origin", "Address", "origin", "text", "https:\/\/graph\.microsoft\.com", true\)/);
 	assert.match(security, /entry\.account/);
 	assert.doesNotMatch(security, /common|organizations|consumers|api:\/\/|00000000-0000/);
 });

@@ -27,8 +27,11 @@ test("chat and console empty states are gated on the first snapshot or the ledge
   assert.ok(retainedHistoryGate > gate && retainedHistoryGate < chat.indexOf("Send a task to start the loop."), "retained history must load before the empty transcript state is shown");
   const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /store\.loaded \? "No configured agents" : ""/);
-  assert.match(app, /store\.loaded && ledgerAsked \? '<p class="panel-empty">No lifetime activity\.<\/p>' : ""/);
-  // An in-flight fetch never says "no activity": the flag clears before the request.
-  assert.match(app, /ledgerAsked = false;\s+try \{ ledger = await api/);
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /id="activity-empty" class="panel-empty" hidden>This profile has not run yet\.<\/p>/);
+  assert.match(app, /getElementById\("activity-empty"\)\.hidden = !store\.loaded \|\| !!current \|\| !ledgerAsked \|\| !!activityError/);
+  // A new profile must have its own ledger result before an empty state can appear.
+  assert.match(app, /if \(ledgerAgent !== askedFor \|\| store\.replay\) \{[^}]*ledgerAsked = false;/);
+  assert.match(app, /const ledger = await api\(`\/api\/stats[^\n]+\);[^}]*if \(sequence !== ledgerRequest \|\| askedFor !== selectedAgent\) return;[^}]*ledgerAsked = true;/);
   assert.match(app, /!store\.loaded \? "" : !hasSelectedChat \? "no open chat"/);
 });

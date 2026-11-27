@@ -437,9 +437,9 @@ function changeBound(value) {
   // the composer; the operator sends it, so the harness speaks for no one.
   try {
     const draft = sessionStorage.getItem(`agentb.draft.${value}`);
-    if (draft !== null) {
+    if (draft !== null && !input.value) {
       sessionStorage.removeItem(`agentb.draft.${value}`);
-      if (!input.value) input.value = draft;
+      input.value = draft;
     }
   } catch { /* no draft */ }
 }
@@ -1596,22 +1596,40 @@ async function submit() {
   let session = await loadedSession();
   if (!session && !store.replay) session = await shell?.newChat();
   if (!session || store.replay) return;
-  const text = input.value.trim();
-  if (!text && !queuedAttachments.length) return;
-  try {
-		await api("/api/message", { session_id: session.id, text, attachments: queuedAttachments.map(attachmentMetadata) });
-    await shell?.refreshChats?.();
-    input.value = "";
-    queuedAttachments = [];
-    attachmentQueues.set(selectedID(), queuedAttachments);
-    resize();
-		localNotice = "";
-    localAlarm = false;
-  } catch (error) {
-    localNotice = error.message;
-    localAlarm = true;
-  }
+  const draft = { text: input.value, attachments: queuedAttachments };
+  const text = draft.text.trim();
+  if (!text && !draft.attachments.length) return;
+  input.value = "";
+  queuedAttachments = [];
+  attachmentQueues.set(session.id, queuedAttachments);
+  localNotice = "";
+  localAlarm = false;
+  resize();
   renderComposer(session);
+  try {
+    await api("/api/message", { session_id: session.id, text, attachments: draft.attachments.map(attachmentMetadata) });
+  } catch (error) {
+    restoreComposerDraft(session.id, draft);
+    localNotice = `not sent · ${error.message}`;
+    localAlarm = true;
+    renderComposer(store.sessions[selectedID()]);
+    return;
+  }
+  void shell?.refreshChats?.();
+}
+
+function restoreComposerDraft(sessionID, draft) {
+  const selected = selectedID() === sessionID;
+  if (selected) input.value = [draft.text, input.value].filter(Boolean).join("\n");
+  else if (draft.text) {
+    const key = `agentb.draft.${sessionID}`;
+    sessionStorage.setItem(key, [draft.text, sessionStorage.getItem(key)].filter(Boolean).join("\n"));
+  }
+  if (!draft.attachments?.length) return;
+  const existing = attachmentQueues.get(sessionID) || [];
+  const returned = [...draft.attachments, ...existing.filter(file => !draft.attachments.some(item => item.path.toLowerCase() === file.path.toLowerCase()))];
+  attachmentQueues.set(sessionID, returned);
+  if (selected) queuedAttachments = returned;
 }
 
 async function queueFiles(files) {
@@ -1802,16 +1820,7 @@ async function stopRun() {
   try {
     const { draft } = await api("/api/stop", { session_id: session.id });
     if (!draft) return;
-    const selected = selectedID() === session.id;
-    const key = `agentb.draft.${session.id}`;
-    if (selected) input.value = [draft.text, input.value].filter(Boolean).join("\n");
-    else if (draft.text) sessionStorage.setItem(key, [draft.text, sessionStorage.getItem(key)].filter(Boolean).join("\n"));
-    if (draft.attachments?.length) {
-      const existing = attachmentQueues.get(session.id) || [];
-      const returned = [...draft.attachments, ...existing.filter(file => !draft.attachments.some(item => item.path.toLowerCase() === file.path.toLowerCase()))];
-      attachmentQueues.set(session.id, returned);
-      if (selected) queuedAttachments = returned;
-    }
+    restoreComposerDraft(session.id, draft);
     schedule();
   } catch (error) { localNotice = error.message; localAlarm = true; renderComposer(store.sessions[selectedID()]); }
 }

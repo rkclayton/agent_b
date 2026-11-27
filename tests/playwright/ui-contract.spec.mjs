@@ -43,6 +43,76 @@ async function thinkingFixture(browser, width = 1280, apiResponse = null) {
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
 
+test("two quick sends survive a delayed chat list refresh 2zn", async ({ browser }, testInfo) => {
+  const fixture = await thinkingFixture(browser);
+  const { page } = fixture;
+  await fixture.emit([]);
+  const input = page.locator("#chat-task");
+  const posts = [];
+  let holdRefresh = null;
+  let refreshes = 0;
+  await page.route("**/api/chats/tree", async route => {
+    const hold = holdRefresh;
+    holdRefresh = null;
+    const name = `Refresh ${++refreshes}`;
+    if (hold) { hold.started(name); await hold.released; }
+    await route.fulfill({ json: { chats: [], folders: [name] } });
+  });
+  let reject;
+  const rejection = new Promise(done => { reject = done; });
+  await page.route("**/api/message", async route => {
+    const { session_id, text } = route.request().postDataJSON();
+    if (text === "Rejected fixture.") {
+      await rejection;
+      return route.fulfill({ status: 409, json: { error: "the fixture refused the message" } });
+    }
+    posts.push({ session_id, text });
+    return route.fulfill({ json: { queued: true } });
+  });
+  const send = async text => { await input.fill(text); await input.press("Enter"); };
+  for (let index = 1; index <= 50; index++) {
+    let release;
+    const released = new Promise(done => { release = done; });
+    const started = new Promise(done => { holdRefresh = { started: done, released }; });
+    await send(`First fixture message ${index}.`);
+    const firstRefresh = await started;
+    const second = `Second fixture message ${index}.`;
+    await input.fill(second);
+    release();
+    await expect(page.locator(".chat-list-folder-name")).toHaveText(firstRefresh);
+    const secondRefresh = `Refresh ${refreshes + 1}`;
+    await input.press("Enter");
+    await expect.poll(() => posts.length).toBe(index * 2);
+    await expect(page.locator(".chat-list-folder-name")).toHaveText(secondRefresh);
+  }
+  const expected = Array.from({ length: 50 }, (_, index) => ["First", "Second"].map(order => ({ session_id: "thought", text: `${order} fixture message ${index + 1}.` }))).flat();
+  expect(posts).toEqual(expected);
+  await send("Single fixture message.");
+  await expect.poll(() => posts.at(-1)).toEqual({ session_id: "thought", text: "Single fixture message." });
+  await expect(input).toHaveValue("");
+  await send("Rejected fixture.");
+  await input.fill("Newer fixture draft.");
+  reject();
+  await expect(page.locator("#chat-notice")).toContainText("not sent · the fixture refused the message");
+  await expect(input).toHaveValue("Rejected fixture.\nNewer fixture draft.");
+  for (const width of [304, 1280, 1920]) {
+    await page.setViewportSize({ width, height: width === 304 ? 254 : width === 1280 ? 860 : 1080 });
+    if (width === 304) {
+      const edge = await page.locator(".chat-list-resize").boundingBox();
+      await page.mouse.move(edge.x + 2, edge.y + 20);
+      await page.mouse.down();
+      await page.mouse.move(0, edge.y + 20);
+      await page.mouse.up();
+      await expect(page.locator(".chat-list-handle")).toBeVisible();
+    }
+    await expect(page.locator("#chat-notice")).toBeVisible();
+    expect(await page.locator("#chat-notice").evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`not-sent-${width}.png`) });
+  }
+  await fixture.context.close();
+});
+
 test("queued delivery, connector and live work captures 2zj", async ({ browser }, testInfo) => {
   const fixture = await thinkingFixture(browser);
   const { page, emit } = fixture;

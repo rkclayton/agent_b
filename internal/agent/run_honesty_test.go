@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -424,6 +425,9 @@ func TestAbortRecordKeepsWriteEvidenceAndRedactsPartialServiceHeaders(t *testing
 }
 
 func TestStoredKeyCallStartsWithBoundURL306(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
 	const name = "Fixture reading key"
 	const secret = "fixture-key-not-visible-in-model-traffic"
 	var calls atomic.Int32

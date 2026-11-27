@@ -817,10 +817,18 @@ func TestAutomaticKeyMatchesOnlyItsListedOrigins2zi(t *testing.T) {
 }
 
 func TestStoredCredentialBindingIsVisibleWithoutItsValue306(t *testing.T) {
-	vault := credential.NewVault(t.TempDir())
+	root := t.TempDir()
+	vault := credential.NewVault(root)
 	const secret = "fixture-secret-that-must-stay-private"
-	if err := vault.Put("Fixture key", "https://fixture.example.test", "", secret); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS == "windows" {
+		if err := vault.Put("Fixture key", "https://fixture.example.test", "", secret); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		records := `{"Fixture key":{"name":"Fixture key","kind":"key","origin":"https://fixture.example.test"}}`
+		if err := os.WriteFile(filepath.Join(root, ".agentb-credentials.json"), []byte(records), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	tool := NewCallService(nil)
 	t.Cleanup(tool.Close)

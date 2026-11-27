@@ -1623,6 +1623,29 @@
 .settings-content .credential-key-fields #credential-header { width: 208px; min-width: min(208px, 100%); flex-basis: 208px; }
 .settings-content .credential-login-fields input { width: 120px; min-width: min(120px, 100%); flex: 0 1 120px; }
 .settings-content .credential-login-fields #credential-login-port { width: 80px; min-width: min(80px, 100%); flex-basis: 80px; }
+
+#credential-settings { min-width: 0; max-width: 100%; }
+.credential-table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: var(--s2) 0; }
+.credential-table th, .credential-table td { min-width: 0; padding: var(--s1); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.credential-table th { color: var(--mute); font-weight: 500; }
+.credential-table td { border-top: 1px solid var(--raised-edge); }
+.credential-table th:nth-child(3) { width: 30%; }
+.credential-table th:last-child { width: 26%; }
+.credential-table .settings-actions, .credential-form .settings-actions { flex-wrap: wrap; gap: var(--s1); justify-content: flex-start; }
+.credential-table button, .credential-form button { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+.credential-form { display: grid; gap: var(--s2); width: min(30rem, 100%); margin: var(--s2) 0; }
+.credential-form label { display: grid; grid-template-columns: minmax(8ch, max-content) minmax(0, 1fr); align-items: center; gap: var(--s2); color: var(--mute); min-width: 0; }
+.credential-form :is(input, textarea, select) { width: 100%; min-width: 0; padding: var(--s1); color: var(--ink); background: var(--well); border: 1px solid var(--raised-edge); color-scheme: dark; }
+.credential-form textarea { resize: vertical; }
+.credential-form details > label { margin-top: var(--s2); }
+@media (max-width: 620px) {
+  .credential-table, .credential-table tbody { display: block; }
+  .credential-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .credential-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--raised-edge); }
+  .credential-table td { border-top: 0; }
+  .credential-table td:last-child { grid-column: 1 / -1; }
+  .credential-form label { grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
+}
 .setting-row > .profile-user-actions, .setting-row > .profile-create-actions, .setting-row > .profile-skill-import-actions, .setting-row > .profile-hermes-actions {
   display: grid;
   gap: 8px;

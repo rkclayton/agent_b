@@ -64,6 +64,7 @@ This page describes the build of 2026-10-16.
 | Only the matching SSH password prompt | A prompt is for another user/host/port, a host key, a key passphrase or anything else. No password is sent; only this call's verified SSH child is ended so Windows SSH cannot send an empty password instead. No command option is refused. | no stored login for user@host for a password mismatch; otherwise the SSH failure | stored login | operator 2026-11-16, item 2yd |
 
 | Stored credential consent | Ask before use is on and a model tool would acquire or reuse a stored key, signed-in account or login without a current approval. No answer or No reads no secret; unattended jobs use their existing refusal. Chat grants expire after the saved idle hours (0 never), close or restart. Up to 4096 grants per chat are retained; at capacity the error offers Just once and preserves all existing grants. | Use a stored credential?; credential name not approved | Security, Credentials: ask before use / ask again after idle | operator 2026-11-16, item 2ye |
+| Credential setup | A call needs a key, login or sign-in that cannot be used. The operator can complete setup in Settings. | Credential needed | Security, Credentials | operator 2026-11-20, items 2zh and 2zi |
 
 ## 3 A RESULT IS CHANGED
 

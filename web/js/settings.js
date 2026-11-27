@@ -58,6 +58,7 @@ let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
 let credentialProvider = "entra";
+let credentialKind = "";
 let brokerMessage = "";
 let brokerAlarm = false;
 let serviceAccountAlarm = false;
@@ -117,7 +118,17 @@ const sectionLabels = [
 export function initSettings(entry = {}) {
   openedFrom = entry.from || "";
   backdrop.addEventListener("click", () => { if (open) void leaveSettingsForChat(); });
-  document.addEventListener("settings.open", (event) => openSettings(event.detail?.section));
+  document.addEventListener("settings.open", (event) => {
+    const needed = event.detail?.credential;
+    if (!needed) return openSettings(event.detail?.section);
+    credentialKind = ["key", "login"].includes(needed.kind) ? needed.kind : "sign-in";
+    credentialProvider = needed.kind === "google" ? "google" : "entra";
+    const prefix = credentialKind === "key" ? "credential" : credentialKind === "login" ? "credential-login" : `credential-${credentialProvider}`;
+    if (needed.name) actionDrafts.set(`${prefix}-name`, needed.name);
+    actionDrafts.set(`${prefix}-${credentialKind === "login" ? "origins" : "origin"}`, needed.origin || "");
+    openSettings("shell");
+    requestAnimationFrame(() => sheet.querySelector("#credential-settings")?.scrollIntoView({ block: "start" }));
+  });
   // Choosing a chat from the left list while Settings is open shows that chat.
   document.addEventListener("settings.close", (event) => {
 		if (open) void leaveSettingsForChat().finally(() => event.detail?.after?.());
@@ -554,7 +565,7 @@ function settingsPageContext(active) {
     active, store, expanded, advancedConnections, armed, drafts, errors, probeMessages, typedModels, workspaceState, operatorFileState, standingGrants: store.standing_grants || [], hermesPreview, hermesReport, actionDrafts, skillAgent, skillPreview,
     shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountLog, serviceAccountSteps,
     brokerStatus, brokerMessage, brokerAlarm,
-    credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider, browserDataBytes, browserDataConfirm,
+    credentialList, credentialMessage, credentialAlarm, credentialDevice, credentialProvider, credentialKind, browserDataBytes, browserDataConfirm,
     serviceAccountMessage, serviceAccountAlarm, hardeningStatus, hardeningBusy, hardeningMessage,
     hardeningAlarm, connectionList, agentProfiles: () => store.config.agents || [],
     notificationStatus, notificationBusy, notificationMessage, notificationAlarm, signInStart,
@@ -1460,6 +1471,12 @@ async function runAction(event, button, action, id) {
 	// adding a credential is a masked field that never echoes, and removing
 	// one is immediate. The value goes straight to the endpoint and is never held in the
 	// page's state, so a re-render cannot put it back on the screen.
+	if (action === "credential-open-add" || action === "credential-cancel-add") {
+		credentialKind = action === "credential-open-add" ? "choose" : "";
+		credentialMessage = "";
+		credentialAlarm = false;
+		return render();
+	}
 	if (action === "credential-add") {
 		const field = (id) => sheet.querySelector(id)?.value || "";
 		const secret = field("#credential-secret");
@@ -1467,7 +1484,7 @@ async function runAction(event, button, action, id) {
 		credentialAlarm = false;
 		try {
 			credentialList = (await api("/api/credentials", {
-				action: "add", name: field("#credential-name").trim(), origin: field("#credential-origin").trim(),
+				action: "add", name: field("#credential-name").trim(), origins: field("#credential-origin").trim().split(/\s+/).filter(Boolean),
 				header: field("#credential-header").trim(), secret,
 			})).credentials || [];
 			for (const id of ["#credential-name", "#credential-origin", "#credential-header", "#credential-secret"]) {
@@ -1476,6 +1493,7 @@ async function runAction(event, button, action, id) {
 				actionDrafts.delete(id.slice(1));
 			}
 			credentialMessage = "stored";
+			credentialKind = "";
 		} catch (error) {
 			credentialMessage = error.message;
 			credentialAlarm = true;
@@ -1486,9 +1504,10 @@ async function runAction(event, button, action, id) {
 		const field = id => sheet.querySelector(`#credential-login-${id}`)?.value || "";
 		credentialMessage = ""; credentialAlarm = false;
 		try {
-			credentialList = (await api("/api/credentials", {action:"add_login",name:field("name").trim(),user:field("user").trim(),host:field("host").trim(),port:field("port").trim(),secret:field("password")})).credentials || [];
-			for (const id of ["name","user","host","port","password"]) {const input=sheet.querySelector(`#credential-login-${id}`);if(input) input.value="";actionDrafts.delete(`credential-login-${id}`);}
+			credentialList = (await api("/api/credentials", {action:"add_login",name:field("name").trim(),origins:field("origins").trim().split(/\s+/).filter(Boolean),secret:field("password")})).credentials || [];
+			for (const id of ["name","origins","password"]) {const input=sheet.querySelector(`#credential-login-${id}`);if(input) input.value="";actionDrafts.delete(`credential-login-${id}`);}
 			credentialMessage="stored";
+			credentialKind="";
 		} catch(error) {credentialMessage=error.message;credentialAlarm=true;}
 		return render();
 	}
@@ -1497,8 +1516,10 @@ async function runAction(event, button, action, id) {
 		credentialMessage = "";
 		credentialAlarm = false;
 		try {
+			const origin = field("#credential-entra-origin"), name = field("#credential-entra-name");
+			const microsoft = /^https:\/\/(graph\.microsoft\.com|management\.azure\.com|outlook\.office365\.com)(:443)?\/?$/i.test(origin);
 			credentialList = (await api("/api/credentials", {
-				action: "add_entra", name: field("#credential-entra-name"), origin: field("#credential-entra-origin"),
+				action: microsoft ? "sign_in" : "add_entra", name, origin,
 				tenant: field("#credential-tenant"), client_id: field("#credential-client-id"), scopes: field("#credential-scopes"),
 			})).credentials || [];
 			for (const selector of ["#credential-entra-name", "#credential-entra-origin", "#credential-tenant", "#credential-client-id", "#credential-scopes"]) {
@@ -1506,7 +1527,8 @@ async function runAction(event, button, action, id) {
 				if (input) input.value = "";
 				actionDrafts.delete(selector.slice(1));
 			}
-			credentialMessage = "Entra credential added — sign in when ready";
+			credentialMessage = microsoft ? "Signed in" : "Entra credential added — sign in when ready";
+			credentialKind = "";
 		} catch (error) {
 			credentialMessage = error.message;
 			credentialAlarm = true;
@@ -1525,6 +1547,7 @@ async function runAction(event, button, action, id) {
 				const input = sheet.querySelector(selector); if (input) input.value = ""; actionDrafts.delete(selector.slice(1));
 			}
 			credentialMessage = "Google credential added — sign in when ready";
+			credentialKind = "";
 		} catch (error) { credentialMessage = error.message; credentialAlarm = true; }
 		return render();
 	}
@@ -1960,11 +1983,13 @@ async function blur(event) {
 }
 
 async function change(event) {
+  if (event.target.matches("#credential-kind")) {
+    credentialKind = event.target.value;
+    return render();
+  }
   if (event.target.matches("#credential-provider")) {
     credentialProvider = event.target.value === "google" ? "google" : "entra";
     render();
-    const provider = sheet.querySelector("#credential-provider");
-    if (provider) provider.closest("details").open = true;
     return;
   }
   if (event.target.matches("[data-skills-profile]")) { skillAgent = event.target.value; return render(); }

@@ -11,6 +11,7 @@ export function liveActivityText(session, now = Date.now(), waitingFor = "") {
   if (status === "queued" && waitingFor) return withElapsed(`waiting for ${waitingFor}`);
   if (status === "queued") return withElapsed(session.run.waiting_behind ? `queued — behind ${session.run.waiting_behind}` : "queued — waiting for a model slot");
   if (status === "stopping") return withElapsed("stopping the run");
+  if (status === "paused" && activity.stage === "wait_user" && activity.stage_state === "enter") return withElapsed("waiting for you");
   if (activity.active_tool === "delegate" && activity.delegate?.status === "running") {
     const child = activity.delegate;
     const step = child.tool ? `running ${child.tool}${child.target ? ` ${child.target}` : ""}` : child.stage === "call_model" ? "thinking" : child.stage || "starting";

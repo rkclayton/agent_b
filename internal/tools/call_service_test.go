@@ -5,16 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"harness/internal/config"
+	"harness/internal/credential"
 	"harness/internal/session"
 )
 
@@ -513,4 +516,160 @@ func TestCallServiceToolsBlockByteDelta(t *testing.T) {
 		t.Fatalf("call_service tools-block byte delta=%d, want %d", delta, wantDelta)
 	}
 	t.Logf("call_service tools-block byte delta: +%d (%d to %d)", wantDelta, len(before), len(after))
+}
+
+type serviceRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f serviceRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestMicrosoftServiceWithoutCredentialNeedsSignIn2zh(t *testing.T) {
+	tool := NewCallService(nil)
+	tool.SetVault(credential.NewVault(t.TempDir()))
+	requests := 0
+	tool.SetHTTPClientForTest(&http.Client{Transport: serviceRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nil, fmt.Errorf("fixture transport received a request")
+	})})
+	result := tool.CallDetailed(context.Background(), &session.Session{}, map[string]any{"service": "https://graph.microsoft.com/v1.0/auditLogs/signIns", "method": "GET"})
+	if requests != 0 || result.Err == nil || !strings.Contains(result.Err.Error(), "credential needed · microsoft · https://graph.microsoft.com:443") {
+		t.Fatalf("requests=%d, result=%+v", requests, result)
+	}
+}
+
+type fixtureMicrosoftProvider struct{ origins []string }
+
+func (*fixtureMicrosoftProvider) Origin(string) (string, error) {
+	return "https://graph.microsoft.com:443", nil
+}
+func (p *fixtureMicrosoftProvider) Token(ctx context.Context, name string) (string, error) {
+	return p.TokenForOrigin(ctx, name, "https://graph.microsoft.com:443")
+}
+func (p *fixtureMicrosoftProvider) TokenForOrigin(_ context.Context, _ string, origin string) (string, error) {
+	p.origins = append(p.origins, origin)
+	return "fixture-audience-token", nil
+}
+
+func TestMicrosoftSetupResumesOnlyAfterOperatorAction2zh(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	vault := credential.NewVault(t.TempDir())
+	tool := NewCallService(nil)
+	tool.SetVault(vault)
+	provider := &fixtureMicrosoftProvider{}
+	tool.SetTokenProvider("entra", provider)
+	requests := 0
+	tool.SetHTTPClientForTest(&http.Client{Transport: serviceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.Header.Get("Authorization") != "Bearer fixture-audience-token" {
+			t.Error("the fixture did not receive its access token")
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/plain"}}, Body: io.NopCloser(strings.NewReader("fixture response"))}, nil
+	})})
+	resumed := 0
+	ctx := WithCredentialSetup(context.Background(), func(_ context.Context, need *CredentialNeeded, changed <-chan struct{}) error {
+		if requests != 0 || need.Kind != "microsoft" {
+			t.Fatalf("requests=%d; need=%+v", requests, need)
+		}
+		if err := vault.PutEntra(need.Name, need.Origin, "", "", nil); err != nil {
+			t.Fatal(err)
+		}
+		vault.NotifyChanged()
+		<-changed
+		resumed++
+		return nil
+	})
+	for _, address := range []string{"https://graph.microsoft.com/v1.0/auditLogs/signIns", "https://management.azure.com/subscriptions"} {
+		result := tool.CallDetailed(ctx, &session.Session{}, map[string]any{"service": address, "method": "GET"})
+		if result.Err != nil || !strings.Contains(result.Content, "fixture response") {
+			t.Fatalf("request did not complete: %+v", result)
+		}
+	}
+	if resumed != 1 || requests != 2 || strings.Join(provider.origins, " ") != "https://graph.microsoft.com:443 https://management.azure.com:443" {
+		t.Fatalf("resumes=%d requests=%d origins=%v", resumed, requests, provider.origins)
+	}
+}
+
+func TestMicrosoftScopeChallengeWaitsAndReplaysOnce2zh(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	vault := credential.NewVault(t.TempDir())
+	if err := vault.PutEntra("microsoft", "https://graph.microsoft.com", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewCallService(nil)
+	tool.SetVault(vault)
+	tool.SetTokenProvider("entra", &fixtureMicrosoftProvider{})
+	requests := 0
+	tool.SetHTTPClientForTest(&http.Client{Transport: serviceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/v1.0/auditLogs/signIns" {
+			t.Error("recovery changed the request")
+		}
+		requests++
+		status, body := http.StatusOK, "fixture response"
+		header := http.Header{"Content-Type": {"text/plain"}}
+		if requests == 1 {
+			status, body = http.StatusForbidden, "scope missing"
+			header.Set("WWW-Authenticate", `Bearer error="insufficient_scope"`)
+		}
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})})
+	waits := 0
+	ctx := WithCredentialSetup(context.Background(), func(_ context.Context, need *CredentialNeeded, changed <-chan struct{}) error {
+		waits++
+		if requests != 1 || need.Kind != "microsoft" || need.Origin != "https://graph.microsoft.com:443" {
+			t.Fatalf("requests=%d need=%+v", requests, need)
+		}
+		vault.NotifyChanged()
+		<-changed
+		return nil
+	})
+	result := tool.CallDetailed(ctx, &session.Session{}, map[string]any{"service": "https://graph.microsoft.com/v1.0/auditLogs/signIns", "method": "GET"})
+	if waits != 1 || requests != 2 || result.Err != nil || !strings.Contains(result.Content, "fixture response") {
+		t.Fatalf("waits=%d requests=%d result=%+v", waits, requests, result)
+	}
+}
+
+func TestAutomaticKeyMatchesOnlyItsListedOrigins2zi(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	vault := credential.NewVault(t.TempDir())
+	origins := []string{"https://one.example.test", "https://two.example.test:8443"}
+	if err := vault.PutKeyOrigins("fixture", origins, "", "fixture-key-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Put("duplicate", "https://one.example.test:443", "", "other-fixture-key"); err == nil || !strings.Contains(err.Error(), `"fixture"`) {
+		t.Fatalf("duplicate origin: %v", err)
+	}
+	tool := NewCallService(nil)
+	tool.SetVault(vault)
+	requests, approved := 0, 0
+	tool.SetHTTPClientForTest(&http.Client{Transport: serviceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		want := ""
+		if requests <= 2 {
+			want = "Bearer fixture-key-value"
+			if approved != requests {
+				t.Error("credential was attached before approval")
+			}
+		}
+		if request.Header.Get("Authorization") != want {
+			t.Error("credential destination was not enforced")
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/plain"}}, Body: io.NopCloser(strings.NewReader(want))}, nil
+	})})
+	ctx := WithCredentialApproval(context.Background(), func(context.Context, credential.Entry, string) error { approved++; return nil })
+	for _, address := range append(origins, "https://three.example.test") {
+		result := tool.CallDetailed(ctx, &session.Session{}, map[string]any{"service": address, "method": "GET"})
+		if result.Err != nil || strings.Contains(result.Content, "fixture-key-value") {
+			t.Fatalf("unexpected result: %+v", result)
+		}
+	}
+	if requests != 3 || approved != 2 {
+		t.Fatalf("requests=%d approvals=%d", requests, approved)
+	}
 }

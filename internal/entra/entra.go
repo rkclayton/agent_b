@@ -197,8 +197,21 @@ func (m *Manager) Origin(name string) (string, error) {
 }
 
 func (m *Manager) Token(ctx context.Context, name string) (string, error) {
-	if _, _, err := m.vault.Entra(name); err != nil {
+	return m.TokenForOrigin(ctx, name, "")
+}
+
+func (m *Manager) TokenForOrigin(ctx context.Context, name, origin string) (string, error) {
+	definition, entry, err := m.vault.Entra(name)
+	if err != nil {
 		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
+	}
+	scopes := definition.Scopes
+	if origin != "" && origin != entry.Origin {
+		scope := credential.MicrosoftScope(origin)
+		if !entry.Microsoft || scope == "" {
+			return "", fmt.Errorf("the sign-in is not approved for this resource")
+		}
+		scopes = []string{scope}
 	}
 	client, err := m.client(name)
 	if err != nil {
@@ -208,10 +221,15 @@ func (m *Manager) Token(ctx context.Context, name string) (string, error) {
 	if err != nil || len(accounts) != 1 {
 		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
 	}
-	definition, _, _ := m.vault.Entra(name)
-	result, err := client.AcquireTokenSilent(ctx, definition.Scopes, public.WithSilentAccount(accounts[0]))
+	options := []public.AcquireSilentOption{public.WithSilentAccount(accounts[0])}
+	if definition.Tenant == "organizations" && accounts[0].Realm != "" {
+		options = append(options, public.WithTenantID(accounts[0].Realm))
+	}
+	result, err := client.AcquireTokenSilent(ctx, scopes, options...)
 	if err != nil {
-		_ = m.clear(name)
+		if !entry.Microsoft {
+			_ = m.clear(name)
+		}
 		return "", fmt.Errorf("auth_error: sign in in Settings → Security → Credentials")
 	}
 	return strings.TrimSpace(result.AccessToken), nil

@@ -492,6 +492,13 @@ func projectRunStopped(next Snapshot, record Record, data map[string]any) Snapsh
 
 func projectStage(next Snapshot, record Record, data map[string]any) Snapshot {
 	stage, state := stringValue(data["stage"]), stringValue(data["state"])
+	if stage == "wait_user" && boolValue(data["credential_setup"]) && next.PendingApproval == nil && next.Run.Status != "stopping" {
+		if state == "enter" {
+			next.Run.Status = "paused"
+		} else if next.Run.Status == "paused" {
+			next.Run.Status = "running"
+		}
+	}
 	if stage != next.Activity.Stage || state != next.Activity.StageState {
 		next.Activity.StateStartedAt = eventMillis(record.Event)
 	}

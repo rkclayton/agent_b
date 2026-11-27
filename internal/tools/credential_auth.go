@@ -13,6 +13,53 @@ import (
 type loginSourceKey struct{}
 
 type credentialApprovalKey struct{}
+type credentialSetupKey struct{}
+type credentialSetupRetriedKey struct{}
+
+type CredentialNeeded struct {
+	Kind, Origin, Name string
+}
+
+func (e *CredentialNeeded) Error() string {
+	message := "credential needed · " + e.Kind + " · " + e.Origin
+	if e.Kind == "entra" || e.Kind == "google" {
+		message += " · sign in in Settings"
+	}
+	return message
+}
+
+func WithCredentialSetup(ctx context.Context, wait func(context.Context, *CredentialNeeded, <-chan struct{}) error) context.Context {
+	return context.WithValue(ctx, credentialSetupKey{}, wait)
+}
+
+func awaitCredential(ctx context.Context, needed *CredentialNeeded, changes <-chan struct{}) bool {
+	wait, ok := ctx.Value(credentialSetupKey{}).(func(context.Context, *CredentialNeeded, <-chan struct{}) error)
+	return ok && changes != nil && ctx.Value(credentialSetupRetriedKey{}) == nil && wait(ctx, needed, changes) == nil
+}
+
+func (c *CallService) microsoftAuthorization(ctx context.Context, origin string, binding credential.Entry) (string, string, error) {
+	needed := &CredentialNeeded{Kind: "microsoft", Origin: origin, Name: credential.MicrosoftName}
+	if binding.Name == "" {
+		return "", "", needed
+	}
+	needed.Name = binding.Name
+	c.mu.Lock()
+	provider, _ := c.providers["entra"].(interface {
+		TokenForOrigin(context.Context, string, string) (string, error)
+	})
+	c.mu.Unlock()
+	if provider == nil {
+		return "", "", needed
+	}
+	if err := approveCredential(ctx, binding, origin); err != nil {
+		return "", "", err
+	}
+	value, err := provider.TokenForOrigin(ctx, binding.Name, origin)
+	if err != nil {
+		return "", "", needed
+	}
+	return bearerAuthorization(value)
+}
 
 // WithCredentialApproval installs the runner's existing approval gate for this call.
 func WithCredentialApproval(ctx context.Context, ask func(context.Context, credential.Entry, string) error) context.Context {
@@ -104,9 +151,15 @@ func (c *CallService) storedCredential(ctx context.Context, name string, target 
 	credentialName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(name), "stored:"))
 	binding, err := vault.Lookup(credentialName)
 	if err != nil {
+		if origin := credential.OriginOf(target); origin != "" {
+			return credentialHeader{}, &CredentialNeeded{Kind: "key", Origin: origin, Name: credentialName}
+		}
 		return credentialHeader{}, fmt.Errorf("auth_error: no credential named %q is stored; add it in Settings → Security", credentialName)
 	}
-	if err := credential.AllowsOrigin(binding.Origin, target); err != nil {
+	if binding.Kind != "key" {
+		return credentialHeader{}, fmt.Errorf("auth_error: %q is not a stored key", credentialName)
+	}
+	if err := binding.Allows(target); err != nil {
 		return credentialHeader{}, fmt.Errorf("auth_error: %w", err)
 	}
 	if err := approveCredential(ctx, binding, target.String()); err != nil {
@@ -114,7 +167,7 @@ func (c *CallService) storedCredential(ctx context.Context, name string, target 
 	}
 	secret, _, err := vault.Secret(credentialName)
 	if err != nil {
-		return credentialHeader{}, fmt.Errorf("auth_error: the stored credential could not be read")
+		return credentialHeader{}, &CredentialNeeded{Kind: "key", Origin: credential.OriginOf(target), Name: credentialName}
 	}
 	if binding.Header == "" {
 		return credentialHeader{name: "Authorization", value: "Bearer " + secret, secret: secret}, nil

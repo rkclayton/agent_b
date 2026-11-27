@@ -709,6 +709,11 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 	if name == "call_service" {
 		eventArgs["approval_action"] = callServiceApprovalAction(args)
 	}
+	if name == "call_service" || (name == "shell" && directSSHCommand(args)) {
+		ctx = tools.WithCredentialSetup(ctx, func(wait context.Context, needed *tools.CredentialNeeded, changed <-chan struct{}) error {
+			return r.awaitCredentialSetup(wait, s, runID, needed, changed)
+		})
+	}
 	path, _ := args["path"].(string)
 	skillRead := (name == "read_file" || name == "list_dir" || name == "search" || name == "search_text" || name == "find_files") && s.IsSkillPath(path)
 	skillPath, skillName, skillMutation := tools.SkillMutation(name, args, s)
@@ -745,6 +750,48 @@ func (r *Runner) executeTool(ctx context.Context, s *session.Session, runID, cal
 		return outcome
 	}
 	return r.operatorOverride(ctx, s, runID, callID, name, path, args, cfg, shellStart, outcome)
+}
+
+func directSSHCommand(args map[string]any) bool {
+	command, _ := args["command"].(string)
+	words := strings.Fields(command)
+	if len(words) == 0 {
+		return false
+	}
+	binary := strings.ToLower(filepath.Base(strings.Trim(words[0], "\"'")))
+	return binary == "ssh" || binary == "ssh.exe"
+}
+
+func (r *Runner) awaitCredentialSetup(ctx context.Context, s *session.Session, runID string, needed *tools.CredentialNeeded, changed <-chan struct{}) error {
+	r.bus.Publish(events.New(events.CredentialNeeded, s.ID, runID, map[string]any{"kind": needed.Kind, "origin": needed.Origin, "name": needed.Name}))
+	if session.IsScheduledRun(ctx) {
+		return fmt.Errorf("credential setup needs a response in Settings")
+	}
+	state := s.Snapshot().Run
+	state.Status = "paused"
+	s.SetRun(state)
+	if r.gate.released != nil && ctx.Err() == nil {
+		r.gate.released(s.ID, runID)
+	}
+	start := time.Now()
+	r.setFlightStage(s.ID, runID, state.Turn, "wait_user")
+	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "wait_user", "state": "enter", "turn": state.Turn, "credential_setup": true}))
+	select {
+	case <-changed:
+	case <-ctx.Done():
+	}
+	r.bus.Publish(events.New(events.Stage, s.ID, runID, map[string]any{"stage": "wait_user", "state": "exit", "turn": state.Turn, "ms": time.Since(start).Milliseconds(), "credential_setup": true}))
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if r.gate.reacquire != nil {
+		if err := r.gate.reacquire(ctx, s.ID, runID); err != nil {
+			return err
+		}
+	}
+	state.Status = "running"
+	s.SetRun(state)
+	return nil
 }
 
 // withToolProgress publishes a shell or script's output lines as transient progress, at most

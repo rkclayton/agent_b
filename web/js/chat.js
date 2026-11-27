@@ -465,6 +465,12 @@ function groupResponses(entries) {
       grouped.push(entry);
       continue;
     }
+		if (entry.type === "notice" && entry.event?.type === "credential.needed") {
+			grouped.push(entry);
+			response = null;
+			boundary = entry.key;
+			continue;
+		}
     // A notice that is waiting on the operator is never folded into a steps
     // group: an unreachable model, and a question from the worker, are the two
     // things in this thread that nobody can answer without seeing them. Item
@@ -1109,6 +1115,7 @@ function updateWorkDisclosure(view, phrase, time, failed) {
 
 function noticeDisclosure(content, entry) {
   const type = entry.event?.type;
+  if (type === "credential.needed") return content;
   if (!type) {
     content.classList.add("chat-plain-notice");
     content.title = content.textContent;
@@ -1173,7 +1180,17 @@ function noticeContent(session, entry, actionable) {
 		return content;
 	}
   const data = event.data && typeof event.data === "object" ? event.data : {};
-  if (event.type === "run.stopped") {
+  if (event.type === "credential.needed") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chat-work-row";
+    button.innerHTML = '<span class="disclosure-caret" aria-hidden="true">▸</span><span class="chat-work-phrase"></span>';
+    const label = `Credential needed · ${data.origin || "service"}`;
+    button.lastElementChild.textContent = label;
+    button.title = label;
+    button.onclick = () => document.dispatchEvent(new CustomEvent("settings.open", { detail: { section: "security", credential: { kind: data.kind, origin: data.origin, name: data.name } } }));
+    content.append(button);
+  } else if (event.type === "run.stopped") {
     const reason = (data.reason || "").replaceAll("_", " ");
 		if (data.reason === "done" && data.detail === "stopped before dispatch") {
 			content.textContent = "not sent";
@@ -1445,7 +1462,7 @@ function renderComposer(session) {
   setProperty(composerWait, "hidden", !promptOnly);
   if (running && !promptOnly) {
     updateAgentRobot(composerRobot, {
-      state: session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy ? "waiting" : "running",
+      state: session?.model_unreachable ? "offline" : session?.pending_approval || session?.pending_repo_policy || session?.run?.status === "paused" ? "waiting" : "running",
       doing: liveActivityLook(session),
     });
   }

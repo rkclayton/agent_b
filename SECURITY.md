@@ -250,7 +250,7 @@ On Windows, the normal service-context process tree is `Agent_b.exe → powershe
 `CreateProcessWithLogonW` creates PowerShell directly as the service identity; there is no intermediate `cmd.exe` or generated script.
 `fetch_url` performs anonymous, governed open-web HTTP inside `Agent_b.exe`;
 it neither downloads through PowerShell nor hands fetched bytes to the service shell. `call_service` is deliberately separate:
-it may call an unregistered absolute HTTP(S) URL with no credential, or a registered service with its configured identity.
+it may call an unregistered absolute HTTP(S) URL. An HTTPS URL can use a credential listed for its exact origin. A registered service can name its configured identity explicitly.
 A registered credential is acquired and attached only when the request host matches the service's registered host;
 foreign request or redirect hosts are refused with a mismatch line. An `exec:` credential argv runs directly as the non-elevated operator with no shell.
 Bearer values remain in process memory, model-supplied authorization values are redacted from durable/UI projections,
@@ -261,7 +261,7 @@ It does NOT isolate it from arbitrary code running as the same Windows user:** a
 because that is what user scope means. The protection that matters against a tool process is the OS boundary — the separate low-privilege service account and
 the NTFS deny entry on the data root — not the encryption. Connector credentials added in Settings are kept this way,
 one blob per name beside the model-connection credentials, and a plain record beside them holds each credential's name, kind,
-HTTPS origin and date — never a secret. Entra definitions and MSAL refresh/account caches are separate DPAPI blobs;
+approved addresses and date — never a secret. Entra definitions and MSAL refresh/account caches are separate DPAPI blobs;
 MSAL access-token entries are removed before persistence and remain in process memory. A credential is attached only to a request whose origin (scheme,
 host and port) equals the approved one exactly; http, another port, another host,
 and any redirect that leaves the origin are refused before the credential is read, and a redirect is never followed carrying one. This holds for stored keys,
@@ -269,8 +269,7 @@ Entra tokens and an `exec:` helper's output alike; the helper runs without a she
 and its output is held in memory only. `static_bearer:` is retired: each one is moved into the store once, on load, verified by reading it back,
 and a connector whose variable is empty or whose value does not verify is left unauthenticated rather than falling back to the environment.
 Secret credentials and interactive sign-in are managed only from the operator's own page, with its session cookie and mutation token; a tool process, the model,
-a chat and a paired phone are each refused. A revoked refresh clears that credential's cache after one failed silent attempt,
-and connector execution never starts an interactive flow. A non-rendered service response is size-bounded before its atomic workspace name becomes visible;
+a chat and a paired phone are each refused. A missing or unusable credential can pause the call while the operator visits Settings. Connector execution cannot start an interactive flow. A built-in Microsoft sign-in can request separate tokens for its supported Microsoft resources while reusing its protected account and refresh session. A non-rendered service response is size-bounded before its atomic workspace name becomes visible;
 a response containing the attached credential is refused and deleted, and the model sees only file metadata.
 
 Persistent PowerShell is the operator-authorized exception for a profile whose mode is Read only or Full. At session open, Agent_b may hand the named bootstrap credentials directly to that hidden PowerShell process through its stdin pipe; the bootstrap, token and key are not journaled or returned to the model. That process runs under the same service-account or operator identity seam as `shell`, so the OS account, ACLs and outbound firewall remain the boundary. A bootstrap chooses the module and destination that consume its token: connector origin pinning does not apply inside PowerShell, and a token for one resource is not converted for another. Off, the default, does not register the tool for that profile.

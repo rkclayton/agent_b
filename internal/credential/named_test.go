@@ -36,6 +36,75 @@ func TestLoginBound2yd(t *testing.T) {
 	t.Logf("full bound=256; 10000 indexed binding lookups=%s", time.Since(start))
 }
 
+func TestOldCredentialRecordsAndSignInCachesArePreserved2zi(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture records")
+	}
+	root := t.TempDir()
+	v := NewVault(root)
+	if err := v.Put("fixture-key", "https://api.example.test", "", "fixture-key-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.PutLogin("fixture-login", "someone", "example.org", "22", "fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.PutEntra("fixture-entra", "https://identity.example.test", "fixture-tenant", "fixture-client", []string{"fixture.read"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.PutGoogle("fixture-google", "https://gmail.googleapis.com", "fixture-client", "fixture-client-secret", []string{"fixture.read"}); err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := v.EntraCache("fixture-entra")
+	google, _ := v.GoogleCache("fixture-google")
+	for _, cache := range []*Store{ms, google} {
+		if err := cache.Write([]byte("fixture-refresh-cache")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := v.List()
+	if err != nil || len(entries) != 4 {
+		t.Fatalf("entries=%d err=%v", len(entries), err)
+	}
+	legacy := make(map[string]Entry)
+	for _, entry := range entries {
+		entry.Origins, entry.Provider = nil, ""
+		legacy[entry.Name] = entry
+	}
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(v.recordPath(), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v = NewVault(root)
+	for name, want := range legacy {
+		entry, err := v.Lookup(name)
+		if err != nil || entry.Kind != want.Kind || len(entry.Destinations()) != 1 || entry.Destinations()[0] != want.Origin {
+			t.Fatalf("retrieved entry=%+v err=%v", entry, err)
+		}
+	}
+	if err := v.PutLoginOrigins("fixture-login", []string{"someone@example.org:22", "someone@second.example.org:2222"}, "fixture-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.LoginPassword("fixture-login", "someone", "second.example.org", 2222); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.LoginPassword("fixture-login", "someone", "third.example.org", 22); err == nil {
+		t.Fatal("unlisted login address was accepted")
+	}
+	for _, cache := range []*Store{ms, google} {
+		data, err := cache.Read()
+		if err != nil || string(data) != "fixture-refresh-cache" {
+			t.Fatal("the credential metadata upgrade changed a sign-in cache")
+		}
+	}
+	index, err := os.ReadFile(v.recordPath())
+	if err != nil || strings.Count(string(index), `"kind": "sign-in"`) != 2 || strings.Contains(string(index), "fixture-client-secret") {
+		t.Fatal("the index did not use the new sign-in shape")
+	}
+}
+
 func TestStoredLogin2yd(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("DPAPI")

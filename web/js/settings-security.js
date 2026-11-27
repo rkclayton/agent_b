@@ -8,6 +8,7 @@ let credentialMessage = "";
 let credentialAlarm = false;
 let credentialDevice = {};
 let credentialProvider = "entra";
+let credentialKind = "";
 let store, armed, drafts, errors, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps, hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants, connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView;
 function useSettingsContext(context) {
   serviceAccountLog = context.serviceAccountLog || "";
@@ -21,6 +22,7 @@ function useSettingsContext(context) {
   credentialAlarm = !!context.credentialAlarm;
   credentialDevice = context.credentialDevice || {};
   credentialProvider = context.credentialProvider === "google" ? "google" : "entra";
+  credentialKind = context.credentialKind || "";
   ({ store, armed, drafts, errors, shellCredentialMessage, shellCredentialAlarm, serviceAccountStatus, serviceAccountBusy, serviceAccountMessage, serviceAccountAlarm, serviceAccountSteps = [], hardeningStatus, hardeningBusy, hardeningMessage, hardeningAlarm, standingGrants = [], connectionList, row, subhead, text, toggle, copyRow, connectionReason, html, attr, selectedHardeningConnectionID, operatorStatusView } = context);
 }
 
@@ -162,40 +164,48 @@ function shell(active) {
 // the phone. What is listed is the name, where it may go, how it is sent and when it was
 // stored — never the value, which this page cannot read back either.
 function credentialRows() {
-	const entries = Array.isArray(credentialList) ? credentialList : [];
-	const listed = entries.length
-		? `<span class="settings-actions vertical">${entries.map((entry) => {
-			const remove = `<button type="button" data-action="credential-remove" data-id="${attr(entry.name)}" data-confirm="the credential ${attr(entry.name)}">Remove</button>`;
-			if (entry.kind === "login") return `<span class="credential-login-entry">${html(entry.name)} · login · ${html(entry.origin)} · stored ${html((entry.stored_at || "").slice(0, 10))} ${remove}</span>`;
-			if (entry.kind !== "entra" && entry.kind !== "google") return `<span>${html(entry.name)} · ${html(entry.origin)}${entry.header ? ` · ${html(entry.header)}` : " · bearer"} · stored ${html((entry.stored_at || "").slice(0, 10))} ${remove}</span>`;
-			const account = entry.account ? `signed in as ${html(entry.account)}` : "sign-in needed";
-			const device = entry.kind === "entra" && credentialDevice.name === entry.name && credentialDevice.user_code
-				? `<span class="account-status">Open <a href="${attr(credentialDevice.verification_url)}" target="_blank" rel="noreferrer">${html(credentialDevice.verification_url)}</a> and enter <span class="mono">${html(credentialDevice.user_code)}</span>.</span>` : "";
-			const provider = entry.kind === "google" ? "Google" : "Microsoft Entra";
-			const deviceButton = entry.kind === "entra" ? `<button type="button" data-action="credential-device-code" data-id="${attr(entry.name)}">Use a device code</button>` : "";
-			return `<span class="settings-actions vertical"><span>${html(entry.name)} · ${provider} · ${html(entry.origin)} · ${account}</span><span class="settings-actions"><button type="button" data-action="credential-sign-in" data-id="${attr(entry.name)}">${entry.account ? "Switch account" : "Sign in with browser"}</button>${deviceButton}${entry.account ? `<button type="button" data-action="credential-sign-out" data-id="${attr(entry.name)}">Sign out</button>` : ""}${remove}</span>${device}</span>`;
-		}).join("")}</span>`
-		: '<span class="account-status">none stored</span>';
-	return `${subhead("Credentials", "Keys and signed-in accounts this machine holds for the services you connect to. Each one goes only to the address you approve for it — scheme, host and port — and to nothing else. A connector names a credential; it never carries its value.")}
-	${toggle("credentials.ask_before_use", "ask before use", !!store.config.credentials?.ask_before_use, "The agent cannot use anything stored here until you approve it in the chat — once, or for that chat.")}
-	${store.config.credentials?.ask_before_use ? row("ask again after idle", `<input class="setting-input number" type="number" min="0" step="1" data-path="credentials.idle_hours" data-kind="number" value="${attr(store.config.credentials?.idle_hours ?? 4)}"><span class="control-note">hours · 0 = never</span>`) : ""}
-	${row("stored", listed)}
-	${browserDataBytes == null ? "" : row("browser data", `<span class="settings-actions browser-data-actions">${browserDataConfirm ? '<span>Clear browser data?</span><button type="button" class="alarm" data-action="browser-data-clear">Clear</button><button type="button" data-action="browser-data-cancel">Cancel</button>' : browserDataBytes === 0 ? '<span class="account-status">empty</span>' : `<span class="mono account-status">${Math.ceil(browserDataBytes / 1048576)} MB</span><button type="button" data-action="browser-data-ask">Clear</button>`}</span>`, "", "Sign-ins, cookies and history the built-in browser keeps. Clear removes them.")}
-	${row("add key", `<span class="settings-actions credential-key-fields"><input id="credential-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-origin" type="text" placeholder="https://host:port" autocomplete="off" spellcheck="false"><input id="credential-header" type="text" placeholder="header (blank = bearer)" autocomplete="off" spellcheck="false"><input id="credential-secret" type="password" placeholder="the key" autocomplete="new-password" spellcheck="false"><button type="button" data-action="credential-add">Add</button></span>`, "", "The key is never shown again once stored, and never leaves this machine except to the address above. Windows protects it for your account: that is protection at rest and from other users, not from programs running as you.")}
-	${row("add login", `<span class="settings-actions credential-login-fields">${[["name","text"],["user","text"],["host","text"],["port","text"],["password","password"]].map(([id,type]) => `<input id="credential-login-${id}" type="${type}" placeholder="${id === "port" ? "port (22)" : id}" autocomplete="${type === "password" ? "new-password" : "off"}" spellcheck="false">`).join("")}<button type="button" data-action="credential-login-add">Add</button></span>`, "", "Used only when ssh asks for this user's password at this host. Never shown again, never given to the model, never sent to a phone. Windows protects it for your account: protection at rest and from other users, not from programs running as you.")}
-	<details class="settings-advanced"><summary>Add signed-in credential</summary>
-	${row("provider", `<select id="credential-provider"><option value="entra"${credentialProvider === "entra" ? " selected" : ""}>Microsoft Entra</option><option value="google"${credentialProvider === "google" ? " selected" : ""}>Google</option></select>`)}
-	${credentialProvider === "entra" ? `
-	${row("identity", `<span class="settings-actions"><input id="credential-entra-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-entra-origin" type="text" placeholder="https://API-host:port" autocomplete="off" spellcheck="false"></span>`)}
-	${row("app registration", `<span class="settings-actions"><input id="credential-tenant" type="text" placeholder="tenant ID" autocomplete="off" spellcheck="false"><input id="credential-client-id" type="text" placeholder="client ID" autocomplete="off" spellcheck="false"></span>`)}
-	${row("scopes", `<span class="settings-actions"><input id="credential-scopes" type="text" placeholder="space-separated scopes" autocomplete="off" spellcheck="false"><button type="button" data-action="credential-entra-add">Add Entra credential</button></span>`, "", "Use the API's public-client registration and delegated scopes. Agent_b supplies no tenant, client ID or scope defaults; sign-in is a separate explicit step.")}
-	` : `
-	${row("identity", `<span class="settings-actions"><input id="credential-google-name" type="text" placeholder="name" autocomplete="off" spellcheck="false"><input id="credential-google-origin" type="text" placeholder="https://API-host:port" autocomplete="off" spellcheck="false"></span>`)}
-	${row("OAuth client", `<span class="settings-actions"><input id="credential-google-client-id" type="text" placeholder="client ID" autocomplete="off" spellcheck="false"><input id="credential-google-client-secret" type="password" placeholder="client secret" autocomplete="new-password" spellcheck="false"></span>`)}
-	${row("scopes", `<span class="settings-actions"><input id="credential-google-scopes" type="text" placeholder="space-separated scopes" autocomplete="off" spellcheck="false"><button type="button" data-action="credential-google-add">Add</button></span>`)}
-	` }
-	</details>
-	${feedback(credentialMessage, credentialAlarm)}`;
+  const entries = Array.isArray(credentialList) ? credentialList : [];
+  const listed = entries.length ? `<table class="credential-table"><thead><tr><th>Name</th><th>Kind</th><th>Used for</th><th>State</th><th>Actions</th></tr></thead><tbody>${entries.map((entry) => {
+    const signIn = entry.kind === "entra" || entry.kind === "google";
+    const kind = signIn ? "sign-in" : entry.kind;
+    const provider = entry.kind === "google" ? "Google" : "Microsoft";
+    const origins = entry.microsoft ? "Graph · Azure · Exchange Online" : (entry.origins || [entry.origin]).join(" · ");
+    const state = signIn ? entry.account ? "Signed in" : "Sign-in needed" : "Stored";
+    const action = (verb, label) => `<button type="button" data-action="credential-${verb}" data-id="${attr(entry.name)}">${label}</button>`;
+    const device = entry.kind === "entra" && credentialDevice.name === entry.name && credentialDevice.user_code
+      ? `<a href="${attr(credentialDevice.verification_url)}" target="_blank" rel="noreferrer">${html(credentialDevice.user_code)}</a>` : "";
+    return `<tr data-credential-name="${attr(entry.name)}"><td>${html(entry.name)}</td><td>${html(kind)}${signIn ? ` · ${provider}` : ""}</td><td>${html(origins)}</td><td title="${attr(entry.account || "")}">${state}</td><td><span class="settings-actions">${signIn ? action("sign-in", entry.account ? "Switch account" : "Sign in with browser") : ""}${entry.kind === "entra" ? action("device-code", "Use a device code") : ""}${entry.account ? action("sign-out", "Sign out") : ""}${action("remove", "Remove")}${device}</span></td></tr>`;
+  }).join("")}</tbody></table>` : "";
+  return `<section id="credential-settings">${subhead("Credentials")}
+  ${toggle("credentials.ask_before_use", "ask before use", !!store.config.credentials?.ask_before_use, "The agent cannot use anything stored here until you approve it in the chat — once, or for that chat.")}
+  ${store.config.credentials?.ask_before_use ? row("ask again after idle", `<input class="setting-input number" type="number" min="0" step="1" data-path="credentials.idle_hours" data-kind="number" value="${attr(store.config.credentials?.idle_hours ?? 4)}"><span class="control-note">hours · 0 = never</span>`) : ""}
+  ${listed}
+  ${credentialKind ? credentialForm() : '<button type="button" data-action="credential-open-add">Add</button>'}
+  ${feedback(credentialMessage, credentialAlarm)}
+  ${browserDataBytes == null ? "" : row("browser data", `<span class="settings-actions browser-data-actions">${browserDataConfirm ? '<span>Clear browser data?</span><button type="button" class="alarm" data-action="browser-data-clear">Clear</button><button type="button" data-action="browser-data-cancel">Cancel</button>' : browserDataBytes === 0 ? '<span class="account-status">empty</span>' : `<span class="mono account-status">${Math.ceil(browserDataBytes / 1048576)} MB</span><button type="button" data-action="browser-data-ask">Clear</button>`}</span>`, "", "Sign-ins, cookies and history the built-in browser keeps. Clear removes them.")}
+  </section>`;
+}
+
+function credentialForm() {
+  const input = (id, label, type = "text", value = "") => `<label>${label}<input id="${id}" type="${type}" autocomplete="${type === "password" ? "new-password" : "off"}" spellcheck="false" value="${attr(value)}"></label>`;
+  const addresses = (id, placeholder) => `<label>Addresses<textarea rows="2" id="${id}" placeholder="${placeholder}" spellcheck="false"></textarea></label>`;
+  const save = (action, words = "Save") => `<div class="settings-actions"><button type="button" data-action="${action}">${words}</button><button type="button" data-action="credential-cancel-add">Cancel</button></div>`;
+  const advance = (content) => `<details class="settings-advanced" data-settings-advanced="credential" ${credentialAlarm ? "open" : ""}><summary>Advanced</summary>${content}</details>`;
+  const option = (value, label) => `<option value="${value}"${credentialKind === value ? " selected" : ""}>${label}</option>`;
+  let fields = "";
+  if (credentialKind === "key") {
+    fields = input("credential-name", "Name") + addresses("credential-origin", "https://api.example.test") + input("credential-secret", "Key", "password") + advance(input("credential-header", "Header (blank = bearer)")) + save("credential-add");
+  } else if (credentialKind === "login") {
+    fields = input("credential-login-name", "Name") + addresses("credential-login-origins", "user@host:22") + input("credential-login-password", "Password", "password") + save("credential-login-add");
+  } else if (credentialKind === "sign-in") {
+    const provider = `<label>Provider<select id="credential-provider"><option value="entra"${credentialProvider === "entra" ? " selected" : ""}>Microsoft</option><option value="google"${credentialProvider === "google" ? " selected" : ""}>Google</option></select></label>`;
+    fields = credentialProvider === "entra" ? provider +
+      input("credential-entra-name", "Name", "text", "microsoft") + input("credential-entra-origin", "Address", "text", "https://graph.microsoft.com") +
+      advance(input("credential-tenant", "Tenant") + input("credential-client-id", "Client ID") + input("credential-scopes", "Scopes")) + save("credential-entra-add", "Sign in with browser")
+      : provider + input("credential-google-name", "Name") + input("credential-google-origin", "Address") +
+      input("credential-google-client-id", "Client ID") + input("credential-google-client-secret", "Client secret", "password") + input("credential-google-scopes", "Scopes") + save("credential-google-add");
+  }
+  return `<div class="credential-form"><label>Kind<select id="credential-kind">${option("choose", "Choose…")}${option("sign-in", "Sign-in")}${option("key", "Key")}${option("login", "Login")}</select></label>${fields || '<button type="button" data-action="credential-cancel-add">Cancel</button>'}</div>`;
 }
 
 // PAIRING AND STATUS WHERE THE OPERATOR LOOKS. Away from home the
@@ -287,7 +297,7 @@ export const securityActions = actionTable([
   "test-shell-credential", "clear-shell-credential", "setup-service-account",
   "service-identity-toggle", "disable-service-account", "refresh-service-account",
   "broker-pair", "broker-confirm", "broker-revoke", "broker-cancel",
-  "credential-add", "credential-login-add", "credential-entra-add", "credential-google-add", "credential-sign-in",
+  "credential-open-add", "credential-cancel-add", "credential-add", "credential-login-add", "credential-entra-add", "credential-google-add", "credential-sign-in",
   "credential-device-code", "credential-sign-out", "credential-remove",
   "apply-hardening", "verify-hardening", "refresh-hardening", "remove-hardening",
 ]);

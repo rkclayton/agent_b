@@ -86,7 +86,10 @@ func vaultOrNil() *credential.Vault {
 func credentialListing(ctx context.Context, entries []credential.Entry) []map[string]any {
 	listed := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
-		item := map[string]any{"name": entry.Name, "kind": entry.Kind, "origin": entry.Origin, "header": entry.Header, "stored_at": entry.StoredAt}
+		item := map[string]any{"name": entry.Name, "kind": entry.Kind, "origin": entry.Origin, "origins": entry.Destinations(), "header": entry.Header, "stored_at": entry.StoredAt}
+		if entry.Microsoft {
+			item["microsoft"] = true
+		}
 		if provider := identityProvider(entry.Kind); provider != nil {
 			account, err := provider.Account(ctx, entry.Name)
 			item["account"] = account
@@ -137,18 +140,19 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"credentials": credentialListing(r.Context(), entries)})
 	case http.MethodPost:
 		var body struct {
-			Action       string `json:"action"`
-			Name         string `json:"name"`
-			Origin       string `json:"origin"`
-			Header       string `json:"header"`
-			Secret       string `json:"secret"`
-			User         string `json:"user"`
-			Host         string `json:"host"`
-			Port         string `json:"port"`
-			Tenant       string `json:"tenant"`
-			ClientID     string `json:"client_id"`
-			Scopes       string `json:"scopes"`
-			ClientSecret string `json:"client_secret"`
+			Action       string   `json:"action"`
+			Name         string   `json:"name"`
+			Origin       string   `json:"origin"`
+			Origins      []string `json:"origins"`
+			Header       string   `json:"header"`
+			Secret       string   `json:"secret"`
+			User         string   `json:"user"`
+			Host         string   `json:"host"`
+			Port         string   `json:"port"`
+			Tenant       string   `json:"tenant"`
+			ClientID     string   `json:"client_id"`
+			Scopes       string   `json:"scopes"`
+			ClientSecret string   `json:"client_secret"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "the request is not readable", "credentials")
@@ -157,15 +161,27 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSpace(body.Name)
 		switch strings.TrimSpace(body.Action) {
 		case "add_login":
-			if err := vault.PutLogin(name, body.User, body.Host, body.Port, body.Secret); err != nil {
+			var err error
+			if len(body.Origins) > 0 {
+				err = vault.PutLoginOrigins(name, body.Origins, body.Secret)
+			} else {
+				err = vault.PutLogin(name, body.User, body.Host, body.Port, body.Secret)
+			}
+			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
 				return
 			}
+			vault.NotifyChanged()
 		case "add":
-			if err := vault.Put(name, body.Origin, body.Header, body.Secret); err != nil {
+			origins := body.Origins
+			if len(origins) == 0 {
+				origins = []string{body.Origin}
+			}
+			if err := vault.PutKeyOrigins(name, origins, body.Header, body.Secret); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
 				return
 			}
+			vault.NotifyChanged()
 		case "add_entra":
 			if err := vault.PutEntra(name, body.Origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error(), "credentials")
@@ -203,6 +219,25 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			entry, present := credentialEntry(entries, name)
+			if !present && body.Action == "sign_in" && body.Origin != "" {
+				origin, err := credential.NormalizeOrigin(body.Origin)
+				if err != nil || credential.MicrosoftScope(origin) == "" {
+					writeError(w, http.StatusBadRequest, "Choose a Microsoft service address.", "credentials")
+					return
+				}
+				if err := vault.PutEntraIfAbsent(name, origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+					return
+				}
+				entry, err = vault.Lookup(name)
+				present = err == nil
+			}
+			if present && entry.Microsoft && body.Action == "sign_in" && body.Origin != "" && (body.Tenant != "" || body.ClientID != "" || body.Scopes != "") {
+				if err := vault.PutEntra(name, entry.Origin, body.Tenant, body.ClientID, strings.Fields(body.Scopes)); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error(), "credentials")
+					return
+				}
+			}
 			provider := identityProvider(entry.Kind)
 			if !present || provider == nil {
 				writeError(w, http.StatusBadRequest, "this credential has no interactive sign-in provider", "credentials")
@@ -211,16 +246,25 @@ func (s *Server) credentialsEndpoint(w http.ResponseWriter, r *http.Request) {
 			switch strings.TrimSpace(body.Action) {
 			case "sign_in":
 				if _, err := provider.SignIn(r.Context(), name); err != nil {
-					writeError(w, http.StatusBadRequest, "sign-in did not complete: "+err.Error(), "credentials")
+					message := "sign-in did not complete: " + err.Error()
+					if entry.Microsoft && (strings.Contains(message, "AADSTS65002") || strings.Contains(message, "AADSTS53003") || strings.Contains(message, "AADSTS50105")) {
+						message = "This tenant refused the Microsoft client. Enter a client ID under Advanced."
+					}
+					writeError(w, http.StatusBadRequest, message, "credentials")
 					return
 				}
+				vault.NotifyChanged()
 			case "device_code":
 				device, err := provider.DeviceCode(r.Context(), name)
 				if err != nil {
 					writeError(w, http.StatusBadRequest, "device-code sign-in did not start: "+err.Error(), "credentials")
 					return
 				}
-				go func() { _, _ = device.Wait(context.Background()) }()
+				go func() {
+					if _, err := device.Wait(context.Background()); err == nil {
+						vault.NotifyChanged()
+					}
+				}()
 				writeJSON(w, http.StatusOK, map[string]any{"user_code": device.UserCode, "verification_url": device.VerificationURL, "message": device.Message})
 				return
 			case "sign_out":

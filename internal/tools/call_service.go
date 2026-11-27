@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -358,6 +359,7 @@ func (c *CallService) Call(ctx context.Context, item *session.Session, args map[
 }
 
 func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, args map[string]any) (detail CallDetail) {
+	originalArgs := args
 	if change, present, err := ParseConnectorChange(args); present {
 		if err != nil {
 			detail.Err = err
@@ -520,9 +522,22 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 	// the origin the credential is approved for, resolved BEFORE any
 	// credential is acquired. A connector with no credential is untouched by this.
 	credentialOrigin := ""
-	if registered {
+	setupWaited := false
+	if registered || target.Scheme == "https" {
 		var err error
-		authorization, token, credentialHeaders, operatorContext, err = c.authorization(ctx, serviceName, service, target)
+		var changed <-chan struct{}
+		if vault := c.currentVault(); vault != nil {
+			changed = vault.Changes()
+		}
+		authorize := func() {
+			authorization, token, credentialHeaders, operatorContext, err = c.authorization(ctx, serviceName, service, target)
+		}
+		authorize()
+		var needed *CredentialNeeded
+		if errors.As(err, &needed) && awaitCredential(ctx, needed, changed) {
+			setupWaited = true
+			authorize()
+		}
 		if err != nil {
 			detail.Err = err
 			return detail
@@ -557,6 +572,21 @@ func (c *CallService) CallDetailed(ctx context.Context, item *session.Session, a
 		return detail
 	}
 	defer response.Body.Close()
+	if credential.MicrosoftScope(credentialOrigin) != "" && (response.StatusCode == http.StatusUnauthorized ||
+		(response.StatusCode == http.StatusForbidden && strings.Contains(strings.ToLower(response.Header.Get("WWW-Authenticate")), "insufficient_scope"))) {
+		if vault := c.currentVault(); vault != nil {
+			binding, _ := vault.MatchHTTPS(credentialOrigin)
+			if binding.Microsoft && (service.Auth == "none" || service.Auth == "entra:"+binding.Name) {
+				needed := &CredentialNeeded{Kind: "microsoft", Origin: credentialOrigin, Name: binding.Name}
+				_ = response.Body.Close()
+				if !setupWaited && awaitCredential(ctx, needed, vault.Changes()) {
+					return c.CallDetailed(context.WithValue(ctx, credentialSetupRetriedKey{}, true), item, originalArgs)
+				}
+				detail.Err = needed
+				return detail
+			}
+		}
+	}
 	contentType, rendered := renderedServiceType(response.Header.Get("Content-Type"))
 	if !rendered {
 		file, saveErr := c.saveServiceFile(response.Body, item, operationName, contentType, response.Header.Get("Content-Disposition"), service.MaxBodyKB, authorization, token, credentialHeaders)
@@ -904,7 +934,26 @@ func (c *CallService) service(name string) (config.Service, bool) {
 func (c *CallService) authorization(ctx context.Context, name string, service config.Service, target *url.URL) (authorization, token string, headers http.Header, operatorContext bool, err error) {
 	auth := strings.TrimSpace(service.Auth)
 	if auth == "none" {
-		return "", "", nil, false, nil
+		origin := credential.OriginOf(target)
+		var binding credential.Entry
+		if vault := c.currentVault(); vault != nil && origin != "" {
+			binding, _ = vault.MatchHTTPS(origin)
+		}
+		switch binding.Kind {
+		case "key":
+			auth = "stored:" + binding.Name
+		case "entra", "google":
+			if binding.Microsoft {
+				authorization, token, err = c.microsoftAuthorization(ctx, origin, binding)
+				return authorization, token, nil, false, err
+			}
+			auth = binding.Kind + ":" + binding.Name
+		default:
+			if credential.MicrosoftScope(origin) != "" {
+				return "", "", nil, false, &CredentialNeeded{Kind: "microsoft", Origin: origin, Name: credential.MicrosoftName}
+			}
+			return "", "", nil, false, nil
+		}
 	}
 	// a stored credential, by reference. Its binding carries the origin and
 	// the header, and the origin is checked before the secret is read.
@@ -944,7 +993,7 @@ func (c *CallService) authorization(ctx context.Context, name string, service co
 			}
 			value, tokenErr := provider.Token(ctx, strings.TrimSpace(reference))
 			if tokenErr != nil {
-				return "", "", nil, false, tokenErr
+				return "", "", nil, false, &CredentialNeeded{Kind: strings.ToLower(scheme), Origin: credential.OriginOf(target), Name: strings.TrimSpace(reference)}
 			}
 			authorization, token, err = bearerAuthorization(value)
 			return authorization, token, nil, false, err

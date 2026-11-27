@@ -102,6 +102,7 @@ const (
 	NavigationMeasured         = "navigation.measured"
 	NavigationSuppressed       = "navigation.suppressed"
 	ScheduledFinished          = "scheduled.finished"
+	CredentialNeeded           = "credential.needed"
 	NotificationFailed         = "notification.failed"
 	NotificationChanged        = "notification.changed"
 	UpdateChanged              = "update.changed"

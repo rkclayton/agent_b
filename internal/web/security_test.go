@@ -601,6 +601,45 @@ func TestOperatorsPageManagesEntraSignIn2nw(t *testing.T) {
 	}
 }
 
+func TestMicrosoftSignInCreatesDefaultsOnlyFromTheSettingsPost2zh(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows protects the fixture credential store")
+	}
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	server := newTestServer(t, &cfg, filepath.Join(root, "harness.json"), root, RuntimeRoots{Application: root, Data: root, Workspace: cfg.Workspace}, events.NewBus())
+	vault := credential.NewVault(root)
+	provider := &recordedIdentityProvider{origin: "https://graph.microsoft.com:443"}
+	SetCredentialVault(vault)
+	SetIdentityProvider("entra", provider)
+	t.Cleanup(func() { SetCredentialVault(nil); SetIdentityProvider("entra", nil) })
+	post := func(authorized bool) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/credentials", strings.NewReader(`{"action":"sign_in","name":"microsoft","origin":"https://graph.microsoft.com:443"}`))
+		if authorized {
+			authorizeMutation(request, server)
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		return response
+	}
+	if refused := post(false); refused.Code < 400 || provider.signIns != 0 || vault.Has(credential.MicrosoftName) {
+		t.Fatalf("unauthorized post code=%d calls=%d", refused.Code, provider.signIns)
+	}
+	changed := vault.Changes()
+	if signed := post(true); signed.Code != http.StatusOK || provider.signIns != 1 || !strings.Contains(signed.Body.String(), `"microsoft":true`) || strings.Contains(signed.Body.String(), credential.MicrosoftClient) {
+		t.Fatalf("authorized post code=%d calls=%d body=%s", signed.Code, provider.signIns, signed.Body)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("completed sign-in did not wake the waiting call")
+	}
+	definition, _, err := vault.Entra(credential.MicrosoftName)
+	if err != nil || definition.Tenant != "organizations" || definition.ClientID != credential.MicrosoftClient || len(definition.Scopes) != 1 || definition.Scopes[0] != "https://graph.microsoft.com/.default" {
+		t.Fatalf("built-in definition=%+v err=%v", definition, err)
+	}
+}
+
 // Item 2o9 CHECKS 2-4 at the registry: the toggle writes the one Run entry Windows'
 // Startup page lists; Windows turning it off reads back Off; on, the entry starts
 // the app through the hidden host in background sign-in mode. The keys are

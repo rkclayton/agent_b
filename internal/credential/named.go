@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,16 +30,35 @@ import (
 const (
 	vaultFilePrefix = ".agentb-credential-"
 	recordFile      = ".agentb-credentials.json"
+	MicrosoftClient = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+	MicrosoftName   = "microsoft"
 )
 
 // Entry is what Settings lists and what a binding is checked against. There is no value
 // in it, by construction: a listing cannot leak what it does not carry.
 type Entry struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`
-	Origin   string `json:"origin"`
-	Header   string `json:"header,omitempty"`
-	StoredAt string `json:"stored_at"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Provider  string   `json:"provider,omitempty"`
+	Origin    string   `json:"origin"`
+	Origins   []string `json:"origins,omitempty"`
+	Header    string   `json:"header,omitempty"`
+	StoredAt  string   `json:"stored_at"`
+	Microsoft bool     `json:"microsoft,omitempty"`
+}
+
+func (e Entry) Destinations() []string {
+	if len(e.Origins) != 0 {
+		return e.Origins
+	}
+	return []string{e.Origin}
+}
+
+func (e Entry) Allows(target *url.URL) error {
+	if origin := OriginOf(target); strings.HasPrefix(origin, "https://") && slices.Contains(e.Destinations(), origin) {
+		return nil
+	}
+	return AllowsOrigin(e.Origin, target)
 }
 
 type EntraDefinition struct {
@@ -55,18 +75,105 @@ type GoogleDefinition struct {
 
 // Vault is the named-credential store under one data root.
 type Vault struct {
-	root        string
-	mu          sync.Mutex
-	logins      map[string]Entry
-	secretReads atomic.Uint64
-	entries     map[string]Entry
+	root             string
+	mu               sync.Mutex
+	logins           map[string]Entry
+	secretReads      atomic.Uint64
+	entries          map[string]Entry
+	changed          chan struct{}
+	byOrigin         map[string]Entry
+	defaultMicrosoft Entry
 }
 
 func NewVault(dataRoot string) *Vault {
 	if dataRoot == "" {
 		dataRoot = "."
 	}
-	return &Vault{root: dataRoot}
+	return &Vault{root: dataRoot, changed: make(chan struct{})}
+}
+
+// Changes reports a completed operator credential action. The next caller
+// observes a fresh channel, so it can subscribe before checking readiness.
+func (v *Vault) Changes() <-chan struct{} {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.changed
+}
+
+func (v *Vault) NotifyChanged() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.changed != nil {
+		close(v.changed)
+	}
+	v.changed = make(chan struct{})
+}
+
+func (v *Vault) MatchHTTPS(origin string) (Entry, bool) {
+	if !strings.HasPrefix(origin, "https://") {
+		return Entry{}, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.byOrigin == nil {
+		records, err := v.readRecords()
+		if err != nil {
+			return Entry{}, false
+		}
+		v.byOrigin = make(map[string]Entry)
+		for _, entry := range records {
+			if entry.Kind == "login" {
+				continue
+			}
+			for _, address := range entry.Destinations() {
+				if _, repeated := v.byOrigin[address]; repeated {
+					v.byOrigin[address] = Entry{}
+				} else {
+					v.byOrigin[address] = entry
+				}
+			}
+			if entry.Microsoft && (v.defaultMicrosoft.Name == "" || entry.Name == MicrosoftName || (v.defaultMicrosoft.Name != MicrosoftName && entry.Name < v.defaultMicrosoft.Name)) {
+				v.defaultMicrosoft = entry
+			}
+		}
+	}
+	if entry, listed := v.byOrigin[origin]; listed {
+		return entry, entry.Name != ""
+	}
+	if MicrosoftScope(origin) != "" && v.defaultMicrosoft.Name != "" {
+		return v.defaultMicrosoft, true
+	}
+	return Entry{}, false
+}
+
+func checkDestinationBindings(records map[string]Entry, name string, origins []string) error {
+	for _, origin := range origins {
+		for other, entry := range records {
+			if other != name && slices.Contains(entry.Destinations(), origin) {
+				return fmt.Errorf("the address %s is already stored for %q", origin, other)
+			}
+		}
+	}
+	return nil
+}
+
+const maxCredentialOrigins = 32
+
+func normalizeCredentialOrigins(values []string, normalize func(string) (string, error)) ([]string, error) {
+	if len(values) == 0 || len(values) > maxCredentialOrigins {
+		return nil, fmt.Errorf("enter between 1 and %d addresses", maxCredentialOrigins)
+	}
+	origins := make([]string, 0, len(values))
+	for _, value := range values {
+		origin, err := normalize(value)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(origins, origin) {
+			origins = append(origins, origin)
+		}
+	}
+	return origins, nil
 }
 
 // SecretReads counts vault acquisitions without retaining names or values.
@@ -96,13 +203,34 @@ func (v *Vault) readRecords() (map[string]Entry, error) {
 	if err := json.Unmarshal(raw, &records); err != nil {
 		return nil, fmt.Errorf("the credential record is unreadable: %w", err)
 	}
+	for name, entry := range records {
+		if entry.Kind == "sign-in" && (entry.Provider == "entra" || entry.Provider == "google") {
+			entry.Kind = entry.Provider
+		}
+		if entry.Kind == "login" {
+			entry.Origin = normalizeStoredLoginAddress(entry.Origin)
+			for index, address := range entry.Origins {
+				entry.Origins[index] = normalizeStoredLoginAddress(address)
+			}
+		}
+		records[name] = entry
+	}
 	return records, nil
 }
 
 func (v *Vault) writeRecords(records map[string]Entry) error {
 	v.logins = nil
 	v.entries = nil
-	raw, err := json.MarshalIndent(records, "", "  ")
+	v.byOrigin = nil
+	v.defaultMicrosoft = Entry{}
+	stored := make(map[string]Entry, len(records))
+	for name, entry := range records {
+		if entry.Kind == "entra" || entry.Kind == "google" {
+			entry.Provider, entry.Kind = entry.Kind, "sign-in"
+		}
+		stored[name] = entry
+	}
+	raw, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -149,7 +277,9 @@ func (v *Vault) loginIndex() error {
 	v.logins = make(map[string]Entry)
 	for _, entry := range records {
 		if entry.Kind == "login" {
-			v.logins[entry.Origin] = entry
+			for _, origin := range entry.Destinations() {
+				v.logins[origin] = entry
+			}
 		}
 	}
 	return nil
@@ -163,11 +293,43 @@ func loginOrigin(user, host, port string) (string, error) {
 	if err != nil || n < 1 || n > 65535 || user == "" || host == "" || strings.ContainsAny(user, "@\r\n\x00 /\\") || strings.ContainsAny(host, "@\r\n\x00 /\\") {
 		return "", errors.New("a login needs a user, host and port from 1 to 65535")
 	}
-	return user + "@" + host + ":" + strconv.Itoa(n), nil
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return user + "@" + strings.ToLower(host) + ":" + strconv.Itoa(n), nil
+}
+
+func normalizeStoredLoginAddress(raw string) string {
+	user, target, hasUser := strings.Cut(raw, "@")
+	portAt := strings.LastIndex(target, ":")
+	if hasUser && portAt > 0 {
+		if normalized, err := loginOrigin(user, target[:portAt], target[portAt+1:]); err == nil {
+			return normalized
+		}
+	}
+	return raw
 }
 
 func (v *Vault) PutLogin(name, user, host, port, password string) error {
 	origin, err := loginOrigin(user, host, port)
+	if err != nil {
+		return err
+	}
+	return v.PutLoginOrigins(name, []string{origin}, password)
+}
+
+func (v *Vault) PutLoginOrigins(name string, values []string, password string) error {
+	origins, err := normalizeCredentialOrigins(values, func(raw string) (string, error) {
+		parsed, err := url.Parse("ssh://" + strings.TrimPrefix(strings.TrimSpace(raw), "ssh://"))
+		if err != nil || parsed.User == nil || parsed.User.String() != parsed.User.Username() || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return "", errors.New("enter a login address as user@host or user@host:port")
+		}
+		host := parsed.Hostname()
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		return loginOrigin(parsed.User.Username(), host, parsed.Port())
+	})
 	if err != nil {
 		return err
 	}
@@ -178,14 +340,6 @@ func (v *Vault) PutLogin(name, user, host, port, password string) error {
 	defer v.mu.Unlock()
 	if err = v.loginIndex(); err != nil {
 		return err
-	}
-	if existing, ok := v.logins[origin]; ok && existing.Name != name {
-		return errors.New("a login for that user, host and port is already stored")
-	}
-	if len(v.logins) >= 256 {
-		if _, ok := v.logins[origin]; !ok {
-			return errors.New("the 256 stored logins are full")
-		}
 	}
 	store, err := v.store(name)
 	if err != nil {
@@ -198,6 +352,16 @@ func (v *Vault) PutLogin(name, user, host, port, password string) error {
 	if old, ok := records[name]; ok && old.Kind != "login" {
 		return errors.New("that name belongs to another credential kind")
 	}
+	if err := checkDestinationBindings(records, name, origins); err != nil {
+		return err
+	}
+	existingOrigins := 0
+	if old, ok := records[name]; ok {
+		existingOrigins = len(old.Destinations())
+	}
+	if len(v.logins)-existingOrigins+len(origins) > 256 {
+		return errors.New("the 256 stored login addresses are full")
+	}
 	if err = store.Write([]byte(password)); err != nil {
 		return err
 	}
@@ -208,7 +372,7 @@ func (v *Vault) PutLogin(name, user, host, port, password string) error {
 	if string(check) != password {
 		return errors.New("the login did not read back as stored")
 	}
-	records[name] = Entry{Name: name, Kind: "login", Origin: origin, StoredAt: time.Now().UTC().Format(time.RFC3339)}
+	records[name] = Entry{Name: name, Kind: "login", Origin: origins[0], Origins: origins, StoredAt: time.Now().UTC().Format(time.RFC3339)}
 	return v.writeRecords(records)
 }
 
@@ -275,7 +439,11 @@ func (v *Vault) List() ([]Entry, error) {
 // Put stores a secret and its binding. The secret is written first and read back before
 // the record is written, so a record never claims a credential the store does not hold.
 func (v *Vault) Put(name, origin, header, secret string) error {
-	origin, err := NormalizeOrigin(origin)
+	return v.PutKeyOrigins(name, []string{origin}, header, secret)
+}
+
+func (v *Vault) PutKeyOrigins(name string, values []string, header, secret string) error {
+	origins, err := normalizeCredentialOrigins(values, NormalizeOrigin)
 	if err != nil {
 		return err
 	}
@@ -287,6 +455,16 @@ func (v *Vault) Put(name, origin, header, secret string) error {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	records, err := v.readRecords()
+	if err != nil {
+		return err
+	}
+	if old, ok := records[name]; ok && old.Kind != "key" {
+		return errors.New("that name belongs to another credential kind")
+	}
+	if err := checkDestinationBindings(records, name, origins); err != nil {
+		return err
+	}
 	store, err := v.store(name)
 	if err != nil {
 		return err
@@ -304,11 +482,7 @@ func (v *Vault) Put(name, origin, header, secret string) error {
 		_ = store.Clear()
 		return errors.New("the credential did not read back as it was written")
 	}
-	records, err := v.readRecords()
-	if err != nil {
-		return err
-	}
-	records[name] = Entry{Name: name, Kind: "key", Origin: origin, Header: strings.TrimSpace(header), StoredAt: time.Now().UTC().Format(time.RFC3339)}
+	records[name] = Entry{Name: name, Kind: "key", Origin: origins[0], Origins: origins, Header: strings.TrimSpace(header), StoredAt: time.Now().UTC().Format(time.RFC3339)}
 	return v.writeRecords(records)
 }
 
@@ -333,6 +507,18 @@ func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string,
 			definition.Scopes = append(definition.Scopes, scope)
 		}
 	}
+	microsoft := MicrosoftScope(origin) != "" && (name == MicrosoftName || definition.ClientID == "")
+	if microsoft {
+		if definition.Tenant == "" {
+			definition.Tenant = "organizations"
+		}
+		if definition.ClientID == "" {
+			definition.ClientID = MicrosoftClient
+		}
+		if len(definition.Scopes) == 0 {
+			definition.Scopes = []string{MicrosoftScope(origin)}
+		}
+	}
 	if definition.Tenant == "" || definition.ClientID == "" || len(definition.Scopes) == 0 {
 		return errors.New("tenant, client id and at least one scope are required")
 	}
@@ -349,6 +535,12 @@ func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string,
 	if _, exists := records[name]; requireAbsent && exists {
 		return fmt.Errorf("credential %q already exists", name)
 	}
+	if old, ok := records[name]; ok && old.Kind != "entra" {
+		return errors.New("that name belongs to another credential kind")
+	}
+	if err := checkDestinationBindings(records, name, []string{origin}); err != nil {
+		return err
+	}
 	store, err := v.store(name)
 	if err != nil {
 		return err
@@ -364,7 +556,7 @@ func (v *Vault) putEntra(name, origin, tenant, clientID string, scopes []string,
 		_ = store.Clear()
 		return errors.New("the Entra definition did not read back as it was written")
 	}
-	records[name] = Entry{Name: name, Kind: "entra", Origin: origin, StoredAt: time.Now().UTC().Format(time.RFC3339)}
+	records[name] = Entry{Name: name, Kind: "entra", Origin: origin, Microsoft: microsoft, StoredAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := v.writeRecords(records); err != nil {
 		return err
 	}
@@ -422,6 +614,16 @@ func (v *Vault) PutGoogle(name, origin, clientID, clientSecret string, scopes []
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	records, err := v.readRecords()
+	if err != nil {
+		return err
+	}
+	if old, ok := records[name]; ok && old.Kind != "google" {
+		return errors.New("that name belongs to another credential kind")
+	}
+	if err := checkDestinationBindings(records, name, []string{origin}); err != nil {
+		return err
+	}
 	store, err := v.store(name)
 	if err != nil {
 		return err
@@ -436,10 +638,6 @@ func (v *Vault) PutGoogle(name, origin, clientID, clientSecret string, scopes []
 	if string(readBack) != string(encoded) {
 		_ = store.Clear()
 		return errors.New("the Google definition did not read back as it was written")
-	}
-	records, err := v.readRecords()
-	if err != nil {
-		return err
 	}
 	records[name] = Entry{Name: name, Kind: "google", Origin: origin, StoredAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := v.writeRecords(records); err != nil {
@@ -494,6 +692,12 @@ func (v *Vault) Rebind(name, origin, header string) error {
 	if !present {
 		return fmt.Errorf("no credential named %q is stored", name)
 	}
+	origins := append([]string(nil), entry.Destinations()...)
+	origins[0] = origin
+	if err := checkDestinationBindings(records, name, origins); err != nil {
+		return err
+	}
+	entry.Origins = origins
 	entry.Origin = origin
 	entry.Header = strings.TrimSpace(header)
 	records[name] = entry

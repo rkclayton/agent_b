@@ -20,7 +20,7 @@ test("credential approval uses the shared card with complete call text 2ye",asyn
  await page.getByRole('button',{name:'Just once',exact:true}).click();await expect(page.locator('body')).toHaveAttribute('data-decision','once');
 });
 
-async function thinkingFixture(browser, width = 1280) {
+async function thinkingFixture(browser, width = 1280, apiResponse = null) {
   const context = await browser.newContext({ viewport: { width, height: width === 304 ? 254 : width === 1920 ? 1080 : 860 } });
   const state = { sessions: { thought: { schema_version: 1, complete: true, id: "thought", agent_id: "agent_b", role: "b", runnable: true, run: { status: "running", run_id: "run" }, activity: {}, chat: [], cursor: { generation: "thought", offset: 0 } } }, connections: [], config: { agents: [{ name: "agent_b", b: "fixture" }], connections: [] }, profiles: { names: [] }, flow: { stages: [], edges: [] }, tools: [], plans: [], build: {} };
   await context.addInitScript(state => {
@@ -28,7 +28,7 @@ async function thinkingFixture(browser, width = 1280) {
     globalThis.EventSource = class { constructor() { this.listeners = {}; globalThis.thoughtEvents = this; setTimeout(() => this.emit(state)); } addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); } emit(data) { for (const fn of this.listeners.snapshot || []) fn({ data: JSON.stringify({ type: "snapshot", data }) }); } close() {} };
   }, state);
   const page = await context.newPage();
-  await page.route("**/*", route => { const path = new URL(route.request().url()).pathname; return path === "/chat" ? route.fulfill({ contentType: "text/html", body: indexHTML }) : path.startsWith("/api/") ? route.fulfill({ json: {} }) : route.fulfill({ path: webRoot + path.replace(/^\/static\//, "") }); });
+  await page.route("**/*", route => { const path = new URL(route.request().url()).pathname; return path === "/chat" ? route.fulfill({ contentType: "text/html", body: indexHTML }) : path.startsWith("/api/") ? route.fulfill({ json: apiResponse?.(path, route.request()) || {} }) : route.fulfill({ path: webRoot + path.replace(/^\/static\//, "") }); });
   await page.goto("http://thinking.test/chat?setup=skip&session=thought");
   const emit = async (items, done = false, overrides = {}) => {
     const session = state.sessions.thought; session.chat = [{ type: "user", key: "request", text: "Inspect the fixture." }, ...items]; session.cursor.offset++;
@@ -42,6 +42,55 @@ async function thinkingFixture(browser, width = 1280) {
   return { context, page, emit, capture };
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
+
+test("credential needed opens the prefilled operator form and the table shows three kinds 2zh 2zi", async ({ browser }, testInfo) => {
+  test.setTimeout(45000);
+  const credentials = [
+    { name: "fixture-key", kind: "key", origin: "https://api.example.test:443", origins: ["https://api.example.test:443", "https://second.example.test:443"] },
+    { name: "fixture-login", kind: "login", origin: "someone@example.org:22" },
+    { name: "fixture-google", kind: "google", origin: "https://mail.example.test:443", account: "someone@example.org" },
+  ];
+  const requests = [];
+  const fixture = await thinkingFixture(browser, 1280, (path, request) => {
+    if (path !== "/api/credentials") return {};
+    if (request.method() === "POST") requests.push(request.postDataJSON());
+    return { credentials };
+  });
+  const { page } = fixture;
+  const origin = "https://graph.microsoft.com:443";
+  await fixture.emit([{ type: "notice", key: "credential", run_id: "run", event: { type: "credential.needed", data: { kind: "microsoft", origin, name: "microsoft" } } }], false, { run: { status: "paused", run_id: "run" }, activity: { stage: "wait_user", stage_state: "enter" } });
+  const row = page.getByRole("button", { name: `Credential needed · ${origin}` });
+  await expect(row).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("credential-needed.png") });
+  await row.click();
+  const section = page.locator("#credential-settings");
+  await expect(section.locator("#credential-kind")).toHaveValue("sign-in");
+  await expect(section.locator("#credential-entra-origin")).toHaveValue(origin);
+  await expect(section.locator("#credential-entra-name")).toHaveValue("microsoft");
+  await expect(section.locator("tbody tr")).toHaveCount(3);
+  await expect(section.locator("tbody tr td:nth-child(2)")).toHaveText(["key", "login", "sign-in · Google"]);
+  await section.screenshot({ path: testInfo.outputPath("signin.png") });
+  await section.locator("summary").click();
+  await expect(section.locator("#credential-client-id")).toBeVisible();
+  await section.screenshot({ path: testInfo.outputPath("signin-advanced.png") });
+  await section.locator('[data-action="credential-entra-add"]').click();
+  await expect.poll(() => requests).toEqual([{ action: "sign_in", name: "microsoft", origin, tenant: "", client_id: "", scopes: "" }]);
+  await section.locator('[data-action="credential-open-add"]').click();
+  for (const kind of ["key", "login"]) {
+    await section.locator("#credential-kind").selectOption(kind);
+    await expect(section.locator('input[type="password"]')).toHaveCount(1);
+    await section.screenshot({ path: testInfo.outputPath(`${kind}.png`) });
+  }
+  for (const width of [304, 1280, 1920]) {
+    await page.setViewportSize({ width, height: width === 304 ? 254 : width === 1280 ? 860 : 1080 });
+    for (const zoom of [1, 2]) {
+      await page.evaluate(value => { document.body.style.zoom = value; document.documentElement.style.setProperty("--chat-size", value === 2 ? "32px" : "12px"); }, zoom);
+      expect(await section.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`credentials-${width}-${zoom}.png`) });
+    }
+  }
+  await fixture.context.close();
+});
 
 test("an opened work row stays in place while the live line scrolls with chat 2zg", async ({ browser }, testInfo) => {
   const fixture = await thinkingFixture(browser);

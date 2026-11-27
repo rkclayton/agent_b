@@ -57,7 +57,7 @@ type sshLoginCall struct {
 
 func init() { newLoginCall = startSSHLogin; SSHAskpassMain = sshAskpassMain }
 func startSSHLogin(ctx context.Context, v *credential.Vault, out *lockedBuffer) (loginCall, error) {
-	if present, err := v.HasLogins(); err == nil && !present {
+	if present, err := v.HasLogins(); err == nil && !present && ctx.Value(credentialSetupKey{}) == nil {
 		return nil, nil
 	}
 	id := make([]byte, 16)
@@ -305,12 +305,24 @@ func (c *sshLoginCall) answer(pipe windows.Handle, readComplete func()) {
 	}
 	attempt = &sshLoginAttempt{created: created, user: user, host: host}
 	c.attempts[parent] = attempt
+	changed := c.vault.Changes()
 	name, err := c.vault.LoginName(user, host, request.Port)
 	if err != nil {
 		return
 	}
 	if name == "" {
+		if wait, ok := c.ctx.Value(credentialSetupKey{}).(func(context.Context, *CredentialNeeded, <-chan struct{}) error); ok {
+			need := &CredentialNeeded{Kind: "login", Origin: target + ":" + strconv.Itoa(request.Port)}
+			if err := wait(c.ctx, need, changed); err == nil {
+				name, _ = c.vault.LoginName(user, host, request.Port)
+			}
+		}
+	}
+	if name == "" {
 		c.notice("no stored login for " + target)
+		return
+	}
+	if state, err := windows.WaitForSingleObject(sshHandle, 0); err != nil || state != uint32(windows.WAIT_TIMEOUT) {
 		return
 	}
 	if _, enabled := c.ctx.Value(credentialApprovalKey{}).(func(context.Context, credential.Entry, string) error); enabled {

@@ -52,21 +52,22 @@ test("a discovered Entra connector card shows every public identity value before
 test("Settings carries a Credentials section whose key field is masked", () => {
 	const security = readFileSync(new URL("./settings-security.js", import.meta.url), "utf8");
 	assert.match(security, /subhead\("Credentials"/);
-	assert.match(security, /id="credential-secret" type="password"/);
-	assert.match(security, /data-action="credential-add"/);
-	assert.match(security, /data-action="credential-remove"/);
+	assert.match(security, /input\("credential-secret", "Key", "password"\)/);
+	assert.match(security, /save\("credential-add"\)/);
+	assert.match(security, /action\("remove", "Remove"\)/);
 	// The listing prints name, origin, header and date — and no field called secret.
 	const section = security.slice(security.indexOf("function credentialRows"), security.indexOf("function credentialRows") + 2000);
 	assert.doesNotMatch(section, /entry\.secret|entry\.value/);
 });
 
-test("Settings exposes explicit Entra browser, device-code, account, and sign-out controls without defaults", () => {
+test("Settings exposes explicit Microsoft sign-in, account and device-code controls with overrides under Advanced", () => {
 	const security = readFileSync(new URL("./settings-security.js", import.meta.url), "utf8");
 	const controller = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
 	for (const action of ["credential-entra-add", "credential-sign-in", "credential-device-code", "credential-sign-out"]) {
 		assert.match(security + controller, new RegExp(`data-action=["']${action}|action === ["']${action}`));
 	}
-	for (const field of ["credential-tenant", "credential-client-id", "credential-scopes"]) assert.match(security, new RegExp(`id=["']${field}`));
+	assert.match(security, /advance\(input\("credential-tenant"[^\n]+input\("credential-client-id"[^\n]+input\("credential-scopes"/);
+	assert.match(security, /input\("credential-entra-origin", "Address", "text", "https:\/\/graph\.microsoft\.com"\)/);
 	assert.match(security, /entry\.account/);
 	assert.doesNotMatch(security, /common|organizations|consumers|api:\/\/|00000000-0000/);
 });

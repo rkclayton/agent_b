@@ -48,6 +48,21 @@ func NormalizeOrigin(raw string) (string, error) {
 	return "https://" + host + ":" + port, nil
 }
 
+// MicrosoftScope maps only the commercial Microsoft resource origins.
+// The caller sends each access token to that exact HTTPS origin.
+func MicrosoftScope(origin string) string {
+	switch origin {
+	case "https://graph.microsoft.com:443":
+		return "https://graph.microsoft.com/.default"
+	case "https://management.azure.com:443":
+		return "https://management.azure.com/.default"
+	case "https://outlook.office365.com:443":
+		return "https://outlook.office365.com/.default"
+	default:
+		return ""
+	}
+}
+
 // OriginOf is the origin a request is actually going to.
 func OriginOf(target *url.URL) string {
 	if target == nil {

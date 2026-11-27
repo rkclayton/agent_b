@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -21,8 +22,71 @@ import (
 	"harness/internal/memory"
 	"harness/internal/projection"
 	"harness/internal/session"
+	"harness/internal/skills"
 	"harness/internal/tools"
 )
+
+func TestAgentHelpAnswersAfterOneFileRead(t *testing.T) {
+	server, registry, writers, _, cfg, root := consoleServer(t)
+	defer writers.Close()
+	skillsRoot := filepath.Join(root, "skills")
+	if err := skills.EnsureIncluded(skillsRoot); err != nil {
+		t.Fatal(err)
+	}
+	registry.SetSkillsRoot(skillsRoot)
+	path := filepath.ToSlash(filepath.Join(skillsRoot, ".included", "agent_b", "SKILL.md"))
+	requests := make(chan struct{}, 2)
+	const answer = "Open Settings, Security, Credentials, then Add and Key."
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, req)
+			return
+		}
+		body, _ := io.ReadAll(req.Body)
+		raw := string(body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if !strings.Contains(raw, `"role":"tool"`) {
+			if !strings.Contains(raw, "Read for Agent_b credentials") {
+				t.Error("the first request omitted the help skill index")
+			}
+			if strings.Contains(raw, "A stored key needs its name") {
+				t.Error("the first request carried the whole skill")
+			}
+			args, _ := json.Marshal(map[string]string{"path": path})
+			fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture-help","type":"function","function":{"name":"read_file","arguments":%q}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n", string(args))
+			return
+		}
+		if !strings.Contains(raw, "A stored key needs its name, origin and key value.") {
+			t.Error("the file read lacked the shipped credential instructions")
+		}
+		requests <- struct{}{}
+		fmt.Fprintf(w, `data: {"choices":[{"delta":{"content":%q},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n", answer)
+	}))
+	defer model.Close()
+	cfg.Context.Accounting = "estimated"
+	cfg.Connections[0].BaseURL = model.URL
+	template := filepath.Join(root, "prompt.md")
+	if err := os.WriteFile(template, []byte("{{tools}}\n{{memory}}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := agent.LoadTemplate(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := registry.Create("fixture", "coder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat.Append(events.Message{ID: "fixture-user", Role: "user", Content: "How do I store a credential?", Category: "history"})
+	read := tools.NewFileIdentity(nil).Wrap(tools.NewReadFile(cfg.Tools.ReadFile))
+	runner := agent.NewRunner(server.bus, tools.New(read), prompt, server.Connection, server.ConfigSnapshot)
+	runner.SetSkillHost(server)
+	reason, detail, _ := runner.Run(context.Background(), chat, "fixture")
+	messages := chat.MessagesCopy()
+	if reason != "done" || chat.ToolCalls["read_file"] != 1 || len(requests) != 1 || messages[len(messages)-1].Content != answer {
+		t.Fatalf("completion=%q %q, tool reads=%d, answers=%d", reason, detail, chat.ToolCalls["read_file"], len(requests))
+	}
+}
 
 func TestTwoNewChatClicksRecordTwoChatsCreated2qd(t *testing.T) {
 	server, _, writers, _, _, _ := consoleServer(t)

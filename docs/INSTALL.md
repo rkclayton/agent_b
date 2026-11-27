@@ -35,6 +35,12 @@ byte for byte, to `harness.json.schema<N>-<time>`, and the app starts with new s
 template, keeping the profile catalog so its chats and memory are found. The chat says so once.
 Connections are entered again; their keys are still in the credential store under the same names.
 
+## Settings pages
+
+<!-- agent-help: Settings pages -->
+Open Settings from the chat menu. **Activity** shows usage, **Repos** opens repository work, **Connections** configures and tests model endpoints, **Profiles** manages agent profiles and tools, **Skills** manages enabled procedures, and **Chats** controls the chat display. Use **Notifications** for delivery, **Security** for credentials and service identity, and **About** for the installed build.
+<!-- /agent-help -->
+
 ## When the app cannot start
 
 A launch from the Start menu has no console. If start-up fails, or the app has not answered within

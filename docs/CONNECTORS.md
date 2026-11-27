@@ -1,8 +1,14 @@
 # Connectors
 
+<!-- agent-help: Connectors -->
 Connectors give `call_service` a named address, identity reference, and method allowlist. Add the credential in **Settings → Security → Credentials**, then ask Agent_b to add the connector and approve its connector card. Saved connectors are listed in **Settings → Connections → Connectors**.
+<!-- /agent-help -->
 
+<!-- agent-help: Credentials -->
 An absolute HTTPS service URL uses the key or sign-in saved for its exact origin. Add a key in **Settings → Security → Credentials → Add → Key**, and enter each approved origin on its own line. Logins accept `user@host` or `user@host:port`, one per line. A named connector can still select its credential explicitly. An address can be listed by one credential. **Ask before use** applies to credentials selected by address as well as to named bindings.
+
+Choose **Login** for a username and password or **Sign-in** for a supported account. Enter a static key or password directly in Settings. A stored key needs its name, origin and key value. Client registration belongs to custom sign-in settings.
+<!-- /agent-help -->
 
 ## Gmail read-only
 

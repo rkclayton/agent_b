@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	productdocs "harness"
 	"harness/internal/attachment"
 	"harness/internal/config"
 )
@@ -33,22 +34,34 @@ type Skill struct {
 	StatePath   string   `json:"state_path,omitempty"`
 }
 
-//go:embed included/*/SKILL.md
+//go:embed included
 var included embed.FS
 
 func EnsureIncluded(root string) error {
 	if !filepath.IsAbs(root) {
 		return fmt.Errorf("included skills root must be absolute")
 	}
-	entries, _ := included.ReadDir("included")
-	for _, entry := range entries {
-		data, err := included.ReadFile("included/" + entry.Name() + "/SKILL.md")
+	return fs.WalkDir(included, "included", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		path := filepath.Join(root, ".included", entry.Name(), "SKILL.md")
+		if entry.IsDir() {
+			return nil
+		}
+		data, err := included.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		if name == "included/agent_b/SKILL.md" {
+			help, err := productdocs.AgentHelp(nil)
+			if err != nil {
+				return err
+			}
+			data = append(data, help...)
+		}
+		path := filepath.Join(root, ".included", filepath.FromSlash(strings.TrimPrefix(name, "included/")))
 		if current, readErr := os.ReadFile(path); readErr == nil && string(current) == string(data) {
-			continue
+			return nil
 		}
 		if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
@@ -56,12 +69,12 @@ func EnsureIncluded(root string) error {
 		if err = os.WriteFile(path, data, 0o600); err != nil {
 			return err
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func Load(root, stateRoot, name string) (body, skillPath, statePath string, err error) {
-	if !validName.MatchString(name) {
+	if !ValidName(name) {
 		return "", "", "", fmt.Errorf("invalid skill name %q", name)
 	}
 	userDir := filepath.Join(root, name)
@@ -153,7 +166,7 @@ func inspectZIP(source string, max int64) (Skill, string, []string, map[string]a
 
 var validName = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
-func ValidName(name string) bool { return validName.MatchString(name) }
+func ValidName(name string) bool { return name == "agent_b" || validName.MatchString(name) }
 
 func Scan(root, stateRoot string, settings map[string]Setting) ([]Skill, string) {
 	entries, _ := os.ReadDir(root)
@@ -248,7 +261,7 @@ func frontmatter(text string) (name, description string, state bool, reason stri
 			}
 		}
 	}
-	if !validName.MatchString(name) {
+	if !ValidName(name) {
 		return name, description, state, "name must be 1-64 lowercase letters, digits, or hyphens"
 	}
 	if description == "" || len(description) > 1024 {

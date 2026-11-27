@@ -117,8 +117,16 @@ func TestNewSessionsUseScratchOrARegisteredRepository308(t *testing.T) {
 	if err := json.Unmarshal(listed.Body.Bytes(), &known); err != nil {
 		t.Fatal(err)
 	}
-	if listed.Code != 200 || len(known) != 1 || known[0].Dir != filepath.Clean(bound) {
+	if listed.Code != 200 || len(known) != 1 {
 		t.Fatalf("workspaces %d %s", listed.Code, listed.Body.String())
+	}
+	want, err := os.Stat(bound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.Stat(known[0].Dir)
+	if err != nil || !os.SameFile(got, want) {
+		t.Fatalf("known workspace %q does not name the registered folder %q: %v", known[0].Dir, bound, err)
 	}
 	if strings.HasPrefix(known[0].Dir, filepath.Join(data, "scratch")) {
 		t.Fatalf("scratch folder survived known-folder filter: %+v", known)

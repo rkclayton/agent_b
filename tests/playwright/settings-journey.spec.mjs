@@ -1279,3 +1279,57 @@ test("finished turns undo their own real file changes before and after restart 2
 	for (const suffix of ["one", "two"]) expect(await readFile(join(workspace, `undo-gamma-${suffix}.txt`), "utf8")).toBe(original(`gamma-${suffix}`));
 	await page.close();
 });
+
+test("2z9 a waiting chat can be read, edited and taken back", async () => {
+  test.setTimeout(120000);
+  const fresh = await start({
+    exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(root, "queued-chat"),
+    streamDelayMs: 25000,
+    configure(config) {
+      config.connections[0].max_concurrent = 1;
+      config.connections[0].request_timeout_s = 90;
+    },
+  });
+  try {
+    const firstID = Object.keys(fresh.initial.sessions)[0];
+    const headers = { "X-AgentB-Mutation-Token": fresh.mutationToken };
+    const response = await fresh.context.request.post(fresh.base + "/api/sessions", { headers, data: { label: "Waiting fixture" } });
+    expect(response.status()).toBe(201);
+    const secondID = (await response.json()).session.id;
+    const page = await fresh.context.newPage();
+    await page.addInitScript(() => localStorage.setItem("agentb.chat-list", JSON.stringify({ hidden: true, width: 240 })));
+    const open = id => page.goto(fresh.base + "/chat?setup=skip&session=" + id);
+    const input = page.locator("#chat-task"), send = page.locator("#chat-send"), log = page.locator("#chat-log");
+    await open(firstID);
+    await input.fill("Hold the first chat");
+    await send.click();
+    await expect.poll(() => fresh.modelRequests.filter(request => request.stream).length).toBe(1);
+    await open(secondID);
+    const waiting = Array.from({length: 600}, (_, i) => "Queued fixture line " + (i + 1)).join("\n");
+    await input.fill(waiting);
+    await send.click();
+    await expect(send).toHaveAttribute("data-mode", "stop");
+    await expect(log).toContainText("Queued fixture line 600");
+    for (const [width, height] of [[304, 254], [1280, 860], [1920, 1080]]) {
+      await page.setViewportSize({ width, height });
+      await expect.soft(page.locator("#chat-status-line")).toContainText("waiting for UI harness");
+      await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
+      expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-status-line"))).toEqual([]);
+      await page.screenshot({ path: test.info().outputPath("waiting-" + width + ".png") });
+    }
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await log.hover();
+    await page.mouse.wheel(0, -900);
+    await expect.poll(() => log.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeGreaterThan(0);
+    await input.fill("A separate draft");
+    await expect(input).toHaveValue("A separate draft");
+    await send.click();
+    await expect(send).toHaveAttribute("data-mode", "send");
+    await expect.soft(log).not.toContainText("Queued fixture line");
+    await expect.soft(input).toHaveValue(waiting + "\nA separate draft");
+    await expect.soft(log).toContainText("not sent");
+    expect(fresh.modelRequests.filter(request => request.stream).length).toBe(1);
+    expect((await fresh.getState()).config.connections[0].max_concurrent).toBe(1);
+  } finally { await fresh.stop(); }
+});

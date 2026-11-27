@@ -1106,7 +1106,10 @@ function noticeContent(session, entry, actionable) {
   const data = event.data && typeof event.data === "object" ? event.data : {};
   if (event.type === "run.stopped") {
     const reason = (data.reason || "").replaceAll("_", " ");
-		if (data.reason === "length" && data.detail?.includes(". Reasoning path:")) {
+		if (data.reason === "done" && data.detail === "stopped before dispatch") {
+			content.textContent = "not sent";
+			return content;
+		} else if (data.reason === "length" && data.detail?.includes(". Reasoning path:")) {
 			const [line] = data.detail.split(". Reasoning path:");
 			content.textContent = line; content.title = data.detail;
 		} else if (data.reason === "model_unreachable") {
@@ -1329,7 +1332,8 @@ function renderComposer(session) {
   const busy = session?.model_busy;
   const operatorUntil = store.shell_identity?.operator_context ? `Run as you · until ${shortTime(store.shell_identity.operator_context_expires_at)}` : "";
   const queueText = queued ? `queued (${queued})${unreachable ? " · waiting for model" : ""}` : "";
-  const activity = liveActivityText(session, Date.now());
+  const blocker = store.sessions[session?.run?.waiting_behind_session_id];
+  const activity = liveActivityText(session, Date.now(), blocker?.label);
   // A reachable open request says what it is doing and how much it has done;
   // the old sticky "model busy" condition is never the whole status line.
   const modelLine = unreachable ? "model unreachable" : "";
@@ -1695,10 +1699,25 @@ send.onclick = () => {
   void submit();
 };
 
-function stopRun() {
+async function stopRun() {
   const session = store.sessions[selectedID()];
-  if (session && !store.replay) api("/api/stop", { session_id: session.id }).catch((error) => { localNotice = error.message; localAlarm = true; renderComposer(session); });
-};
+  if (!session || store.replay) return;
+  try {
+    const { draft } = await api("/api/stop", { session_id: session.id });
+    if (!draft) return;
+    const selected = selectedID() === session.id;
+    const key = `agentb.draft.${session.id}`;
+    if (selected) input.value = [draft.text, input.value].filter(Boolean).join("\n");
+    else if (draft.text) sessionStorage.setItem(key, [draft.text, sessionStorage.getItem(key)].filter(Boolean).join("\n"));
+    if (draft.attachments?.length) {
+      const existing = attachmentQueues.get(session.id) || [];
+      const returned = [...draft.attachments, ...existing.filter(file => !draft.attachments.some(item => item.path.toLowerCase() === file.path.toLowerCase()))];
+      attachmentQueues.set(session.id, returned);
+      if (selected) queuedAttachments = returned;
+    }
+    schedule();
+  } catch (error) { localNotice = error.message; localAlarm = true; renderComposer(store.sessions[selectedID()]); }
+}
 retryModel.onclick = async () => {
   const session = store.sessions[selectedID()];
   if (!session || store.replay) return;

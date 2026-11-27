@@ -331,20 +331,20 @@ func (s *Scheduler) connectionLimit(connectionID string) int {
 
 // connectionRunsLocked counts the runs a connection is serving and names the role of
 // one of them, for "waiting for model · behind <role>".
-func (s *Scheduler) connectionRunsLocked(connectionID string) (int, string) {
-	count, role := 0, ""
+func (s *Scheduler) connectionRunsLocked(connectionID string) (int, string, string) {
+	count, role, holder := 0, "", ""
 	for sessionID := range s.active {
 		if s.paused[sessionID] {
 			continue
 		}
 		if item, ok := s.registry.Get(sessionID); ok && item.ConnectionID == connectionID {
 			count++
-			if role == "" {
-				role = item.Role
+			if holder == "" {
+				role, holder = item.Role, item.ID
 			}
 		}
 	}
-	return count, role
+	return count, role, holder
 }
 
 // runningLocked counts the runs using a model slot: every active run except
@@ -360,7 +360,7 @@ func (s *Scheduler) runningLocked() int {
 }
 
 func (s *Scheduler) admitLocked(item *session.Session) bool {
-	count, _ := s.connectionRunsLocked(item.ConnectionID)
+	count, _, _ := s.connectionRunsLocked(item.ConnectionID)
 	return count < s.connectionLimit(item.ConnectionID)
 }
 
@@ -394,8 +394,11 @@ func (s *Scheduler) drainLocked() {
 // holding the connection when the connection, not the global limit, is why it waits.
 func (s *Scheduler) queuedDataLocked(item *session.Session, runID string, position int) map[string]any {
 	data := map[string]any{"run_id": runID, "position": position}
-	if count, role := s.connectionRunsLocked(item.ConnectionID); count >= s.connectionLimit(item.ConnectionID) && role != "" {
-		data["behind"] = "agent_" + role
+	if count, role, holder := s.connectionRunsLocked(item.ConnectionID); count >= s.connectionLimit(item.ConnectionID) && holder != "" {
+		data["behind_session_id"] = holder
+		if role != "" {
+			data["behind"] = "agent_" + role
+		}
 	}
 	return data
 }
@@ -405,7 +408,7 @@ func (s *Scheduler) queuedDataLocked(item *session.Session, runID string, positi
 func (s *Scheduler) ConnectionBusy(connectionID string) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count, role := s.connectionRunsLocked(connectionID)
+	count, role, _ := s.connectionRunsLocked(connectionID)
 	if count < s.connectionLimit(connectionID) {
 		return false, ""
 	}
@@ -548,14 +551,20 @@ func (s *Scheduler) repositionLocked() {
 	}
 }
 func (s *Scheduler) Stop(sessionID string, all bool) []string {
-	return s.stopReason(sessionID, all, "")
+	return s.stopReason(sessionID, all, "", nil)
+}
+
+func (s *Scheduler) StopWithDraft(sessionID string, all bool) ([]string, *events.Message) {
+	var draft *events.Message
+	stopped := s.stopReason(sessionID, all, "", &draft)
+	return stopped, draft
 }
 
 func (s *Scheduler) StopReason(sessionID, reason string) []string {
-	return s.stopReason(sessionID, false, reason)
+	return s.stopReason(sessionID, false, reason, nil)
 }
 
-func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason string) []string {
+func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason string, draft **events.Message) []string {
 	s.mu.Lock()
 	stopped := []string{}
 	idleAgents := map[string]bool{}
@@ -596,6 +605,14 @@ func (s *Scheduler) stopReason(sessionID string, all bool, requestedReason strin
 				reason = "done"
 			}
 			s.bus.Publish(events.New(events.RunStopping, entry.s.ID, entry.runID, map[string]any{"reason": reason}))
+			if requestedReason == "" {
+				for _, message := range entry.s.RemoveMessages([]string{entry.userMessageID}) {
+					s.bus.Publish(events.New(events.MessageRemoved, entry.s.ID, entry.runID, map[string]any{"id": message.ID, "reason": "returned_to_composer"}))
+					if !all && draft != nil {
+						*draft = &message
+					}
+				}
+			}
 			entry.s.SetRun(session.RunState{Status: "idle", LastStopReason: reason, LastStopDetail: "stopped before dispatch", LastRunID: entry.runID})
 			s.publishRunStoppedLocked(entry.s.ID, entry.runID, reason, "stopped before dispatch", 0, false)
 			stopped = append(stopped, entry.s.ID)

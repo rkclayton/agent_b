@@ -94,7 +94,12 @@ func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cancelProbes(body.SessionID, body.All)
-	writeJSON(w, 200, map[string]any{"stopped": s.scheduler.Stop(body.SessionID, body.All)})
+	stopped, draft := s.scheduler.StopWithDraft(body.SessionID, body.All)
+	result := map[string]any{"stopped": stopped}
+	if draft != nil {
+		result["draft"] = map[string]any{"text": draft.Content, "attachments": draft.Attachments}
+	}
+	writeJSON(w, 200, result)
 }
 
 func (s *Server) hostWindow(w http.ResponseWriter, r *http.Request) {

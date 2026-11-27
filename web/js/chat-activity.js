@@ -1,4 +1,4 @@
-export function liveActivityText(session, now = Date.now()) {
+export function liveActivityText(session, now = Date.now(), waitingFor = "") {
   const status = session?.run?.status;
   const activity = session?.activity || {};
   const elapsed = formatElapsed(activity.state_started_at || activity.tool_started_at || activity.started_at, now);
@@ -8,6 +8,7 @@ export function liveActivityText(session, now = Date.now()) {
     return withElapsed(`waiting for you — ${event.data?.name || event.type || "decision"}`);
   }
   if (!new Set(["running", "queued", "paused", "stopping"]).has(status)) return "";
+  if (status === "queued" && waitingFor) return withElapsed(`waiting for ${waitingFor}`);
   if (status === "queued") return withElapsed(session.run.waiting_behind ? `queued — behind ${session.run.waiting_behind}` : "queued — waiting for a model slot");
   if (status === "stopping") return withElapsed("stopping the run");
   if (activity.active_tool === "delegate" && activity.delegate?.status === "running") {

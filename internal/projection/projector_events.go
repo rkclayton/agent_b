@@ -124,6 +124,7 @@ func projectRunQueued(next Snapshot, record Record, data map[string]any) Snapsho
 	next.Run.RunID = firstString(data["run_id"], record.Event.RunID)
 	next.Run.QueuePosition = intValue(data["position"])
 	next.Run.WaitingBehind = stringValue(data["behind"])
+	next.Run.WaitingBehindSessionID = stringValue(data["behind_session_id"])
 	return next
 }
 
@@ -134,6 +135,7 @@ func projectRunResumed(next Snapshot, record Record) Snapshot {
 	next.Run.Status = "running"
 	next.Run.QueuePosition = 0
 	next.Run.WaitingBehind = ""
+	next.Run.WaitingBehindSessionID = ""
 	return next
 }
 
@@ -435,6 +437,7 @@ func projectRunStarted(next Snapshot, record Record, data map[string]any) Snapsh
 	next.Run.Turn = 0
 	next.Run.QueuePosition = 0
 	next.Run.WaitingBehind = ""
+	next.Run.WaitingBehindSessionID = ""
 	next.Run.Partial = ""
 	next.Run.LastStopReason = ""
 	next.Run.LastStopDetail = ""

@@ -39,7 +39,8 @@ type Run struct {
 	ResultLabel    string `json:"result_label,omitempty"`
 	// WaitingBehind names the role holding a queued run's model connection
 	// for "waiting for model · behind <role>".
-	WaitingBehind string `json:"waiting_behind,omitempty"`
+	WaitingBehind          string `json:"waiting_behind,omitempty"`
+	WaitingBehindSessionID string `json:"waiting_behind_session_id,omitempty"`
 }
 
 type Tool struct {

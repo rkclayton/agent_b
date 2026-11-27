@@ -990,3 +990,92 @@ func TestNextUserAfterStoppedRun2yh(t *testing.T) {
 		})
 	}
 }
+
+func TestTwoChatsUseReportedOrTypedCapacity2z9(t *testing.T) {
+	for _, limit := range []int{0, 1} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			arrived := make(chan struct{}, 2)
+			release := make(chan struct{})
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/props" {
+					fmt.Fprint(w, "{\"total_slots\":2}")
+					return
+				}
+				arrived <- struct{}{}
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer model.Close()
+			cfg, connection, first, scheduler := schedulerFixture(t, model.URL)
+			props, err := llm.New(connection).Props(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Connections[0].Capabilities.ParallelCapacity = props.TotalSlots
+			cfg.Connections[0].MaxConcurrent = limit
+			second, err := scheduler.registry.Create("other", connection.ID, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			released := false
+			defer func() {
+				if !released {
+					close(release)
+				}
+				scheduler.Stop("", true)
+			}()
+			wait := func() {
+				t.Helper()
+				select {
+				case <-arrived:
+				case <-time.After(5 * time.Second):
+					t.Fatal("model did not receive chat")
+				}
+			}
+			if result, err := scheduler.Submit(context.Background(), first.ID, "first fixture"); err != nil || result.Queued {
+				t.Fatalf("first submit: %+v, %v", result, err)
+			}
+			wait()
+			result, err := scheduler.Submit(context.Background(), second.ID, "second fixture")
+			if err != nil || result.Queued != (limit == 1) {
+				t.Fatalf("second submit: %+v, %v", result, err)
+			}
+			if limit == 0 {
+				wait()
+			}
+			close(release)
+			released = true
+			if limit == 1 {
+				wait()
+			}
+			if cfg.Connections[0].MaxConcurrent != limit {
+				t.Fatal("saved override changed")
+			}
+		})
+	}
+}
+
+func TestStoppedWaitingChatDropsItsUnsentMessage2z9(t *testing.T) {
+	_, connection, first, scheduler := schedulerFixture(t, "http://127.0.0.1:1")
+	second, err := scheduler.registry.Create("waiting fixture", connection.ID, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.active[first.ID] = &activeRun{runID: "held"}
+	result, err := scheduler.Submit(context.Background(), second.ID, "unsent fixture")
+	if err != nil || !result.Queued {
+		t.Fatalf("submit: %+v, %v", result, err)
+	}
+	scheduler.Stop(second.ID, false)
+	if containsUser(second.MessagesCopy(), "unsent fixture") {
+		t.Fatal("stopped waiting message stayed in the transcript")
+	}
+	if state := second.Snapshot().Run; state.Status != "idle" || state.LastStopDetail != "stopped before dispatch" {
+		t.Fatalf("stopped state: %+v", state)
+	}
+}

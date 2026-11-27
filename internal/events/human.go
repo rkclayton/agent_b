@@ -68,6 +68,9 @@ func HumanNoticeFor(eventType string, data map[string]any) HumanNotice {
 			return HumanNotice{Happened: happened}
 		}
 		reason := strings.ReplaceAll(textValue(data["reason"], "an unknown reason"), "_", " ")
+		if reason == "done" && textValue(data["detail"], "") == "stopped before dispatch" {
+			return HumanNotice{Happened: "not sent"}
+		}
 		if reason == "done" {
 			return HumanNotice{Happened: "The run finished.", HarnessAction: "The harness kept the completed work in this chat."}
 		}

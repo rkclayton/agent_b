@@ -88,7 +88,7 @@ test("the page, its route and its tab-menu entry are gone", async () => {
   for (const id of ["panel-agent", "panel-tools", "panel-tools-count"]) {
     assert.match(html, new RegExp(`id="${id}"[\\s\\S]*id="activity-panel"`), id);
   }
-  for (const id of ["panel-tool-counters", "panel-stats", "panel-live", "panel-run-label", "rail", "flow", "rack", "state-list", "timeline-list", "panel-reflection-overview", "panel-reflection-report", "clear-stats", "flush-memory"]) {
+  for (const id of ["activity-average", "activity-overall", "clear-stats", "panel-live", "panel-run-label", "rail", "flow", "rack", "state-list", "timeline-list", "panel-reflection-overview", "panel-reflection-report", "flush-memory"]) {
     assert.match(html, new RegExp(`id="activity-panel"[\\s\\S]*id="${id}"`), id);
   }
   assert.match(html, /class="chat-input-actions"[\s\S]*id="chat-attach"[\s\S]*id="chat-mic"/);

@@ -2096,7 +2096,6 @@
 .panel-tool-description { padding: 2px 10px 6px 40px; color: var(--mute); font: 12px/18px var(--sans); }
 #panel-tools-panel { display: block; }
 .panel-tool-counts { grid-template-columns: minmax(130px, 1fr) 64px 64px minmax(100px, auto); }
-.activity-profile-picker { width: max-content; }
 .activity-table { width: max-content; max-width: 100%; border-collapse: collapse; font: 12px/18px var(--mono); }
 .activity-table th, .activity-table td { padding: 4px 10px; border-top: 1px solid rgba(112, 125, 139, .28); text-align: left; white-space: nowrap; }
 .activity-table thead th, .activity-group th { color: var(--mute); font-weight: 400; }
@@ -2180,8 +2179,6 @@
 
  Only Activity is changed. The Profiles page has the same shape with its own
  Tool panel, and is carded rather than restyled here: it is not this item's. */
-#activity-panel > .panel-pane,
-#activity-panel > .panel-lifetime-group,
 /* the Profiles page has the same shape -- the Tools pane sat in one
  column at 300px beside a 721px role group. carried this
  forward unmeasured; measured at 1250px it was still there. */
@@ -2193,6 +2190,38 @@
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   column-gap: 16px;
   align-content: start;
+}
+#activity-panel {
+  --activity-line: rgba(112,125,139,.28);
+  container-type: inline-size;
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+  padding: 12px 16px;
+  border: 1px solid var(--activity-line);
+  background: var(--well);
+}
+.activity-profile-picker, .activity-footer, .activity-clear { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.activity-profile-picker select { min-width: 120px; max-width: 100%; height: 24px; padding: 0 8px; color: var(--ink); background: var(--bezel); border: 1px solid var(--activity-line); border-radius: var(--raised-radius-tight); font: 12px var(--mono); }
+.activity-profile-picker label, .activity-footer { color: var(--mute); font-size: 12px; }
+.activity-profile-picker label { width: auto; }
+.activity-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.activity-figures section { min-width: 0; padding: 8px 12px; background: var(--raised-fill); border: 1px solid var(--activity-line); border-radius: var(--raised-radius); }
+.activity-figures h3 { margin: 0 0 4px; font-size: 12px; font-weight: 500; }
+.activity-figures table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.activity-figures th, .activity-figures td { padding: 3px 0; border-top: 1px solid var(--activity-line); line-height: 16px; }
+.activity-figures th { text-align: left; color: var(--mute); font-weight: 400; }
+.activity-figures td { padding-left: 8px; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity-footer { margin-top: 12px; justify-content: space-between; }
+.activity-clear { color: var(--ink); }
+.activity-clear button { padding: 3px 8px; font-size: 12px; white-space: nowrap; }
+#activity-empty, #activity-feedback { margin: 0; }
+#activity-feedback:empty { display: none; }
+@container (max-width: 420px) {
+  .activity-figures { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}
+@media (max-width: 700px) {
+  .activity-figures { grid-template-columns: minmax(0, 1fr); }
 }
 .panel-actions button { min-height: 26px; }
 .panel-feedback.alarm { color: var(--alarm); }

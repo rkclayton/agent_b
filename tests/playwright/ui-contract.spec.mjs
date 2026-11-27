@@ -493,7 +493,7 @@ function activityMarkup() {
   // The end is the NEXT thing in the holder, whatever it is. Item 2no put the Plan's
   // own markup after this panel, and a slice that ran to the end of the document
   // dragged the Plan's textarea in and reported it as an Activity offender.
-  const boundaries = ['<!-- Item 2no', '<div id="plan-panel"', '<div id="dissolved-sources"']
+  const boundaries = ['<div id="retired-activity-panel"', '<!-- Item 2no', '<div id="plan-panel"', '<div id="dissolved-sources"']
     .map((marker) => indexHTML.indexOf(marker, start))
     .filter((index) => index > start);
   const end = boundaries.length ? Math.min(...boundaries) : indexHTML.indexOf("</div>\n</body>", start);
@@ -1610,8 +1610,7 @@ test("no class any settings page uses is styled to scroll inside the page", asyn
   expect(settingsClasses).toContain("memory-content");
 });
 
-// (b): Activity leaves no empty column at 1250px.
-test("Activity's upper grid leaves no empty column at 1250px", async ({ page }) => {
+test("Activity fits both sets of six measures at 1250px", async ({ page }) => {
   await page.setViewportSize({ width: 1250, height: 900 });
   await page.setContent(`<!doctype html><html><head><style>
     :root { --bezel:#2A2E35; --well:#15181C; --ink:#D8DDE3; --mute:#7D8794; --trace:#F2B233; --alarm:#E4624F;
@@ -1619,34 +1618,30 @@ test("Activity's upper grid leaves no empty column at 1250px", async ({ page }) 
       --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px; --app-header-height:32px; --agent-tab-width:118px; --etch-fade:.165; }
     ${appCSS}
   </style></head><body>
-    <div id="settings-page" class="settings-page"><div class="settings-layout"><div class="settings-content">${activityMarkup()}</div></div></div>
+    <div id="settings-page" class="settings-page"><div class="settings-layout"><nav class="settings-nav" aria-label="Settings sections"></nav><div class="settings-content">${activityMarkup()}</div></div></div>
   </body></html>`);
-  // Twenty metric rows on the right, two tool rows on the left: the shape that
-  // produced the hole rel-1.14.0/W7 reported.
   await page.evaluate(() => {
-    const line = (label, value) => `<div class="panel-line"><span>${label}</span><span>${value}</span></div>`;
-    document.querySelector("#panel-stats").innerHTML =
-      Array.from({ length: 20 }, (_, index) => line(`metric ${index}`, index)).join("");
-    document.querySelector("#panel-tool-counters").innerHTML = line("list_dir", 1) + line("write_file", 1);
+    document.querySelector("#panel-stats").hidden = false;
+    const rows = Array.from({ length: 6 }, (_, index) => `<tr><th scope="row">metric ${index}</th><td>${index}</td></tr>`).join("");
+    document.querySelector("#activity-average").innerHTML = rows;
+    document.querySelector("#activity-overall").innerHTML = rows;
   });
 
   const geometry = await page.evaluate(() => {
-    const pane = document.querySelector("#panel-tool-use").getBoundingClientRect();
-    const lifetime = document.querySelector("#panel-lifetime").getBoundingClientRect();
-    const toolTable = document.querySelector("#panel-tool-use table").getBoundingClientRect();
-    const lifetimeTable = document.querySelector("#panel-lifetime table").getBoundingClientRect();
-    return { pane: pane.height, paneWidth: Math.round(pane.width), lifetime: lifetime.height, width: Math.round(lifetime.width), toolTable: Math.round(toolTable.width), lifetimeTable: Math.round(lifetimeTable.width), sameRow: Math.abs(pane.top - lifetime.top) < 2 };
+    const panes = [...document.querySelectorAll(".activity-figures section")].map((node) => ({
+      bounds: node.getBoundingClientRect().toJSON(), table: node.querySelector("table").getBoundingClientRect().toJSON(),
+    }));
+    return { panes, host: document.querySelector("#activity-panel").getBoundingClientRect().toJSON() };
   });
-
-  // Both panes take the whole surface, so there is no second column left to be
-  // empty, and both headed tables use that width.
-  expect(geometry.sameRow, "the panes still share a row").toBe(false);
-  expect(geometry.width, "Lifetime does not take the width of the surface").toBeGreaterThan(700);
-  expect(geometry.paneWidth, "Tool use does not take the width of the surface").toBeGreaterThan(700);
-  expect(geometry.lifetimeTable).toBeGreaterThan(0);
-  expect(geometry.lifetimeTable).toBeLessThanOrEqual(geometry.width);
-  expect(geometry.toolTable).toBeGreaterThan(0);
-  expect(geometry.toolTable).toBeLessThanOrEqual(geometry.paneWidth);
+  const [averages, overall] = geometry.panes;
+  expect(averages.bounds.top).toBe(overall.bounds.top);
+  expect(averages.bounds.width).toBe(overall.bounds.width);
+  expect(averages.bounds.right).toBeLessThan(overall.bounds.left);
+  for (const { bounds, table } of geometry.panes) {
+    expect(table.width).toBeGreaterThan(200);
+    expect(table.right).toBeLessThanOrEqual(bounds.right);
+    expect(bounds.right).toBeLessThanOrEqual(geometry.host.right);
+  }
 });
 
 // Item 2ln (e): rel-1.15.0 card 8 said the Profiles page leaves a column empty at

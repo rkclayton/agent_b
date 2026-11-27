@@ -18,6 +18,37 @@ export function compactionFigures(session = {}) {
   return `${Number(session.compaction_count || 0)} compactions · ${Number(session.compaction_model_calls || 0)} summaries`;
 }
 
+const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+
+export function activitySummary(counters = {}) {
+  const runs = Number(counters.runs || 0);
+  if (!runs) return null;
+  const { calls, failures } = Object.values(counters.tools || {}).reduce((counts, tool) => {
+    counts.calls += Number(tool.calls || 0);
+    counts.failures += Number(tool.failures || 0);
+    return counts;
+  }, { calls: 0, failures: 0 });
+  const turns = Number(counters.turns || 0);
+  const input = Number(counters.prompt_tokens || 0), output = Number(counters.completion_tokens || 0);
+  const wall = Number(counters.wall_ms || 0);
+  const first = String(counters.first_use || "").slice(0, 10), last = String(counters.last_use || "").slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    average: [
+      ["time", duration(wall / runs)], ["turns", (turns / runs).toFixed(1)],
+      ["tokens", whole.format((input + output) / runs)], ["tool calls", (calls / runs).toFixed(1)],
+      ["tool calls that failed", ratio(failures, calls)], ["runs that finished", ratio(counters.worker_reliability?.completed || 0, runs)],
+    ],
+    overall: [
+      ["chats", whole.format(counters.chats || 0)], ["runs", whole.format(runs)], ["turns", whole.format(turns)],
+      ["tokens in / out", `${compact.format(input)} / ${compact.format(output)}`],
+      ["tool calls", whole.format(calls)], ["time working", wall >= 3_600_000 ? `${(wall / 3_600_000).toFixed(1)} h` : duration(wall)],
+    ],
+    since: [first && `since ${first}`, last && `last used ${last === today ? "today" : last}`].filter(Boolean).join(" · "),
+  };
+}
+
 export function lifetimeRows(counters = {}, percentile = () => 0) {
   const reliability = counters.worker_reliability || {};
   const briefs = Number(reliability.briefs || counters.runs || 0);

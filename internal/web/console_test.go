@@ -23,8 +23,41 @@ import (
 	"harness/internal/projection"
 	"harness/internal/session"
 	"harness/internal/skills"
+	"harness/internal/stats"
 	"harness/internal/tools"
 )
+
+func TestActivityClearRequiresConfirmationAndScopesTheProfile(t *testing.T) {
+	server, registry, writers, _, cfg, root := consoleServer(t)
+	defer writers.Close()
+	cfg.Agents = append(cfg.Agents, config.Agent{Name: "Second fixture", B: "local"})
+	manager := stats.New(root, registry, server.bus)
+	server.SetStats(manager)
+	for _, id := range []string{"coder", "second-fixture"} {
+		chat, err := registry.Create("fixture", id, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		server.bus.Publish(events.New(events.RunStarted, chat.ID, "fixture-run", map[string]any{}))
+		server.bus.Publish(events.New(events.RunStopped, chat.ID, "fixture-run", map[string]any{"reason": "done"}))
+	}
+	counts := func() [2]int64 {
+		return [2]int64{manager.Snapshot("coder").Agent.Runs, manager.Snapshot("second-fixture").Agent.Runs}
+	}
+	for deadline := time.Now().Add(3 * time.Second); counts() != [2]int64{1, 1} && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if before := counts(); before != [2]int64{1, 1} {
+		t.Fatalf("fixture run counts=%v", before)
+	}
+	const path = "/api/stats/second-fixture/clear"
+	if got := postConsole(t, server, path, `{"confirm":false}`); got.Code != http.StatusBadRequest || counts() != [2]int64{1, 1} {
+		t.Fatalf("unconfirmed response=%d, counts=%v", got.Code, counts())
+	}
+	if got := postConsole(t, server, path, `{"confirm":true}`); got.Code != http.StatusOK || counts() != [2]int64{1, 0} {
+		t.Fatalf("confirmed response=%d, counts=%v", got.Code, counts())
+	}
+}
 
 func TestAgentHelpAnswersAfterOneFileRead(t *testing.T) {
 	server, registry, writers, _, cfg, root := consoleServer(t)

@@ -35,6 +35,91 @@ const toggleSettings = async (page) => {
 	await page.locator(".chat-list-main-menu").getByRole("button", { name: "Settings", exact: true }).click();
 };
 
+test("Activity fits a profile with 40 connections and 60 tools 2zv", async () => {
+  test.setTimeout(90_000);
+  const fixture = await start({ exe: join(root, "Agent_b.exe"), appRoot: repo, data: join(root, "activity-data"), agents: ["Second fixture"] });
+  try {
+    const counters = {
+      chats: 212, runs: 1840, turns: 20608, prompt_tokens: 84100000, completion_tokens: 4700000,
+      wall_ms: 264960000, first_use: "2026-09-14T09:00:00Z", last_use: "2026-11-18T17:00:00Z",
+      worker_reliability: { completed: 1682 },
+      tools: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`fixture-tool-${i}`, { calls: 294, failures: 9 }])),
+    };
+    const connections = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`fixture-connection-${i}`, counters]));
+    const cleared = [];
+    const page = await fixture.context.newPage({ viewport: { width: 1280, height: 860 } });
+    const statsRoute = async (route) => {
+      const [, id, action] = new URL(route.request().url()).pathname.match(/\/api\/stats\/([^/]+)(?:\/([^/]+))?/) || [];
+      if (action === "clear") {
+        expect(route.request().postDataJSON()).toEqual({ confirm: true });
+        cleared.push(id);
+      }
+      await route.fulfill({ json: { agent: cleared.includes(id) ? {} : counters, connections } });
+    };
+    await page.route("**/api/stats/**", statsRoute);
+    await page.goto(`${fixture.base}/chat#settings/activity`);
+    const activity = page.locator("#activity-panel");
+    await expect(activity).toContainText(/1,?840/);
+    await page.evaluate(async (names) => {
+      const { store, reduce } = await import("/static/js/bus.js");
+      store.tools = names.map((name) => ({ name, description: "Fixture tool" }));
+      reduce({ type: "config.changed", data: { config: store.config } });
+    }, Object.keys(counters.tools));
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const evidence = join(repo, "logs/evidence/rel-1.62.261");
+    await mkdir(evidence, { recursive: true });
+    const shape = await activity.evaluate((panel) => ({
+      tables: panel.querySelectorAll("table").length, rows: panel.querySelectorAll("tbody tr").length,
+      height: Math.round(panel.getBoundingClientRect().height), maxScroll: panel.closest(".settings-content").scrollHeight - panel.closest(".settings-content").clientHeight,
+    }));
+    await writeFile(join(evidence, shape.rows > 12 ? "before.json" : "after.json"), JSON.stringify(shape, null, 2));
+    if (shape.rows > 12) await page.screenshot({ path: join(evidence, "before-1280.png") });
+    expect(shape.rows).toBe(12);
+    expect(shape.height).toBeLessThan(480);
+    expect(shape.maxScroll).toBeLessThanOrEqual(1);
+    await expect(activity.getByRole("heading", { name: "Average run" })).toBeVisible();
+    await expect(activity.getByRole("heading", { name: "Overall" })).toBeVisible();
+    const picker = activity.getByLabel("profile");
+    await picker.selectOption("second-fixture");
+    await activity.getByRole("button", { name: "Clear stats" }).click();
+    await expect(activity).toContainText("Clear all stats for Second fixture?");
+    await activity.getByRole("button", { name: "Cancel" }).click();
+    expect(cleared).toEqual([]);
+    await activity.getByRole("button", { name: "Clear stats" }).click();
+    await activity.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(activity).toContainText("This profile has not run yet.");
+    expect(cleared).toEqual(["second-fixture"]);
+    await picker.selectOption("ui");
+    await expect(activity).toContainText("1,840");
+    for (const [width, height, zoom] of [[304, 254, 1], [1280, 860, 1], [1920, 1080, 1], [1280, 860, 2], [1920, 1080, 2]]) {
+      const viewport = { width: width / zoom, height: height / zoom };
+      const scaled = zoom === 1 ? null : await fixture.browser.newContext({ viewport, deviceScaleFactor: zoom });
+      try {
+        const capture = scaled ? await scaled.newPage() : page;
+        if (scaled) {
+          await capture.route("**/api/stats/**", statsRoute);
+          await capture.goto(`${fixture.base}/chat#settings/activity`);
+          await expect(capture.locator("#activity-panel")).toContainText("1,840");
+        } else {
+          await capture.setViewportSize(viewport);
+        }
+        await capture.screenshot({ path: join(evidence, `activity-${width}-${zoom}.png`) });
+        const settings = capture.locator(".settings-content");
+        expect(await settings.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+        expect(auditLayoutSnapshot(await capture.evaluate(collectLayoutSnapshot, "#activity-panel"))).toEqual([]);
+        if (width === 304 || zoom > 1) {
+          await capture.getByRole("button", { name: "Clear stats" }).scrollIntoViewIfNeeded();
+          await capture.screenshot({ path: join(evidence, `activity-${width}-${zoom}-bottom.png`) });
+        }
+      } finally {
+        await scaled?.close();
+      }
+    }
+  } finally {
+    await fixture.stop();
+  }
+});
+
 test("2z5 background menu follows text colour", async () => {
 	const page=await harness.context.newPage();
 	try {

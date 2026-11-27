@@ -7,7 +7,7 @@ import { renderTimeline } from "./timeline.js";
 import { createMessageDropController } from "./message-drop.js";
 import { createApprovalCard } from "./approval.js";
 import { loadReflection, loadReflectionNotes, wireReflectionNotes } from "./reflection.js";
-import { agentKey, compactionFigures, groupedLifetimeRows, ratio, runProfileRows, toolUseRows } from "./panel-lifetime.js";
+import { activitySummary, agentKey, compactionFigures } from "./panel-lifetime.js";
 import { renderStopState } from "./stop-state.js";
 import { navigationSurfaceReady } from "./navigation-telemetry.js";
 import { liveActivityText } from "./chat-activity.js";
@@ -16,9 +16,13 @@ import { requestConfirmation, requestText } from "./menu-behavior.js";
 const requestedSession = new URLSearchParams(location.search).get("session");
 let initialSession = requestedSession;
 let selectedAgent = "";
-let ledger = null;
-// "No lifetime activity" is said only once the ledger has been asked.
+let activity = null;
+let ledgerRequest = 0;
+let ledgerAgent = "";
 let ledgerAsked = false;
+let activityConfirmation = "";
+let activityClearing = false;
+let activityError = "";
 const agentErrors = new Map();
 let renderFrame = 0;
 let mounted = false;
@@ -28,6 +32,11 @@ const liveIdle = document.getElementById("panel-live-idle");
 const dropLastMessage = document.getElementById("drop-last-message");
 const agentSelect = document.getElementById("panel-agent");
 const activityProfile = document.getElementById("activity-profile");
+const activityFeedback = document.getElementById("activity-feedback");
+const clearButton = document.getElementById("clear-stats");
+const confirmClearButton = document.getElementById("activity-clear-confirm");
+const cancelClearButton = document.getElementById("activity-clear-cancel");
+const clearQuestion = document.getElementById("activity-clear-question");
 const roleTable = document.getElementById("panel-roles");
 const feedback = document.getElementById("panel-feedback");
 const panelStop = document.getElementById("panel-stop");
@@ -55,6 +64,7 @@ agentSelect.addEventListener("change", () => {
 });
 activityProfile.addEventListener("change", () => {
   selectedAgent = activityProfile.value;
+  activityConfirmation = "";
   agentErrors.clear();
   void refreshLedger();
 });
@@ -73,7 +83,9 @@ roleTable.addEventListener("click", (event) => {
   const action = event.target instanceof HTMLElement ? event.target.dataset.action : "";
   if (action) void editAgent(action, event.target.dataset.value || "");
 });
-document.getElementById("clear-stats").addEventListener("click", () => void clearStats());
+clearButton.addEventListener("click", () => { activityConfirmation = selectedAgent; renderLifetime(); confirmClearButton.focus(); });
+cancelClearButton.addEventListener("click", () => { activityConfirmation = ""; renderLifetime(); clearButton.focus(); });
+confirmClearButton.addEventListener("click", () => void clearStats());
 document.getElementById("flush-memory").addEventListener("click", () => void flushMemory());
 document.getElementById("panel-tools").addEventListener("change", (event) => void toggleTool(event));
 panelStop.addEventListener("click", () => { const id=store.selection.session_id; if(id&&!store.replay) void api("/api/stop",{session_id:id}); });
@@ -127,13 +139,26 @@ setInterval(() => {
 }, 1000);
 
 async function refreshLedger(render = true) {
-  // Only a settled answer may say "no activity": the true empty cases (no agent, replay)
-  // once the snapshot is in, or a completed fetch for the agent now selected.
-  if (!selectedAgent || store.replay) { ledger = null; ledgerAsked = store.loaded; if (render) scheduleRender(); return; }
+  const sequence = ++ledgerRequest;
   const askedFor = selectedAgent;
-  ledgerAsked = false;
-  try { ledger = await api(`/api/stats/${encodeURIComponent(askedFor)}`, undefined, "GET"); ledgerAsked = askedFor === selectedAgent; }
-  catch (error) { showError(error.message); }
+  if (ledgerAgent !== askedFor || store.replay) {
+    ledgerAgent = askedFor;
+    activity = null;
+    activityError = "";
+    ledgerAsked = false;
+  }
+  if (!askedFor || store.replay) { ledgerAsked = store.loaded; if (render) scheduleRender(); return; }
+  if (render) scheduleRender();
+  try {
+    const ledger = await api(`/api/stats/${encodeURIComponent(askedFor)}`, undefined, "GET");
+    if (sequence !== ledgerRequest || askedFor !== selectedAgent) return;
+    activity = activitySummary(ledger.agent);
+    activityError = "";
+    ledgerAsked = true;
+  } catch (error) {
+    if (sequence !== ledgerRequest || askedFor !== selectedAgent) return;
+    activityError = error.message;
+  }
   scheduleRender();
 }
 
@@ -361,27 +386,17 @@ async function cancelAgentConnectionChange() {
   } catch (error) { showError(error.message); }
 }
 
-// one table became two, because the two halves answer to different
-// people. Turning a tool on or off is setting the agent up, so it is on Agents;
-// how often a tool ran and how often it failed is the record of what happened,
-// so it is on Activity. Every column that was in the one table is still drawn,
-// and both halves read the one ledger.
 function renderTools(agent) {
   const root = document.getElementById("panel-tools");
-  const counts = document.getElementById("panel-tool-counters");
   if (!agent) {
-    const empty = store.loaded ? '<p class="panel-empty">No agent selected.</p>' : "";
-    root.innerHTML = empty;
-    counts.innerHTML = empty;
+    root.innerHTML = store.loaded ? '<p class="panel-empty">No agent selected.</p>' : "";
     return;
   }
 	const enabled = new Set(agent.toolset || []);
-	// web_search is configured only in harness.json for this release. Keep it
-	// observable in Activity, but do not invent a Settings control for it.
+	// web_search is configured only in harness.json for this release.
 	const configurable = (store.tools || []).filter((tool) => !["web_search", "delegate", "powershell_session"].includes(tool.name));
 	const configurableEnabled = configurable.filter((tool) => enabled.has(tool.name));
 	document.getElementById("panel-tools-count").textContent = `${configurableEnabled.length} tools active`;
-	const counters = ledger?.agent?.tools || {};
 	root.replaceChildren(...configurable.map((tool) => {
 		const row = node("details", "panel-tool-line");
 		row.title = tool.description || tool.name;
@@ -394,40 +409,34 @@ function renderTools(agent) {
 		row.append(summary, description);
     return row;
   }));
-  counts.replaceChildren(...toolUseRows(store.tools || [], counters).map((item) => {
-    const row = node("tr");
-    const name = node("td"); name.textContent = item.name;
-    const calls = node("td", "activity-calls");
-    const bar = node("span", "activity-call-bar"); bar.style.width = `${item.share}%`;
-    calls.append(bar, text(item.calls));
-    const failed = node("td"); failed.textContent = ratio(item.failures, item.calls);
-    const used = node("td"); used.textContent = item.lastUsed;
-    row.append(name, calls, failed, used);
-    return row;
-  }));
 }
 
+let drawnActivity;
 function renderLifetime() {
   const root = document.getElementById("panel-stats");
-  if (!ledger) { root.innerHTML = store.loaded && ledgerAsked ? '<p class="panel-empty">No lifetime activity.</p>' : ""; return; }
-  const sections = [[selectedAgent, ledger.agent], ...Object.entries(ledger.connections || {})];
-  root.replaceChildren(...sections.flatMap(([name, counters]) => {
-    const rows = [];
-    const section = node("tr", "activity-section");
-    const sectionHead = node("th"); sectionHead.colSpan = 2; sectionHead.textContent = name; section.append(sectionHead); rows.push(section);
-    let group = "";
-    for (const item of groupedLifetimeRows(counters, percentile)) {
-      if (item.group !== group) {
-        group = item.group;
-        const heading = node("tr", "activity-group"); const th = node("th"); th.colSpan = 2; th.textContent = group; heading.append(th); rows.push(heading);
-      }
-      const row = node("tr"); const figure = node("td"); figure.textContent = item.figure; const value = node("td"); value.textContent = String(item.value); row.append(figure, value); rows.push(row);
+  const current = ledgerAgent === selectedAgent ? activity : null;
+  root.hidden = !current;
+  document.getElementById("activity-empty").hidden = !!current || !ledgerAsked || !!activityError;
+  activityFeedback.textContent = activityError;
+  if (drawnActivity !== current) {
+    for (const kind of ["average", "overall"]) {
+      document.getElementById(`activity-${kind}`).replaceChildren(...(current?.[kind] || []).map(([label, value]) => {
+        const row = node("tr"), name = node("th"), result = node("td");
+        name.scope = "row";
+        name.textContent = label;
+        result.textContent = value;
+        row.append(name, result);
+        return row;
+      }));
     }
-    for (const [label, life, recent] of runProfileRows(counters)) {
-      const row = node("tr"); const figure = node("td"); figure.textContent = label; const value = node("td"); value.textContent = `${life} · ${recent}`; row.append(figure, value); rows.push(row);
-    }
-    return rows;
-  }));
+    document.getElementById("activity-since").textContent = current?.since || "";
+    drawnActivity = current;
+  }
+  const confirming = activityConfirmation === selectedAgent && !!selectedAgent;
+  clearButton.hidden = confirming || store.replay;
+  clearQuestion.hidden = confirmClearButton.hidden = cancelClearButton.hidden = !confirming;
+  clearQuestion.textContent = confirming ? `Clear all stats for ${activityProfile.selectedOptions[0]?.textContent || selectedAgent}?` : "";
+  confirmClearButton.disabled = cancelClearButton.disabled = activityClearing;
 }
 
 async function toggleTool(event) {
@@ -438,9 +447,25 @@ async function toggleTool(event) {
 }
 
 async function clearStats() {
-  if (!selectedAgent || store.replay || !await requestConfirmation(`Clear all lifetime stats for ${selectedAgent}?`, { confirmLabel: "Clear", danger: true })) return;
-  try { ledger = await api(`/api/stats/${encodeURIComponent(selectedAgent)}/clear`, { confirm: true }); showFeedback(`Stats cleared for ${selectedAgent}.`); scheduleRender(); }
-  catch (error) { showError(error.message); }
+  const agent = selectedAgent;
+  if (!agent || store.replay || activityClearing || activityConfirmation !== agent) return;
+  activityClearing = true;
+  renderLifetime();
+  try {
+    const ledger = await api(`/api/stats/${encodeURIComponent(agent)}/clear`, { confirm: true });
+    if (agent === selectedAgent) {
+      ledgerRequest++;
+      activity = activitySummary(ledger.agent);
+      ledgerAsked = true;
+      activityError = "";
+      activityConfirmation = "";
+    }
+  } catch (error) {
+    if (agent === selectedAgent) activityError = error.message;
+  } finally {
+    activityClearing = false;
+    renderLifetime();
+  }
 }
 
 async function flushMemory() {
@@ -457,7 +482,6 @@ async function flushMemory() {
 async function refreshState() { reduce({ type: "snapshot", data: await api("/api/state", undefined, "GET") }); await refreshLedger(); }
 function placeDropLastMessage() { const heads = document.querySelectorAll(".timeline-model > .timeline-head"); const target = heads[heads.length - 1]; dropLastMessage.hidden = !target; if (target) target.append(dropLastMessage); }
 function renderPendingApproval(session) { const root = document.getElementById("panel-pending-approval"); root.hidden = !session?.pending_approval; root.replaceChildren(...(session?.pending_approval ? [createApprovalCard(document, session.pending_approval, { replay: store.replay, decide: (callID, decision, answer) => api("/api/approve", { session_id: session.id, call_id: callID, decision, answer }) })] : [])); }
-function percentile(values = [], fraction = .5) { if (!values.length) return 0; const copy = [...values].sort((a, b) => a - b); return copy[Math.floor((copy.length - 1) * fraction)]; }
 function patchEndedRun(patch = {}) { return (patch.operations || []).some((operation) => operation.path === "/run" && operation.value?.status === "idle"); }
 // lifetime and the last twenty, side by side in ONE value cell.
 //

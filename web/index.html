@@ -82,10 +82,27 @@
       </details>
     </section>
   </div>
-  <div id="activity-panel" class="panel-surface">
-    <div class="panel-selector activity-profile-picker"><label for="activity-profile">profile</label><select id="activity-profile"></select></div>
-    <section id="panel-tool-use" class="panel-pane panel-group" aria-labelledby="panel-tool-use-title"><header class="panel-caption"><span id="panel-tool-use-title">Tool use</span></header><table class="activity-table tool-use-table"><thead><tr><th>Tool</th><th>Calls</th><th>Failed</th><th>Last used</th></tr></thead><tbody id="panel-tool-counters"></tbody></table></section>
-    <section id="panel-lifetime" class="panel-pane panel-group panel-lifetime-group" aria-labelledby="panel-lifetime-title"><header class="panel-caption"><span id="panel-lifetime-title">Lifetime</span></header><table class="activity-table figures-table"><thead><tr><th>Figure</th><th>Value</th></tr></thead><tbody id="panel-stats"></tbody></table></section>
+  <div id="activity-panel">
+    <div class="activity-profile-picker"><label for="activity-profile">profile</label><select id="activity-profile"></select></div>
+    <div id="panel-stats" hidden>
+      <div class="activity-figures">
+        <section aria-labelledby="activity-average-title"><h3 id="activity-average-title">Average run</h3><table aria-labelledby="activity-average-title"><tbody id="activity-average"></tbody></table></section>
+        <section aria-labelledby="activity-overall-title"><h3 id="activity-overall-title">Overall</h3><table aria-labelledby="activity-overall-title"><tbody id="activity-overall"></tbody></table></section>
+      </div>
+      <div class="activity-footer">
+        <span id="activity-since"></span>
+        <div class="activity-clear">
+          <button id="clear-stats" type="button">Clear stats</button>
+          <span id="activity-clear-question" hidden></span>
+          <button id="activity-clear-confirm" class="alarm" type="button" hidden>Clear</button>
+          <button id="activity-clear-cancel" type="button" hidden>Cancel</button>
+        </div>
+      </div>
+    </div>
+    <p id="activity-empty" class="panel-empty" hidden>This profile has not run yet.</p>
+    <span id="activity-feedback" class="alarm" role="status"></span>
+  </div>
+  <div id="retired-activity-panel" class="panel-surface">
     <section id="panel-live" class="panel-live panel-group" aria-labelledby="panel-live-title">
       <header class="panel-caption"><span id="panel-live-title">Live run</span><span class="panel-live-actions"><span id="panel-live-compactions"></span><span id="panel-live-state" role="status"></span><button id="panel-stop" class="stop-sign" type="button" aria-label="Stop"><span aria-hidden="true"></span></button></span></header>
       <div id="panel-run-result" class="panel-run-result" hidden><span id="panel-run-stop"></span><span id="panel-run-label" class="panel-run-label" aria-label="Label this run"></span></div>
@@ -122,7 +139,7 @@
     </section>
     <section class="panel-group panel-maintenance" aria-labelledby="panel-maintenance-title">
       <header class="panel-caption"><span id="panel-maintenance-title">Maintenance</span><span>selected agent and folder</span></header>
-      <footer class="panel-actions"><button id="clear-stats" type="button">Clear all stats</button><button id="flush-memory" type="button">Flush memory</button><span id="panel-feedback" role="status"></span></footer>
+      <footer class="panel-actions"><button id="flush-memory" type="button">Flush memory</button><span id="panel-feedback" role="status"></span></footer>
     </section>
   </div>
   <!-- Item 2no: THE PLAN IS A SECTION, NOT A PAGE. It was a document of its own at

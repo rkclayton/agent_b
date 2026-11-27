@@ -256,17 +256,19 @@ func TestStopBlockedModelResumesWithAbortRecord(t *testing.T) {
 	for _, test := range []struct {
 		name            string
 		rejectMidSystem bool
+		reasoningOnly   bool
 	}{
 		{name: "position-constrained", rejectMidSystem: true},
 		{name: "unconstrained"},
+		{name: "position-constrained-reasoning-only-2zj", rejectMidSystem: true, reasoningOnly: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			testStopBlockedModelResumesWithAbortRecord(t, test.rejectMidSystem)
+			testStopBlockedModelResumesWithAbortRecord(t, test.rejectMidSystem, test.reasoningOnly)
 		})
 	}
 }
 
-func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem bool) {
+func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem, reasoningOnly bool) {
 	entered := make(chan struct{})
 	resumed := make(chan []llm.Message, 1)
 	var calls atomic.Int32
@@ -307,7 +309,11 @@ func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem bo
 			return
 		}
 		resumed <- body.Messages
-		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "resumed"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 1}})
+		field := "content"
+		if reasoningOnly {
+			field = "reasoning_content"
+		}
+		writeStreamChunk(t, w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{field: "resumed"}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 1}})
 	}))
 	defer model.Close()
 	_, _, item, scheduler := schedulerFixtureAccounting(t, model.URL, "exact")
@@ -375,6 +381,14 @@ func testStopBlockedModelResumesWithAbortRecord(t *testing.T, rejectMidSystem bo
 	}
 	if rejected.Load() != 0 || len(messages) == 0 || messages[0].Role != "system" || sentAbort.Role != llm.RoleAssistant || messageText(sentAbort.Content) != "[harness note]\n"+abortRecord.Content || abortRecord.Role != llm.RoleHarness || !strings.Contains(joined, "partial model output") || !strings.Contains(joined, "user:resume") {
 		t.Fatalf("resuming messages:\n%s", joined)
+	}
+	if reasoningOnly {
+		waitSchedulerIdle(t, scheduler, item.ID)
+		messages := item.MessagesCopy()
+		last := messages[len(messages)-1]
+		if item.Snapshot().Run.LastStopReason != "reply_empty_reasoning_shown" || last.Reasoning != "resumed" || !strings.Contains(last.Content, "answer taken from the model's reasoning") {
+			t.Fatalf("resumed run=%+v reply=%+v", item.Snapshot().Run, last)
+		}
 	}
 }
 

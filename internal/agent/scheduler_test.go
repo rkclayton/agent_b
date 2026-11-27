@@ -688,12 +688,21 @@ func TestFirstRefusalReturnsDesktopMessageButNeverPhoneWorkerOrHelper2ub(t *test
 }
 
 func TestModelReadFailureRetriesBeforeFirstAnswer2zd(t *testing.T) {
-	for _, failure := range []string{"reset", "timeout", "partial", "exhausted"} {
+	for _, failure := range []string{"reset", "timeout", "partial", "exhausted", "after-tool-2zj"} {
 		t.Run(failure, func(t *testing.T) {
 			var requests atomic.Int32
 			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
-				if requests.Add(1) > 1 && failure != "exhausted" {
+				request := requests.Add(1)
+				breakAt := int32(1)
+				if failure == "after-tool-2zj" {
+					breakAt = 2
+					if request == 1 {
+						fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture-call","type":"function","function":{"name":"list_dir","arguments":"{\"path\":\".\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n")
+						return
+					}
+				}
+				if request > breakAt && failure != "exhausted" {
 					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 					return
 				}
@@ -714,7 +723,10 @@ func TestModelReadFailureRetriesBeforeFirstAnswer2zd(t *testing.T) {
 				_ = conn.Close()
 			}))
 			defer model.Close()
-			_, connection, item, scheduler := schedulerFixture(t, model.URL)
+			cfg, connection, item, scheduler := schedulerFixture(t, model.URL)
+			if failure == "after-tool-2zj" {
+				scheduler.runner.tools = tools.New(tools.NewListDir(cfg.Tools.ListDir))
+			}
 			connection.RequestTimeoutS = 1
 			scheduler.runner.modelRetryDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
 			eventsCh, unsubscribe := scheduler.bus.Subscribe()
@@ -723,11 +735,18 @@ func TestModelReadFailureRetriesBeforeFirstAnswer2zd(t *testing.T) {
 				t.Fatal(err)
 			}
 			deadline := time.After(5 * time.Second)
+			toolStarts, toolResults := 0, 0
 			for {
 				select {
 				case <-deadline:
 					t.Fatal("run did not stop")
 				case event := <-eventsCh:
+					if event.Type == events.ToolCallEvent {
+						toolStarts++
+					}
+					if event.Type == events.ToolResult && event.Data.(map[string]any)["ok"] == true {
+						toolResults++
+					}
 					if event.Type != events.RunStopped {
 						continue
 					}
@@ -735,6 +754,10 @@ func TestModelReadFailureRetriesBeforeFirstAnswer2zd(t *testing.T) {
 					if failure == "exhausted" {
 						if requests.Load() != 3 || data["reason"] != "model_error" || data["retries"] != 2 || !strings.Contains(fmt.Sprint(data["detail"]), "your message is back in the box") || containsUser(item.MessagesCopy(), "recover from a failed read") {
 							t.Errorf("requests=%d, terminal event=%+v", requests.Load(), data)
+						}
+					} else if failure == "after-tool-2zj" {
+						if requests.Load() != 3 || toolStarts != 1 || toolResults != 1 || data["reason"] != "done" || data["retries"] != 1 {
+							t.Errorf("requests=%d, tool starts=%d, tool results=%d, terminal event=%+v", requests.Load(), toolStarts, toolResults, data)
 						}
 					} else if requests.Load() != 2 || data["reason"] != "done" || data["retries"] != 1 {
 						t.Errorf("requests=%d, terminal event=%+v", requests.Load(), data)

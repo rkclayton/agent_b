@@ -43,6 +43,46 @@ async function thinkingFixture(browser, width = 1280, apiResponse = null) {
 }
 const fixtureThought = { type: "agent", key: "reason", run_id: "run", reasoning: "Checking the fixture.", reasoningTokens: 616, thinkingMS: 18000, done: false };
 
+test("queued delivery, connector and live work captures 2zj", async ({ browser }, testInfo) => {
+  const fixture = await thinkingFixture(browser);
+  const { page, emit } = fixture;
+  const queued = { type: "user", key: "message:queued", text: "Queue the fixture." };
+  const row = page.locator(".chat-user").filter({ hasText: queued.text });
+  await emit([queued], false, { queued_messages: 1, queued_message_ids: ["queued"] });
+  await expect(row.locator(".chat-queued-state")).toHaveText("queued");
+  const original = await row.elementHandle();
+  const before = await row.boundingBox();
+  await page.screenshot({ path: testInfo.outputPath("queued-before.png") });
+  await emit([queued, fixtureThought], false, { queued_messages: 0, queued_message_ids: [] });
+  await expect(row).toHaveCount(1);
+  await expect(row.locator(".chat-queued-state")).toHaveCount(0);
+  expect(await original.evaluate(node => node.isConnected)).toBe(true);
+  expect(Math.abs((await row.boundingBox()).y - before.y)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath("queued-after.png") });
+
+  const proposal = { operation: "add", entry: { name: "fixture", kind: "http", url: "https://api.example.test", auth: "none", allowed_methods: ["GET"] } };
+  const pending = { type: "notice", key: "connector", event: { type: "approval.required", data: { call_id: "fixture-connector", name: "call_service", args: { connector: proposal } } } };
+  await emit([queued], false, { pending_approval: pending });
+  const card = page.locator("#chat-pending-approval .approval-card");
+  await expect(card).toContainText("add connector configuration?");
+  await expect(card.locator(".approval-actions button")).toHaveText(["Yes, for this chat", "Just once", "No"]);
+  await page.screenshot({ path: testInfo.outputPath("valid-connector.png") });
+
+  const helper = { type: "tool", key: "helper", run_id: "run", name: "delegate", args: { task: "Inspect the fixture." }, result: { ok: true, ms: 200 } };
+  const activity = { stage: "assemble", stage_state: "exit", stream: { key: "fixture", tool_calls: [{ index: 0, name: "call_service", argument_bytes: 42 }] } };
+  await emit([helper], false, { activity, pending_approval: null });
+  for (const fold of await page.locator(".chat-work-summary-toggle:visible").all()) {
+    if (await fold.getAttribute("aria-expanded") !== "true") await fold.click();
+  }
+  const work = page.locator("#chat-log");
+  await expect(page.getByText(/^waiting for model · /)).toBeVisible();
+  await expect(work.locator(".chat-streaming-tool")).toBeVisible();
+  await expect(work.getByText(/delegate|helper/i).last()).toBeVisible();
+  expect(auditLayoutSnapshot(await page.evaluate(collectLayoutSnapshot, "#chat-log"))).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath("live-work.png") });
+  await fixture.context.close();
+});
+
 test("credential needed opens the prefilled operator form and the table shows three kinds 2zh 2zi", async ({ browser }, testInfo) => {
   test.setTimeout(45000);
   const credentials = [

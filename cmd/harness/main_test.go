@@ -2,22 +2,240 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"harness/internal/agent"
 	"harness/internal/chatstore"
 	"harness/internal/config"
 	"harness/internal/credential"
+	"harness/internal/cron"
 	"harness/internal/events"
 	"harness/internal/session"
+	"harness/internal/tools"
 )
 
 type recordedHostWindowActions struct{ action func(string, string) bool }
+
+func scheduledFixture(t *testing.T, modelURL string) (*scheduledRuns, string) {
+	t.Helper()
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.Approval.Mode, cfg.Context.Accounting = config.ApprovalModeOff, "estimated"
+	cfg.Connections[0].BaseURL = modelURL
+	cfg.Connections[0].Model = "fixture"
+	cfg.Connections[0].Context.NCtx = 32768
+	cfg.Connections[0].Capabilities.ToolCalls = true
+	cfg.Connections[0].Capabilities.Streaming = true
+	connection := func(id string) (*config.Connection, bool) { return cfg.Connection(id) }
+	settings := func() config.Config { return cfg }
+	bus := events.NewBus()
+	writers, err := events.NewWriters(filepath.Join(root, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writers.Close() })
+	registry := session.NewRegistry(bus, writers, connection, 0, settings)
+	registry.SetPlansRoot(filepath.Join(root, "plans"))
+	promptPath := filepath.Join(root, "prompt.txt")
+	if err := os.WriteFile(promptPath, []byte("Work on the test fixture. {{tools}}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := agent.LoadTemplate(promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := agent.NewRunner(bus, tools.New(tools.NewShell(cfg.Shell)), prompt, connection, settings)
+	return &scheduledRuns{profile: root, cfg: settings, registry: registry, scheduler: agent.NewScheduler(runner, registry, bus, settings), bus: bus}, root
+}
+
+func TestScheduledModelWaitAndShutdownReplay2zj(t *testing.T) {
+	for _, scenario := range []string{"loads-after-25-minutes", "never-answers", "application-closes"} {
+		t.Run(scenario, func(t *testing.T) {
+			entered, answer, finish := make(chan struct{}, 1), make(chan struct{}), make(chan struct{})
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.Path != "/v1/chat/completions" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_, _ = io.Copy(io.Discard, req.Body)
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+				select {
+				case <-req.Context().Done():
+					return
+				case <-finish:
+					return
+				case <-answer:
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Fixture answered.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer model.Close()
+			defer close(finish)
+			runs, root := scheduledFixture(t, model.URL)
+			first, reset := make(chan time.Duration, 1), make(chan time.Duration, 1)
+			ticks := make(chan time.Time, 1)
+			runs.timer = func(duration time.Duration) scheduledAlarm {
+				first <- duration
+				return scheduledAlarm{expired: ticks, reset: func(d time.Duration) bool { reset <- d; return true }, stop: func() bool { return true }}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			result := make(chan cron.Result, 1)
+			go func() { result <- runs.run(ctx, cron.Job{Name: "fixture job", Prompt: "Use the fixture model."}) }()
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal("scheduled model never received the request")
+			}
+			limit := <-first
+			if limit != 30*time.Minute {
+				t.Fatalf("model wait timer=%v", limit)
+			}
+			advance := func(elapsed time.Duration) {
+				if elapsed >= limit {
+					ticks <- time.Unix(0, 0).Add(elapsed)
+				}
+			}
+			switch scenario {
+			case "loads-after-25-minutes":
+				advance(25 * time.Minute)
+				close(answer)
+			case "never-answers":
+				advance(30 * time.Minute)
+			default:
+				cancel()
+			}
+			select {
+			case got := <-result:
+				switch scenario {
+				case "loads-after-25-minutes":
+					if got.Failed || got.Answer != "Fixture answered." || len(reset) != 1 || <-reset != 20*time.Minute {
+						t.Fatalf("late load result=%+v", got)
+					}
+				case "never-answers":
+					if !got.Failed || !got.Retryable || !strings.Contains(got.Failure, "model_unreachable") {
+						t.Fatalf("unavailable result=%+v", got)
+					}
+				default:
+					item, ok := runs.registry.Get(got.ChatID)
+					if !got.Interrupted || !ok || item.Snapshot().Run.LastStopReason != "cron_shutdown" {
+						t.Fatalf("shutdown result=%+v", got)
+					}
+					now := time.Now()
+					clock := func() time.Time { return now }
+					manager := cron.New(root, clock, func(context.Context, cron.Job) cron.Result { return got })
+					created, err := manager.Apply(context.Background(), cron.Args{Action: "create", Schedule: "in 1h", Prompt: "fixture"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					now = created.Job.Next
+					if err := manager.Tick(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+					calls := 0
+					manager = cron.New(root, clock, func(context.Context, cron.Job) cron.Result { calls++; return cron.Result{Answer: "ready"} })
+					for i := 0; i < 2; i++ {
+						if err := manager.Tick(context.Background()); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if calls != 1 || len(manager.Jobs()) != 0 {
+						t.Fatalf("restart calls=%d remaining=%d", calls, len(manager.Jobs()))
+					}
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("scheduled run did not reach its result")
+			}
+		})
+	}
+}
+
+func TestScheduledFinalFailurePublishesOneNotice2zj(t *testing.T) {
+	now, attempts := time.Now(), 0
+	runs := &scheduledRuns{bus: events.NewBus()}
+	stream, unsubscribe := runs.bus.Subscribe()
+	defer unsubscribe()
+	manager := cron.New(t.TempDir(), func() time.Time { return now }, func(context.Context, cron.Job) cron.Result {
+		attempts++
+		return cron.Result{Failed: true, Retryable: true, Failure: "model unavailable", Answer: "fixture reply"}
+	})
+	manager.SetHooks(nil, runs.finish)
+	created, err := manager.Apply(context.Background(), cron.Args{Action: "create", Name: "fixture job", Schedule: "every 2h", Deliver: "origin", Prompt: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = created.Job.Next
+	for index, delay := range []time.Duration{0, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute} {
+		now = now.Add(delay)
+		if err := manager.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if attempts != index+1 {
+			t.Fatalf("after %v, attempts=%d", delay, attempts)
+		}
+		if index < 3 && len(stream) != 0 {
+			t.Fatalf("notified after attempt %d", attempts)
+		}
+	}
+	if len(stream) != 1 {
+		t.Fatalf("final notices=%d", len(stream))
+	}
+	item := <-stream
+	data, _ := item.Data.(map[string]any)
+	if item.Type != events.ScheduledFinished || data["scheduled_job"] != "fixture job" || data["reason"] != "failed" || data["scheduled_answer"] != nil {
+		t.Fatalf("notice=%+v", item)
+	}
+}
+
+func TestScheduledShellStartsInTheCollisionResolvedFolder2zj(t *testing.T) {
+	if _, err := exec.LookPath("pwsh"); err != nil && runtime.GOOS != "windows" {
+		t.Skip("PowerShell is required for the shell fixture")
+	}
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requests.Add(1) == 1 {
+			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"shell-fixture","type":"function","function":{"name":"shell","arguments":"{\"command\":\"Set-Content -LiteralPath fixture-output -Value ready\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Fixture answered.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer model.Close()
+	runs, root := scheduledFixture(t, model.URL)
+	parent := filepath.Join(root, "chats", "Scheduled")
+	original, err := chatstore.New(parent).Create("main", "fixture job", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	got := runs.run(ctx, cron.Job{Name: "fixture job", Prompt: "Use the shell on the test fixture."})
+	item, ok := runs.registry.Get(got.ChatID)
+	if got.Failed || !ok || filepath.Dir(item.Snapshot().Workspace) != parent || item.Snapshot().Workspace == original {
+		t.Fatalf("schedule=%+v", got)
+	}
+	result, err := os.ReadFile(filepath.Join(item.Snapshot().Workspace, "fixture-output"))
+	if err != nil || strings.TrimSpace(string(result)) != "ready" {
+		t.Fatalf("shell fixture=%q err=%v", result, err)
+	}
+}
 
 func TestAnUnchangedInvalidChatIsReportedOnce2zf(t *testing.T) {
 	logs := filepath.Join(t.TempDir(), "logs")

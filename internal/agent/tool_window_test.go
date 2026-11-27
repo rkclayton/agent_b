@@ -2,17 +2,20 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"harness/internal/config"
 	"harness/internal/events"
+	"harness/internal/llm"
 	"harness/internal/session"
 	"harness/internal/tools"
 )
@@ -240,5 +243,86 @@ func TestSmallWindowResultLeavesRoomForAnotherTurn2zb(t *testing.T) {
 		if got := resultAllowance(budget, 14020); got != test.want {
 			t.Fatalf("window %d gives %d tokens, want %d", test.window, got, test.want)
 		}
+	}
+}
+
+func TestMeasuredFetchAndLargeWindowCompactionReplay2zj(t *testing.T) {
+	for _, fixture := range []struct {
+		name                                          string
+		window, ceiling, fetched, keptUser, oldOutput int
+		pct                                           float64
+	}{
+		{"small-32768", 32768, 22528, 14020, 1390, 877, .90},
+		{"large-230000", 230000, 219760, 90000, 410, 91745, .82},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			var summaries atomic.Int32
+			stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct{ Stream bool }
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					http.Error(w, "unreadable request", http.StatusBadRequest)
+					return
+				}
+				if request.Stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Fixture answered.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+					return
+				}
+				summaries.Add(1)
+				handoff := "DONE:\n" + strings.Repeat("fixture facts ", 17) + "\nNEXT:\nContinue.\nFILES CHANGED:\nNone.\nOPEN QUESTIONS:\nNone."
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": handoff}, "finish_reason": "stop"}}})
+			}))
+			defer stub.Close()
+			cfg := config.Defaults(t.TempDir())
+			cfg.Context.SummaryPct = fixture.pct
+			connection := &cfg.Connections[0]
+			connection.BaseURL, connection.Model, connection.Context.NCtx = stub.URL, "fixture", fixture.window
+			bus := events.NewBus()
+			runner := NewRunner(bus, tools.New(), nil, nil, func() config.Config { return cfg })
+			item := &session.Session{ID: "fixture"}
+			item.SetRunPin("user")
+			item.ReplaceMessages([]events.Message{
+				{ID: "user", Role: "user", Category: "history", Tokens: fixture.keptUser, Content: "Read the fixture."},
+				{ID: "old", Role: "assistant", Category: "history", Tokens: fixture.oldOutput, Content: "Earlier fixture work."},
+				{ID: "fetch-call", Role: "assistant", Category: "history", Tokens: 50, ToolCalls: []events.ToolCall{{ID: "fetch", Name: "fetch_url", Arguments: `{"url":"https://api.example.test"}`}}},
+				{ID: "fetched", Role: "tool", Category: "fetched", Tokens: fixture.fetched, ToolCallID: "fetch", Name: "fetch_url", Content: strings.Repeat("data ", fixture.fetched)},
+			})
+			changeable := func() int {
+				total := 0
+				for _, message := range item.MessagesCopy() {
+					total += message.Tokens
+				}
+				return total
+			}
+			x := &runState{r: runner, ctx: context.Background(), s: item, runID: "proof", turn: 2, connection: connection, client: llm.New(connection)}
+			before := changeable()
+			afterFirst := 0
+			answered := ""
+			for attempt := 0; attempt < 4; attempt++ {
+				x.budget = events.Budget{UsedEst: 6143 + changeable(), Estimated: true, Ceiling: fixture.ceiling, NCtx: fixture.window, Reserve: fixture.window - fixture.ceiling, Categories: map[string]int{"tools": 4023, "system": 2120}}
+				x.request = llm.Request{Messages: []llm.Message{{Role: "user", Content: "Continue the fixture."}}, MaxTokens: 64}
+				x.requestEvent = events.New(events.ModelRequest, item.ID, x.runID, map[string]any{"turn": 2})
+				outcome := x.fitWindow()
+				if attempt == 0 {
+					afterFirst = changeable()
+				}
+				if outcome.stop {
+					t.Fatalf("stop=%s detail=%s", outcome.reason, outcome.detail)
+				}
+				if outcome.again {
+					continue
+				}
+				if result := x.callModelStep(); result.stop {
+					t.Fatalf("model=%s detail=%s", result.reason, result.detail)
+				}
+				answered = x.response.Content
+				break
+			}
+			t.Logf("context=%d reserve=%d fixed=6143 tools=4023 initial=%d handoff=%d final=%d summarizer calls=%d answer=%q", fixture.window, fixture.window-fixture.ceiling, before, afterFirst, changeable(), summaries.Load(), answered)
+			if summaries.Load() != 1 || answered != "Fixture answered." {
+				t.Fatalf("summary calls=%d answer=%q", summaries.Load(), answered)
+			}
+		})
 	}
 }

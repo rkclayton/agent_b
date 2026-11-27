@@ -24,7 +24,19 @@ type scheduledRuns struct {
 	scheduler *agent.Scheduler
 	bus       *events.Bus
 	web       *webserver.Server
+	timer     func(time.Duration) scheduledAlarm
 	mu        sync.Mutex
+}
+
+type scheduledAlarm struct {
+	expired <-chan time.Time
+	reset   func(time.Duration) bool
+	stop    func() bool
+}
+
+func newScheduledAlarm(duration time.Duration) scheduledAlarm {
+	timer := time.NewTimer(duration)
+	return scheduledAlarm{expired: timer.C, reset: timer.Reset, stop: timer.Stop}
 }
 
 func (r *scheduledRuns) setProfile(root string) { r.mu.Lock(); r.profile = root; r.mu.Unlock() }
@@ -60,8 +72,12 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 	}
 	max := time.Duration(r.cfg().Cron.MaxRunMinutes) * time.Minute
 	const modelAvailabilityLimit = 30 * time.Minute
-	timer := time.NewTimer(modelAvailabilityLimit)
-	defer timer.Stop()
+	makeAlarm := r.timer
+	if makeAlarm == nil {
+		makeAlarm = newScheduledAlarm
+	}
+	timer := makeAlarm(modelAvailabilityLimit)
+	defer timer.stop()
 	working := false
 	shutdown := func() cron.Result {
 		r.scheduler.StopReason(item.ID, "cron_shutdown")
@@ -71,7 +87,7 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 		select {
 		case <-ctx.Done():
 			return shutdown()
-		case <-timer.C:
+		case <-timer.expired:
 			reason := "model_unreachable"
 			if working {
 				reason = "cron_timeout"
@@ -89,7 +105,7 @@ func (r *scheduledRuns) run(ctx context.Context, job cron.Job) cron.Result {
 			}
 			if !working && (event.Type == events.ModelDelta || event.Type == events.ModelResponse) {
 				working = true
-				timer.Reset(max)
+				timer.reset(max)
 			}
 			if event.Type != events.RunStopped {
 				continue

@@ -290,6 +290,26 @@ test("the stand-in reads after each user message, answers in prose, and writes t
   assert.equal(promptTokens({ messages: [{ role: "user", content: "x".repeat(36) }] }), 15, "4 a message, 10 for 36 characters, 1 for an empty tool list");
 });
 
+test("background capacity probes leave the scripted chat and file sequence intact", () => {
+  const state = {};
+  const options = { calls: [2, 1] };
+  const probe = {
+    stream: true,
+    messages: [{ role: "user", content: "List the numbers one through eight, with spaces." }],
+  };
+  const user = { role: "user", content: "Read the numbered files." };
+  const result = { role: "tool", content: "fixture file" };
+  const read = (messages) => JSON.parse(stubTurn({ stream: true, messages }, state, options).tool_call.function.arguments).path;
+
+  assert.deepEqual(stubTurn(probe, state, options), { content: "1 2 3 4 5 6 7 8" });
+  assert.deepEqual(state, {});
+  assert.equal(read([user]), "0001.txt");
+  assert.deepEqual(stubTurn(probe, state, options), { content: "1 2 3 4 5 6 7 8" });
+  assert.equal(read([user, result]), "0002.txt");
+  assert.equal(read([user]), "0003.txt");
+  assert.equal(state.users, 2);
+});
+
 test("the stand-in serves a streamed turn with usage and a plain hand-off 2wi", async () => {
   const model = await startStubModel({ calls: [1] });
   try {

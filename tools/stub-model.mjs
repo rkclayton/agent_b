@@ -9,6 +9,7 @@ export const stubModel = "stub";
 export const stubHandOff = "DONE:\nRead the numbered files so far.\nNEXT:\nKeep reading them in filename order.\nFILES CHANGED:\nnotes.md\nOPEN QUESTIONS:\nnone";
 const tokens = (text) => Math.ceil([...String(text ?? "")].length * 10 / 36);
 const text = (content) => Array.isArray(content) ? content.map((part) => part?.text || "").join("") : String(content ?? "");
+const capacityProbe = "List the numbers one through eight, with spaces.";
 
 export function promptTokens(body) {
   const messages = body.messages || [];
@@ -21,6 +22,10 @@ export function stubTurn(body, state, { calls = [3], replyTokens = 40 } = {}) {
   const messages = body.messages || [], last = messages.at(-1) || {};
   if (last.role === "user" && text(last.content).startsWith("Write a compact hand-off")) return { content: stubHandOff };
   if (!body.stream) return { content: "Proof chat" };
+  // The scheduler's standalone capacity request does not belong to the proof chat.
+  if (messages.length === 1 && last.role === "user" && !body.tools?.length && text(last.content) === capacityProbe) {
+    return { content: "1 2 3 4 5 6 7 8" };
+  }
   if (last.role === "user") { state.users = (state.users || 0) + 1; state.left = calls[Math.min(state.users, calls.length) - 1]; }
   if (state.left > 0 && (last.role === "user" || last.role === "tool")) {
     state.left--; state.read = (state.read || 0) + 1;
